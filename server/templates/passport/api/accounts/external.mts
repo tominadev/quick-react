@@ -1,13 +1,13 @@
 import { escapeHtml } from '@server/utils/html.mjs';
 
-export const renderExternalRedirect = (authorizationUrl: string, providerName: string) => {
-	const target = JSON.stringify(authorizationUrl).replaceAll('<', '\\u003c');
+export const renderExternalRedirect = (targetUrl: string, title: string, description = '请稍候，页面即将跳转…') => {
+	const target = JSON.stringify(targetUrl).replaceAll('<', '\\u003c');
 	return `<!doctype html>
 <html lang="zh-CN">
 <head>
 	<meta charset="utf-8">
 	<meta name="viewport" content="width=device-width,initial-scale=1">
-	<title>正在前往${escapeHtml(providerName)}登录</title>
+	<title>${escapeHtml(title)}</title>
 	<style>
 		html,body{margin:0;min-height:100%;font-family:system-ui,-apple-system,sans-serif}
 		body{min-height:100vh;display:grid;place-items:center;background:#405a75;color:#d8e5f0}
@@ -18,7 +18,7 @@ export const renderExternalRedirect = (authorizationUrl: string, providerName: s
 	</style>
 </head>
 <body>
-	<main class="card" role="status" aria-live="polite"><div class="spinner" aria-hidden="true"></div><strong>正在前往${escapeHtml(providerName)}登录</strong><p>请稍候，页面即将跳转…</p></main>
+	<main class="card" role="status" aria-live="polite"><div class="spinner" aria-hidden="true"></div><strong>${escapeHtml(title)}</strong><p>${escapeHtml(description)}</p></main>
 	<script>location.href=${target};</script>
 </body>
 </html>`;

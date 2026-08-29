@@ -88,7 +88,8 @@ const handler: ApiHandler = async (c, _next, params) => {
 			const pageSuffix = c.get('techStackConfig').pageSuffix || '';
 			return c.redirect(`/accounts/external/${id}${pageSuffix}`, 302);
 		}
-		return c.html(renderExternalRedirect(authorizationUrl, id === 'google' ? 'Google' : '微信'), 200);
+		const providerName = id === 'google' ? 'Google' : '微信';
+		return c.html(renderExternalRedirect(authorizationUrl, `正在前往${providerName}登录`), 200);
 	}
 	const consume = c.req.query('consume') === '1';
 	if (id === 'wechat' && provider.wechat_mode === 'official_account' && (code || c.req.query('error')) && !consume) {
@@ -135,7 +136,7 @@ const handler: ApiHandler = async (c, _next, params) => {
 			const pendingToken = await createPendingExternalIdentity(database, profile, provider.id);
 			c.header('Set-Cookie', clearExternalStateCookie(secure));
 			c.header('Set-Cookie', externalPendingCookie(pendingToken, secure), { append: true });
-			return c.redirect(`/accounts/sign${c.get('techStackConfig').pageSuffix}`, 302);
+			return c.html(renderExternalRedirect(`/accounts/sign${c.get('techStackConfig').pageSuffix}`, '正在返回 Passport 登录', '外部身份已确认，正在返回 Passport…'), 200);
 		}
 		const userId = await resolveExternalUser(database, c.env.SNOWFLAKE_WORKER_ID, provider, profile, current?.id ? String(current.id) : undefined);
 		// 身份源带头像时后台同步到对象存储，失败不影响登录。
@@ -160,7 +161,7 @@ const handler: ApiHandler = async (c, _next, params) => {
 			// 只接受账户中心内部路径，避免被引导到站外。
 			const bindTarget = /^\/panel\/accounts\/[a-z-]+(\.[a-z]+)?$/.test(requested) ? requested : `/panel/accounts/bind-email${pageSuffix}`;
 			if (requested) c.header('Set-Cookie', clearBindReturnCookie(secure), { append: true });
-			return consume ? apiResponse(c, 200, { status: 'linked', redirectTo: bindTarget }) : c.redirect(bindTarget, 302);
+			return consume ? apiResponse(c, 200, { status: 'linked', redirectTo: bindTarget }) : c.html(renderExternalRedirect(bindTarget, '正在返回 Passport', '身份验证完成，正在返回账户中心…'), 200);
 		}
 		const sessionId = crypto.randomUUID(), now = Date.now(), maxAge = 24 * 60 * 60;
 		await runSql(database, sql(database).insert('passport_sessions', { id: sessionId, user_id: userId, device_id: await ensurePassportDevice(database, userId, c.req.raw), expires_at: now + maxAge * 1000, created_at: now }));
@@ -171,7 +172,7 @@ const handler: ApiHandler = async (c, _next, params) => {
 		// 去向由后端统一决定：先补全用户名和密码，再继续待处理的 OIDC 授权。
 		const target = await postLoginRedirect(c, database, userId);
 		// consume=1 来自手机上的回调页面，它按 JSON 解析响应，不能返回跳转。
-		return consume ? apiResponse(c, 200, { status: 'signed_in', redirectTo: target }) : c.redirect(target, 302);
+		return consume ? apiResponse(c, 200, { status: 'signed_in', redirectTo: target }) : c.html(renderExternalRedirect(target, '正在返回 Passport', '登录成功，正在打开账户中心…'), 200);
 	} catch (error) {
 		c.header('Set-Cookie', clearExternalStateCookie(secure));
 		const message = error instanceof Error ? error.message : '外部身份登录失败';

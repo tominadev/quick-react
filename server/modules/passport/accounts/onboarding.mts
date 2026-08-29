@@ -72,8 +72,8 @@ export const refreshOidcRequest = async (c: Context<AppEnv>, database: DatabaseA
 
 /**
  * 登录成功后的去向：有待处理的 OIDC 授权就继续授权（授权端点会再判断用户名是否补全），
- * 否则按补全状态决定回登录页补全还是回首页。扫码等非表单登录路径也要用它，
- * 否则会把弹窗带到 Accounts 首页，业务站点拿不到登录结果。
+ * 否则按补全状态决定回登录页补全还是回账户中心。扫码等非表单登录路径也要用它，
+ * 否则会把弹窗带到错误的公共首页，业务站点拿不到登录结果。
  */
 export const postLoginRedirect = async (c: Context<AppEnv>, database: DatabaseAdapter, userId: string) => {
 	const onboarding = await accountOnboarding(database, userId);
@@ -88,7 +88,7 @@ export const postLoginRedirect = async (c: Context<AppEnv>, database: DatabaseAd
 /** 登录流程真正结束时才清除 OIDC cookie 并给出回跳目标。 */
 export const loginRedirectTarget = (c: Context<AppEnv>) => {
 	const requestId = readCookie(c.req.raw, oidcRequestCookieName);
-	if (!requestId) return '/';
+	if (!requestId) return `/panel/accounts${c.get('techStackConfig').pageSuffix}`;
 	c.header('Set-Cookie', clearOidcRequestCookie(isSecureRequest(c)), { append: true });
 	return `/api/oidc/authorize?request_id=${encodeURIComponent(requestId)}`;
 };
