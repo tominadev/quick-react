@@ -1,0 +1,2 @@
+import { pveCrud } from '@server/modules/pve/admin-crud.mjs';
+export default pveCrud({ table: 'pve_regions', key: 'id', columns: [{ dataIndex: 'id', title: 'ID', dataType: 'int' }, { dataIndex: 'code', title: '代码', component: 'textbox' }, { dataIndex: 'name', title: '名称', component: 'textbox' }, { dataIndex: 'display_name', title: '显示名称', component: 'textbox' }, { dataIndex: 'status', title: '状态', component: 'switch' }], writable: ['code', 'name', 'display_name', 'status', 'sort_order'] });
