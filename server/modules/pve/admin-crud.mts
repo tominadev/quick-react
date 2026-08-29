@@ -7,8 +7,9 @@ type Config = { table: string; key: string; columns: Record<string, unknown>[]; 
 const normalizeStatus = (row: Record<string, unknown>) => {
 	if (!('status' in row)) return row;
 	const value = row.status;
-	const enabled = value === true || value === 1 || ['1', '1.0', 'true', 'enabled'].includes(String(value).toLowerCase());
-	return { ...row, status: enabled ? 'enabled' : 'disabled' };
+	if (value === 'enabled') return { ...row, status: 'enabled' };
+	if (value === 'disabled') return { ...row, status: 'disabled' };
+	return { ...row, status: `未知（${String(value)}）` };
 };
 
 export const pveCrud = (config: Config): ApiHandler => async (c, next, params) => {
@@ -26,7 +27,7 @@ export const pveCrud = (config: Config): ApiHandler => async (c, next, params) =
 	if (c.req.method === 'GET' && params.id) {
 		const row = await firstSql<Record<string, unknown>>(database, sql(database).select({ table: config.table, where: [{ column: config.key, value: params.id }] }));
 		if (!row) return apiMessage(c, 404, '请求的资源不存在');
-		return apiResponse(c, 200, normalizeStatus(row));
+		return apiResponse(c, 200, row);
 	}
 	if (c.req.method === 'POST' || c.req.method === 'PUT') {
 		const body = await c.req.json<Record<string, unknown>>().catch(() => ({} as Record<string, unknown>));
