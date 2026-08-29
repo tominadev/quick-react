@@ -173,7 +173,9 @@ const handler: ApiHandler = async (c, _next, params) => {
 			// consume=1 来自手机上的回调页面，它按 JSON 解析响应；直接用浏览器打开时才返回提示页面。
 			return consume ? apiResponse(c, 200, { status: 'signed_in' }) : c.html('<p>授权成功，请返回电脑页面。</p>');
 		}
-		if (current) {
+		// 有待处理的业务站点 OIDC 请求时，这是登录流程，不是账户中心的“绑定身份”流程。
+		// 只有明确没有 OIDC 请求时，已登录账号才进入绑定身份分支。
+		if (current && !state.oidc_request_id && !readCookie(c.req.raw, oidcRequestCookieName)) {
 			// 已登录用户完成一次第三方认证：用于绑定身份、绑定邮箱或重设密码，按发起页面返回。
 			c.header('Set-Cookie', clearExternalStateCookie(secure));
 			c.header('Set-Cookie', externalVerifiedCookie(secure), { append: true });
