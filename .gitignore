@@ -8,6 +8,8 @@ package-lock.json
 dist/
 public/bundle.js
 public/bundle.js.map
+public/passport.js
+public/passport.js.map
 /server/worker-api-registry.mts
 /server/.generated/
 
