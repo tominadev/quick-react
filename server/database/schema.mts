@@ -1,7 +1,7 @@
 import type { DatabaseAdapter } from './index.mjs';
 import { allSql, quoteIdentifier, type SqlDialect, type SqlQuery } from './sql.mjs';
 
-export type DatabaseColumn = { name: string; type: string; notnull: number; pk: number };
+export type DatabaseColumn = { name: string; type: string; notnull: number; pk: number; defaultValue?: unknown };
 export type DatabaseTable = { name: string };
 
 const dialectOf = (database: DatabaseAdapter): SqlDialect => database.dialect ?? 'sqlite';
@@ -21,18 +21,18 @@ export const listColumns = async (database: DatabaseAdapter, tableName: string):
 	if (!safeName(tableName)) throw new Error('数据表名称无效');
 	const dialect = dialectOf(database);
 	if (dialect === 'sqlite') {
-		return (await allSql<DatabaseColumn>(database, { query: `PRAGMA table_info(${quoteIdentifier(tableName, dialect)})`, values: [] }))
+		return (await allSql<DatabaseColumn & { dflt_value?: unknown }>(database, { query: `PRAGMA table_info(${quoteIdentifier(tableName, dialect)})`, values: [] }))
 			.filter((column) => safeName(column.name))
-			.map((column) => ({ ...column, notnull: Number(column.notnull), pk: Number(column.pk) }));
+			.map((column) => ({ ...column, defaultValue: column.dflt_value, notnull: Number(column.notnull), pk: Number(column.pk) }));
 	}
 	if (dialect === 'mysql') {
-		const rows = await allSql<{ name: string; type: string; is_nullable: string; pk: number }>(database, {
+		const rows = await allSql<{ name: string; type: string; is_nullable: string; default_value?: unknown; pk: number }>(database, {
 			query: 'SELECT COLUMN_NAME AS name, COLUMN_TYPE AS type, IS_NULLABLE AS is_nullable, CASE WHEN COLUMN_KEY = \'PRI\' THEN 1 ELSE 0 END AS pk FROM information_schema.COLUMNS WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = ? ORDER BY ORDINAL_POSITION',
 			values: [tableName],
 		});
 		return rows.filter((row) => safeName(row.name)).map((row) => ({ name: row.name, type: row.type, notnull: row.is_nullable === 'NO' ? 1 : 0, pk: Number(row.pk) }));
 	}
-	const rows = await allSql<{ name: string; type: string; is_nullable: string; pk: number | boolean }>(database, {
+	const rows = await allSql<{ name: string; type: string; is_nullable: string; default_value?: unknown; pk: number | boolean }>(database, {
 		query: `SELECT c.column_name AS name, c.data_type AS type, c.is_nullable,
 			CASE WHEN EXISTS (
 				SELECT 1 FROM information_schema.table_constraints tc
