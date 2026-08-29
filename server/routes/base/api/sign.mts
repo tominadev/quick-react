@@ -136,7 +136,15 @@ const handler: ApiHandler = async (c, next) => {
 			if ('username' in body || 'remember' in body) return apiMessage(c, 409, '登录方式已切换为 Accounts 登录，请刷新页面后重试');
 			const discovery = await loadDiscovery(c, config.issuer), id = crypto.randomUUID(), state = randomToken(), nonce = randomToken(), verifier = randomToken(48), now = Date.now();
 			const database = c.get('database');
-			await runSql(database, sql(database).insert('base_oidc_login_requests', { id, issuer: config.issuer, state, nonce, code_verifier: verifier, return_path: '/', expires_at: now + 600_000, created_at: now }));
+			let returnPath = '/';
+			try {
+				const referer = c.req.header('referer');
+				if (referer) {
+					const source = new URL(referer);
+					if (source.origin === requestOrigin(c) && !source.pathname.startsWith('/api/')) returnPath = `${source.pathname}${source.search}`;
+				}
+			} catch { /* 无效 Referer 使用站点首页作为安全回退 */ }
+			await runSql(database, sql(database).insert('base_oidc_login_requests', { id, issuer: config.issuer, state, nonce, code_verifier: verifier, return_path: returnPath, expires_at: now + 600_000, created_at: now }));
 			const callback = `${requestOrigin(c)}/api/accounts/oidc/callback`;
 			const authorize = new URL(discovery.authorization_endpoint); authorize.search = new URLSearchParams({ response_type: 'code', client_id: config.clientId, redirect_uri: callback, scope: 'openid profile email', state, nonce, code_challenge: await sha256Base64Url(verifier), code_challenge_method: 'S256' }).toString();
 			c.header('Set-Cookie', accountsLoginCookie(id, isSecureRequest(c)));
