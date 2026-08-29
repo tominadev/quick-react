@@ -65,7 +65,14 @@ const handler: ApiHandler = async (c, _next, params) => {
 		if (polled.qr_status !== 'authorized' || !polled.qr_user_id) return apiResponse(c, 200, { status: polled.qr_status });
 		const current = await loadPassportSession(database, c.req.raw);
 		const sessionId = crypto.randomUUID(), now = Date.now();
-		await runSql(database, sql(database).insert('passport_sessions', { id: sessionId, user_id: polled.qr_user_id, device_id: await ensurePassportDevice(database, polled.qr_user_id, c.req.raw), expires_at: now + 24 * 60 * 60 * 1000, created_at: now }));
+		let deviceId: string;
+		try {
+			deviceId = await ensurePassportDevice(database, polled.qr_user_id, c.req.raw);
+		} catch (error) {
+			// 轮询是正常的状态查询；设备冲突不能让接口变成未处理异常的 500。
+			return apiResponse(c, 200, { status: 'error', error: error instanceof Error ? error.message : String(error) });
+		}
+		await runSql(database, sql(database).insert('passport_sessions', { id: sessionId, user_id: polled.qr_user_id, device_id: deviceId, expires_at: now + 24 * 60 * 60 * 1000, created_at: now }));
 		await runSql(database, sql(database).update('passport_external_login_states', { qr_status: 'consumed' }, [{ column: 'id_hash', value: await sha256(pollState) }, { column: 'qr_status', value: 'authorized' }]));
 		c.header('Set-Cookie', createPassportSessionCookie(sessionId, secure, 24 * 60 * 60));
 		const redirectTo = current && String(current.id) === String(polled.qr_user_id)

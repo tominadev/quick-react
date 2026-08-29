@@ -21,7 +21,17 @@ export default function WechatQrLogin({ commonApi }: { commonApi: CommonApi }) {
 		requestQr(commonApi, refresh).then((data) => {
 			const renderQr = () => { if (!qrRef.current) return; qrRef.current.innerHTML = ''; new (window as any).QRCode(qrRef.current, data.authorizationUrl); setState('ready'); setMessage('请使用微信扫描二维码'); };
 			if ((window as any).QRCode) renderQr(); else { const script = document.createElement('script'); script.src = 'https://cdn.jsdelivr.net/npm/qrcodejs@1.0.0/qrcode.min.js'; script.onload = renderQr; document.head.appendChild(script); }
-			timerRef.current = window.setInterval(async () => { const result = await (await commonApi.apiFetch(data.pollUrl)).json(); if (result.status === 'authenticated') { stopPolling(); window.location.assign(result.redirectTo || '/'); } else if (result.status === 'needs_email') { stopPolling(); setBindUrl(result.bindUrl); setState('email'); setMessage('微信身份已确认，请验证邮箱'); } else if (result.status === 'expired') { stopPolling(); setState('expired'); setMessage('二维码已失效，请刷新后重新扫码'); } }, 2000);
+			timerRef.current = window.setInterval(async () => {
+				try {
+					const result = await (await commonApi.apiFetch(data.pollUrl)).json();
+					if (result.status === 'authenticated') { stopPolling(); window.location.assign(result.redirectTo || '/'); }
+					else if (result.status === 'needs_email') { stopPolling(); setBindUrl(result.bindUrl); setState('email'); setMessage('微信身份已确认，请验证邮箱'); }
+					else if (result.status === 'expired') { stopPolling(); setState('expired'); setMessage('二维码已失效，请刷新后重新扫码'); }
+					else if (result.status === 'error') { stopPolling(); setState('error'); setMessage(result.error || '当前设备无法登录，请刷新二维码后重试'); }
+				} catch {
+					stopPolling(); setState('error'); setMessage('轮询二维码状态失败，请刷新二维码后重试');
+				}
+			}, 2000);
 		}).catch((error) => { setState('error'); setMessage(error instanceof Error ? error.message : '获取二维码失败'); });
 	};
 	const submit = async (step: 'email' | 'verify') => {
