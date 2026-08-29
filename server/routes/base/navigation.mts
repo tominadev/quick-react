@@ -42,7 +42,6 @@ const rawSiteNavigation = (): MenuNode[] => [
 			},
 		],
 	},
-	{ label: '关于', key: 'about', icon: 'appstore', component: 'about', title: '关于', description: '关于 Quick React 项目' },
 	// 个人中心只做当前登录身份的只读展示，账号资料由 Accounts 维护，不设子页面。
 	{ label: '个人中心', key: 'panel/me', icon: 'appstore', hidden: true, component: 'personalCenter', title: '个人中心', description: '查看当前登录账号的身份信息', roles: ['user'] },
 ];

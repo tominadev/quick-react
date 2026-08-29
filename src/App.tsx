@@ -21,9 +21,6 @@ import StatusPage from './components/common/StatusPage.js';
 import HomePage from './components/common/HomePage.js';
 const { Content } = Layout;
 
-// 定义路由对应的页面组件
-const About = () => <h1 style={{ padding: 10, margin: 0, height: '100%' }}>About Page</h1>;
-
 type MenuItem = Required<MenuProps>['items'][number];
 
 const serverData = (window as Window & { __INITIAL_DATA__?: InitialData }).__INITIAL_DATA__;
@@ -65,7 +62,6 @@ type AppType = {
 const App = ({ commonApi }: AppType) => {
 	const pageRenderers: Record<string, (page: PageDefinition) => React.ReactNode> = {
 		home: () => <HomePage commonApi={commonApi} apiSuffix={initialData.apiSuffix} />,
-		about: () => <About />,
 		personalCenter: (page) => <PersonalCenter commonApi={commonApi} user={initialData.auth?.currentUser} title={page.title} />,
 		sign: (page) => {
 			return <FormPage
