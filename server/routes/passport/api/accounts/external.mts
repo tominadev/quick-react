@@ -9,6 +9,7 @@ import { runSql, sql } from '@server/database/sql.mjs';
 import { isSecureRequest, requestOrigin } from '@server/modules/base/request-origin.mjs';
 import { sha256 } from '@server/modules/passport/accounts/oidc.mjs';
 import { sendDefaultCloudEmail } from '@server/modules/global/cloud/email.mjs';
+import { renderExternalRedirect } from '@server/templates/passport/api/accounts/external.mjs';
 
 const providerId = (value: string): ExternalProviderId | undefined => value === 'google' || value === 'wechat' ? value : undefined;
 const sameRedirectUri = (left: string, right: string) => {
@@ -87,7 +88,7 @@ const handler: ApiHandler = async (c, _next, params) => {
 			const pageSuffix = c.get('techStackConfig').pageSuffix || '';
 			return c.redirect(`/accounts/external/${id}${pageSuffix}`, 302);
 		}
-		return c.redirect(authorizationUrl, 302);
+		return c.html(renderExternalRedirect(authorizationUrl, id === 'google' ? 'Google' : '微信'), 200);
 	}
 	const consume = c.req.query('consume') === '1';
 	if (id === 'wechat' && provider.wechat_mode === 'official_account' && (code || c.req.query('error')) && !consume) {
