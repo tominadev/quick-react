@@ -1,5 +1,6 @@
 import { pveCrud } from '@server/modules/pve/admin-crud.mjs';
 import { allSql, sql } from '@server/database/sql.mjs';
+export const acceptsTrailingParams = true;
 
 const columns = [{ dataIndex: 'id', title: 'ID', dataType: 'int' }, { dataIndex: 'region_id', title: '地区', component: 'select', rules: [{ required: true, message: '请选择地区' }] }, { dataIndex: 'name', title: '节点', component: 'textbox', rules: [{ required: true, message: '请输入节点名称' }] }, { dataIndex: 'host', title: 'Host', component: 'textbox', rules: [{ required: true, message: '请输入 Host' }] }, { dataIndex: 'port', title: '端口', component: 'textbox', dataType: 'int' }, { dataIndex: 'api_user', title: 'API 用户', component: 'textbox', rules: [{ required: true, message: '请输入 API 用户' }] }, { dataIndex: 'api_token_id', title: 'Token ID', component: 'textbox', rules: [{ required: true, message: '请输入 Token ID' }] }, { dataIndex: 'api_token_secret', title: 'Token Secret', component: 'textbox', inputType: 'password', rules: [{ required: true, message: '请输入 Token Secret' }] }, { dataIndex: 'status', title: '状态', component: 'switch' }];
 
