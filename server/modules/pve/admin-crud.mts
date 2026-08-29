@@ -21,7 +21,7 @@ export const pveCrud = (config: Config): ApiHandler => async (c, next, params) =
 		if (!row) return apiMessage(c, 404, '请求的资源不存在');
 		return apiResponse(c, 200, row);
 	}
-	if (c.req.method === 'POST') {
+	if (c.req.method === 'POST' || c.req.method === 'PUT') {
 		const body = await c.req.json<Record<string, unknown>>().catch(() => ({} as Record<string, unknown>));
 		const schema = await listColumns(database, config.table);
 		const required = schema.filter((column) => column.notnull && !column.pk && column.defaultValue === undefined).map((column) => column.name);
