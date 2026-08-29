@@ -26,6 +26,7 @@ export const usernameForm = (invalidUsername = ''): FormPageConfig => ({
 		? `当前用户名 ${invalidUsername} 不符合规则，请改成以小写字母开头、只包含小写字母和数字、长度 6 到 12 位的用户名后再继续。`
 		: '请为账号设置用户名：以小写字母开头，只能包含小写字母和数字，长度 6 到 12 位。设置后不能修改。',
 	submitLabel: '保存用户名',
+	actions: [{ key: 'logout', label: '退出登录', confirm: '确定退出 Accounts 登录吗？' }],
 	initialValues: { step: 'set_username', username: '' },
 	fields: [
 		{ name: 'step', label: '', type: 'hidden' },

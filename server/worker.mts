@@ -21,6 +21,7 @@ import { isSecureRequest } from './modules/base/request-origin.mjs';
 import { loadSiteSettings } from './modules/base/site-settings.mjs';
 import { renderPrivacyHtml } from './templates/base/page/privacy.mjs';
 import { renderTermsHtml } from './templates/base/page/terms.mjs';
+import { renderWechatQrPage } from './templates/passport/accounts/external/wechat.mjs';
 import type { AppEnv, RuntimeBindings } from './modules/base/types.mjs';
 import { workerApiModules, workerApiRoutes } from './.generated/worker-api-registry.mjs';
 
@@ -215,6 +216,12 @@ const apiGateway = createApiGateway((c) => c.get('techStackConfig').apiSuffix, {
 app.all('/api', apiGateway);
 app.all('/api/*', (c, next) => apiGateway(c, next));
 app.get('/.well-known/openid-configuration', oidcDiscovery);
+app.get('/accounts/external/wechat*', (c, next) => {
+	const suffix = c.get('techStackConfig').pageSuffix || '';
+	if (c.req.path !== `/accounts/external/wechat${suffix}`) return next();
+	const popup = c.req.query('popup') === '1';
+	return c.html(renderWechatQrPage(`/api/accounts/external/wechat${c.get('techStackConfig').apiSuffix || ''}`, `/accounts/sign${suffix}${popup ? '?popup=1' : ''}`, popup));
+});
 app.get('/', renderDocument);
 app.get('/page/privacy.html', (c) => c.html(renderPrivacyHtml(c.get('site').name, c.get('siteSettings').contactEmail)));
 app.get('/page/terms.html', (c) => c.html(renderTermsHtml(c.get('site').name, c.get('siteSettings').contactEmail)));

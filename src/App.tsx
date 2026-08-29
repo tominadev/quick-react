@@ -17,7 +17,6 @@ import FormPage from './components/panel/FormPage.js';
 import AuthActions from './components/AuthActions.js';
 import PersonalCenter from './components/panel/PersonalCenter.js';
 import ExternalCallback from './components/accounts/ExternalCallback.js';
-import WechatQrLogin from './components/accounts/WechatQrLogin.js';
 import StatusPage from './components/common/StatusPage.js';
 import HomePage from './components/common/HomePage.js';
 const { Content } = Layout;
@@ -99,7 +98,6 @@ const App = ({ commonApi }: AppType) => {
 		return [{ path: routePath, element: render(page) }];
 	});
 	routes.push({ path: pageUrl('/accounts/external/callback'), element: <ExternalCallback commonApi={commonApi} /> });
-	routes.push({ path: pageUrl('/accounts/external/wechat'), element: <WechatQrLogin commonApi={commonApi} /> });
 	// 兜底路由：路径不存在、未登录或无权访问时展示后端下发的提示。
 	routes.push({ path: '*', element: <StatusPage commonApi={commonApi} apiSuffix={initialData.apiSuffix} pageSuffix={initialData.pageSuffix} pageStatus={initialData.pageStatus} /> });
 

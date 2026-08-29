@@ -32,7 +32,7 @@ const signInForm = (email: string, externalLogins: FormPageExternalLogin[], retu
 		: '登录 Accounts。可使用邮箱密码登录，也可以选择下方的第三方账号；首次使用会自动创建账户。',
 	submitLabel: '下一步',
 	submitHint: '邮箱未注册时，将引导你完成注册。',
-	...(returnHost ? { actions: [{ key: 'return_to_client', label: '取消登录' }] } : {}),
+	...(returnHost ? { actions: [{ key: 'return_to_client', label: '取消登录', confirm: '确定取消本次登录吗？' }] } : {}),
 	externalLogins,
 	initialValues: { step: 'email', email },
 	fields: [
@@ -58,7 +58,7 @@ const signedInForm = (): FormPageConfig => ({
 	actions: [
 		{ key: 'account_center', label: '进入账户中心' },
 		{ key: 'bind_identity', label: '管理绑定身份' },
-		{ key: 'logout', label: '退出登录' },
+		{ key: 'logout', label: '退出登录', confirm: '确定退出 Accounts 登录吗？' },
 	],
 	initialValues: {},
 	fields: [],
@@ -66,7 +66,7 @@ const signedInForm = (): FormPageConfig => ({
 const passwordLoginForm = (email: string, externalLogins: FormPageExternalLogin[] = []): FormPageConfig => ({
 	description: `${email} 已注册，请输入密码登录，或使用下方的第三方账号登录。`,
 	submitLabel: '登录',
-	actions: [{ key: 'forgot_password', label: '忘记密码' }, { key: 'change_email', label: '更换邮箱' }],
+	actions: [{ key: 'forgot_password', label: '忘记密码' }, { key: 'change_email', label: '更换邮箱', confirm: '确定更换邮箱并重新开始验证吗？' }],
 	externalLogins,
 	initialValues: { step: 'password', email, password: '' },
 	fields: [
@@ -99,7 +99,7 @@ const telegramEmailForm = (email = ''): FormPageConfig => ({
 const confirmEmailForm = (email: string): FormPageConfig => ({
 	description: `${email} 还没有注册，请确认邮箱地址是否正确。确认无误后需要先完成一次第三方认证，认证通过才能发送邮箱验证码并绑定到新账号。`,
 	submitLabel: '确认无误，继续注册',
-	actions: [{ key: 'change_email', label: '重新输入邮箱' }],
+	actions: [{ key: 'change_email', label: '重新输入邮箱', confirm: '确定更换邮箱并重新开始验证吗？' }],
 	initialValues: { step: 'email_confirm', email },
 	fields: [
 		{ name: 'step', label: '', type: 'hidden' },
@@ -137,7 +137,7 @@ const externalEmailForm = (provider: string, email = ''): FormPageConfig => ({
 const externalCodeForm = (email: string): FormPageConfig => ({
 	description: `验证码已发送到 ${email}，请输入验证码完成验证；验证成功后将绑定外部身份并登录 Accounts。`,
 	submitLabel: '验证并创建账户',
-	actions: [{ key: 'change_email', label: '更换邮箱' }],
+	actions: [{ key: 'change_email', label: '更换邮箱', confirm: '确定更换邮箱并重新开始验证吗？' }],
 	initialValues: { step: 'external_verify', code: '' },
 	fields: [
 		{ name: 'step', label: '', type: 'hidden' },
@@ -299,7 +299,12 @@ const handler: ApiHandler = async (c, next) => {
 		}
 		const provider = await externalProviders(database, true).then((items) => items.find((item) => item.id === method));
 		if (!provider) return apiMessage(c, 400, '请选择有效的登录方式');
-		return apiResponse(c, 200, { redirectTo: `/api/accounts/external/${provider.id}`, feedback: { component: 'message' as const, type: 'success' as const, message: `正在前往${provider.display_name}`, redirectAfter: 0 } });
+		const redirectTo = new URL(`/api/accounts/external/${provider.id}`, c.req.url);
+		try {
+			const referer = c.req.header('referer');
+			if (referer && new URL(referer).searchParams.get('popup') === '1') redirectTo.searchParams.set('popup', '1');
+		} catch { /* 无效 Referer 不影响正常登录 */ }
+		return apiResponse(c, 200, { redirectTo: `${redirectTo.pathname}${redirectTo.search}`, feedback: { component: 'message' as const, type: 'success' as const, message: `正在前往${provider.display_name}`, redirectAfter: 0 } });
 	}
 	if (action === 'change_email') {
 		const pendingToken = readCookie(c.req.raw, externalPendingCookieName);

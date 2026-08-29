@@ -326,8 +326,9 @@ Accounts 站点上可能同时存在两种会话：站点本地账号（`base_sy
 
 Accounts 提供类似 Google 的登录设备管理。设备数据只属于 Passport/Accounts，业务站点不创建或保存设备表，也不把设备指纹复制到 `base_system_sessions`。
 
-- 设备表使用 `passport_devices`，至少保存 `device_id`、`user_id`、`fingerprint`、设备描述、浏览器/系统、最近 IP、状态、首次使用时间、最近使用时间和注销时间；其中 `device_id` 直接等于客户端生成的 SHA-256 `fingerprint`，不再二次哈希。
-- `passport_sessions` 只保存 `device_id` 作为关联键，不保存 `device_fingerprint`；同一设备可以拥有多个历史会话。
+- 设备表使用 `passport_devices`，至少保存 `device_id`、客户端生成的 `fingerprint`、设备描述、浏览器/系统、最近 IP、状态、首次使用时间、最近使用时间和注销时间；其中 `device_id` 直接等于客户端生成的 SHA-256 `fingerprint`，不再二次哈希。设备指纹仍全局唯一。
+- 设备与账号通过 `passport_device_users(device_id, user_id)` 多对多关联，同一设备可以登录并切换多个 Accounts 账号；注销某个账号的设备只撤销该账号的关联，不影响同设备上的其他账号。
+- `passport_sessions` 保存 `user_id` 和 `device_id` 作为关联键，不保存 `device_fingerprint`；会话继续有效必须同时满足该账号的设备关联处于 active、设备指纹匹配且设备未注销。
 - 浏览器设备指纹固定计算为：`fingerprint = SHA-256(canvas.toDataURL())`。`canvas.toDataURL()` 的原始内容不落库，只保存哈希值。
 - `fingerprint` 是设备识别和会话继续有效的必要条件，不是单独的登录凭证。请求必须同时具备有效 `session_id`，且指纹与该 session 关联设备匹配；缺少、变化或被注销时，Accounts 会话立即失效。
 - 设备管理支持查看当前设备、查看全部设备、注销单台设备和注销全部其他设备。注销设备会使该设备关联的所有 `passport_sessions` 失效；允许因指纹碰撞造成误杀，安全优先于免打扰体验。

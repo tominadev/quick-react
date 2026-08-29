@@ -91,9 +91,15 @@ const handler: ApiHandler = async (c, _next, params) => {
 		const authorizationUrl = await externalAuthorizationUrl(provider, redirectUri, created.state, created.nonce, created.codeVerifier);
 		const isWechatClient = /MicroMessenger/i.test(c.req.header('user-agent') ?? '');
 		if (id === 'wechat' && provider.wechat_mode === 'official_account' && !isWechatClient) {
-			if (c.req.query('format') === 'json') return apiResponse(c, 200, { mode: 'qrcode', authorizationUrl, pollUrl: `/api/accounts/external/${id}?poll=${created.state}` });
+			if (c.req.query('format') === 'json') {
+				const fallback = new URL(`/accounts/sign${c.get('techStackConfig').pageSuffix || ''}`, requestOrigin(c));
+				if (c.req.query('popup') === '1') fallback.searchParams.set('popup', '1');
+				return apiResponse(c, 200, { mode: 'qrcode', authorizationUrl, pollUrl: `/api/accounts/external/${id}?poll=${created.state}`, fallbackUrl: `${fallback.pathname}${fallback.search}` });
+			}
 			const pageSuffix = c.get('techStackConfig').pageSuffix || '';
-			return c.redirect(`/accounts/external/${id}${pageSuffix}`, 302);
+			const qrPage = new URL(`/accounts/external/${id}${pageSuffix}`, requestOrigin(c));
+			if (c.req.query('popup') === '1') qrPage.searchParams.set('popup', '1');
+			return c.redirect(qrPage.toString(), 302);
 		}
 		const providerName = id === 'google' ? 'Google' : '微信';
 		return c.html(renderExternalRedirect(authorizationUrl, `正在前往${providerName}登录`), 200);

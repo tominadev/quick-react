@@ -27,7 +27,7 @@ export type FormPageConfig = {
 	passportLogin?: { enabled: boolean };
 	description?: string;
 	submitLabel?: string;
-	actions?: Array<{ key: string; label: string }>;
+	actions?: Array<{ key: string; label: string; confirm?: string }>;
 	externalLogins?: FormPageExternalLogin[];
 	confirmOnUnchangedSubmit?: string;
 	submitHint?: string;

@@ -181,6 +181,8 @@ export default function FormPage({ commonApi, apiPath, title, submitMethod = 'PU
 		}
 	};
 	const runAction = async (key: string) => {
+		const action = formConfig?.actions?.find((item) => item.key === key);
+		if (action?.confirm && !await commonApi.modalConfirm([action.confirm])) return;
 		setRunningAction(key);
 		const values = form.getFieldsValue(true) as Record<string, unknown>;
 		try {
