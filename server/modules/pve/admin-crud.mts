@@ -4,11 +4,18 @@ import { allSql, firstSql, runSql, sql } from '@server/database/sql.mjs';
 import { listColumns } from '@server/database/schema.mjs';
 
 type Config = { table: string; key: string; columns: Record<string, unknown>[]; writable: string[]; prepareColumns?: (database: Parameters<typeof allSql>[0]) => Promise<Record<string, unknown>[]> };
+const normalizeStatus = (row: Record<string, unknown>) => {
+	if (!('status' in row)) return row;
+	const value = row.status;
+	const enabled = value === true || value === 1 || ['1', '1.0', 'true', 'enabled'].includes(String(value).toLowerCase());
+	return { ...row, status: enabled ? 'enabled' : 'disabled' };
+};
 
 export const pveCrud = (config: Config): ApiHandler => async (c, next, params) => {
 	const database = c.get('database');
 	if (c.req.method === 'GET' && !params.id) {
-		const rows = await allSql<Record<string, unknown>>(database, sql(database).select({ table: config.table, orderBy: [{ column: config.key }] }));
+		const rawRows = await allSql<Record<string, unknown>>(database, sql(database).select({ table: config.table, orderBy: [{ column: config.key }] }));
+		const rows = rawRows.map(normalizeStatus);
 		const schema = await listColumns(database, config.table);
 		const required = new Set(schema.filter((column) => column.notnull && !column.pk && column.defaultValue === undefined).map((column) => column.name));
 		const columnsWithRules = config.columns.map((column) => required.has(String(column.dataIndex)) && !column.rules ? { ...column, rules: [{ required: true, message: `请输入${String(column.title ?? column.dataIndex)}` }] } : column);
@@ -19,7 +26,7 @@ export const pveCrud = (config: Config): ApiHandler => async (c, next, params) =
 	if (c.req.method === 'GET' && params.id) {
 		const row = await firstSql<Record<string, unknown>>(database, sql(database).select({ table: config.table, where: [{ column: config.key, value: params.id }] }));
 		if (!row) return apiMessage(c, 404, '请求的资源不存在');
-		return apiResponse(c, 200, row);
+		return apiResponse(c, 200, normalizeStatus(row));
 	}
 	if (c.req.method === 'POST' || c.req.method === 'PUT') {
 		const body = await c.req.json<Record<string, unknown>>().catch(() => ({} as Record<string, unknown>));
