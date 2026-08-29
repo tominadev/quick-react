@@ -9,7 +9,7 @@ export type ExternalProviderId = 'google' | 'wechat';
 export type WechatMode = 'open_platform' | 'official_account';
 export type ExternalProvider = { id: ExternalProviderId; display_name: string; client_id: string; client_secret: string; wechat_mode: WechatMode; wechat_redirect_domain: string; status: string };
 export type ExternalProfile = { subject: string; nickname: string; email?: string; raw: Record<string, unknown> };
-export type ExternalLoginState = { provider: ExternalProviderId; code_verifier: string; nonce: string; redirect_uri: string; expires_at: number; consumed_at: number | null };
+export type ExternalLoginState = { provider: ExternalProviderId; code_verifier: string; nonce: string; redirect_uri: string; oidc_request_id: string | null; expires_at: number; consumed_at: number | null };
 export type PendingExternalIdentity = { id_hash: string; provider: ExternalProviderId; subject: string; nickname: string; profile: string; status: string; expires_at: number };
 
 const providerColumns = { id: 'id', display_name: 'display_name', client_id: 'client_id', client_secret: 'client_secret', wechat_mode: 'wechat_mode', wechat_redirect_domain: 'wechat_redirect_domain', status: 'status' } as const;
@@ -168,9 +168,9 @@ export const resolveExternalUser = async (database: DatabaseAdapter, workerId: u
 	return userId;
 };
 
-export const createExternalState = async (database: DatabaseAdapter, provider: ExternalProviderId, redirectUri: string) => {
+export const createExternalState = async (database: DatabaseAdapter, provider: ExternalProviderId, redirectUri: string, oidcRequestId?: string) => {
 	const state = randomToken(32), codeVerifier = randomToken(48), nonce = randomToken(24), now = Date.now();
-	await runSql(database, sql(database).insert('passport_external_login_states', { id_hash: await sha256(state), provider, code_verifier: codeVerifier, nonce, redirect_uri: redirectUri, expires_at: now + 1_800_000, created_at: now }));
+	await runSql(database, sql(database).insert('passport_external_login_states', { id_hash: await sha256(state), provider, code_verifier: codeVerifier, nonce, redirect_uri: redirectUri, oidc_request_id: oidcRequestId || null, expires_at: now + 1_800_000, created_at: now }));
 	return { state, codeVerifier, nonce };
 };
 
@@ -178,10 +178,10 @@ export const consumeExternalState = async (database: DatabaseAdapter, state: str
 	const hash = await sha256(state), now = Date.now();
 	const updated = await runSql(database, sql(database).update('passport_external_login_states', { consumed_at: now }, [{ column: 'id_hash', value: hash }, { column: 'consumed_at', operator: 'IS NULL' }, { column: 'expires_at', operator: '>', value: now }]));
 	if (!Number(updated.meta?.changes ?? 0)) return null;
-	return firstSql<ExternalLoginState>(database, sql(database).select({ table: 'passport_external_login_states', columns: { provider: 'provider', code_verifier: 'code_verifier', nonce: 'nonce', redirect_uri: 'redirect_uri', expires_at: 'expires_at', consumed_at: 'consumed_at' }, where: [{ column: 'id_hash', value: hash }] }));
+	return firstSql<ExternalLoginState>(database, sql(database).select({ table: 'passport_external_login_states', columns: { provider: 'provider', code_verifier: 'code_verifier', nonce: 'nonce', redirect_uri: 'redirect_uri', oidc_request_id: 'oidc_request_id', expires_at: 'expires_at', consumed_at: 'consumed_at' }, where: [{ column: 'id_hash', value: hash }] }));
 };
 
-export const externalQrState = async (database: DatabaseAdapter, stateHash: string) => firstSql<{ provider: ExternalProviderId; qr_status: string; qr_user_id: string | null; expires_at: number }>(database, sql(database).select({ table: 'passport_external_login_states', columns: { provider: 'provider', qr_status: 'qr_status', qr_user_id: 'qr_user_id', expires_at: 'expires_at' }, where: [{ column: 'id_hash', value: stateHash }] }));
+export const externalQrState = async (database: DatabaseAdapter, stateHash: string) => firstSql<{ provider: ExternalProviderId; qr_status: string; qr_user_id: string | null; oidc_request_id: string | null; expires_at: number }>(database, sql(database).select({ table: 'passport_external_login_states', columns: { provider: 'provider', qr_status: 'qr_status', qr_user_id: 'qr_user_id', oidc_request_id: 'oidc_request_id', expires_at: 'expires_at' }, where: [{ column: 'id_hash', value: stateHash }] })) ;
 
 const generateEmailCode = () => {
 	const limit = Math.floor(0x1_0000_0000 / 1_000_000) * 1_000_000, values = new Uint32Array(1);

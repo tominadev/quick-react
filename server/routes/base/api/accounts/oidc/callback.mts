@@ -9,11 +9,12 @@ import { isSecureRequest, requestOrigin } from '@server/modules/base/request-ori
 
 type LoginRequest = { id: string; issuer: string; state: string; nonce: string; code_verifier: string; return_path: string; expires_at: number };
 
-/** 弹窗登录成功后通知打开方并自行关闭；内容是静态的，不拼接任何外部输入。 */
-const popupClosePage = () => `<!doctype html><html lang="zh-CN"><head><meta charset="utf-8"><title>登录成功</title></head>`
-	+ `<body style="font-family:system-ui;padding:48px;text-align:center"><h2>登录成功</h2><p>正在返回原页面…</p>`
-	+ `<script>window.opener&&window.opener.postMessage({source:'passport',status:'success',next:{action:'reload'}},window.location.origin);setTimeout(function(){window.close();},100);</script>`
-	+ `</body></html>`;
+/** 弹窗通知打开方；手机直达时没有 opener，直接跳回发起页。 */
+const popupClosePage = (returnPath: string) => {
+	const target = JSON.stringify(returnPath || '/').replaceAll('<', '\\u003c');
+	return `<!doctype html><html lang="zh-CN"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>登录成功</title><style>body{font-family:system-ui;padding:48px;text-align:center;background:#405a75;color:#f2f7fb}p{color:#d8e5f0}</style></head>`
+		+ `<body><h2>登录成功</h2><p>正在返回原页面…</p><script>if(window.opener){window.opener.postMessage({source:'passport',status:'success',next:{action:'reload'}},window.location.origin);setTimeout(function(){window.close();},100);}else{location.href=${target};}</script></body></html>`;
+};
 
 /** 未设置 Accounts 用户名时的本站占位用户名，带下划线，永远不会与合法用户名冲突。 */
 const placeholderUsername = (subject: string) => `passport_${subject}`;
@@ -74,7 +75,7 @@ const handler: ApiHandler = async (c) => {
 		const secure = isSecureRequest(c);
 		c.header('Set-Cookie', clearAccountsLoginCookie(secure)); c.header('Set-Cookie', createSessionCookie(sessionId, secure, maxAge), { append: true });
 		// 登录只在弹窗里完成：直接返回关闭窗口的页面，不再中转到额外的回调页面。
-		return c.html(popupClosePage());
+		return c.html(popupClosePage(request.return_path));
 	} catch (error) { return apiMessage(c, 502, error instanceof Error ? error.message : 'Accounts 登录回调失败'); }
 };
 export default handler;

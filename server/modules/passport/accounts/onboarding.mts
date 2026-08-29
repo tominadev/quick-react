@@ -76,19 +76,19 @@ export const refreshOidcRequest = async (c: Context<AppEnv>, database: DatabaseA
  * 否则按补全状态决定回登录页补全还是回账户中心。扫码等非表单登录路径也要用它，
  * 否则会把弹窗带到错误的公共首页，业务站点拿不到登录结果。
  */
-export const postLoginRedirect = async (c: Context<AppEnv>, database: DatabaseAdapter, userId: string) => {
+export const postLoginRedirect = async (c: Context<AppEnv>, database: DatabaseAdapter, userId: string, requestIdOverride?: string) => {
 	const onboarding = await accountOnboarding(database, userId);
 	// 用户名和密码都要按规则提示，补全完成后登录页再带 request_id 回授权端点。
 	if (onboarding.step !== 'done') {
 		await refreshOidcRequest(c, database);
 		return `/accounts/sign${c.get('techStackConfig').pageSuffix}`;
 	}
-	return loginRedirectTarget(c);
+	return loginRedirectTarget(c, requestIdOverride);
 };
 
 /** 登录流程真正结束时才清除 OIDC cookie 并给出回跳目标。 */
-export const loginRedirectTarget = (c: Context<AppEnv>) => {
-	const requestId = readCookie(c.req.raw, oidcRequestCookieName);
+export const loginRedirectTarget = (c: Context<AppEnv>, requestIdOverride?: string) => {
+	const requestId = requestIdOverride || readCookie(c.req.raw, oidcRequestCookieName);
 	if (!requestId) return `/panel/accounts${c.get('techStackConfig').pageSuffix}`;
 	c.header('Set-Cookie', clearOidcRequestCookie(isSecureRequest(c)), { append: true });
 	return `/api/oidc/authorize?request_id=${encodeURIComponent(requestId)}`;

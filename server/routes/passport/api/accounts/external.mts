@@ -1,7 +1,7 @@
 import type { ApiHandler } from '@server/modules/base/api-router.mjs';
 import { apiMessage, apiResponse } from '@server/modules/base/api-response.mjs';
 import { bindReturnCookieName, clearBindReturnCookie, clearExternalStateCookie, consumeExternalState, createExternalState, createPendingExternalIdentity, discardExternalEmailOtp, externalAuthorizationUrl, externalPendingCookie, externalProvider, externalQrState, externalStateCookie, externalIdentityUser, externalStateCookieName, externalVerifiedCookie, fetchExternalProfile, issueExternalEmailOtp, pendingExternalIdentityByQrState, resolveExternalUser, verifyExternalEmailOtp, type ExternalProviderId } from '@server/modules/passport/accounts/external.mjs';
-import { readCookie } from '@server/modules/passport/accounts/oidc.mjs';
+import { oidcRequestCookie, oidcRequestCookieName, readCookie } from '@server/modules/passport/accounts/oidc.mjs';
 import { postLoginRedirect } from '@server/modules/passport/accounts/onboarding.mjs';
 import { externalAvatarUrl, syncExternalAvatar } from '@server/modules/passport/avatar.mjs';
 import { createPassportSessionCookie, ensurePassportDevice, loadPassportSession } from '@server/modules/passport/session.mjs';
@@ -55,8 +55,12 @@ const handler: ApiHandler = async (c, _next, params) => {
 	// 微信网页授权域名在平台侧按 HTTPS 注册，始终使用该公开域名生成回调地址。
 	const configuredOrigin = id === 'wechat' && provider.wechat_redirect_domain ? `https://${provider.wechat_redirect_domain}` : (publicOrigin || requestOrigin(c));
 	const redirectUri = new URL(`/api/accounts/external/${id}`, configuredOrigin).toString();
-	const code = c.req.query('code')?.trim(), returnedState = c.req.query('state')?.trim();
-	const pollState = c.req.query('poll')?.trim();
+	const code = c.req.query('code')?.trim();
+	const rawReturnedState = c.req.query('state')?.trim() ?? '';
+	const qrFlow = rawReturnedState.endsWith('.qr');
+	const returnedState = qrFlow ? rawReturnedState.slice(0, -3) : rawReturnedState;
+	const rawPollState = c.req.query('poll')?.trim() ?? '';
+	const pollState = rawPollState.endsWith('.qr') ? rawPollState.slice(0, -3) : rawPollState;
 	if (pollState) {
 		const polled = await externalQrState(database, await sha256(pollState));
 		// 过期是正常轮询结果，不能用错误状态码，否则通用请求层会弹出"请求失败"。
@@ -77,11 +81,12 @@ const handler: ApiHandler = async (c, _next, params) => {
 		c.header('Set-Cookie', createPassportSessionCookie(sessionId, secure, 24 * 60 * 60));
 		const redirectTo = current && String(current.id) === String(polled.qr_user_id)
 			? `/panel/accounts/identities${c.get('techStackConfig').pageSuffix}`
-			: await postLoginRedirect(c, database, String(polled.qr_user_id));
+			: await postLoginRedirect(c, database, String(polled.qr_user_id), polled.oidc_request_id ?? undefined);
+		if (polled.oidc_request_id) c.header('Set-Cookie', oidcRequestCookie(polled.oidc_request_id, secure), { append: true });
 		return apiResponse(c, 200, { status: 'authenticated', redirectTo });
 	}
 	if (!code && !returnedState) {
-		const created = await createExternalState(database, id, redirectUri);
+		const created = await createExternalState(database, id, redirectUri, readCookie(c.req.raw, oidcRequestCookieName));
 		// 二维码在电脑端发起时记住当前 Accounts 用户；手机只负责确认外部身份，电脑端无需再次走邮箱验证。
 		if (id === 'wechat' && provider.wechat_mode === 'official_account') {
 			const current = await loadPassportSession(database, c.req.raw);
@@ -94,7 +99,9 @@ const handler: ApiHandler = async (c, _next, params) => {
 			if (c.req.query('format') === 'json') {
 				const fallback = new URL(`/accounts/sign${c.get('techStackConfig').pageSuffix || ''}`, requestOrigin(c));
 				if (c.req.query('popup') === '1') fallback.searchParams.set('popup', '1');
-				return apiResponse(c, 200, { mode: 'qrcode', authorizationUrl, pollUrl: `/api/accounts/external/${id}?poll=${created.state}`, fallbackUrl: `${fallback.pathname}${fallback.search}` });
+				const qrAuthorizationUrl = new URL(authorizationUrl);
+				qrAuthorizationUrl.searchParams.set('state', `${created.state}.qr`);
+				return apiResponse(c, 200, { mode: 'qrcode', authorizationUrl: qrAuthorizationUrl.toString(), pollUrl: `/api/accounts/external/${id}?poll=${created.state}.qr`, fallbackUrl: `${fallback.pathname}${fallback.search}` });
 			}
 			const pageSuffix = c.get('techStackConfig').pageSuffix || '';
 			const qrPage = new URL(`/accounts/external/${id}${pageSuffix}`, requestOrigin(c));
@@ -119,7 +126,7 @@ const handler: ApiHandler = async (c, _next, params) => {
 	if (!code || !returnedState) return apiMessage(c, 400, '外部授权回调缺少 code 或 state');
 	const cookieState = readCookie(c.req.raw, externalStateCookieName);
 	if ((!cookieState || cookieState !== returnedState) && !(id === 'wechat' && provider.wechat_mode === 'official_account')) return apiMessage(c, 400, '外部授权 state 与当前浏览器不匹配，请重新登录');
-	const qrState = id === 'wechat' && provider.wechat_mode === 'official_account' && !cookieState
+	const qrState = id === 'wechat' && provider.wechat_mode === 'official_account' && qrFlow
 		? await externalQrState(database, await sha256(returnedState))
 		: null;
 	// 手机回调页刷新或重复挂载时，已完成的扫码结果直接复用，不能再次消费一次性 state。
@@ -136,7 +143,7 @@ const handler: ApiHandler = async (c, _next, params) => {
 		// 已经绑定过的外部身份直接登录，即使身份源不提供邮箱也不再要求验证码。
 		const bound = await externalIdentityUser(database, provider.id, profile.subject);
 		if (!current && !bound && !profile.email) {
-			if (provider.wechat_mode === 'official_account' && !cookieState && consume) {
+			if (provider.wechat_mode === 'official_account' && qrFlow && consume) {
 				if (qrState?.qr_user_id) {
 					const userId = await resolveExternalUser(database, c.env.SNOWFLAKE_WORKER_ID, provider, profile, qrState.qr_user_id);
 					await runSql(database, sql(database).update('passport_external_login_states', { qr_status: 'authorized', qr_user_id: userId }, { id_hash: await sha256(returnedState) }));
@@ -152,6 +159,7 @@ const handler: ApiHandler = async (c, _next, params) => {
 			return c.html(renderExternalRedirect(`/accounts/sign${c.get('techStackConfig').pageSuffix}`, '正在返回 Passport 登录', '外部身份已确认，正在返回 Passport…'), 200);
 		}
 		const userId = await resolveExternalUser(database, c.env.SNOWFLAKE_WORKER_ID, provider, profile, current?.id ? String(current.id) : undefined);
+		if (state.oidc_request_id) c.header('Set-Cookie', oidcRequestCookie(state.oidc_request_id, secure), { append: true });
 		// 身份源带头像时后台同步到对象存储，失败不影响登录。
 		const avatarUrl = externalAvatarUrl(provider.id, profile.raw);
 		if (avatarUrl) {
@@ -160,7 +168,7 @@ const handler: ApiHandler = async (c, _next, params) => {
 			try { c.executionCtx.waitUntil(task); }
 			catch { void task; }
 		}
-		if (provider.wechat_mode === 'official_account' && !cookieState) {
+		if (provider.wechat_mode === 'official_account' && qrFlow) {
 			await runSql(database, sql(database).update('passport_external_login_states', { qr_status: 'authorized', qr_user_id: userId }, [{ column: 'id_hash', value: await sha256(returnedState) }]));
 			// consume=1 来自手机上的回调页面，它按 JSON 解析响应；直接用浏览器打开时才返回提示页面。
 			return consume ? apiResponse(c, 200, { status: 'signed_in' }) : c.html('<p>授权成功，请返回电脑页面。</p>');
@@ -183,7 +191,7 @@ const handler: ApiHandler = async (c, _next, params) => {
 		// 第三方认证通过：30 分钟内允许发送邮箱验证码、重设密码。
 		c.header('Set-Cookie', externalVerifiedCookie(secure), { append: true });
 		// 去向由后端统一决定：先补全用户名和密码，再继续待处理的 OIDC 授权。
-		const target = await postLoginRedirect(c, database, userId);
+		const target = await postLoginRedirect(c, database, userId, state.oidc_request_id ?? undefined);
 		// consume=1 来自手机上的回调页面，它按 JSON 解析响应，不能返回跳转。
 		return consume ? apiResponse(c, 200, { status: 'signed_in', redirectTo: target }) : c.html(renderExternalRedirect(target, '正在返回 Passport', '登录成功，正在打开账户中心…'), 200);
 	} catch (error) {
