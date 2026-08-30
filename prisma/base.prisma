@@ -45,27 +45,41 @@ model base_system_bootstrap {
 
 model base_devices {
   id           String @id
+  created_at   BigInt
+  updated_at   BigInt
   user_id      BigInt
   fingerprint  String @unique
   user_agent   String @default("")
   platform     String @default("")
   ip_address   String @default("")
   status       String @default("active")
-  created_at   BigInt
-  updated_at   BigInt
   last_seen_at BigInt
   revoked_at   BigInt?
 }
 
 model base_device_users {
   id           BigInt @id @default(autoincrement())
+  created_at   BigInt
+  updated_at   BigInt
   device_id    String
   user_id      BigInt
   status       String @default("active")
-  created_at   BigInt
-  updated_at   BigInt
   last_seen_at BigInt
   revoked_at   BigInt?
 
   @@unique([device_id, user_id])
+}
+
+model base_device_snapshots {
+  id            BigInt @id @default(autoincrement())
+  created_at    BigInt
+  updated_at    BigInt
+  device_id     String
+  fingerprint   String
+  ip_address    String @default("")
+  user_agent    String @default("")
+  platform      String @default("")
+  screen_width  Int    @default(0)
+  screen_height Int    @default(0)
+  captured_at   BigInt
 }
