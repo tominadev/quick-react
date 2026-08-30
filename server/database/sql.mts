@@ -23,7 +23,7 @@ export type SqlColumn = string | { column: string; cast?: 'text' };
 export type SqlSelectOptions = { table: string; alias?: string; distinct?: boolean; columns?: Record<string, SqlColumn>; includeAll?: boolean; sqliteRowIdAlias?: string; joins?: SqlJoin[]; where?: SqlCondition[]; orderBy?: Array<{ column: string; direction?: 'ASC' | 'DESC' }>; limit?: number; offset?: number };
 
 export abstract class SqlBuilder {
-	constructor(readonly dialect: SqlDialect) {}
+	constructor(readonly dialect: SqlDialect, readonly actorUid: string | number | null = null) {}
 	protected abstract placeholder(index: number): string;
 	protected placeholders(count: number, start = 1) { return Array.from({ length: count }, (_, index) => this.placeholder(start + index)); }
 
@@ -66,7 +66,7 @@ export abstract class SqlBuilder {
 	insert(table: string, values: Values): SqlQuery {
 		if (Object.prototype.hasOwnProperty.call(values, 'created_at') || Object.prototype.hasOwnProperty.call(values, 'updated_at')) throw new Error('created_at 和 updated_at 由 SQL 公共层统一维护，业务代码不得传入');
 		const timestamp = Date.now();
-		const timestamped: Values = { created_at: timestamp, updated_at: timestamp, ...values };
+		const timestamped: Values = { created_at: timestamp, updated_at: timestamp, ...(this.actorUid !== null ? { created_uid: this.actorUid, updated_uid: this.actorUid } : {}), ...values };
 		const entries = definedEntries(timestamped); if (!entries.length) throw new Error('INSERT values cannot be empty');
 		return {
 			query: `INSERT INTO ${quoteIdentifier(table, this.dialect)} (${entries.map(([key]) => quoteIdentifier(key, this.dialect)).join(', ')}) VALUES (${this.placeholders(entries.length).join(', ')})`,
@@ -92,7 +92,7 @@ export abstract class SqlBuilder {
 
 	update(table: string, values: Values, where: Values | SqlCondition[]): SqlQuery {
 		if (Object.prototype.hasOwnProperty.call(values, 'created_at') || Object.prototype.hasOwnProperty.call(values, 'updated_at')) throw new Error('created_at 和 updated_at 由 SQL 公共层统一维护，业务代码不得传入');
-		const entries = definedEntries({ ...values }), conditions: SqlCondition[] = Array.isArray(where) ? where : definedEntries(where).map(([column, value]) => ({ column, value }));
+		const entries = definedEntries({ updated_at: Date.now(), ...(this.actorUid !== null ? { updated_uid: this.actorUid } : {}), ...values }), conditions: SqlCondition[] = Array.isArray(where) ? where : definedEntries(where).map(([column, value]) => ({ column, value }));
 		if (!entries.length || !conditions.length) throw new Error('UPDATE values and where cannot be empty');
 		let parameterIndex = entries.length;
 		return {
@@ -137,13 +137,13 @@ export abstract class SqlBuilder {
 	castText(expression: string) { const quoted = quoteIdentifier(expression, this.dialect); return this.dialect === 'mysql' ? `CAST(${quoted} AS CHAR)` : `CAST(${quoted} AS TEXT)`; }
 }
 
-export class SqliteSqlBuilder extends SqlBuilder { constructor() { super('sqlite'); } protected placeholder() { return '?'; } }
-export class MysqlSqlBuilder extends SqlBuilder { constructor() { super('mysql'); } protected placeholder() { return '?'; } }
-export class PostgresqlSqlBuilder extends SqlBuilder { constructor() { super('postgresql'); } protected placeholder(index: number) { return `$${index}`; } }
+export class SqliteSqlBuilder extends SqlBuilder { constructor(actorUid: string | number | null = null) { super('sqlite', actorUid); } protected placeholder() { return '?'; } }
+export class MysqlSqlBuilder extends SqlBuilder { constructor(actorUid: string | number | null = null) { super('mysql', actorUid); } protected placeholder() { return '?'; } }
+export class PostgresqlSqlBuilder extends SqlBuilder { constructor(actorUid: string | number | null = null) { super('postgresql', actorUid); } protected placeholder(index: number) { return `$${index}`; } }
 
 export const sql = (context: SqlContext) => {
 	const dialect = dialectOf(context.database);
-	return dialect === 'mysql' ? new MysqlSqlBuilder() : dialect === 'postgresql' ? new PostgresqlSqlBuilder() : new SqliteSqlBuilder();
+	return dialect === 'mysql' ? new MysqlSqlBuilder(context.actorUid ?? null) : dialect === 'postgresql' ? new PostgresqlSqlBuilder(context.actorUid ?? null) : new SqliteSqlBuilder(context.actorUid ?? null);
 };
 export const runSql = (database: DatabaseAdapter, statement: SqlQuery): Promise<DatabaseRunResult> => database.prepare(statement.query).bind(...statement.values).run();
 export const firstSql = <T,>(database: DatabaseAdapter, statement: SqlQuery) => database.prepare(statement.query).bind(...statement.values).first<T>();

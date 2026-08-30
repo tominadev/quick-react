@@ -1,7 +1,8 @@
 import { readdir, readFile } from 'node:fs/promises';
 import { join } from 'node:path';
 import type { DatabaseAdapter } from './index.mjs';
-import { firstSql, runSql, sql } from './sql.mjs';
+import { firstSql, runSql, sql, quoteIdentifier } from './sql.mjs';
+import { listColumns, listTables } from './schema.mjs';
 
 const ensureMigrationTable = async (database: DatabaseAdapter) => {
 	const keyType = database.dialect === 'mysql' ? 'VARCHAR(512)' : 'TEXT';
@@ -13,9 +14,22 @@ const ensureMigrationTable = async (database: DatabaseAdapter) => {
 	}
 };
 
+const ensureAuditColumns = async (database: DatabaseAdapter) => {
+	const numberType = database.dialect === 'sqlite' || !database.dialect ? 'INTEGER' : 'BIGINT';
+	const uidType = database.dialect === 'mysql' ? 'VARCHAR(255)' : 'TEXT';
+	for (const { name: table } of await listTables(database)) {
+		const existing = new Set((await listColumns(database, table)).map((column) => column.name));
+		for (const [column, definition] of [['created_at', `${numberType} NOT NULL DEFAULT 0`], ['updated_at', `${numberType} NOT NULL DEFAULT 0`], ['created_uid', `${uidType} NULL`], ['updated_uid', `${uidType} NULL`]] as const) {
+			if (existing.has(column)) continue;
+			await database.exec?.(`ALTER TABLE ${quoteIdentifier(table, database.dialect ?? 'sqlite')} ADD COLUMN ${quoteIdentifier(column, database.dialect ?? 'sqlite')} ${definition}`);
+		}
+	}
+};
+
 export const migrateDatabase = async (database: DatabaseAdapter, migrationsRoot: string, migrationGroups: string[]) => {
 	if (!database.exec) throw new Error('Database adapter does not support migrations');
 	await ensureMigrationTable(database);
+	await ensureAuditColumns(database);
 	const dialectRoot = database.dialect && database.dialect !== 'sqlite' ? join(migrationsRoot, database.dialect) : migrationsRoot;
 	for (const group of migrationGroups) {
 		const directory = join(dialectRoot, group);
