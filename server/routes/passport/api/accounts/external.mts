@@ -1,10 +1,11 @@
 import type { ApiHandler } from '@server/modules/base/api-router.mjs';
 import { apiMessage, apiResponse } from '@server/modules/base/api-response.mjs';
+import { ensureBaseDevice } from '@server/modules/base/device.mjs';
 import { bindReturnCookieName, clearBindReturnCookie, clearExternalStateCookie, consumeExternalState, createExternalState, createPendingExternalIdentity, discardExternalEmailOtp, externalAuthorizationUrl, externalPendingCookie, externalProvider, externalQrState, externalStateCookie, externalIdentityUser, externalStateCookieName, externalVerifiedCookie, fetchExternalProfile, issueExternalEmailOtp, pendingExternalIdentityByQrState, resolveExternalUser, verifyExternalEmailOtp, type ExternalProviderId } from '@server/modules/passport/accounts/external.mjs';
 import { oidcRequestCookie, oidcRequestCookieName, readCookie } from '@server/modules/passport/accounts/oidc.mjs';
 import { postLoginRedirect } from '@server/modules/passport/accounts/onboarding.mjs';
 import { externalAvatarUrl, syncExternalAvatar } from '@server/modules/passport/avatar.mjs';
-import { createPassportSessionCookie, ensurePassportDevice, loadPassportSession } from '@server/modules/passport/session.mjs';
+import { createPassportSessionCookie, loadPassportSession } from '@server/modules/passport/session.mjs';
 import { runSql, sql } from '@server/database/sql.mjs';
 import { isSecureRequest, requestOrigin } from '@server/modules/base/request-origin.mjs';
 import { sha256 } from '@server/modules/passport/accounts/oidc.mjs';
@@ -44,7 +45,7 @@ const handler: ApiHandler = async (c, _next, params) => {
 		const verified = await verifyExternalEmailOtp(database, c.env.SNOWFLAKE_WORKER_ID, pending, String(body.code ?? ''));
 		if (verified.status !== 'created') return apiMessage(c, 409, verified.status === 'conflict' ? verified.message : verified.status === 'expired' ? '验证码已过期' : '验证码不正确');
 		const sessionId = crypto.randomUUID(), now = Date.now(), maxAge = 24 * 60 * 60;
-		await runSql(database, sql({ database }).insert('passport_sessions', { token_hash: await sha256(sessionId), user_id: verified.userId, device_id: await ensurePassportDevice(database, verified.userId, c.req.raw), expires_at: now + maxAge * 1000 }));
+		await runSql(database, sql({ database }).insert('passport_sessions', { token_hash: await sha256(sessionId), user_id: verified.userId, device_id: await ensureBaseDevice(database, verified.userId, c.req.raw), expires_at: now + maxAge * 1000 }));
 		await runSql(database, sql({ database }).update('passport_external_login_states', { qr_status: 'consumed', qr_user_id: verified.userId }, { id_hash: await sha256(bindState) }));
 		c.header('Set-Cookie', createPassportSessionCookie(sessionId, secure, maxAge));
 		// 二维码页可能开在业务站点的登录弹窗里，必须把后续去向一并返回，不能让它自己跳首页。
@@ -71,7 +72,7 @@ const handler: ApiHandler = async (c, _next, params) => {
 		const sessionId = crypto.randomUUID(), now = Date.now();
 		let deviceId: string;
 		try {
-			deviceId = await ensurePassportDevice(database, polled.qr_user_id, c.req.raw);
+			deviceId = await ensureBaseDevice(database, polled.qr_user_id, c.req.raw);
 		} catch (error) {
 			// 轮询是正常的状态查询；设备冲突不能让接口变成未处理异常的 500。
 			return apiResponse(c, 200, { status: 'error', error: error instanceof Error ? error.message : String(error) });
@@ -187,7 +188,7 @@ const handler: ApiHandler = async (c, _next, params) => {
 			return consume ? apiResponse(c, 200, { status: 'linked', redirectTo: bindTarget }) : c.html(renderExternalRedirect(bindTarget, '正在返回 Passport', '身份验证完成，正在返回账户中心…'), 200);
 		}
 		const sessionId = crypto.randomUUID(), now = Date.now(), maxAge = 24 * 60 * 60;
-		await runSql(database, sql({ database }).insert('passport_sessions', { token_hash: await sha256(sessionId), user_id: userId, device_id: await ensurePassportDevice(database, userId, c.req.raw), expires_at: now + maxAge * 1000 }));
+		await runSql(database, sql({ database }).insert('passport_sessions', { token_hash: await sha256(sessionId), user_id: userId, device_id: await ensureBaseDevice(database, userId, c.req.raw), expires_at: now + maxAge * 1000 }));
 		c.header('Set-Cookie', clearExternalStateCookie(secure));
 		c.header('Set-Cookie', createPassportSessionCookie(sessionId, secure, maxAge), { append: true });
 		// 第三方认证通过：30 分钟内允许发送邮箱验证码、重设密码。
