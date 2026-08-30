@@ -1,14 +1,15 @@
 import type { DatabaseAdapter } from '@server/database/index.mjs';
 import { firstSql, runSql, sql } from '@server/database/sql.mjs';
-import { readDeviceFingerprint, readDeviceKey, requestDeviceSnapshot } from '@server/modules/base/device-fingerprint.mjs';
+import { readDeviceFingerprint, readDeviceKey, readOptionalDeviceKey, requestDeviceSnapshot } from '@server/modules/base/device-fingerprint.mjs';
 
 /** 为 Accounts 账号建立或恢复 Passport 设备与账号的绑定。 */
 export const ensurePassportDevice = async (database: DatabaseAdapter, userId: string | number | bigint, request: Request, resolvedIp?: string, transportIp?: string) => {
 	const deviceKey = readDeviceKey(request), fingerprint = readDeviceFingerprint(request), now = Date.now(), snapshot = requestDeviceSnapshot(request, resolvedIp, transportIp);
+	const deviceData = { ...snapshot, last_seen_at: now, ...(fingerprint ? { fingerprint } : {}) };
 	const existing = await firstSql<{ id: string; status: string }>(database, sql({ database }).select({ table: 'passport_devices', columns: { id: { column: 'id', cast: 'text' }, status: 'status' }, where: [{ column: 'key', value: deviceKey }] }));
 	if (existing?.status === 'revoked') throw new Error('此设备已被注销，无法继续登录');
-	if (existing) await runSql(database, sql({ database }).update('passport_devices', { fingerprint, last_seen_at: now, ...snapshot }, { id: existing.id }));
-	else await runSql(database, sql({ database }).insert('passport_devices', { key: deviceKey, fingerprint, ...snapshot, status: 'active', last_seen_at: now }));
+	if (existing) await runSql(database, sql({ database }).update('passport_devices', deviceData, { id: existing.id }));
+	else await runSql(database, sql({ database }).insert('passport_devices', { key: deviceKey, fingerprint: fingerprint ?? '{}', ...snapshot, status: 'active', last_seen_at: now }));
 	const device = existing ?? await firstSql<{ id: string; status: string }>(database, sql({ database }).select({ table: 'passport_devices', columns: { id: { column: 'id', cast: 'text' }, status: 'status' }, where: [{ column: 'key', value: deviceKey }] }));
 	if (!device) throw new Error('Passport 设备记录创建失败');
 	const deviceId = device.id;
@@ -21,10 +22,13 @@ export const ensurePassportDevice = async (database: DatabaseAdapter, userId: st
 
 /** 校验 Accounts 会话绑定的 Passport 设备仍有效且客户端设备唯一键没有变化。 */
 export const validatePassportDevice = async (database: DatabaseAdapter, userId: string, deviceId: string, request: Request) => {
-	const deviceKey = readDeviceKey(request);
+	const deviceKey = readOptionalDeviceKey(request);
+	// 页面导航不能附加 X-Device-Fingerprint；fingerprint 只是分析证据，会话只依赖设备键。
 	readDeviceFingerprint(request);
+	const documentNavigation = request.method === 'GET' && (request.headers.get('accept') ?? '').includes('text/html');
+	if (!deviceKey && !documentNavigation) return false;
 	const binding = await firstSql<{ status: string }>(database, sql({ database }).select({ table: 'passport_device_users', columns: { status: 'status' }, where: [{ column: 'device_id', value: deviceId }, { column: 'user_id', value: userId }] }));
 	if (!binding || binding.status !== 'active') return false;
 	const device = await firstSql<{ key: string; status: string }>(database, sql({ database }).select({ table: 'passport_devices', columns: { key: 'key', status: 'status' }, where: [{ column: 'id', value: deviceId }] }));
-	return Boolean(device && device.status === 'active' && device.key === deviceKey);
+	return Boolean(device && device.status === 'active' && (!deviceKey || device.key === deviceKey));
 };

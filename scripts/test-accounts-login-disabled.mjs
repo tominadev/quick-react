@@ -11,11 +11,11 @@ process.env.SKIP_SERVER_LISTEN = '1';
 
 try {
 	const { app } = await import(`../dist/server.mjs?login-disabled=${Date.now()}`);
-	const fingerprint = 'a'.repeat(64);
+const deviceKey = '00000000-0000-4000-8000-000000000001';
 	const fingerprintData = JSON.stringify({ canvas_cyrb53: '4b5a6c7d8e9f', audio_cyrb53: '1a2b3c4d5e6f' });
 	const request = (path, options = {}) => app.request(`http://localhost${path}`, {
 		method: options.method,
-		headers: { 'x-device-key': fingerprint, 'x-device-fingerprint': fingerprintData, ...(options.body === undefined ? {} : { 'content-type': 'application/json' }), ...options.headers },
+		headers: { 'x-device-key': deviceKey, 'x-device-fingerprint': fingerprintData, ...(options.body === undefined ? {} : { 'content-type': 'application/json' }), ...options.headers },
 		body: options.body === undefined ? undefined : JSON.stringify(options.body),
 	});
 	const initialData = async (path) => {
@@ -51,7 +51,7 @@ try {
 	const login = await request('/api/sign.php', { method: 'POST', body: { username: 'local_admin', password: 'test-password-123' } });
 	assert.equal(login.status, 200);
 	assert.ok(login.headers.get('set-cookie'));
-	assert.deepEqual((await login.clone().json()).next, { action: 'reload' });
+	assert.deepEqual((await login.clone().json()).next, { action: 'reload', delay: 1 });
 
 	// 身份中心站点和业务站点用同一套模块：后台同样有“Accounts 登录”设置页，可以在这里关掉这种登录方式。
 	const cookie = login.headers.get('set-cookie').split(';')[0];

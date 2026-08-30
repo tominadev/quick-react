@@ -82,6 +82,8 @@ export const verifyPassword = async (password: string, encoded: string) => {
 };
 
 export const sessionCookieName = 'base_session';
+/** Base 会话采用滑动过期：连续 7 天没有有效请求才失效。 */
+export const baseSessionMaxAge = 7 * 24 * 60 * 60;
 
 /** 会话 Cookie 只保存随机原令牌，数据库只保存不可逆摘要。 */
 export const hashSessionToken = async (token: string) => {
@@ -109,18 +111,22 @@ export const clearSessionCookie = (secure: boolean) =>
 export const loadCurrentUser = async (database: DatabaseAdapter, request: Request) => {
 	const sessionId = readSessionId(request);
 	if (!sessionId) return undefined;
-	const row = await firstSql<{ id: number; username: string; roles: string; device_id: string | null }>(database, sql({ database }).select({ table: 'base_sessions', alias: 's', columns: { id: 'u.id', username: 'u.name', roles: 'u.roles', device_id: { column: 's.device_id', cast: 'text' } }, joins: [{ table: 'base_users', alias: 'u', left: 'u.id', right: 's.user_id' }], where: [{ column: 's.token_hash', value: await hashSessionToken(sessionId) }, { column: 's.expires_at', operator: '>', value: Date.now() }, { column: 'u.status', value: 'enabled' }] }));
+	const sessionHash = await hashSessionToken(sessionId);
+	const row = await firstSql<{ id: number; username: string; roles: string; device_id: string | null }>(database, sql({ database }).select({ table: 'base_sessions', alias: 's', columns: { id: 'u.id', username: 'u.name', roles: 'u.roles', device_id: { column: 's.device_id', cast: 'text' } }, joins: [{ table: 'base_users', alias: 'u', left: 'u.id', right: 's.user_id' }], where: [{ column: 's.token_hash', value: sessionHash }, { column: 's.expires_at', operator: '>', value: Date.now() }, { column: 'u.status', value: 'enabled' }] }));
 	if (!row) return undefined;
 	if (!row.device_id) {
-		await runSql(database, sql({ database }).delete('base_sessions', { token_hash: await hashSessionToken(sessionId) }));
+		await runSql(database, sql({ database }).delete('base_sessions', { token_hash: sessionHash }));
 		return undefined;
 	}
 	try {
-		if (await validateBaseDevice(database, String(row.id), row.device_id, request)) return { id: row.id, username: row.username, roles: parseRoles(row.roles) };
+		if (await validateBaseDevice(database, String(row.id), row.device_id, request)) {
+			await runSql(database, sql({ database }).update('base_sessions', { expires_at: Date.now() + baseSessionMaxAge * 1000 }, { token_hash: sessionHash }));
+			return { id: row.id, username: row.username, roles: parseRoles(row.roles) };
+		}
 	} catch {
 		// 指纹格式错误同样使当前会话失效。
 	}
-	await runSql(database, sql({ database }).delete('base_sessions', { token_hash: await hashSessionToken(sessionId) }));
+	await runSql(database, sql({ database }).delete('base_sessions', { token_hash: sessionHash }));
 	return undefined;
 };
 

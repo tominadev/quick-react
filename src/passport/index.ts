@@ -1,4 +1,5 @@
 import { getDeviceHeaders } from '../utils/common/device-fingerprint.js';
+import type { ApiNextAction } from '@shared/types/api-response.mjs';
 
 export type PassportLoginOptions = {
 	provider?: string;
@@ -8,8 +9,7 @@ export type PassportLoginOptions = {
 	height?: number;
 };
 
-type PassportNextAction = { action: 'reload' } | { action: 'navigate'; path: string };
-type PassportLogoutResult = { next?: PassportNextAction; feedback?: { message?: string } };
+type PassportLogoutResult = { next?: ApiNextAction; feedback?: { message?: string } };
 type PassportError = Error & { silent?: boolean };
 
 const debugEnabled = () => Boolean((window as Window & { __INITIAL_DATA__?: { debug?: boolean } }).__INITIAL_DATA__?.debug);
@@ -21,7 +21,7 @@ const defaultSignInPath = () => {
 	return `/api/sign${suffix}`;
 };
 const Passport = {
-	async login(options: PassportLoginOptions = {}): Promise<{ next?: PassportNextAction }> {
+	async login(options: PassportLoginOptions = {}): Promise<{ next?: ApiNextAction }> {
 		// 必须在用户点击的同步调用栈中打开窗口，Safari 等浏览器会拦截异步后的 window.open。
 		const popup = window.open('about:blank', 'passport_login', `width=${options.width ?? 480},height=${options.height ?? 680},resizable=yes,scrollbars=yes`);
 		if (!popup) throw new Error('登录窗口被浏览器拦截');
@@ -38,7 +38,7 @@ const Passport = {
 			popup.close();
 			throw error;
 		}
-		return new Promise<{ next?: PassportNextAction }>((resolve, reject) => {
+		return new Promise<{ next?: ApiNextAction }>((resolve, reject) => {
 			const timer = window.setTimeout(() => { window.clearInterval(closeWatcher); popup.close(); window.removeEventListener('message', listener); reject(new Error('Passport 登录已超时')); }, 10 * 60 * 1000);
 			const closeWatcher = window.setInterval(() => {
 				if (!popup.closed) return;

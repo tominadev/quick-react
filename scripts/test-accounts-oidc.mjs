@@ -19,7 +19,7 @@ try {
 		return ['accounts.test', 'site1.test'].includes(url.hostname) ? app.request(url.toString(), init) : originalFetch(input, init);
 	};
 	const database = new DatabaseSync(process.env.DEFAULT_DATABASE_FILE);
-	const now = Date.now(), userId = 1000000000000000000n, fingerprint = 'a'.repeat(64), fingerprintData = JSON.stringify({ canvas_cyrb53: '4b5a6c7d8e9f', audio_cyrb53: '1a2b3c4d5e6f' }), sessionId = crypto.randomUUID(), sessionToken = crypto.randomUUID();
+	const now = Date.now(), userId = 1000000000000000000n, deviceKey = '00000000-0000-4000-8000-000000000001', fingerprintData = JSON.stringify({ canvas_cyrb53: '4b5a6c7d8e9f', audio_cyrb53: '1a2b3c4d5e6f' }), sessionId = crypto.randomUUID(), sessionToken = crypto.randomUUID();
 	const sessionHash = base64Url(await sha256(sessionToken));
 	const passportSessionHash = Buffer.from(await sha256(sessionId)).toString('hex');
 	database.prepare(`INSERT INTO global_site_hosts (hostname, site_key, status, created_at) VALUES ('accounts.test', 'passport', 'enabled', ?)`).run(now);
@@ -27,8 +27,8 @@ try {
 		VALUES ('site1', 'Business Site', 'base', '', '', 'enabled', 'ready', 0, 0)`).run();
 	database.prepare(`INSERT INTO global_site_hosts (hostname, site_key, status, created_at) VALUES ('site1.test', 'site1', 'enabled', ?)`).run(now);
 	database.prepare(`INSERT INTO passport_users (user_id, name, nickname, status, created_at, updated_at) VALUES (?, ?, 'AccountsUser', 'enabled', ?, ?)`).run(userId, `passport_${userId}`, now, now);
-	database.prepare(`INSERT INTO passport_devices (user_agent, platform, ip_address, key, fingerprint, status, last_seen_at, created_at, updated_at) VALUES ('Test Browser', 'test', '127.0.0.1', ?, ?, 'active', ?, ?, ?)`).run(fingerprint, fingerprintData, now, now, now);
-	const deviceId = String(database.prepare('SELECT id FROM passport_devices WHERE key = ?').get(fingerprint).id);
+	database.prepare(`INSERT INTO passport_devices (user_agent, platform, ip_address, key, fingerprint, status, last_seen_at, created_at, updated_at) VALUES ('Test Browser', 'test', '127.0.0.1', ?, ?, 'active', ?, ?, ?)`).run(deviceKey, fingerprintData, now, now, now);
+	const deviceId = String(database.prepare('SELECT id FROM passport_devices WHERE key = ?').get(deviceKey).id);
 	database.prepare(`INSERT INTO passport_device_users (device_id, user_id, status, last_seen_at, created_at, updated_at) VALUES (?, ?, 'active', ?, ?, ?)`).run(deviceId, userId, now, now, now);
 	database.prepare(`INSERT INTO passport_sessions (token_hash, user_id, expires_at, device_id, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?)`).run(passportSessionHash, userId, now + 3600_000, deviceId, now, now);
 	const clientId = 'acct_test', clientSecret = 'test-client-secret', verifier = base64Url(crypto.getRandomValues(new Uint8Array(48)));
@@ -37,13 +37,13 @@ try {
 		VALUES (?, 'Test Client', ?, '["https://client.test/callback","https://site1.test/api/accounts/oidc/callback"]', 'openid profile email', 1, 'enabled', ?, ?, 'https://site1.test/api/accounts/oidc/backchannel-logout')`).run(clientId, secretHash, now, now);
 	database.prepare(`INSERT INTO base_configs (created_at, updated_at, key, value) VALUES (?, ?, 'accounts-oidc-client', ?)`).run(now, now, JSON.stringify({ enabled: true, issuer: 'https://accounts.test', clientId, clientSecret }));
 	database.prepare(`INSERT INTO base_users (id, name, password, roles, status, created_at, updated_at) VALUES (77, 'local_admin', 'unused', '["admin"]', 'enabled', ?, ?)`).run(now, now);
-	database.prepare(`INSERT INTO base_devices (id, user_id, key, fingerprint, status, last_seen_at, created_at, updated_at) VALUES (42, 77, ?, ?, 'active', ?, ?, ?)`).run(fingerprint, fingerprintData, now, now, now);
+	database.prepare(`INSERT INTO base_devices (id, user_id, key, fingerprint, status, last_seen_at, created_at, updated_at) VALUES (42, 77, ?, ?, 'active', ?, ?, ?)`).run(deviceKey, fingerprintData, now, now, now);
 	database.prepare(`INSERT INTO base_device_users (device_id, user_id, status, last_seen_at, created_at, updated_at) VALUES (42, 77, 'active', ?, ?, ?)`).run(now, now, now);
 	database.prepare(`INSERT INTO base_sessions (created_at, updated_at, token_hash, user_id, expires_at, device_id) VALUES (?, ?, ?, 77, ?, 42)`).run(now, now, sessionHash, now + 3600_000);
 	database.close();
 	const request = (path, options = {}) => {
 		const headers = new Headers(options.headers);
-		if (!headers.has('x-device-key')) headers.set('x-device-key', fingerprint);
+		if (!headers.has('x-device-key')) headers.set('x-device-key', deviceKey);
 		if (!headers.has('x-device-fingerprint')) headers.set('x-device-fingerprint', fingerprintData);
 		return app.request(`https://accounts.test${path}`, { method: options.method, headers, body: options.body });
 	};
@@ -96,8 +96,8 @@ try {
 	const selfStart = await request('/api/sign.php', { method: 'POST', headers: { 'content-type': 'application/json' }, body: '{}' });
 	const selfLoginCookie = selfStart.headers.get('set-cookie')?.split(';')[0];
 	const selfAuthorizeUrl = (await selfStart.json()).redirectTo;
-	const selfAuthorized = await app.request(selfAuthorizeUrl, { headers: { cookie: `passport_session=${sessionId}`, 'x-device-key': fingerprint, 'x-device-fingerprint': fingerprintData } });
-	const selfCallbackResponse = await app.request(selfAuthorized.headers.get('location'), { headers: { cookie: selfLoginCookie, 'x-device-key': fingerprint, 'x-device-fingerprint': fingerprintData } });
+	const selfAuthorized = await app.request(selfAuthorizeUrl, { headers: { cookie: `passport_session=${sessionId}`, 'x-device-key': deviceKey, 'x-device-fingerprint': fingerprintData } });
+	const selfCallbackResponse = await app.request(selfAuthorized.headers.get('location'), { headers: { cookie: selfLoginCookie, 'x-device-key': deviceKey, 'x-device-fingerprint': fingerprintData } });
 	assert.equal(selfCallbackResponse.status, 200);
 	const selfSessionCookie = selfCallbackResponse.headers.getSetCookie().find((item) => item.startsWith('base_session='))?.split(';')[0];
 	assert.ok(selfSessionCookie);
@@ -110,7 +110,7 @@ try {
 	const strictDatabase = new DatabaseSync(process.env.DEFAULT_DATABASE_FILE);
 	strictDatabase.prepare('UPDATE passport_oidc_clients SET strict_redirect_uri = 1 WHERE client_id = ?').run(clientId);
 	const strictStart = await request('/api/sign.php', { method: 'POST', headers: { 'content-type': 'application/json' }, body: '{}' });
-	const strictAuthorize = await app.request((await strictStart.json()).redirectTo, { headers: { cookie: `passport_session=${sessionId}`, 'x-device-key': fingerprint, 'x-device-fingerprint': fingerprintData } });
+	const strictAuthorize = await app.request((await strictStart.json()).redirectTo, { headers: { cookie: `passport_session=${sessionId}`, 'x-device-key': deviceKey, 'x-device-fingerprint': fingerprintData } });
 	assert.equal(strictAuthorize.status, 400);
 	const strictMessage = (await strictAuthorize.json()).feedback.message;
 	assert.match(strictMessage, /redirect_uri 未注册/);
@@ -131,11 +131,11 @@ try {
 	assert.deepEqual(businessInitial.pageStatus.actions.map((action) => [action.label, action.action]), [['登录', 'accounts-login'], ['返回首页', 'navigate']]);
 	const businessSign = await (await app.request('https://site1.test/api/sign.php')).json();
 	assert.equal(businessSign.formPage.fields[0].name, 'action');
-	const enabledLocalSession = await (await app.request('https://site1.test/api/sign.php', { headers: { cookie: `base_session=${sessionToken}`, 'x-device-key': fingerprint, 'x-device-fingerprint': fingerprintData } })).json();
+	const enabledLocalSession = await (await app.request('https://site1.test/api/sign.php', { headers: { cookie: `base_session=${sessionToken}`, 'x-device-key': deviceKey, 'x-device-fingerprint': fingerprintData } })).json();
 	assert.equal(enabledLocalSession.user, null);
 	const modeDatabase = new DatabaseSync(process.env.DEFAULT_DATABASE_FILE);
 	modeDatabase.prepare(`UPDATE base_configs SET value = ? WHERE key = 'accounts-oidc-client'`).run(JSON.stringify({ enabled: false, issuer: 'https://accounts.test', clientId, clientSecret }));
-	const disabledLocalSession = await (await app.request('https://site1.test/api/sign.php', { headers: { cookie: `base_session=${sessionToken}`, 'x-device-key': fingerprint, 'x-device-fingerprint': fingerprintData } })).json();
+	const disabledLocalSession = await (await app.request('https://site1.test/api/sign.php', { headers: { cookie: `base_session=${sessionToken}`, 'x-device-key': deviceKey, 'x-device-fingerprint': fingerprintData } })).json();
 	assert.equal(disabledLocalSession.user.username, 'local_admin');
 	assert.equal(disabledLocalSession.formPage.fields[0].name, 'username');
 	modeDatabase.prepare(`UPDATE base_configs SET value = ? WHERE key = 'accounts-oidc-client'`).run(JSON.stringify({ enabled: true, issuer: 'https://accounts.test', clientId, clientSecret }));
@@ -147,9 +147,9 @@ try {
 	const businessStart = await app.request('https://site1.test/api/sign.php', { method: 'POST', headers: { 'content-type': 'application/json' }, body: '{}' });
 	const loginCookie = businessStart.headers.get('set-cookie')?.split(';')[0];
 	const businessAuthorizeUrl = (await businessStart.json()).redirectTo;
-	const businessAuthorized = await app.request(businessAuthorizeUrl, { headers: { cookie: `passport_session=${sessionId}`, 'x-device-key': fingerprint, 'x-device-fingerprint': fingerprintData } });
+	const businessAuthorized = await app.request(businessAuthorizeUrl, { headers: { cookie: `passport_session=${sessionId}`, 'x-device-key': deviceKey, 'x-device-fingerprint': fingerprintData } });
 	const businessCallback = businessAuthorized.headers.get('location');
-	const businessCallbackResponse = await app.request(businessCallback, { headers: { cookie: loginCookie, 'x-device-key': fingerprint, 'x-device-fingerprint': fingerprintData } });
+	const businessCallbackResponse = await app.request(businessCallback, { headers: { cookie: loginCookie, 'x-device-key': deviceKey, 'x-device-fingerprint': fingerprintData } });
 	// 弹窗回调直接返回关闭窗口的页面，不再中转到 /accounts/oidc/popup。
 	assert.equal(businessCallbackResponse.status, 200);
 	const popupBody = await businessCallbackResponse.clone().text();
@@ -159,7 +159,7 @@ try {
 	const businessSessionCookie = businessCallbackResponse.headers.getSetCookie().find((item) => item.startsWith('base_session='))?.split(';')[0];
 	assert.ok(businessSessionCookie);
 	assert.match(businessSessionCookie, /^base_session=.+/);
-	const signedInBusiness = await (await app.request('https://site1.test/api/sign.php', { headers: { cookie: businessSessionCookie, 'x-device-key': fingerprint, 'x-device-fingerprint': fingerprintData } })).json();
+	const signedInBusiness = await (await app.request('https://site1.test/api/sign.php', { headers: { cookie: businessSessionCookie, 'x-device-key': deviceKey, 'x-device-fingerprint': fingerprintData } })).json();
 	// Accounts 用户名通过 preferred_username 下发，业务站点用它替换 passport_<user_id> 占位名。
 	assert.equal(claims.preferred_username, 'oidcuser1');
 	assert.equal(signedInBusiness.user.username, 'oidcuser1');
@@ -169,7 +169,7 @@ try {
 	businessUsers.close();
 	const completed = new DatabaseSync(process.env.DEFAULT_DATABASE_FILE, { readOnly: true });
 	assert.equal(completed.prepare('SELECT COUNT(*) AS count FROM base_oidc_users').get().count, 1); completed.close();
-	const logoutStart = await app.request('https://site1.test/api/sign.php', { method: 'DELETE', headers: { cookie: businessSessionCookie, 'x-device-key': fingerprint, 'x-device-fingerprint': fingerprintData } });
+	const logoutStart = await app.request('https://site1.test/api/sign.php', { method: 'DELETE', headers: { cookie: businessSessionCookie, 'x-device-key': deviceKey, 'x-device-fingerprint': fingerprintData } });
 	const logoutResult = await logoutStart.json();
 	assert.equal(logoutStart.status, 200);
 	assert.equal(logoutResult.redirectTo, undefined);
@@ -178,7 +178,7 @@ try {
 	const revoked = new DatabaseSync(process.env.DEFAULT_DATABASE_FILE, { readOnly: true });
 	assert.equal(revoked.prepare('SELECT COUNT(*) AS count FROM passport_sessions WHERE token_hash = ?').get(passportSessionHash).count, 0);
 	revoked.close();
-	const afterGlobalLogout = await (await app.request('https://site1.test/api/sign.php', { headers: { cookie: businessSessionCookie, 'x-device-key': fingerprint, 'x-device-fingerprint': fingerprintData } })).json();
+	const afterGlobalLogout = await (await app.request('https://site1.test/api/sign.php', { headers: { cookie: businessSessionCookie, 'x-device-key': deviceKey, 'x-device-fingerprint': fingerprintData } })).json();
 	assert.equal(afterGlobalLogout.user, null);
 	console.log('accounts oidc test passed');
 } finally {

@@ -1,5 +1,5 @@
 import type { ApiHandler } from '@server/modules/base/api-router.mjs';
-import { clearSessionCookie, createSessionCookie, createStoredPassword, hashSessionToken, readSessionId, verifyStoredPassword } from '@server/modules/base/auth/index.mjs';
+import { baseSessionMaxAge, clearSessionCookie, createSessionCookie, createStoredPassword, hashSessionToken, readSessionId, verifyStoredPassword } from '@server/modules/base/auth/index.mjs';
 import { ensureBaseDevice } from '@server/modules/base/device.mjs';
 import type { DatabaseAdapter } from '@server/database/index.mjs';
 import { apiMessage, apiMessageData, apiResponse } from '@server/modules/base/api-response.mjs';
@@ -71,14 +71,14 @@ const localSign: ApiHandler = async (c, next) => {
 		const user = await firstSql<{ id: number; username: string; password: string; roles: string }>(database, sql({ database }).select({ table: 'base_users', columns: { id: 'id', username: 'name', password: 'password', roles: 'roles' }, where: [{ column: 'name', value: credentials.username }, { column: 'status', value: 'enabled' }] }));
 		if (!user || !await verifyStoredPassword(credentials.password, user.password)) return apiMessage(c, 401, '用户名或密码错误', { component: 'modal', type: 'error' });
 		const sessionToken = crypto.randomUUID();
-		const maxAge = credentials.remember ? 30 * 24 * 60 * 60 : 24 * 60 * 60;
+		const maxAge = baseSessionMaxAge;
 		const now = Date.now();
 		let deviceId: string;
 		try { deviceId = await ensureBaseDevice(database, user.id, c.req.raw, c.get('clientIp'), c.get('transportIp')); }
 		catch (error) { return apiMessage(c, 400, error instanceof Error ? error.message : '设备信息无效'); }
 		await runSql(database, sql({ database }).insert('base_sessions', { token_hash: await hashSessionToken(sessionToken), user_id: user.id, device_id: deviceId, expires_at: now + maxAge * 1000 }));
 		c.header('Set-Cookie', createSessionCookie(sessionToken, new URL(c.req.url).protocol === 'https:', maxAge));
-		return apiMessageData(c, 200, '登录成功', { user: { id: user.id, username: user.username }, next: { action: 'reload' } });
+		return apiMessageData(c, 200, '登录成功', { user: { id: user.id, username: user.username }, next: { action: 'reload', delay: 1 } });
 	}
 	if (c.req.method === 'DELETE') {
 		const sessionToken = readSessionId(c.req.raw);

@@ -2,7 +2,7 @@ import type { Context } from 'hono';
 import type { ContentfulStatusCode } from 'hono/utils/http-status';
 import type { AppEnv } from './types.mjs';
 import type { ApiFeedback, ApiFeedbackOptions, ApiSuccessData } from '@shared/types/api-response.mjs';
-import { createDeviceFingerprintTransportCookie, createDeviceKeyTransportCookie } from './device-fingerprint.mjs';
+import { createDeviceKeyTransportCookie } from './device-fingerprint.mjs';
 import { isSecureRequest } from './request-origin.mjs';
 export type { ApiFeedback, ApiFeedbackOptions, ApiSuccessData } from '@shared/types/api-response.mjs';
 
@@ -37,10 +37,7 @@ export const apiResponse = <T extends ApiSuccessData>(
 	const responseCookies = () => c.res.headers.get('set-cookie') ?? '';
 	const deviceKey = c.req.header('x-device-key')?.trim();
 	const transportCookie = deviceKey ? createDeviceKeyTransportCookie(deviceKey, isSecureRequest(c)) : '';
-	if (transportCookie && !responseCookies().includes('quick_react_device_key_transport=')) c.header('Set-Cookie', transportCookie, { append: true });
-	const fingerprint = c.req.header('x-device-fingerprint')?.trim();
-	const fingerprintCookie = fingerprint ? createDeviceFingerprintTransportCookie(fingerprint, isSecureRequest(c)) : '';
-	if (fingerprintCookie && !responseCookies().includes('quick_react_device_fingerprint_transport=')) c.header('Set-Cookie', fingerprintCookie, { append: true });
+	if (transportCookie && !responseCookies().includes('device_key=')) c.header('Set-Cookie', transportCookie, { append: true });
 	return c.json(data, status as ContentfulStatusCode);
 };
 

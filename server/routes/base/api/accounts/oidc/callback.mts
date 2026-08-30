@@ -3,7 +3,7 @@ import { apiMessage } from '@server/modules/base/api-response.mjs';
 import { clearAccountsLoginCookie, accountsLoginCookieName, loadAccountsOidcConfig, loadDiscovery, oidcFetch, verifyIdToken } from '@server/modules/passport/accounts/client.mjs';
 import { readCookie } from '@server/modules/passport/accounts/oidc.mjs';
 import { isValidAccountUsername } from '@server/modules/passport/account.mjs';
-import { createSessionCookie, hashSessionToken } from '@server/modules/base/auth/index.mjs';
+import { baseSessionMaxAge, createSessionCookie, hashSessionToken } from '@server/modules/base/auth/index.mjs';
 import { ensureBaseDevice } from '@server/modules/base/device.mjs';
 import { firstSql, runSql, sql } from '@server/database/sql.mjs';
 import { isSecureRequest, requestOrigin } from '@server/modules/base/request-origin.mjs';
@@ -66,7 +66,7 @@ const handler: ApiHandler = async (c) => {
 		}
 		if (isValidAccountUsername(preferred)) await syncLocalUsername(database, account.user_id, preferred);
 		if (account.status !== 'enabled') return apiMessage(c, 403, '本站用户已停用');
-		const maxAge = 24 * 60 * 60;
+		const maxAge = baseSessionMaxAge;
 		const previousSession = await firstSql<{ session_id: string }>(database, sql({ database }).select({ table: 'base_oidc_sessions', columns: { session_id: 'session_id' }, where: [{ column: 'issuer', value: config.issuer }, { column: 'sid', value: oidcSessionId }] }));
 		const sessionToken = crypto.randomUUID(), sessionHash = await hashSessionToken(sessionToken);
 		const deviceId = await ensureBaseDevice(database, String(account.user_id), c.req.raw, c.get('clientIp'), c.get('transportIp'));

@@ -43,9 +43,9 @@ globalThis.fetch = async (input, init) => {
 };
 
 const cookie = (response, name) => response.headers.getSetCookie().map((value) => value.split(';')[0]).find((value) => value.startsWith(`${name}=`));
-const fingerprint = 'a'.repeat(64);
+const deviceKey = '00000000-0000-4000-8000-000000000001';
 const fingerprintData = JSON.stringify({ canvas_cyrb53: '4b5a6c7d8e9f', audio_cyrb53: '1a2b3c4d5e6f' });
-const withFingerprint = (headers = {}) => ({ 'x-device-key': fingerprint, 'x-device-fingerprint': fingerprintData, ...headers });
+const withFingerprint = (headers = {}) => ({ 'x-device-key': deviceKey, 'x-device-fingerprint': fingerprintData, ...headers });
 const redirectTarget = async (response) => {
 	const location = response.headers.get('location');
 	if (location) return location;
@@ -103,8 +103,8 @@ try {
 
 	// 第三方按钮先由 API 响应保存短期设备传输 Cookie；OAuth 回调本身是浏览器导航，不能附加自定义请求头。
 	const googleProviderAction = await jsonRequest(app, '/api/accounts/sign.php?action=provider:google', { step: 'email' });
-	const transportCookies = googleProviderAction.headers.getSetCookie().filter((value) => /^(quick_react_device_key_transport|quick_react_device_fingerprint_transport)=/.test(value));
-	assert.equal(transportCookies.length, 2);
+	const transportCookies = googleProviderAction.headers.getSetCookie().filter((value) => /^device_key=/.test(value));
+	assert.equal(transportCookies.length, 1);
 	const googleStart = await app.request('http://accounts.test/api/accounts/external/google', { headers: { cookie: transportCookies.map((value) => value.split(';')[0]).join('; ') } });
 	assert.equal(googleStart.status, 200);
 	const googleStateCookie = cookie(googleStart, 'accounts_external_state');
@@ -116,8 +116,7 @@ try {
 	assert.equal(googleCallback.status, 200);
 	const googleSession = cookie(googleCallback, 'passport_session');
 	assert.ok(googleSession);
-	assert.ok(googleCallback.headers.getSetCookie().some((value) => value.startsWith('quick_react_device_key_transport=;')));
-	assert.ok(googleCallback.headers.getSetCookie().some((value) => value.startsWith('quick_react_device_fingerprint_transport=;')));
+	assert.ok(!googleCallback.headers.getSetCookie().some((value) => value.startsWith('device_key=;')));
 	// 新用户还没有用户名，回到登录页继续补全。
 	assert.match(await redirectTarget(googleCallback), /^\/accounts\/sign/);
 	const afterGoogle = new DatabaseSync(process.env.DEFAULT_DATABASE_FILE, { readOnly: true });

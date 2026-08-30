@@ -28,6 +28,8 @@ server/templates/   -> 动态首页响应
 
 `passport` 站点的请求会在站点本地会话之外额外加载 Accounts 会话：存在时把 `accounts` 角色加入 `effectiveRoles`，并把身份写入 `passportUser`。账户中心导航用 `roles: ['accounts']` 控制可见性，接口在 `server/routes/passport/api/panel.mts` 统一做会话守卫。业务站点不复制账号资料，个人中心只展示只读信息并链接到 Accounts 账户中心。
 
+Base 的 `base_session` 使用滑动过期策略：有效请求会把数据库 `expires_at` 和 Cookie 重新续期为 7 天，只有连续 7 天没有使用才失效；Passport 会话仍由 Passport 自己管理。
+
 ## 页面访问状态
 
 `server/modules/base/page-context.mts` 在渲染文档前判断请求路径能否打开，并把结果写入 `initialData.pageStatus`：路径不存在返回 `404`，需要登录返回 `401`，角色不足返回 `403`；文档响应使用同一状态码，提示标题、说明和按钮全部由后端下发。合法路径缺少页面后缀时先 `302` 跳转到带后缀的规范地址。
@@ -38,7 +40,7 @@ server/templates/   -> 动态首页响应
 
 普通后台页面由后端提供导航、组件标识、表格列和数据接口；前端只负责通用布局、表格和表单渲染。新增常规 CRUD 页面时，在 `server/routes/<site_key>/navigation.mts` 增加导航，并在同一站点的 `api/` 下增加接口文件，无需手工修改路由表。
 
-公共请求和反馈层位于 `src/utils/common/`：`api.tsx` 负责请求加载状态、错误拦截和 `feedback` 展示，`feedback.ts` 负责跳转延迟计算；`src/components/common/Countdown.tsx` 提供登录和配置表单共用的倒计时组件。服务端响应输出统一由 `server/modules/base/api-response.mts` 负责，业务 API 不直接调用 `c.json()`。
+公共请求和反馈层位于 `src/utils/common/`：`api.tsx` 负责请求加载状态、错误拦截和 `feedback` 展示，`feedback.ts` 负责跳转延迟计算；`src/utils/common/response-action.ts` 只执行后端下发的统一完成动作，`reload` 可带秒级 `delay` 以便先展示成功反馈；`src/components/common/Countdown.tsx` 提供登录和配置表单共用的倒计时组件。服务端响应输出统一由 `server/modules/base/api-response.mts` 负责，业务 API 不直接调用 `c.json()`。
 
 API 使用物理目录作为分层中间件链。构建阶段扫描 `server/routes/*/api`，生成 Worker 可静态打包的站点路由和模块注册表；运行时不扫描文件系统。每一层优先使用当前站点实现，缺少时沿继承链回退到 `base`。动态 ID 作为参数传给已匹配的叶子处理文件，例如 `/api/panel/admin/data/rows/row-1` 仍由 `rows.mts` 处理。
 
@@ -90,6 +92,10 @@ return next();
 ### 实体字段与跨表引用命名
 
 实体表内部的业务字段只使用字段本身的名称，不重复实体前缀。例如设备表保存 UUID 业务键时字段名为 `key`，按“实体名 + 字段名”组合后的跨表名称就是 `device_key`，不可能产生 `device_device_key`；后者仅会在设备表错误地把字段命名为 `device_key` 后又重复添加实体前缀时出现，属于错误命名。关联设备记录主键时统一使用 `device_id`；Passport 设备使用 `passport_device_id`。字段名和跨表引用名不能通过机械重复前缀生成。
+
+设备键的业务语义统一使用 `device_key`：设备表内部字段为 `key`，浏览器存储键为 `device_key`，请求头为 `X-Device-Key`。这些稳定名称不得带入当前项目或产品名称；设备键不是会话凭证，禁止改名为 `session_key`。浏览器长期保存设备键于 `localStorage.device_key`；浏览器导航和 OAuth/OIDC 回调使用会话级 HttpOnly `device_key` Cookie 携带设备键，浏览器重启后由前端从 localStorage 优先通过请求头提交，后端响应重新写入会话 Cookie。首次 HTML 导航暂时没有设备键时只读取活动会话和设备关系，不删除会话；后续 API 请求仍必须携带并校验设备键。它只用于设备键传输，不代表登录会话，登录成功后不能清除。
+
+OAuth/OIDC 回调必须在一次服务端回调请求内完成授权码处理、设备绑定和会话建立，不得为了补充设备信息增加“回调页面再请求 API”的额外往返。第三方导航无法携带自定义请求头时，必要的设备键使用 HttpOnly `device_key` Cookie；非认证性的 fingerprint 缺失时直接跳过或初始化，不得触发补充请求。
 
 ### 站点继承与表归属分离
 

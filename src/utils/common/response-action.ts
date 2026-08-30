@@ -1,7 +1,12 @@
 import type { ApiNextAction } from '@shared/types/api-response.mjs';
 
 const handlers: Record<ApiNextAction['action'], (next: ApiNextAction) => void> = {
-	reload: () => window.location.reload(),
+	reload: (next) => {
+		const delayValue = next.action === 'reload' ? next.delay ?? 0 : 0;
+		const delay = Number.isFinite(delayValue) ? Math.max(0, delayValue) : 0;
+		if (delay === 0) { window.location.reload(); return; }
+		window.setTimeout(() => window.location.reload(), delay * 1000);
+	},
 	navigate: (next) => { if (next.action === 'navigate') window.location.assign(next.path); },
 };
 

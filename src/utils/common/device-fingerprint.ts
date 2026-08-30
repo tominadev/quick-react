@@ -1,11 +1,7 @@
 let fingerprintPromise: Promise<string> | undefined;
 let networkInfoPromise: Promise<string> | undefined;
 let deviceKeyPromise: Promise<string> | undefined;
-
-const sha256Hex = async (value: string) => {
-	const digest = await crypto.subtle.digest('SHA-256', new TextEncoder().encode(value));
-	return [...new Uint8Array(digest)].map((byte) => byte.toString(16).padStart(2, '0')).join('');
-};
+const deviceKeyPattern = /^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/;
 
 /** Stable 53-bit hash used for browser feature evidence. It is not a device key. */
 const cyrb53 = (value: string, seed = 0) => {
@@ -118,34 +114,23 @@ export const getDeviceNetworkInfo = () => {
 
 const readStoredDeviceKey = () => {
 	try {
-		const value = window.localStorage.getItem('quick_react_device_key')?.trim() ?? '';
-		return /^[a-f0-9]{64}$/.test(value) ? value : '';
+		const value = window.localStorage.getItem('device_key')?.trim() ?? '';
+		return deviceKeyPattern.test(value) ? value : '';
 	} catch {
 		return '';
 	}
 };
 
 const storeDeviceKey = (value: string) => {
-	try { window.localStorage.setItem('quick_react_device_key', value); return true; }
+	try { window.localStorage.setItem('device_key', value); return true; }
 	catch { return false; }
 };
 
-/** Generate and persist the per-origin device identifier exactly once. */
+/** Generate and persist the per-origin UUID device identifier exactly once. */
 const computeDeviceKey = async () => {
 	const stored = readStoredDeviceKey();
 	if (stored) return stored;
-	const [fingerprint, networkInfo] = await Promise.all([getDeviceFingerprint(), getDeviceNetworkInfo()]);
-	const collected = {
-		fingerprint: JSON.parse(fingerprint),
-		webrtc_ips: networkInfo ? networkInfo.split(',').filter(Boolean) : [],
-		user_agent: navigator.userAgent,
-		platform: navigator.platform,
-		language: navigator.language,
-		screen_width: window.screen.width,
-		screen_height: window.screen.height,
-	};
-	const entropy = `${JSON.stringify(collected)}${new Date().getTime()}${Math.random().toString().substring(2)}`;
-	const key = await sha256Hex(entropy);
+	const key = crypto.randomUUID();
 	return storeDeviceKey(key) ? key : '';
 };
 

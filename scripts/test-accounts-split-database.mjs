@@ -26,7 +26,7 @@ const userId = '1000000000000000007';
 const emailId = '2000000000000000007';
 const sessionId = 'accounts-split-session';
 const cookie = `passport_session=${sessionId}`;
-const fingerprint = 'a'.repeat(64);
+const deviceKey = '00000000-0000-4000-8000-000000000001';
 const fingerprintData = JSON.stringify({ canvas_cyrb53: '4b5a6c7d8e9f', audio_cyrb53: '1a2b3c4d5e6f' });
 
 try {
@@ -58,15 +58,15 @@ try {
 	passportDatabase.prepare("INSERT INTO passport_users (user_id, name, nickname, status, created_at, updated_at) VALUES (?, ?, '分库用户', 'enabled', ?, ?)").run(userId, `passport_${userId}`, now, now);
 	passportDatabase.prepare("INSERT INTO passport_emails (id, email, verified, created_at, updated_at) VALUES (?, 'split@example.com', 1, ?, ?)").run(emailId, now, now);
 	passportDatabase.prepare('INSERT INTO passport_user_emails (user_id, email_id, is_primary, created_at, updated_at) VALUES (?, ?, 1, ?, ?)').run(userId, emailId, now, now);
-	passportDatabase.prepare("INSERT INTO passport_devices (key,fingerprint,status,last_seen_at,created_at,updated_at) VALUES (?,?,'active',?,?,?)").run(fingerprint, fingerprintData, now, now, now);
-	const deviceId = passportDatabase.prepare('SELECT id FROM passport_devices WHERE key = ?').get(fingerprint).id;
+	passportDatabase.prepare("INSERT INTO passport_devices (key,fingerprint,status,last_seen_at,created_at,updated_at) VALUES (?,?,'active',?,?,?)").run(deviceKey, fingerprintData, now, now, now);
+	const deviceId = passportDatabase.prepare('SELECT id FROM passport_devices WHERE key = ?').get(deviceKey).id;
 	passportDatabase.prepare("INSERT INTO passport_device_users (device_id,user_id,status,last_seen_at,created_at,updated_at) VALUES (?,?,'active',?,?,?)").run(deviceId, userId, now, now, now);
 	passportDatabase.prepare('INSERT INTO passport_sessions (token_hash, user_id, device_id, expires_at, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?)').run(Buffer.from(await crypto.subtle.digest('SHA-256', new TextEncoder().encode(sessionId))).toString('hex'), userId, deviceId, now + 3600_000, now, now);
 	passportDatabase.close();
 
 	const request = (path, options = {}) => app.request(`http://accounts.split.test${path}`, {
 		method: options.method,
-		headers: { 'x-device-key': fingerprint, 'x-device-fingerprint': fingerprintData, ...(options.cookie ? { cookie: options.cookie } : {}), ...(options.body === undefined ? {} : { 'content-type': 'application/json' }), ...options.headers },
+		headers: { 'x-device-key': deviceKey, 'x-device-fingerprint': fingerprintData, ...(options.cookie ? { cookie: options.cookie } : {}), ...(options.body === undefined ? {} : { 'content-type': 'application/json' }), ...options.headers },
 		body: options.body === undefined ? undefined : JSON.stringify(options.body),
 	});
 

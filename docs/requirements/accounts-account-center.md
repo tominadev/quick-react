@@ -264,6 +264,8 @@ Accounts 站点上可能同时存在两种会话：站点本地账号（`base_us
 
 因此 Accounts 站点上可能同时存在两种会话，头部以 Accounts 昵称为准。共库部署时三个站点看到同一张 `base_users` 表，但会话 Cookie 是 host-only 的，不会跨域名带过去。
 
+本站 `base_session` 采用滑动过期：每次有效请求都会把数据库会话和 Cookie 续期为 7 天，只有连续 7 天没有使用才失效；Passport 的 `passport_session` 仍按 Passport 会话策略独立管理。
+
 ## 推荐登录方式与头像同步（2026-08-28 补充）
 
 - 能直接提供**已验证邮箱**的身份源（目前是 Google）在登录页排在最前并标注「新用户无需邮箱验证码」：走这条路创建账号不需要再收验证码，是体验最好的注册方式。
@@ -328,15 +330,16 @@ Accounts 站点上可能同时存在两种会话：站点本地账号（`base_us
 
 Accounts 提供类似 Google 的登录设备管理。Accounts 使用 Passport 层自己的 `passport_devices`、`passport_device_users` 管理身份中心设备；各业务站点和 Passport 本站的本地会话使用各自 Base 层的 `base_devices`、`base_device_users` 与 `base_sessions`。两类设备不共用关联表，跨站点通过 `passport_user_id + passport_device_id` 的服务端关联对应，不能使用可能碰撞的客户端 `fingerprint`。
 
-- Passport 设备表使用 `passport_devices`，业务站点设备表使用各自数据库中的 `base_devices`；设备主键自增，客户端保存在当前站点 `localStorage` 的 `device_key` 作为唯一业务字段。`device_key` 由已采集设备数据、当前时间和随机数拼接后计算 SHA-256；`fingerprint` 只保存独立的 JSON 设备特征，不承担唯一性。
+- Passport 设备表使用 `passport_devices`，业务站点设备表使用各自数据库中的 `base_devices`；设备主键自增，客户端在当前站点 `localStorage.device_key` 中保存由 `crypto.randomUUID()` 生成的 UUID v4 作为 `key` 的值。产品名称未确定前，设备键、存储键和传输 Cookie 不得包含项目名。`fingerprint` 只保存独立的 JSON 设备特征，不承担唯一性。
 - Passport 设备与 Accounts 账号通过 `passport_device_users(device_id, user_id)` 多对多关联；Base 设备与本站本地账号通过 `base_device_users(device_id, user_id)` 多对多关联。同一浏览器可以在不同身份域拥有两条设备记录。
 - `passport_sessions` 和 `base_sessions` 分别只关联各自设备表；会话继续有效必须同时满足对应账号关联处于 active、`device_key` 与设备记录匹配且设备未注销。
 - `passport_devices`、`passport_device_users`、`base_devices`、`base_device_users` 和设备快照表都必须保留 `created_duid`、`updated_duid` 审计字段；设备创建、注销、拉黑及解除操作必须记录实际操作者的 `device_user_id`，系统任务或无设备操作才使用 `NULL`。
 - 设备记录同样使用统一的 `deleted_at` 软删除字段；正常设备列表默认隐藏已删除记录，回收站查看或恢复必须通过显式的删除范围操作完成。
 - `passport_devices` 的全局拉黑只允许管理员或安全管理员操作，会阻止该 `device_key` 下所有 Accounts 账号登录；普通账号只能操作自己在 `passport_device_users` 中的关系级拉黑，不影响同一设备上的其他账号。退出登录只删除会话，不改变设备或设备用户关系。
-- 浏览器 `fingerprint` 使用固定 Canvas 内容和可用的离线音频上下文分别计算 `cyrb53`，并将结果转换为不带前导零的小写十六进制字符串后以扁平 JSON 保存，例如 `{"canvas_cyrb53":"4b5a6c7d8e9f","audio_cyrb53":"1a2b3c4d5e6f"}`；音频能力不可用时省略 `audio_cyrb53`，不写入 `null`，Canvas 和音频原始数据不落库。`device_key` 首次生成后写入当前站点的 `localStorage`。由于 OAuth/外部登录的第三方导航不能附加自定义请求头，API 公共响应会额外下发短期 HttpOnly 传输 Cookie，仅用于把 `device_key` 和 `fingerprint` 带到同源回调，成功回调后立即清除；该 Cookie 不是设备存储或会话凭证。
+- 浏览器 `fingerprint` 使用固定 Canvas 内容和可用的离线音频上下文分别计算 `cyrb53`，并将结果转换为不带前导零的小写十六进制字符串后以扁平 JSON 保存，例如 `{"canvas_cyrb53":"4b5a6c7d8e9f","audio_cyrb53":"1a2b3c4d5e6f"}`；音频能力不可用时省略 `audio_cyrb53`，不写入 `null`，Canvas 和音频原始数据不落库。`device_key` 首次生成后写入当前站点的 `localStorage.device_key`。浏览器导航和 OAuth/OIDC 回调使用会话级 HttpOnly `device_key` Cookie 携带设备键；浏览器重启后前端优先从 localStorage 通过 `X-Device-Key` 提交，后端响应重新写入会话 Cookie，首次 HTML 导航暂时没有设备键时不删除活动会话，成功回调后不能清除；fingerprint 不是认证凭证，不通过 Cookie 传输，缺失时保留已有设备证据或初始化为空对象。
 - `device_key` 是设备识别和会话继续有效的必要条件；`fingerprint` JSON 是分析证据，不作为认证凭证。请求必须同时具备有效 `session_id` 和 `device_key`，且 `device_key` 与该 session 关联设备匹配；缺少、变化或被注销时，Accounts 会话立即失效。
 - 设备管理支持查看当前设备、查看全部设备、注销单台设备和注销全部其他设备。注销设备会使该设备关联的所有 `passport_sessions` 失效；允许因指纹碰撞造成误杀，安全优先于免打扰体验。
 - `device_key` 通过 `X-Device-Key` 请求头传输，不得直接把它当作 session 凭证；认证仍由服务端 session 状态决定。
+- OAuth/OIDC 回调必须一次请求完成授权处理、设备绑定和会话建立，不为补充设备信息增加额外页面或 API 请求；回调导航无法携带请求头时，设备键使用 HttpOnly `device_key` Cookie，fingerprint 缺失则不补发请求。
 - 业务站点通过本地登录或 OIDC 获得身份，并使用 Base 层设备能力建立自己的 `base_sessions`；设备指纹、设备用户关系和快照由 Base 统一维护。
 - 设备网络信息分为两个层次：`ip_address` 只保存服务端依据可信代理列表解析出的单一真实客户端 IP；`network_info` 保存请求中实际收到的原始网络证据扁平 JSON（例如 `transport_ip`、`x_real_ip`、`x_forwarded_for`、`cf_connecting_ip`、`eo_connecting_ip`、`ali_cdn_real_ip` 和地址数组 `webrtc_ips`）。缺失值不写入 JSON，不保存 `true_client_ip` 或 `resolved_*` 等派生字段；可信代理列表仍是解析真实 IP 的依据。

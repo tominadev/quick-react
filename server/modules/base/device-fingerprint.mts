@@ -1,26 +1,26 @@
-export const deviceKeyTransportCookieName = 'quick_react_device_key_transport';
-export const deviceFingerprintTransportCookieName = 'quick_react_device_fingerprint_transport';
-const deviceKeyPattern = /^[a-f0-9]{64}$/;
+const deviceKeyPattern = /^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/;
 
-/**
- * OAuth/外部登录会经过第三方页面，浏览器导航无法附加自定义请求头。
- * API 响应会把本次请求的设备键和 fingerprint 临时放入 HttpOnly Cookie，仅用于把它们带到回调，
- * 设备键的正式存储位置仍然是当前站点 localStorage。
- */
+/** 浏览器导航和 OAuth 回调使用的 HttpOnly 设备键 Cookie；它不是会话凭证。 */
+export const deviceKeyTransportCookieName = 'device_key';
 export const createDeviceKeyTransportCookie = (value: string, secure: boolean) => deviceKeyPattern.test(value)
-	? `${deviceKeyTransportCookieName}=${encodeURIComponent(value)}; Path=/; HttpOnly; SameSite=Lax; Max-Age=600${secure ? '; Secure' : ''}`
+	? `${deviceKeyTransportCookieName}=${encodeURIComponent(value)}; Path=/; HttpOnly; SameSite=Lax${secure ? '; Secure' : ''}`
 	: '';
-export const clearDeviceKeyTransportCookie = (secure: boolean) => `${deviceKeyTransportCookieName}=; Path=/; HttpOnly; SameSite=Lax; Max-Age=0${secure ? '; Secure' : ''}`;
-export const clearDeviceFingerprintTransportCookie = (secure: boolean) => `${deviceFingerprintTransportCookieName}=; Path=/; HttpOnly; SameSite=Lax; Max-Age=0${secure ? '; Secure' : ''}`;
 
 const cookieValue = (request: Request, name: string) => request.headers.get('cookie')?.split(';').map((part) => part.trim()).find((part) => part.startsWith(`${name}=`))?.slice(name.length + 1) ?? '';
 const decodeCookie = (value: string) => { try { return decodeURIComponent(value); } catch { return ''; } };
 
-/** 设备唯一键只接受客户端生成的 SHA-256（小写十六进制）结果。 */
-export const readDeviceKey = (request: Request) => {
+/** 设备唯一键只接受客户端生成的 UUID v4（小写十六进制）。 */
+export const readOptionalDeviceKey = (request: Request) => {
 	const header = request.headers.get('x-device-key')?.trim() ?? '';
 	const value = header || decodeCookie(cookieValue(request, deviceKeyTransportCookieName));
+	if (!value) return undefined;
 	if (!deviceKeyPattern.test(value)) throw new Error('设备标识无效，请刷新页面后重试');
+	return value;
+};
+
+export const readDeviceKey = (request: Request) => {
+	const value = readOptionalDeviceKey(request);
+	if (!value) throw new Error('设备标识无效，请刷新页面后重试');
 	return value;
 };
 
@@ -38,13 +38,13 @@ const parseDeviceFingerprint = (value: string) => {
 	if (!isCyrb53(evidence.canvas_cyrb53) || (evidence.audio_cyrb53 !== undefined && !isCyrb53(evidence.audio_cyrb53))) throw new Error('设备指纹数据无效，请刷新页面后重试');
 	return JSON.stringify(parsed);
 };
-export const readDeviceFingerprint = (request: Request) => parseDeviceFingerprint(request.headers.get('x-device-fingerprint')?.trim() || decodeCookie(cookieValue(request, deviceFingerprintTransportCookieName)));
-
-/** 将请求头中的 fingerprint 临时交给 OAuth/外部回调导航使用。 */
-export const createDeviceFingerprintTransportCookie = (value: string, secure: boolean) => {
-	try {
-		return `${deviceFingerprintTransportCookieName}=${encodeURIComponent(parseDeviceFingerprint(value))}; Path=/; HttpOnly; SameSite=Lax; Max-Age=600${secure ? '; Secure' : ''}`;
-	} catch { return ''; }
+/**
+ * fingerprint 只通过前端请求头提交；第三方 OAuth 回调没有自定义请求头时允许缺省。
+ * 它是设备分析证据，不是认证凭证，缺省时由设备写入逻辑保留原值或使用空对象初始化。
+ */
+export const readDeviceFingerprint = (request: Request) => {
+	const value = request.headers.get('x-device-fingerprint')?.trim() ?? '';
+	return value ? parseDeviceFingerprint(value) : undefined;
 };
 
 const networkHeaders = [

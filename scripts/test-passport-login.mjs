@@ -43,13 +43,13 @@ try {
 		(id, user_id, bot_id, telegram_user_id, chat_id, nickname, created_at, updated_at)
 		VALUES (201, ?, 1, 9001, 9001, 'PassportUser', ?, ?)`).run(userId, now, now);
 	database.close();
-	const fingerprint = 'a'.repeat(64);
+const deviceKey = '00000000-0000-4000-8000-000000000001';
 const fingerprintData = JSON.stringify({ canvas_cyrb53: '4b5a6c7d8e9f', audio_cyrb53: '1a2b3c4d5e6f' });
 
 	const request = async (path, options = {}) => {
 		const headers = new Headers(options.headers);
 		if (options.cookie) headers.set('cookie', options.cookie);
-		if (!headers.has('x-device-key')) headers.set('x-device-key', fingerprint);
+		if (!headers.has('x-device-key')) headers.set('x-device-key', deviceKey);
 		if (!headers.has('x-device-fingerprint')) headers.set('x-device-fingerprint', fingerprintData);
 		if (options.body !== undefined) headers.set('content-type', 'application/json');
 		return app.request(`http://${options.host ?? 'passport.test'}${path}`, {
@@ -138,7 +138,7 @@ const fingerprintData = JSON.stringify({ canvas_cyrb53: '4b5a6c7d8e9f', audio_cy
 	assert.equal((await (await request('/api/accounts/sign.php', { cookie: passportCookie })).json()).user.id, userId);
 	const localSessionDatabase = new DatabaseSync(process.env.DEFAULT_DATABASE_FILE);
 	localSessionDatabase.prepare("INSERT INTO base_users (id, name, password, roles, status, created_at, updated_at) VALUES (99, 'local_user', '!local', '[]', 'enabled', ?, ?)").run(Date.now(), Date.now());
-	localSessionDatabase.prepare("INSERT INTO base_devices (id, user_id, key, fingerprint, status, last_seen_at, created_at, updated_at) VALUES (301, 99, ?, ?, 'active', ?, ?, ?)").run(fingerprint, fingerprintData, Date.now(), Date.now(), Date.now());
+	localSessionDatabase.prepare("INSERT INTO base_devices (id, user_id, key, fingerprint, status, last_seen_at, created_at, updated_at) VALUES (301, 99, ?, ?, 'active', ?, ?, ?)").run(deviceKey, fingerprintData, Date.now(), Date.now(), Date.now());
 	localSessionDatabase.prepare("INSERT INTO base_device_users (device_id, user_id, status, last_seen_at, created_at, updated_at) VALUES (301, 99, 'active', ?, ?, ?)").run(Date.now(), Date.now(), Date.now());
 	const localSessionToken = 'local-passport-session';
 	const localSessionHash = Buffer.from(await crypto.subtle.digest('SHA-256', new TextEncoder().encode(localSessionToken))).toString('base64url');

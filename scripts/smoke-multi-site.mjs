@@ -92,7 +92,7 @@ globalThis.fetch = async (input, init) => {
 try {
 	const { app } = await import(`../dist/server.mjs?smoke=${Date.now()}`);
 	internalApp = app;
-	const fingerprint = 'a'.repeat(64);
+	const deviceKey = '00000000-0000-4000-8000-000000000001';
 	const fingerprintData = JSON.stringify({ canvas_cyrb53: '4b5a6c7d8e9f', audio_cyrb53: '1a2b3c4d5e6f' });
 	const migratedDatabase = new DatabaseSync(process.env.DEFAULT_DATABASE_FILE, { readOnly: true });
 	assert.equal(migratedDatabase.prepare("SELECT migration_status FROM global_sites WHERE key = 'passport'").get()?.migration_status, 'ready');
@@ -101,7 +101,7 @@ try {
 	const request = async (host, path, options = {}) => {
 		const headers = new Headers(options.headers);
 		if (options.cookie) headers.set('cookie', options.cookie);
-		if (!headers.has('x-device-key')) headers.set('x-device-key', fingerprint);
+		if (!headers.has('x-device-key')) headers.set('x-device-key', deviceKey);
 		if (!headers.has('x-device-fingerprint')) headers.set('x-device-fingerprint', fingerprintData);
 		if (options.body !== undefined) headers.set('content-type', 'application/json');
 		return app.request(`http://${host}${path}`, {
@@ -237,7 +237,7 @@ try {
 	assert.equal(oidcClientEdit.redirect_uri_source, 'https://site1.test/api/accounts/oidc/callback');
 	assert.equal(oidcClientEdit.backchannel_logout_path, '/api/accounts/oidc/backchannel-logout');
 	const oidcSettingsTest = await app.request('https://site1.test/api/panel/admin/system/settings/accounts-oidc.php?action=test', {
-		method: 'POST', headers: { cookie, 'x-device-key': fingerprint, 'x-device-fingerprint': fingerprintData, 'content-type': 'application/json' }, body: JSON.stringify({ issuer: 'https://passport.test', clientId: createdOidcClient.id, clientSecret: createdOidcCredentials.client_secret }),
+		method: 'POST', headers: { cookie, 'x-device-key': deviceKey, 'x-device-fingerprint': fingerprintData, 'content-type': 'application/json' }, body: JSON.stringify({ issuer: 'https://passport.test', clientId: createdOidcClient.id, clientSecret: createdOidcCredentials.client_secret }),
 	});
 	assert.equal(oidcSettingsTest.status, 200);
 	assert.match((await oidcSettingsTest.json()).feedback.message, /连接测试通过/);

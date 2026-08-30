@@ -12,7 +12,7 @@ import { apiMessage } from './modules/base/api-response.mjs';
 import { oidcDiscovery } from './modules/passport/accounts/provider.mjs';
 import { withDatabaseActors, type DatabaseAdapter } from './database/index.mjs';
 import { SiteRouter } from './modules/base/site-router.mjs';
-import { loadBaseDeviceUserId, loadCurrentUser, sessionUsesAccountsOidc } from './modules/base/auth/index.mjs';
+import { baseSessionMaxAge, createSessionCookie, loadBaseDeviceUserId, loadCurrentUser, readSessionId, sessionUsesAccountsOidc } from './modules/base/auth/index.mjs';
 import { loadAccountsOidcConfig, resolveAccountsLoginMode } from './modules/passport/accounts/client.mjs';
 import { clearPassportSessionCookie, loadPassportDeviceUserId, loadPassportSession, readPassportSessionId } from './modules/passport/session.mjs';
 import { loadSystemConfigFromStore } from './modules/base/system-config.mjs';
@@ -123,6 +123,10 @@ const configureForRequest = async (c: Context<WorkerEnv>) => {
 		? storedCurrentUser
 		: undefined;
 	if (currentUser) c.set('currentUser', currentUser);
+	if (currentUser && c.req.method !== 'DELETE') {
+		const sessionId = readSessionId(c.req.raw);
+		if (sessionId) c.header('Set-Cookie', createSessionCookie(sessionId, isSecureRequest(c), baseSessionMaxAge));
+	}
 	// Accounts 会话与站点本地会话相互独立，存在时额外授予 accounts 角色。
 	const passportSessionId = readPassportSessionId(c.req.raw);
 	const passportUser = passportDatabase && accountsIdentity
