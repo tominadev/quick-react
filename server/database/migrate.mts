@@ -16,7 +16,7 @@ const ensureMigrationTable = async (database: DatabaseAdapter) => {
 
 const ensureAuditColumns = async (database: DatabaseAdapter) => {
 	const numberType = database.dialect === 'sqlite' || !database.dialect ? 'INTEGER' : 'BIGINT';
-	const uidType = database.dialect === 'mysql' ? 'VARCHAR(255)' : 'TEXT';
+	const uidType = numberType;
 	for (const { name: table } of await listTables(database)) {
 		const existing = new Set((await listColumns(database, table)).map((column) => column.name));
 		for (const [column, definition] of [['created_at', `${numberType} NOT NULL DEFAULT 0`], ['updated_at', `${numberType} NOT NULL DEFAULT 0`], ['created_uid', `${uidType} NULL`], ['updated_uid', `${uidType} NULL`]] as const) {
