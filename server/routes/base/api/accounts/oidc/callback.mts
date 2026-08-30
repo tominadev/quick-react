@@ -4,6 +4,7 @@ import { clearAccountsLoginCookie, accountsLoginCookieName, loadAccountsOidcConf
 import { readCookie } from '@server/modules/passport/accounts/oidc.mjs';
 import { isValidAccountUsername } from '@server/modules/passport/account.mjs';
 import { createSessionCookie, hashSessionToken } from '@server/modules/base/auth/index.mjs';
+import { ensureBaseDevice } from '@server/modules/base/device.mjs';
 import { firstSql, runSql, sql } from '@server/database/sql.mjs';
 import { isSecureRequest, requestOrigin } from '@server/modules/base/request-origin.mjs';
 
@@ -68,12 +69,13 @@ const handler: ApiHandler = async (c) => {
 		const maxAge = 24 * 60 * 60;
 		const previousSession = await firstSql<{ session_id: string }>(database, sql({ database }).select({ table: 'base_oidc_sessions', columns: { session_id: 'session_id' }, where: [{ column: 'issuer', value: config.issuer }, { column: 'sid', value: oidcSessionId }] }));
 		const sessionToken = crypto.randomUUID(), sessionHash = await hashSessionToken(sessionToken);
+		const deviceId = await ensureBaseDevice(database, String(account.user_id), c.req.raw);
 		let sessionId: string;
 		if (previousSession) {
 			sessionId = previousSession.session_id;
-			await runSql(database, sql({ database }).update('base_sessions', { token_hash: sessionHash, user_id: account.user_id, expires_at: now + maxAge * 1000 }, { id: sessionId }));
+			await runSql(database, sql({ database }).update('base_sessions', { token_hash: sessionHash, user_id: account.user_id, device_id: deviceId, expires_at: now + maxAge * 1000 }, { id: sessionId }));
 		} else {
-			await runSql(database, sql({ database }).insert('base_sessions', { token_hash: sessionHash, user_id: account.user_id, expires_at: now + maxAge * 1000 }));
+			await runSql(database, sql({ database }).insert('base_sessions', { token_hash: sessionHash, user_id: account.user_id, device_id: deviceId, expires_at: now + maxAge * 1000 }));
 			const created = await firstSql<{ id: number | string | bigint }>(database, sql({ database }).select({ table: 'base_sessions', columns: { id: 'id' }, where: [{ column: 'token_hash', value: sessionHash }], limit: 1 }));
 			if (!created) throw new Error('本站会话创建失败');
 			sessionId = String(created.id);

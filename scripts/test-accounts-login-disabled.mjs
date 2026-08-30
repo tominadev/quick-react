@@ -11,9 +11,10 @@ process.env.SKIP_SERVER_LISTEN = '1';
 
 try {
 	const { app } = await import(`../dist/server.mjs?login-disabled=${Date.now()}`);
+	const fingerprint = 'a'.repeat(64);
 	const request = (path, options = {}) => app.request(`http://localhost${path}`, {
 		method: options.method,
-		headers: { ...(options.body === undefined ? {} : { 'content-type': 'application/json' }), ...options.headers },
+		headers: { 'x-device-fingerprint': fingerprint, ...(options.body === undefined ? {} : { 'content-type': 'application/json' }), ...options.headers },
 		body: options.body === undefined ? undefined : JSON.stringify(options.body),
 	});
 	const initialData = async (path) => {

@@ -23,7 +23,8 @@ CREATE TABLE "base_sessions" (
     "updated_duid" BIGINT,
     "token_hash" TEXT NOT NULL,
     "user_id" BIGINT NOT NULL,
-    "expires_at" BIGINT NOT NULL
+    "expires_at" BIGINT NOT NULL,
+    "device_id" BIGINT NOT NULL
 );
 
 -- CreateTable

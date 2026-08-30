@@ -12,8 +12,10 @@ const sitePath = '/api/panel/admin/global/site/sites.php';
 
 try {
 	const { app } = await import(`../dist/server.mjs?site-database=${Date.now()}`);
+	const fingerprint = 'a'.repeat(64);
 	const request = async (path, options = {}) => {
 		const headers = new Headers(options.headers);
+		if (!headers.has('x-device-fingerprint')) headers.set('x-device-fingerprint', fingerprint);
 		if (options.cookie) headers.set('cookie', options.cookie);
 		if (options.body !== undefined) headers.set('content-type', 'application/json');
 		return app.request(`http://localhost${path}`, { method: options.method, headers, body: options.body === undefined ? undefined : JSON.stringify(options.body) });

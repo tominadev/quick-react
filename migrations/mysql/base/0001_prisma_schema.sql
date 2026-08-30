@@ -27,6 +27,7 @@ CREATE TABLE `base_sessions` (
     `token_hash` VARCHAR(191) NOT NULL,
     `user_id` BIGINT NOT NULL,
     `expires_at` BIGINT NOT NULL,
+    `device_id` BIGINT NOT NULL,
 
     UNIQUE INDEX `base_sessions_token_hash_key`(`token_hash`),
     PRIMARY KEY (`id`)

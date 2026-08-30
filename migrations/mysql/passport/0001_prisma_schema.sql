@@ -75,11 +75,47 @@ CREATE TABLE `passport_sessions` (
     `token_hash` VARCHAR(191) NOT NULL,
     `user_id` BIGINT NOT NULL,
     `expires_at` BIGINT NOT NULL,
-    `device_id` BIGINT NULL,
+    `device_id` BIGINT NOT NULL,
 
     UNIQUE INDEX `passport_sessions_token_hash_key`(`token_hash`),
     INDEX `passport_sessions_user_id_idx`(`user_id`),
     INDEX `passport_sessions_expires_at_idx`(`expires_at`),
+    PRIMARY KEY (`id`)
+) DEFAULT CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci;
+
+-- CreateTable
+CREATE TABLE `passport_devices` (
+    `id` BIGINT NOT NULL AUTO_INCREMENT,
+    `created_at` BIGINT NOT NULL,
+    `updated_at` BIGINT NOT NULL,
+    `created_duid` BIGINT NULL,
+    `updated_duid` BIGINT NULL,
+    `fingerprint` VARCHAR(191) NOT NULL,
+    `user_agent` VARCHAR(191) NOT NULL DEFAULT '',
+    `platform` VARCHAR(191) NOT NULL DEFAULT '',
+    `ip_address` VARCHAR(191) NOT NULL DEFAULT '',
+    `status` ENUM('active', 'revoked') NOT NULL DEFAULT 'active',
+    `last_seen_at` BIGINT NOT NULL,
+    `revoked_at` BIGINT NULL,
+
+    UNIQUE INDEX `passport_devices_fingerprint_key`(`fingerprint`),
+    PRIMARY KEY (`id`)
+) DEFAULT CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci;
+
+-- CreateTable
+CREATE TABLE `passport_device_users` (
+    `id` BIGINT NOT NULL AUTO_INCREMENT,
+    `created_at` BIGINT NOT NULL,
+    `updated_at` BIGINT NOT NULL,
+    `created_duid` BIGINT NULL,
+    `updated_duid` BIGINT NULL,
+    `device_id` BIGINT NOT NULL,
+    `user_id` BIGINT NOT NULL,
+    `status` ENUM('active', 'revoked') NOT NULL DEFAULT 'active',
+    `last_seen_at` BIGINT NOT NULL,
+    `revoked_at` BIGINT NULL,
+
+    UNIQUE INDEX `passport_device_users_device_id_user_id_key`(`device_id`, `user_id`),
     PRIMARY KEY (`id`)
 ) DEFAULT CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci;
 

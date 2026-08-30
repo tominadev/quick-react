@@ -1,7 +1,7 @@
 import type { DatabaseAdapter } from '@server/database/index.mjs';
 import { firstSql, runSql, sql } from '@server/database/sql.mjs';
-import { validateBaseDevice } from '@server/modules/base/device.mjs';
 import { sha256 } from '@server/modules/passport/accounts/oidc.mjs';
+import { validatePassportDevice } from '@server/modules/passport/device.mjs';
 
 export const passportSessionCookieName = 'passport_session';
 
@@ -33,7 +33,7 @@ export const loadPassportSession = async (database: DatabaseAdapter, request: Re
 		return undefined;
 	}
 	try {
-		if (await validateBaseDevice(database, user.user_id, user.device_id, request)) return { id: user.user_id, username: user.nickname, roles: [] };
+		if (await validatePassportDevice(database, user.user_id, user.device_id, request)) return { id: user.user_id, username: user.nickname, roles: [] };
 	} catch {
 		// 指纹格式错误同样使当前会话失效。
 	}

@@ -34,6 +34,7 @@ model base_sessions {
   token_hash String @unique
   user_id    BigInt
   expires_at BigInt
+  device_id  BigInt
 }
 
 model base_configs {

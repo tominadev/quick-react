@@ -1,5 +1,6 @@
 import type { DatabaseAdapter } from '@server/database/index.mjs';
-import { firstSql, sql } from '@server/database/sql.mjs';
+import { firstSql, runSql, sql } from '@server/database/sql.mjs';
+import { validateBaseDevice } from '@server/modules/base/device.mjs';
 import { parseRoles } from '@shared/types/role.mjs';
 
 const encoder = new TextEncoder();
@@ -108,9 +109,19 @@ export const clearSessionCookie = (secure: boolean) =>
 export const loadCurrentUser = async (database: DatabaseAdapter, request: Request) => {
 	const sessionId = readSessionId(request);
 	if (!sessionId) return undefined;
-	const row = await firstSql<{ id: number; username: string; roles: string }>(database, sql({ database }).select({ table: 'base_sessions', alias: 's', columns: { id: 'u.id', username: 'u.username', roles: 'u.roles' }, joins: [{ table: 'base_users', alias: 'u', left: 'u.id', right: 's.user_id' }], where: [{ column: 's.token_hash', value: await hashSessionToken(sessionId) }, { column: 's.expires_at', operator: '>', value: Date.now() }, { column: 'u.status', value: 'enabled' }] }));
+	const row = await firstSql<{ id: number; username: string; roles: string; device_id: string | null }>(database, sql({ database }).select({ table: 'base_sessions', alias: 's', columns: { id: 'u.id', username: 'u.username', roles: 'u.roles', device_id: { column: 's.device_id', cast: 'text' } }, joins: [{ table: 'base_users', alias: 'u', left: 'u.id', right: 's.user_id' }], where: [{ column: 's.token_hash', value: await hashSessionToken(sessionId) }, { column: 's.expires_at', operator: '>', value: Date.now() }, { column: 'u.status', value: 'enabled' }] }));
 	if (!row) return undefined;
-	return { id: row.id, username: row.username, roles: parseRoles(row.roles) };
+	if (!row.device_id) {
+		await runSql(database, sql({ database }).delete('base_sessions', { token_hash: await hashSessionToken(sessionId) }));
+		return undefined;
+	}
+	try {
+		if (await validateBaseDevice(database, String(row.id), row.device_id, request)) return { id: row.id, username: row.username, roles: parseRoles(row.roles) };
+	} catch {
+		// 指纹格式错误同样使当前会话失效。
+	}
+	await runSql(database, sql({ database }).delete('base_sessions', { token_hash: await hashSessionToken(sessionId) }));
+	return undefined;
 };
 
 /** 当前本站会话是否由 Accounts OIDC 登录创建。 */

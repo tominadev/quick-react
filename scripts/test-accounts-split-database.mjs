@@ -57,9 +57,9 @@ try {
 	passportDatabase.prepare("INSERT INTO passport_users (user_id, nickname, status, created_at, updated_at) VALUES (?, '分库用户', 'enabled', ?, ?)").run(userId, now, now);
 	passportDatabase.prepare("INSERT INTO passport_emails (id, email, verified, created_at, updated_at) VALUES (?, 'split@example.com', 1, ?, ?)").run(emailId, now, now);
 	passportDatabase.prepare('INSERT INTO passport_user_emails (user_id, email_id, is_primary, created_at, updated_at) VALUES (?, ?, 1, ?, ?)').run(userId, emailId, now, now);
-	passportDatabase.prepare("INSERT INTO base_devices (user_id,fingerprint,status,last_seen_at,created_at,updated_at) VALUES (?,?,'active',?,?,?)").run(userId, fingerprint, now, now, now);
-	const deviceId = passportDatabase.prepare('SELECT id FROM base_devices WHERE fingerprint = ?').get(fingerprint).id;
-	passportDatabase.prepare("INSERT INTO base_device_users (device_id,user_id,status,last_seen_at,created_at,updated_at) VALUES (?,?,'active',?,?,?)").run(deviceId, userId, now, now, now);
+	passportDatabase.prepare("INSERT INTO passport_devices (fingerprint,status,last_seen_at,created_at,updated_at) VALUES (?,'active',?,?,?)").run(fingerprint, now, now, now);
+	const deviceId = passportDatabase.prepare('SELECT id FROM passport_devices WHERE fingerprint = ?').get(fingerprint).id;
+	passportDatabase.prepare("INSERT INTO passport_device_users (device_id,user_id,status,last_seen_at,created_at,updated_at) VALUES (?,?,'active',?,?,?)").run(deviceId, userId, now, now, now);
 	passportDatabase.prepare('INSERT INTO passport_sessions (token_hash, user_id, device_id, expires_at, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?)').run(Buffer.from(await crypto.subtle.digest('SHA-256', new TextEncoder().encode(sessionId))).toString('hex'), userId, deviceId, now + 3600_000, now, now);
 	passportDatabase.close();
 

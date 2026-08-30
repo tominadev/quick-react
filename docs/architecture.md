@@ -123,7 +123,7 @@ Provider 在后端代码中注册控制面 API 规则、Bucket Endpoint 推导�
 
 ### 身份、设备与分布式演进
 
-Passport 是统一身份中心；各业务站点维护自己的设备、`device_users`、`duid` 和本地会话，不直接跨库读取其他站点的业务数据。站点注销通过签名事件携带 `passport_user_id` 与设备指纹通知各站点，各站点解析并注销自己的本地会话。
+Passport 是统一身份中心，并维护自己的 Passport 设备、`passport_device_users` 和 Accounts 会话；各业务站点维护自己的 Base 设备、`base_device_users`、`duid` 和本地会话，不直接跨库读取其他站点的业务数据。站点注销通过签名事件携带 `passport_user_id` 与设备指纹通知各站点，各站点解析并注销自己的本地会话。
 
 PostgreSQL 是设备关系、会话和撤销状态的权威存储，依靠事务、唯一索引和外键保证一致性。Redis 等缓存只保存可重建的会话或撤销加速数据，事件总线（Redis Streams、NATS 或 Kafka）负责跨站点传播登录、注销和风险变更；CouchDB 或对象存储仅用于长期审计历史与事件归档，不作为当前会话的唯一事实来源。业务 API 通过统一数据库上下文获取 `duid`，不得在各业务表重复实现设备解析。
 

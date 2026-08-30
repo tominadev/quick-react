@@ -30,9 +30,9 @@ try {
 	database.prepare("INSERT INTO passport_usernames (user_id,username,created_at,updated_at) VALUES (?,'wxuser2026',?,?)").run(userId, now, now);
 	database.prepare("INSERT INTO passport_emails (id,email,verified,created_at,updated_at) VALUES (2000000000000000011,'wx@example.com',1,?,?)").run(now, now);
 	database.prepare("INSERT INTO passport_user_emails (user_id,email_id,is_primary,created_at,updated_at) VALUES (?,2000000000000000011,1,?,?)").run(userId, now, now);
-	database.prepare("INSERT INTO base_devices (user_id,fingerprint,status,last_seen_at,created_at,updated_at) VALUES (?,?,'active',?,?,?)").run(userId, fingerprint, now, now, now);
-	const deviceId = database.prepare('SELECT id FROM base_devices WHERE fingerprint = ?').get(fingerprint).id;
-	database.prepare("INSERT INTO base_device_users (device_id,user_id,status,last_seen_at,created_at,updated_at) VALUES (?,?,'active',?,?,?)").run(deviceId, userId, now, now, now);
+	database.prepare("INSERT INTO passport_devices (fingerprint,status,last_seen_at,created_at,updated_at) VALUES (?,'active',?,?,?)").run(fingerprint, now, now, now);
+	const deviceId = database.prepare('SELECT id FROM passport_devices WHERE fingerprint = ?').get(fingerprint).id;
+	database.prepare("INSERT INTO passport_device_users (device_id,user_id,status,last_seen_at,created_at,updated_at) VALUES (?,?,'active',?,?,?)").run(deviceId, userId, now, now, now);
 	database.prepare("INSERT INTO passport_sessions (token_hash,user_id,device_id,expires_at,created_at,updated_at) VALUES (?, ?, ?, ?, ?, ?)").run(Buffer.from(await crypto.subtle.digest('SHA-256', new TextEncoder().encode('desktop-session'))).toString('hex'), userId, deviceId, now + 3600000, now, now);
 	database.close();
 

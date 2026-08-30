@@ -126,14 +126,21 @@ try {
 	const signedIn = await (await request('/api/accounts/sign.php', { cookie: passportCookie })).json();
 	assert.equal(signedIn.user.id, userId);
 	assert.equal(signedIn.user.username, 'PassportUser');
+	const passportDeviceDatabase = new DatabaseSync(process.env.DEFAULT_DATABASE_FILE, { readOnly: true });
+	assert.equal(passportDeviceDatabase.prepare('SELECT COUNT(*) AS count FROM passport_devices').get().count, 1);
+	assert.equal(passportDeviceDatabase.prepare('SELECT COUNT(*) AS count FROM passport_device_users').get().count, 1);
+	assert.equal(passportDeviceDatabase.prepare('SELECT COUNT(*) AS count FROM base_devices').get().count, 0, 'Accounts 登录不应创建 Base 设备');
+	passportDeviceDatabase.close();
 	// 退出本站不能撤销仍在使用的 Accounts 会话。
 	assert.equal((await request('/api/sign.php?logout=local', { method: 'DELETE', cookie: passportCookie })).status, 200);
 	assert.equal((await (await request('/api/accounts/sign.php', { cookie: passportCookie })).json()).user.id, userId);
 	const localSessionDatabase = new DatabaseSync(process.env.DEFAULT_DATABASE_FILE);
 	localSessionDatabase.prepare("INSERT INTO base_users (id, username, password, roles, status, created_at, updated_at) VALUES (99, 'local_user', '!local', '[]', 'enabled', ?, ?)").run(Date.now(), Date.now());
+	localSessionDatabase.prepare("INSERT INTO base_devices (id, user_id, fingerprint, status, last_seen_at, created_at, updated_at) VALUES (301, 99, ?, 'active', ?, ?, ?)").run(fingerprint, Date.now(), Date.now(), Date.now());
+	localSessionDatabase.prepare("INSERT INTO base_device_users (device_id, user_id, status, last_seen_at, created_at, updated_at) VALUES (301, 99, 'active', ?, ?, ?)").run(Date.now(), Date.now(), Date.now());
 	const localSessionToken = 'local-passport-session';
 	const localSessionHash = Buffer.from(await crypto.subtle.digest('SHA-256', new TextEncoder().encode(localSessionToken))).toString('base64url');
-	localSessionDatabase.prepare("INSERT INTO base_sessions (created_at, updated_at, token_hash, user_id, expires_at) VALUES (?, ?, ?, 99, ?)").run(Date.now(), Date.now(), localSessionHash, Date.now() + 3600000);
+	localSessionDatabase.prepare("INSERT INTO base_sessions (created_at, updated_at, token_hash, user_id, expires_at, device_id) VALUES (?, ?, ?, 99, ?, 301)").run(Date.now(), Date.now(), localSessionHash, Date.now() + 3600000);
 	localSessionDatabase.close();
 	const accountsLogout = await request('/api/accounts/sign.php', { method: 'DELETE', cookie: passportCookie });
 	assert.equal(accountsLogout.status, 200);

@@ -1,5 +1,6 @@
 import type { ApiHandler } from '@server/modules/base/api-router.mjs';
 import { clearSessionCookie, createSessionCookie, createStoredPassword, hashSessionToken, readSessionId, verifyStoredPassword } from '@server/modules/base/auth/index.mjs';
+import { ensureBaseDevice } from '@server/modules/base/device.mjs';
 import type { DatabaseAdapter } from '@server/database/index.mjs';
 import { apiMessage, apiMessageData, apiResponse } from '@server/modules/base/api-response.mjs';
 import type { FormPageConfig } from '@shared/types/form-page.mjs';
@@ -72,7 +73,10 @@ const localSign: ApiHandler = async (c, next) => {
 		const sessionToken = crypto.randomUUID();
 		const maxAge = credentials.remember ? 30 * 24 * 60 * 60 : 24 * 60 * 60;
 		const now = Date.now();
-		await runSql(database, sql({ database }).insert('base_sessions', { token_hash: await hashSessionToken(sessionToken), user_id: user.id, expires_at: now + maxAge * 1000 }));
+		let deviceId: string;
+		try { deviceId = await ensureBaseDevice(database, user.id, c.req.raw); }
+		catch (error) { return apiMessage(c, 400, error instanceof Error ? error.message : '设备信息无效'); }
+		await runSql(database, sql({ database }).insert('base_sessions', { token_hash: await hashSessionToken(sessionToken), user_id: user.id, device_id: deviceId, expires_at: now + maxAge * 1000 }));
 		c.header('Set-Cookie', createSessionCookie(sessionToken, new URL(c.req.url).protocol === 'https:', maxAge));
 		return apiMessageData(c, 200, '登录成功', { user: { id: user.id, username: user.username }, next: { action: 'reload' } });
 	}

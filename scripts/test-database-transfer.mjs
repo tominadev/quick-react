@@ -75,7 +75,9 @@ try {
 		await Promise.all([applyBaseSchema(source), applyBaseSchema(target), applyBaseSchema(rollbackTarget)]);
 		const userId = 9007199254740993n;
 		await runSql(source, sql({ database: source }).insert('base_users', { id: userId, username: 'portable', password: 'hash', roles: '[]', status: 'enabled' }));
-		await runSql(source, sql({ database: source }).insert('base_sessions', { token_hash: 'session-token-hash', user_id: userId, expires_at: 2n }));
+		await runSql(source, sql({ database: source }).insert('base_devices', { id: 101n, user_id: userId, fingerprint: 'a'.repeat(64), status: 'active', last_seen_at: 1n }));
+		await runSql(source, sql({ database: source }).insert('base_device_users', { id: 102n, device_id: 101n, user_id: userId, status: 'active', last_seen_at: 1n }));
+		await runSql(source, sql({ database: source }).insert('base_sessions', { token_hash: 'session-token-hash', user_id: userId, device_id: 101n, expires_at: 2n }));
 		await runSql(source, sql({ database: source }).insert('base_configs', { key: 'site_title', value: 'Accounts' }));
 
 		const progress = await transferPortableDatabase(source, mysqlFacade(target), ['base']);

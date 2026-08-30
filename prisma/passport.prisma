@@ -58,6 +58,11 @@ enum PassportSigningKeyStatus {
   retired
 }
 
+enum PassportDeviceStatus {
+  active
+  revoked
+}
+
 model passport_users {
   id          BigInt @id @default(autoincrement())
   created_at  BigInt
@@ -117,10 +122,40 @@ model passport_sessions {
   token_hash String @unique
   user_id    BigInt
   expires_at BigInt
-  device_id  BigInt?
+  device_id  BigInt
 
   @@index([user_id])
   @@index([expires_at])
+}
+
+model passport_devices {
+  id           BigInt @id @default(autoincrement())
+  created_at   BigInt
+  updated_at   BigInt
+  created_duid BigInt?
+  updated_duid BigInt?
+  fingerprint  String @unique
+  user_agent   String @default("")
+  platform     String @default("")
+  ip_address   String @default("")
+  status       PassportDeviceStatus @default(active)
+  last_seen_at BigInt
+  revoked_at   BigInt?
+}
+
+model passport_device_users {
+  id           BigInt @id @default(autoincrement())
+  created_at   BigInt
+  updated_at   BigInt
+  created_duid BigInt?
+  updated_duid BigInt?
+  device_id    BigInt
+  user_id      BigInt
+  status       PassportDeviceStatus @default(active)
+  last_seen_at BigInt
+  revoked_at   BigInt?
+
+  @@unique([device_id, user_id])
 }
 
 model passport_telegram_accounts {

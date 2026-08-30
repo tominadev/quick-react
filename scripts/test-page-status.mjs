@@ -9,8 +9,10 @@ process.env.SKIP_SERVER_LISTEN = '1';
 
 try {
 	const { app } = await import(`../dist/server.mjs?page-status=${Date.now()}`);
+	const fingerprint = 'a'.repeat(64);
 	const request = async (path, options = {}) => {
 		const headers = new Headers(options.headers);
+		if (!headers.has('x-device-fingerprint')) headers.set('x-device-fingerprint', fingerprint);
 		if (options.cookie) headers.set('cookie', options.cookie);
 		if (options.body !== undefined) headers.set('content-type', 'application/json');
 		return app.request(`http://localhost${path}`, {

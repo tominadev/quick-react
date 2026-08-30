@@ -31,6 +31,9 @@ CREATE TYPE "PassportQrStatus" AS ENUM ('pending', 'authorized', 'consumed');
 -- CreateEnum
 CREATE TYPE "PassportSigningKeyStatus" AS ENUM ('active', 'retired');
 
+-- CreateEnum
+CREATE TYPE "PassportDeviceStatus" AS ENUM ('active', 'revoked');
+
 -- CreateTable
 CREATE TABLE "passport_users" (
     "id" BIGSERIAL NOT NULL,
@@ -99,9 +102,43 @@ CREATE TABLE "passport_sessions" (
     "token_hash" TEXT NOT NULL,
     "user_id" BIGINT NOT NULL,
     "expires_at" BIGINT NOT NULL,
-    "device_id" BIGINT,
+    "device_id" BIGINT NOT NULL,
 
     CONSTRAINT "passport_sessions_pkey" PRIMARY KEY ("id")
+);
+
+-- CreateTable
+CREATE TABLE "passport_devices" (
+    "id" BIGSERIAL NOT NULL,
+    "created_at" BIGINT NOT NULL,
+    "updated_at" BIGINT NOT NULL,
+    "created_duid" BIGINT,
+    "updated_duid" BIGINT,
+    "fingerprint" TEXT NOT NULL,
+    "user_agent" TEXT NOT NULL DEFAULT '',
+    "platform" TEXT NOT NULL DEFAULT '',
+    "ip_address" TEXT NOT NULL DEFAULT '',
+    "status" "PassportDeviceStatus" NOT NULL DEFAULT 'active',
+    "last_seen_at" BIGINT NOT NULL,
+    "revoked_at" BIGINT,
+
+    CONSTRAINT "passport_devices_pkey" PRIMARY KEY ("id")
+);
+
+-- CreateTable
+CREATE TABLE "passport_device_users" (
+    "id" BIGSERIAL NOT NULL,
+    "created_at" BIGINT NOT NULL,
+    "updated_at" BIGINT NOT NULL,
+    "created_duid" BIGINT,
+    "updated_duid" BIGINT,
+    "device_id" BIGINT NOT NULL,
+    "user_id" BIGINT NOT NULL,
+    "status" "PassportDeviceStatus" NOT NULL DEFAULT 'active',
+    "last_seen_at" BIGINT NOT NULL,
+    "revoked_at" BIGINT,
+
+    CONSTRAINT "passport_device_users_pkey" PRIMARY KEY ("id")
 );
 
 -- CreateTable
@@ -562,6 +599,12 @@ CREATE INDEX "passport_sessions_user_id_idx" ON "passport_sessions"("user_id");
 
 -- CreateIndex
 CREATE INDEX "passport_sessions_expires_at_idx" ON "passport_sessions"("expires_at");
+
+-- CreateIndex
+CREATE UNIQUE INDEX "passport_devices_fingerprint_key" ON "passport_devices"("fingerprint");
+
+-- CreateIndex
+CREATE UNIQUE INDEX "passport_device_users_device_id_user_id_key" ON "passport_device_users"("device_id", "user_id");
 
 -- CreateIndex
 CREATE UNIQUE INDEX "passport_telegram_accounts_bot_id_telegram_user_id_key" ON "passport_telegram_accounts"("bot_id", "telegram_user_id");

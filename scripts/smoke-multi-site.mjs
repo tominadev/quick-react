@@ -92,6 +92,7 @@ globalThis.fetch = async (input, init) => {
 try {
 	const { app } = await import(`../dist/server.mjs?smoke=${Date.now()}`);
 	internalApp = app;
+	const fingerprint = 'a'.repeat(64);
 	const migratedDatabase = new DatabaseSync(process.env.DEFAULT_DATABASE_FILE, { readOnly: true });
 	assert.equal(migratedDatabase.prepare("SELECT migration_status FROM global_sites WHERE site_key = 'passport'").get()?.migration_status, 'ready');
 	assert.equal(migratedDatabase.prepare("SELECT name FROM sqlite_master WHERE type = 'table' AND name = 'passport_users'").get()?.name, 'passport_users');
@@ -99,6 +100,7 @@ try {
 	const request = async (host, path, options = {}) => {
 		const headers = new Headers(options.headers);
 		if (options.cookie) headers.set('cookie', options.cookie);
+		if (!headers.has('x-device-fingerprint')) headers.set('x-device-fingerprint', fingerprint);
 		if (options.body !== undefined) headers.set('content-type', 'application/json');
 		return app.request(`http://${host}${path}`, {
 			method: options.method,
@@ -130,6 +132,10 @@ try {
 	assert.equal(Object.hasOwn(loginResult, 'message'), false);
 	const cookie = login.headers.get('set-cookie')?.split(';')[0];
 	assert.ok(cookie);
+	const localDeviceDatabase = new DatabaseSync(process.env.DEFAULT_DATABASE_FILE, { readOnly: true });
+	assert.equal(localDeviceDatabase.prepare('SELECT COUNT(*) AS count FROM base_devices').get().count, 1);
+	assert.equal(localDeviceDatabase.prepare('SELECT COUNT(*) AS count FROM base_device_users').get().count, 1);
+	localDeviceDatabase.close();
 	const invalidLogin = await request('localhost', '/api/sign.php', {
 		method: 'POST', body: { username: 'bootstrap_admin', password: 'wrong-password' },
 	});
@@ -221,7 +227,7 @@ try {
 	assert.equal(oidcClientEdit.redirect_uri_source, 'https://site1.test/api/accounts/oidc/callback');
 	assert.equal(oidcClientEdit.backchannel_logout_path, '/api/accounts/oidc/backchannel-logout');
 	const oidcSettingsTest = await app.request('https://site1.test/api/panel/admin/system/settings/accounts-oidc.php?action=test', {
-		method: 'POST', headers: { cookie, 'content-type': 'application/json' }, body: JSON.stringify({ issuer: 'https://passport.test', clientId: createdOidcClient.id, clientSecret: createdOidcCredentials.client_secret }),
+		method: 'POST', headers: { cookie, 'x-device-fingerprint': fingerprint, 'content-type': 'application/json' }, body: JSON.stringify({ issuer: 'https://passport.test', clientId: createdOidcClient.id, clientSecret: createdOidcCredentials.client_secret }),
 	});
 	assert.equal(oidcSettingsTest.status, 200);
 	assert.match((await oidcSettingsTest.json()).feedback.message, /连接测试通过/);

@@ -35,6 +35,7 @@ CREATE TABLE "base_sessions" (
     "token_hash" TEXT NOT NULL,
     "user_id" BIGINT NOT NULL,
     "expires_at" BIGINT NOT NULL,
+    "device_id" BIGINT NOT NULL,
 
     CONSTRAINT "base_sessions_pkey" PRIMARY KEY ("id")
 );

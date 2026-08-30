@@ -331,11 +331,11 @@ Accounts 站点上可能同时存在两种会话：站点本地账号（`base_us
 
 ## Accounts 设备管理与固定指纹（2026-08-29 确立）
 
-Accounts 提供类似 Google 的登录设备管理。设备数据由 Base 层的 `base_devices`、`base_device_users` 和 `base_device_snapshots` 统一提供，各业务站点使用自己的 Base 设备数据和 `base_sessions`。
+Accounts 提供类似 Google 的登录设备管理。Accounts 使用 Passport 层自己的 `passport_devices`、`passport_device_users` 管理身份中心设备；各业务站点和 Passport 本站的本地会话使用各自 Base 层的 `base_devices`、`base_device_users` 与 `base_sessions`。两类设备不共用关联表，跨站点只通过统一的 Passport 用户 ID 与客户端指纹对应。
 
-- 设备表使用 `base_devices`，至少保存 `device_id`、客户端生成的 `fingerprint`、设备描述、浏览器/系统、最近 IP、状态、首次使用时间、最近使用时间和注销时间；其中 `device_id` 直接等于客户端生成的 SHA-256 `fingerprint`，不再二次哈希。设备指纹仍全局唯一。
-- 设备与账号通过 `base_device_users(device_id, user_id)` 多对多关联，同一设备可以登录并切换多个 Accounts 账号；注销某个账号的设备只撤销该账号的关联，不影响同设备上的其他账号。
-- `passport_sessions` 保存 `user_id` 和 `device_id` 作为关联键，不保存 `device_fingerprint`；会话继续有效必须同时满足该账号的设备关联处于 active、设备指纹匹配且设备未注销。
+- Passport 设备表使用 `passport_devices`，业务站点设备表使用各自数据库中的 `base_devices`；设备主键自增，客户端生成的 SHA-256 `fingerprint` 作为唯一业务字段，不二次哈希。
+- Passport 设备与 Accounts 账号通过 `passport_device_users(device_id, user_id)` 多对多关联；Base 设备与本站本地账号通过 `base_device_users(device_id, user_id)` 多对多关联。同一浏览器可以在不同身份域拥有两条设备记录。
+- `passport_sessions` 和 `base_sessions` 分别只关联各自设备表；会话继续有效必须同时满足对应账号关联处于 active、设备指纹匹配且设备未注销。
 - 浏览器设备指纹固定计算为：`fingerprint = SHA-256(canvas.toDataURL())`。`canvas.toDataURL()` 的原始内容不落库，只保存哈希值。
 - `fingerprint` 是设备识别和会话继续有效的必要条件，不是单独的登录凭证。请求必须同时具备有效 `session_id`，且指纹与该 session 关联设备匹配；缺少、变化或被注销时，Accounts 会话立即失效。
 - 设备管理支持查看当前设备、查看全部设备、注销单台设备和注销全部其他设备。注销设备会使该设备关联的所有 `passport_sessions` 失效；允许因指纹碰撞造成误杀，安全优先于免打扰体验。

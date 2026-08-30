@@ -46,8 +46,8 @@ try {
 	database.prepare('INSERT INTO passport_usernames (user_id, username, created_at, updated_at) VALUES (?, ?, ?, ?)').run(userId, 'center2026', now, now);
 	database.prepare("INSERT INTO passport_emails (id, email, verified, created_at, updated_at) VALUES (?, 'center@example.com', 1, ?, ?)").run(primaryEmailId, now, now);
 	database.prepare('INSERT INTO passport_user_emails (user_id, email_id, is_primary, created_at, updated_at) VALUES (?, ?, 1, ?, ?)').run(userId, primaryEmailId, now, now);
-	database.prepare("INSERT INTO base_devices (id, user_id, fingerprint, status, last_seen_at, created_at, updated_at) VALUES (41, ?, ?, 'active', ?, ?, ?)").run(userId, fingerprint, now, now, now);
-	database.prepare("INSERT INTO base_device_users (device_id, user_id, status, last_seen_at, created_at, updated_at) VALUES (41, ?, 'active', ?, ?, ?)").run(userId, now, now, now);
+	database.prepare("INSERT INTO passport_devices (id, fingerprint, status, last_seen_at, created_at, updated_at) VALUES (41, ?, 'active', ?, ?, ?)").run(fingerprint, now, now, now);
+	database.prepare("INSERT INTO passport_device_users (device_id, user_id, status, last_seen_at, created_at, updated_at) VALUES (41, ?, 'active', ?, ?, ?)").run(userId, now, now, now);
 	database.prepare('INSERT INTO passport_sessions (token_hash, user_id, device_id, expires_at, created_at, updated_at) VALUES (?, ?, 41, ?, ?, ?)').run(Buffer.from(await crypto.subtle.digest('SHA-256', new TextEncoder().encode(sessionId))).toString('hex'), userId, now + 3600_000, now, now);
 	database.close();
 
@@ -68,7 +68,9 @@ try {
 	const localDatabase = new DatabaseSync(process.env.DEFAULT_DATABASE_FILE);
 	const localNow = Date.now();
 	localDatabase.prepare("INSERT INTO base_users (id, username, password, roles, status, created_at, updated_at) VALUES (9, 'admin', '!local', '[\"admin\"]', 'enabled', ?, ?)").run(localNow, localNow);
-	localDatabase.prepare('INSERT INTO base_sessions (created_at, updated_at, token_hash, user_id, expires_at) VALUES (?, ?, ?, 9, ?)').run(localNow, localNow, localSessionHash, localNow + 3600_000);
+	localDatabase.prepare("INSERT INTO base_devices (id, user_id, fingerprint, status, last_seen_at, created_at, updated_at) VALUES (42, 9, ?, 'active', ?, ?, ?)").run(fingerprint, localNow, localNow, localNow);
+	localDatabase.prepare("INSERT INTO base_device_users (device_id, user_id, status, last_seen_at, created_at, updated_at) VALUES (42, 9, 'active', ?, ?, ?)").run(localNow, localNow, localNow);
+	localDatabase.prepare('INSERT INTO base_sessions (created_at, updated_at, token_hash, user_id, expires_at, device_id) VALUES (?, ?, ?, 9, ?, 42)').run(localNow, localNow, localSessionHash, localNow + 3600_000);
 	localDatabase.close();
 	const bothDocument = await (await request('/', { cookie: `${cookie}; base_session=${localSessionToken}`, headers: { accept: 'text/html' } })).text();
 	assert.match(bothDocument, /示例账户中心/);
