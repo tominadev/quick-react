@@ -52,6 +52,18 @@ export const listColumns = async (database: DatabaseAdapter, tableName: string):
 	return rows.filter((row) => safeName(row.name)).map((row) => ({ name: row.name, type: row.type, notnull: row.is_nullable === 'NO' ? 1 : 0, pk: Number(row.pk) }));
 };
 
+const requiredColumnsCache = new WeakMap<object, Map<string, string[]>>();
+export const requiredColumns = async (database: DatabaseAdapter, tableName: string): Promise<string[]> => {
+	const cache = requiredColumnsCache.get(database) ?? new Map<string, string[]>();
+	requiredColumnsCache.set(database, cache);
+	const cached = cache.get(tableName);
+	if (cached) return cached;
+	const columns = await listColumns(database, tableName);
+	const required = columns.filter((column) => column.notnull && !column.pk && (column.defaultValue === undefined || column.defaultValue === null || column.defaultValue === '')).map((column) => column.name);
+	cache.set(tableName, required);
+	return required;
+};
+
 const typeOptionsByDialect: Record<SqlDialect, Array<{ value: string; text: string }>> = {
 	sqlite: ['TEXT', 'INTEGER', 'REAL', 'NUMERIC', 'BLOB'].map((value) => ({ value, text: value })),
 	mysql: ['VARCHAR(255)', 'TEXT', 'BIGINT', 'DOUBLE', 'DECIMAL(38,10)', 'BLOB', 'BOOLEAN'].map((value) => ({ value, text: value })),
