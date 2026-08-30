@@ -186,6 +186,9 @@ nodeApp.use('*', async (c, next) => {
 nodeApp.use('*', serveStatic({ root: publicDir }));
 nodeApp.all('*', (c) => worker.fetch(c.req.raw, {
 	DEFAULT_DB: defaultDatabase,
+	// Preserve the Node socket for the shared trusted-proxy IP resolver.  The
+	// Worker entry point otherwise only receives the Request object.
+	incoming: (c.env as { incoming?: unknown } | undefined)?.incoming,
 	SNOWFLAKE_WORKER_ID: env.SNOWFLAKE_WORKER_ID || '0',
 	DATABASE_RESOLVER: async (site) => {
 		if (site.databaseTarget.kind === 'default') return defaultDatabase;

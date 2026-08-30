@@ -150,6 +150,7 @@ model passport_devices {
   user_agent   String @default("")
   platform     String @default("")
   ip_address   String @default("")
+  network_info Json   @default("{}")
   status       PassportDeviceStatus @default(active)
   last_seen_at BigInt
   revoked_at   BigInt?

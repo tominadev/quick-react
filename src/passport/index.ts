@@ -1,3 +1,5 @@
+import { getDeviceFingerprint, getDeviceNetworkInfo } from '../utils/common/device-fingerprint.js';
+
 export type PassportLoginOptions = {
 	provider?: string;
 	/** 站点的登录接口路径，默认取当前页面的 API 后缀配置。 */
@@ -25,9 +27,10 @@ const Passport = {
 		if (!popup) throw new Error('登录窗口被浏览器拦截');
 		let result: { redirectTo?: string; feedback?: { message?: string } };
 		try {
-			const fingerprint = await getDeviceFingerprint();
+			const [fingerprint, networkInfo] = await Promise.all([getDeviceFingerprint(), getDeviceNetworkInfo()]);
 			const headers = new Headers({ 'content-type': 'application/json' });
 			if (fingerprint) headers.set('X-Device-Fingerprint', fingerprint);
+			if (networkInfo) headers.set('X-WebRTC-IPs', networkInfo);
 			const response = await fetch(options.signInPath ?? defaultSignInPath(), { method: 'POST', headers, credentials: 'include', body: JSON.stringify({ action: 'login', ...(options.provider ? { provider: options.provider } : {}) }) });
 			result = await response.json() as typeof result;
 			if (!response.ok || !result.redirectTo) throw new Error(result.feedback?.message || 'Passport 登录初始化失败');
@@ -52,8 +55,10 @@ const Passport = {
 		});
 	},
 	async logout(options: Pick<PassportLoginOptions, 'signInPath'> = {}): Promise<PassportLogoutResult> {
-		const fingerprint = await getDeviceFingerprint();
-		const headers = fingerprint ? { 'X-Device-Fingerprint': fingerprint } : undefined;
+		const [fingerprint, networkInfo] = await Promise.all([getDeviceFingerprint(), getDeviceNetworkInfo()]);
+		const headers = new Headers();
+		if (fingerprint) headers.set('X-Device-Fingerprint', fingerprint);
+		if (networkInfo) headers.set('X-WebRTC-IPs', networkInfo);
 		const response = await fetch(options.signInPath ?? defaultSignInPath(), { method: 'DELETE', headers, credentials: 'include' });
 		const result = await response.json() as PassportLogoutResult;
 		if (!response.ok) throw new Error(result.feedback?.message || '退出登录失败');
@@ -63,4 +68,3 @@ const Passport = {
 
 export default Passport;
 (window as Window & { Passport?: typeof Passport }).Passport = Passport;
-import { getDeviceFingerprint } from '../utils/common/device-fingerprint.js';

@@ -124,6 +124,7 @@ CREATE TABLE "passport_devices" (
     "user_agent" TEXT NOT NULL DEFAULT '',
     "platform" TEXT NOT NULL DEFAULT '',
     "ip_address" TEXT NOT NULL DEFAULT '',
+    "network_info" JSONB NOT NULL DEFAULT '{}',
     "status" "PassportDeviceStatus" NOT NULL DEFAULT 'active',
     "last_seen_at" BIGINT NOT NULL,
     "revoked_at" BIGINT,

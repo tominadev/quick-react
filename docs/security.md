@@ -8,13 +8,15 @@
 客户端 -> Cloudflare -> 负载均衡/Nginx -> Node
 ```
 
-Node 只信任直接连接它的负载均衡地址。只有来自可信代理的请求，Node 才会读取 `CF-Connecting-IP`、`X-Real-IP` 和 `X-Forwarded-For`。
+Node 只信任直接连接它的负载均衡地址。只有来自可信代理的请求，Node 才会读取 `CF-Connecting-IP`、`EO-Connecting-IP`、`ali-cdn-real-ip`、`X-Real-IP` 和 `X-Forwarded-For`。因此可以分别覆盖“EdgeOne 直连 Node”和“Cloudflare -> Nginx -> Node”两种部署链路；可信代理列表必须填写实际连接 Node 的上一跳地址或网段。
 
 Cloudflare 和负载均衡应负责：
 
 1. 只接受受信任上游的请求。
 2. 覆盖客户端提交的转发头。
 3. 将真实客户端 IP 写入可信头。
+
+设备记录同时保留一个解析后的 `ip_address` 和一个只供分析的扁平 `network_info` 原始证据映射（包括可取得的 Node 直连 `transport_ip`）。后者不改变代理头的信任边界，也不包含 `true_client_ip`、`resolved_*` 等派生值；真实 IP 必须由可信代理规则解析后写入 `ip_address`。
 
 ## Source map
 

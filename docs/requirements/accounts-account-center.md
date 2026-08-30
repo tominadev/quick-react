@@ -344,3 +344,4 @@ Accounts 提供类似 Google 的登录设备管理。Accounts 使用 Passport �
 - 设备管理支持查看当前设备、查看全部设备、注销单台设备和注销全部其他设备。注销设备会使该设备关联的所有 `passport_sessions` 失效；允许因指纹碰撞造成误杀，安全优先于免打扰体验。
 - 设备 Cookie 可以作为固定指纹载体，但不得直接把指纹当作 session 凭证；认证仍由服务端 session 状态决定。
 - 业务站点通过本地登录或 OIDC 获得身份，并使用 Base 层设备能力建立自己的 `base_sessions`；设备指纹、设备用户关系和快照由 Base 统一维护。
+- 设备网络信息分为两个层次：`ip_address` 只保存服务端依据可信代理列表解析出的单一真实客户端 IP；`network_info` 保存请求中实际收到的原始网络证据扁平 JSON（例如 `transport_ip`、`x_real_ip`、`x_forwarded_for`、`cf_connecting_ip`、`eo_connecting_ip`、`ali_cdn_real_ip` 和地址数组 `webrtc_ips`）。缺失值不写入 JSON，不保存 `true_client_ip` 或 `resolved_*` 等派生字段；可信代理列表仍是解析真实 IP 的依据。

@@ -18,6 +18,7 @@ import { clearPassportSessionCookie, loadPassportDeviceUserId, loadPassportSessi
 import { loadSystemConfigFromStore } from './modules/base/system-config.mjs';
 import { applyTechStackHeaders, loadTechStackConfigFromStore } from './modules/base/tech-stack.mjs';
 import { isSecureRequest } from './modules/base/request-origin.mjs';
+import { getClientIp, getTransportIp } from './modules/base/client-ip.mjs';
 import { loadSiteSettings } from './modules/base/site-settings.mjs';
 import { renderPrivacyHtml } from './templates/base/page/privacy.mjs';
 import { renderTermsHtml } from './templates/base/page/terms.mjs';
@@ -108,6 +109,9 @@ const configureForRequest = async (c: Context<WorkerEnv>) => {
 	c.set('systemConfig', configuration.systemConfig);
 	c.set('siteSettings', configuration.siteSettings);
 	c.set('techStackConfig', configuration.techStackConfig);
+	const trustedProxyRules = configuration.systemConfig.trustedProxyIps.split(',').map((ip) => ip.trim()).filter(Boolean);
+	c.set('clientIp', getClientIp(c, trustedProxyRules));
+	c.set('transportIp', getTransportIp(c));
 	c.set('accountsIdentity', accountsIdentity);
 	const accountsConfig = await loadAccountsOidcConfig(c);
 	const accountsLoginMode = resolveAccountsLoginMode(accountsConfig);

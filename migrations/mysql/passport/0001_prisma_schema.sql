@@ -100,6 +100,7 @@ CREATE TABLE `passport_devices` (
     `user_agent` VARCHAR(191) NOT NULL DEFAULT '',
     `platform` VARCHAR(191) NOT NULL DEFAULT '',
     `ip_address` VARCHAR(191) NOT NULL DEFAULT '',
+    `network_info` JSON NOT NULL,
     `status` ENUM('active', 'revoked') NOT NULL DEFAULT 'active',
     `last_seen_at` BIGINT NOT NULL,
     `revoked_at` BIGINT NULL,

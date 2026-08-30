@@ -69,7 +69,7 @@ const handler: ApiHandler = async (c) => {
 		const maxAge = 24 * 60 * 60;
 		const previousSession = await firstSql<{ session_id: string }>(database, sql({ database }).select({ table: 'base_oidc_sessions', columns: { session_id: 'session_id' }, where: [{ column: 'issuer', value: config.issuer }, { column: 'sid', value: oidcSessionId }] }));
 		const sessionToken = crypto.randomUUID(), sessionHash = await hashSessionToken(sessionToken);
-		const deviceId = await ensureBaseDevice(database, String(account.user_id), c.req.raw);
+		const deviceId = await ensureBaseDevice(database, String(account.user_id), c.req.raw, c.get('clientIp'), c.get('transportIp'));
 		let sessionId: string;
 		if (previousSession) {
 			sessionId = previousSession.session_id;

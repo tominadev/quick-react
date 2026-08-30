@@ -74,7 +74,7 @@ const localSign: ApiHandler = async (c, next) => {
 		const maxAge = credentials.remember ? 30 * 24 * 60 * 60 : 24 * 60 * 60;
 		const now = Date.now();
 		let deviceId: string;
-		try { deviceId = await ensureBaseDevice(database, user.id, c.req.raw); }
+		try { deviceId = await ensureBaseDevice(database, user.id, c.req.raw, c.get('clientIp'), c.get('transportIp')); }
 		catch (error) { return apiMessage(c, 400, error instanceof Error ? error.message : '设备信息无效'); }
 		await runSql(database, sql({ database }).insert('base_sessions', { token_hash: await hashSessionToken(sessionToken), user_id: user.id, device_id: deviceId, expires_at: now + maxAge * 1000 }));
 		c.header('Set-Cookie', createSessionCookie(sessionToken, new URL(c.req.url).protocol === 'https:', maxAge));

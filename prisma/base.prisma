@@ -126,6 +126,7 @@ model base_devices {
   user_agent   String @default("")
   platform     String @default("")
   ip_address   String @default("")
+  network_info Json   @default("{}")
   status       BaseDeviceStatus @default(active)
   last_seen_at BigInt
   revoked_at   BigInt?
@@ -157,6 +158,7 @@ model base_device_snapshots {
   device_id     BigInt
   fingerprint   String
   ip_address    String @default("")
+  network_info  Json    @default("{}")
   user_agent    String @default("")
   platform      String @default("")
   screen_width  Int    @default(0)

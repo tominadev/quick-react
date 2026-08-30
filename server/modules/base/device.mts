@@ -3,8 +3,8 @@ import { firstSql, runSql, sql } from '@server/database/sql.mjs';
 import { readDeviceFingerprint, requestDeviceSnapshot } from '@server/modules/base/device-fingerprint.mjs';
 
 /** 为账号建立或恢复当前设备与账号的 Base 绑定。 */
-export const ensureBaseDevice = async (database: DatabaseAdapter, userId: string | number | bigint, request: Request) => {
-	const fingerprint = readDeviceFingerprint(request), now = Date.now(), snapshot = requestDeviceSnapshot(request);
+export const ensureBaseDevice = async (database: DatabaseAdapter, userId: string | number | bigint, request: Request, resolvedIp?: string, transportIp?: string) => {
+	const fingerprint = readDeviceFingerprint(request), now = Date.now(), snapshot = requestDeviceSnapshot(request, resolvedIp, transportIp);
 	const existing = await firstSql<{ id: string; status: string }>(database, sql({ database }).select({ table: 'base_devices', columns: { id: { column: 'id', cast: 'text' }, status: 'status' }, where: [{ column: 'fingerprint', value: fingerprint }] }));
 	if (existing?.status === 'revoked') throw new Error('此设备已被注销，无法继续登录');
 	if (existing) await runSql(database, sql({ database }).update('base_devices', { last_seen_at: now, ...snapshot }, { id: existing.id }));

@@ -30,6 +30,8 @@ export type AppEnv = {
 		systemConfig: SystemConfig;
 		siteSettings: SiteSettings;
 		techStackConfig: TechStackConfig;
+		clientIp?: string;
+		transportIp?: string;
 		accountsIdentity: boolean;
 		accountsLoginMode: AccountsLoginMode;
 		currentUser?: UserIdentity;

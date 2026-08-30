@@ -194,7 +194,7 @@ const handler: ApiHandler = async (c, next) => {
 
 	/** 建立 Accounts 会话；会话 Cookie 必须先写，其余 Cookie 追加。 */
 	const startSession = async (userId: string) => {
-		const sessionId = crypto.randomUUID(), now = Date.now(), maxAge = 24 * 60 * 60, deviceId = await ensurePassportDevice(database, userId, c.req.raw);
+		const sessionId = crypto.randomUUID(), now = Date.now(), maxAge = 24 * 60 * 60, deviceId = await ensurePassportDevice(database, userId, c.req.raw, c.get('clientIp'), c.get('transportIp'));
 		await runSql(database, sql({ database }).insert('passport_sessions', { token_hash: await sha256(sessionId), user_id: userId, device_id: deviceId, expires_at: now + maxAge * 1000 }));
 		c.header('Set-Cookie', createPassportSessionCookie(sessionId, secure, maxAge));
 		c.header('Set-Cookie', clearSignupEmailCookie(secure), { append: true });
@@ -539,7 +539,7 @@ const handler: ApiHandler = async (c, next) => {
 			return apiResponse(c, 200, { formPage, currentValues: formPage.initialValues, feedback: { component: 'inline' as const, type: 'warning' as const, message: '尚未收到 Telegram 批准，请确认数字后重试' } });
 		}
 		if (challenge.status !== 'approved') return apiMessage(c, 409, challenge.status === 'denied' ? '本次登录已被拒绝' : '登录确认已经失效');
-		const sessionId = crypto.randomUUID(), now = Date.now(), maxAge = 24 * 60 * 60, deviceId = await ensurePassportDevice(database, challenge.user_id, c.req.raw);
+		const sessionId = crypto.randomUUID(), now = Date.now(), maxAge = 24 * 60 * 60, deviceId = await ensurePassportDevice(database, challenge.user_id, c.req.raw, c.get('clientIp'), c.get('transportIp'));
 		if (!database.batch) return apiMessage(c, 500, 'Passport 数据库不支持原子登录');
 		const builder = sql({ database });
 		const statements: DatabaseBatchStatement[] = [

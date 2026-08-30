@@ -18,12 +18,19 @@ const isIpInRule = (ip: string, rule: string) => {
 	return (address & mask) === (networkAddress & mask);
 };
 
-export const getClientIp = (c: Context<AppEnv>, trustedProxyRules: string[]) => {
+export const getTransportIp = (c: Context<AppEnv>) => {
 	const incoming = c.env.incoming as { socket?: { remoteAddress?: string } } | undefined;
 	const remoteAddress = incoming?.socket?.remoteAddress;
+	return remoteAddress?.trim() || undefined;
+};
+
+export const getClientIp = (c: Context<AppEnv>, trustedProxyRules: string[]) => {
+	const remoteAddress = getTransportIp(c);
 	if (!remoteAddress) return undefined;
 	if (!trustedProxyRules.some((rule) => isIpInRule(remoteAddress, rule))) return remoteAddress;
 	return c.req.header('cf-connecting-ip')?.trim()
+		|| c.req.header('eo-connecting-ip')?.trim()
+		|| c.req.header('ali-cdn-real-ip')?.trim()
 		|| c.req.header('x-real-ip')?.trim()
 		|| c.req.header('x-forwarded-for')?.split(',')[0]?.trim();
 };
