@@ -25,6 +25,7 @@
 - 本项目按当前数据结构和接口直接收敛实现，默认不兼容旧版本的字段、接口、数据格式或行为；只有主人明确要求时才增加兼容层，并应限定兼容范围和清理计划。
 - 数据表统一使用 `id` 作为本表主键，并强制包含 `id BigInt @id @default(autoincrement())`、`created_at BigInt`、`updated_at BigInt`；审计设备用户字段为可空的 `created_duid BigInt?`、`updated_duid BigInt?`。其中 `duid` 明确定义为 `device_user_id`；新增时必须写入时间字段，更新时只自动更新 `updated_at`、`updated_duid`，不得修改创建字段。普通设备操作写入真实 `device_user_id`，系统、机器人或无设备操作写入 `NULL`，不得使用不存在的 `0` 外键。跨表引用使用被引用实体的语义名称加 `_id`（例如 `passport_user_emails.id` 在其他表中使用 `user_email_id`），原业务唯一字段保留为唯一约束而非主键；安全令牌和外部标识仍保留字符串类型。
 - 审计记录只保存 `created_duid`、`updated_duid`，通过 `device_user_id -> user_id + device_id` 关联账号和设备，禁止在同一审计记录中重复保存 UID、DID；业务归属字段（如 `owner_uid`、`user_id`）与审计来源字段分开维护。
+- `passport_devices` 与 `passport_device_users` 是设备审计来源表，排除 `created_duid`、`updated_duid`；除此之外的业务表默认都必须记录这两个审计设备用户字段。
 - 业务唯一字段（例如 `session_token_hash`、`username`、外部平台账号标识和幂等键）必须使用 `UNIQUE` 约束或唯一索引，不得继续作为表主键；主键统一使用本表自增 `id`。
 
 - 后端负责页面、导航、按钮、查询字段、文案和权限配置；前端保持通用渲染逻辑。
