@@ -13,7 +13,7 @@ const uploads = [];
 let listCalls = 0;
 let storedKey = '';
 const fingerprint = 'a'.repeat(64);
-const fingerprintData = JSON.stringify({ canvas_crc32: 'aaaaaaaa' });
+const fingerprintData = JSON.stringify({ canvas_cyrb53: '4b5a6c7d8e9f', audio_cyrb53: '1a2b3c4d5e6f' });
 
 globalThis.fetch = async (input, init) => {
 	const url = new URL(String(input));

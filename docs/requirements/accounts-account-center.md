@@ -334,7 +334,7 @@ Accounts 提供类似 Google 的登录设备管理。Accounts 使用 Passport �
 - `passport_devices`、`passport_device_users`、`base_devices`、`base_device_users` 和设备快照表都必须保留 `created_duid`、`updated_duid` 审计字段；设备创建、注销、拉黑及解除操作必须记录实际操作者的 `device_user_id`，系统任务或无设备操作才使用 `NULL`。
 - 设备记录同样使用统一的 `deleted_at` 软删除字段；正常设备列表默认隐藏已删除记录，回收站查看或恢复必须通过显式的删除范围操作完成。
 - `passport_devices` 的全局拉黑只允许管理员或安全管理员操作，会阻止该 `device_key` 下所有 Accounts 账号登录；普通账号只能操作自己在 `passport_device_users` 中的关系级拉黑，不影响同一设备上的其他账号。退出登录只删除会话，不改变设备或设备用户关系。
-- 浏览器 `fingerprint` 使用固定 Canvas 内容计算 CRC32，并以 JSON 保存，例如 `{"canvas_crc32":"a1b2c3d4"}`；Canvas 原始内容不落库。`device_key` 首次生成后写入当前站点的 `localStorage`。由于 OAuth/外部登录的第三方导航不能附加自定义请求头，API 公共响应会额外下发短期 HttpOnly 传输 Cookie，仅用于把 `device_key` 和 `fingerprint` 带到同源回调，成功回调后立即清除；该 Cookie 不是设备存储或会话凭证。
+- 浏览器 `fingerprint` 使用固定 Canvas 内容和可用的离线音频上下文分别计算 `cyrb53`，并将结果转换为不带前导零的小写十六进制字符串后以扁平 JSON 保存，例如 `{"canvas_cyrb53":"4b5a6c7d8e9f","audio_cyrb53":"1a2b3c4d5e6f"}`；音频能力不可用时省略 `audio_cyrb53`，不写入 `null`，Canvas 和音频原始数据不落库。`device_key` 首次生成后写入当前站点的 `localStorage`。由于 OAuth/外部登录的第三方导航不能附加自定义请求头，API 公共响应会额外下发短期 HttpOnly 传输 Cookie，仅用于把 `device_key` 和 `fingerprint` 带到同源回调，成功回调后立即清除；该 Cookie 不是设备存储或会话凭证。
 - `device_key` 是设备识别和会话继续有效的必要条件；`fingerprint` JSON 是分析证据，不作为认证凭证。请求必须同时具备有效 `session_id` 和 `device_key`，且 `device_key` 与该 session 关联设备匹配；缺少、变化或被注销时，Accounts 会话立即失效。
 - 设备管理支持查看当前设备、查看全部设备、注销单台设备和注销全部其他设备。注销设备会使该设备关联的所有 `passport_sessions` 失效；允许因指纹碰撞造成误杀，安全优先于免打扰体验。
 - `device_key` 通过 `X-Device-Key` 请求头传输，不得直接把它当作 session 凭证；认证仍由服务端 session 状态决定。

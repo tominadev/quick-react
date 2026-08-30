@@ -24,7 +24,7 @@ try {
 	const database = new DatabaseSync(process.env.DEFAULT_DATABASE_FILE);
 	const now = Date.now();
 	const fingerprint = 'a'.repeat(64);
-	const fingerprintData = JSON.stringify({ canvas_crc32: 'aaaaaaaa' });
+const fingerprintData = JSON.stringify({ canvas_cyrb53: '4b5a6c7d8e9f', audio_cyrb53: '1a2b3c4d5e6f' });
 	database.prepare("INSERT INTO global_site_hosts (hostname, site_key, status, created_at) VALUES ('accounts.test','passport','enabled',?)").run(now);
 	database.prepare("INSERT INTO passport_external_providers (provider,display_name,client_id,client_secret,status,created_at,updated_at,wechat_mode) VALUES ('wechat','微信','wechat-app','secret','enabled',?,?,'official_account')").run(now, now);
 	database.prepare("INSERT INTO passport_users (user_id,name,nickname,status,created_at,updated_at) VALUES (?,'wxuser2026','微信用户','enabled',?,?)").run(userId, now, now);

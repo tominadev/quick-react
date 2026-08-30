@@ -75,7 +75,7 @@ try {
 		await Promise.all([applyBaseSchema(source), applyBaseSchema(target), applyBaseSchema(rollbackTarget)]);
 		const userId = 9007199254740993n;
 		await runSql(source, sql({ database: source }).insert('base_users', { id: userId, name: 'portable', password: 'hash', roles: '[]', status: 'enabled' }));
-		await runSql(source, sql({ database: source }).insert('base_devices', { id: 101n, user_id: userId, key: 'a'.repeat(64), fingerprint: JSON.stringify({ canvas_crc32: 'aaaaaaaa' }), status: 'active', last_seen_at: 1n }));
+		await runSql(source, sql({ database: source }).insert('base_devices', { id: 101n, user_id: userId, key: 'a'.repeat(64), fingerprint: JSON.stringify({ canvas_cyrb53: '4b5a6c7d8e9f', audio_cyrb53: '1a2b3c4d5e6f' }), status: 'active', last_seen_at: 1n }));
 		await runSql(source, sql({ database: source }).insert('base_device_users', { id: 102n, device_id: 101n, user_id: userId, status: 'active', last_seen_at: 1n }));
 		await runSql(source, sql({ database: source }).insert('base_sessions', { token_hash: 'session-token-hash', user_id: userId, device_id: 101n, expires_at: 2n }));
 		await runSql(source, sql({ database: source }).insert('base_configs', { key: 'site_title', value: 'Accounts' }));

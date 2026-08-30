@@ -44,7 +44,7 @@ try {
 		VALUES (201, ?, 1, 9001, 9001, 'PassportUser', ?, ?)`).run(userId, now, now);
 	database.close();
 	const fingerprint = 'a'.repeat(64);
-	const fingerprintData = JSON.stringify({ canvas_crc32: 'aaaaaaaa' });
+const fingerprintData = JSON.stringify({ canvas_cyrb53: '4b5a6c7d8e9f', audio_cyrb53: '1a2b3c4d5e6f' });
 
 	const request = async (path, options = {}) => {
 		const headers = new Headers(options.headers);

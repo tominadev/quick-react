@@ -23,7 +23,7 @@ const userId = '1000000000000000001';
 const primaryEmailId = '2000000000000000001';
 const sessionId = 'accounts-center-session';
 const fingerprint = 'a'.repeat(64);
-const fingerprintData = JSON.stringify({ canvas_crc32: 'aaaaaaaa' });
+const fingerprintData = JSON.stringify({ canvas_cyrb53: '4b5a6c7d8e9f', audio_cyrb53: '1a2b3c4d5e6f' });
 const localSessionToken = 'local-session';
 const localSessionHash = Buffer.from(await crypto.subtle.digest('SHA-256', new TextEncoder().encode(localSessionToken))).toString('base64url');
 const cookie = `passport_session=${sessionId}`;

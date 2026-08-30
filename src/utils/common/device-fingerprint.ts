@@ -7,14 +7,55 @@ const sha256Hex = async (value: string) => {
 	return [...new Uint8Array(digest)].map((byte) => byte.toString(16).padStart(2, '0')).join('');
 };
 
-const crc32 = (value: string) => {
-	let crc = 0xffffffff;
-	for (const byte of new TextEncoder().encode(value)) {
-		crc ^= byte;
-		for (let bit = 0; bit < 8; bit++) crc = (crc >>> 1) ^ (crc & 1 ? 0xedb88320 : 0);
+/** Stable 53-bit hash used for browser feature evidence. It is not a device key. */
+const cyrb53 = (value: string, seed = 0) => {
+	let h1 = 0xdeadbeef ^ seed, h2 = 0x41c6ce57 ^ seed;
+	for (let index = 0; index < value.length; index += 1) {
+		const character = value.charCodeAt(index);
+		h1 = Math.imul(h1 ^ character, 2654435761);
+		h2 = Math.imul(h2 ^ character, 1597334677);
 	}
-	return ((crc ^ 0xffffffff) >>> 0).toString(16).padStart(8, '0');
+	h1 = Math.imul(h1 ^ (h1 >>> 16), 2246822507) ^ Math.imul(h2 ^ (h2 >>> 13), 3266489909);
+	h2 = Math.imul(h2 ^ (h2 >>> 16), 2246822507) ^ Math.imul(h1 ^ (h1 >>> 13), 3266489909);
+	return 4294967296 * (2097151 & h2) + (h1 >>> 0);
 };
+
+const audioFingerprint = (): Promise<string | undefined> => new Promise((resolve) => {
+	try {
+		const Ctx = window.OfflineAudioContext || (window as Window & { webkitOfflineAudioContext?: typeof OfflineAudioContext }).webkitOfflineAudioContext;
+		if (!Ctx) return resolve(undefined);
+		const context = new Ctx(1, 44100, 44100);
+		const oscillator = context.createOscillator();
+		const compressor = context.createDynamicsCompressor();
+		oscillator.type = 'triangle';
+		oscillator.frequency.setValueAtTime(10000, context.currentTime);
+		compressor.threshold.setValueAtTime(-50, context.currentTime);
+		compressor.knee.setValueAtTime(40, context.currentTime);
+		compressor.ratio.setValueAtTime(12, context.currentTime);
+		compressor.attack.setValueAtTime(0, context.currentTime);
+		compressor.release.setValueAtTime(0.25, context.currentTime);
+		oscillator.connect(compressor);
+		compressor.connect(context.destination);
+		let settled = false;
+		const finish = (value?: string) => {
+			if (settled) return;
+			settled = true;
+			window.clearTimeout(timer);
+			resolve(value);
+		};
+		const timer = window.setTimeout(() => finish(), 1200);
+		context.oncomplete = (event) => {
+			const buffer = event.renderedBuffer.getChannelData(0);
+			let sum = 0;
+			for (let index = 4500; index < 5000 && index < buffer.length; index += 1) sum += Math.abs(buffer[index]);
+			finish(cyrb53(sum.toString()).toString(16));
+		};
+		oscillator.start(0);
+		void context.startRendering().catch(() => finish());
+	} catch {
+		resolve(undefined);
+	}
+});
 
 const computeFingerprint = async () => {
 	const canvas = document.createElement('canvas');
@@ -27,7 +68,10 @@ const computeFingerprint = async () => {
 	context.fillRect(0, 0, 220, 30);
 	context.fillStyle = '#069';
 	context.fillText('fingerprint-check', 2, 2);
-	return JSON.stringify({ canvas_crc32: crc32(canvas.toDataURL()) });
+	const fingerprint: Record<string, string> = { canvas_cyrb53: cyrb53(canvas.toDataURL()).toString(16) };
+	const audio = await audioFingerprint();
+	if (audio) fingerprint.audio_cyrb53 = audio;
+	return JSON.stringify(fingerprint);
 };
 
 export const getDeviceFingerprint = () => {

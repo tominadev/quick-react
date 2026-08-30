@@ -27,7 +27,7 @@ const emailId = '2000000000000000007';
 const sessionId = 'accounts-split-session';
 const cookie = `passport_session=${sessionId}`;
 const fingerprint = 'a'.repeat(64);
-const fingerprintData = JSON.stringify({ canvas_crc32: 'aaaaaaaa' });
+const fingerprintData = JSON.stringify({ canvas_cyrb53: '4b5a6c7d8e9f', audio_cyrb53: '1a2b3c4d5e6f' });
 
 try {
 	// 第一次启动建立 global 结构并登记代码站点。

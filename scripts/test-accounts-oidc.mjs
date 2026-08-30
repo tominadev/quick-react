@@ -19,7 +19,7 @@ try {
 		return ['accounts.test', 'site1.test'].includes(url.hostname) ? app.request(url.toString(), init) : originalFetch(input, init);
 	};
 	const database = new DatabaseSync(process.env.DEFAULT_DATABASE_FILE);
-	const now = Date.now(), userId = 1000000000000000000n, fingerprint = 'a'.repeat(64), fingerprintData = JSON.stringify({ canvas_crc32: 'aaaaaaaa' }), sessionId = crypto.randomUUID(), sessionToken = crypto.randomUUID();
+	const now = Date.now(), userId = 1000000000000000000n, fingerprint = 'a'.repeat(64), fingerprintData = JSON.stringify({ canvas_cyrb53: '4b5a6c7d8e9f', audio_cyrb53: '1a2b3c4d5e6f' }), sessionId = crypto.randomUUID(), sessionToken = crypto.randomUUID();
 	const sessionHash = base64Url(await sha256(sessionToken));
 	const passportSessionHash = Buffer.from(await sha256(sessionId)).toString('hex');
 	database.prepare(`INSERT INTO global_site_hosts (hostname, site_key, status, created_at) VALUES ('accounts.test', 'passport', 'enabled', ?)`).run(now);

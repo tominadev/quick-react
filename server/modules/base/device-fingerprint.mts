@@ -29,8 +29,13 @@ const parseDeviceFingerprint = (value: string) => {
 	let parsed: unknown;
 	try { parsed = JSON.parse(value); } catch { throw new Error('设备指纹数据无效，请刷新页面后重试'); }
 	if (!parsed || typeof parsed !== 'object' || Array.isArray(parsed)) throw new Error('设备指纹数据无效，请刷新页面后重试');
-	const canvasCrc32 = (parsed as Record<string, unknown>).canvas_crc32;
-	if (typeof canvasCrc32 !== 'string' || !/^[a-f0-9]{8}$/.test(canvasCrc32)) throw new Error('设备指纹数据无效，请刷新页面后重试');
+	const evidence = parsed as Record<string, unknown>;
+	const isCyrb53 = (candidate: unknown) => {
+		if (typeof candidate !== 'string' || !/^(?:0|[1-9a-f][0-9a-f]{0,13})$/.test(candidate)) return false;
+		try { return BigInt(`0x${candidate}`) <= 0x1fffffffffffffn; }
+		catch { return false; }
+	};
+	if (!isCyrb53(evidence.canvas_cyrb53) || (evidence.audio_cyrb53 !== undefined && !isCyrb53(evidence.audio_cyrb53))) throw new Error('设备指纹数据无效，请刷新页面后重试');
 	return JSON.stringify(parsed);
 };
 export const readDeviceFingerprint = (request: Request) => parseDeviceFingerprint(request.headers.get('x-device-fingerprint')?.trim() || decodeCookie(cookieValue(request, deviceFingerprintTransportCookieName)));

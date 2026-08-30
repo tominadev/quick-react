@@ -93,7 +93,7 @@ try {
 	const { app } = await import(`../dist/server.mjs?smoke=${Date.now()}`);
 	internalApp = app;
 	const fingerprint = 'a'.repeat(64);
-	const fingerprintData = JSON.stringify({ canvas_crc32: 'aaaaaaaa' });
+	const fingerprintData = JSON.stringify({ canvas_cyrb53: '4b5a6c7d8e9f', audio_cyrb53: '1a2b3c4d5e6f' });
 	const migratedDatabase = new DatabaseSync(process.env.DEFAULT_DATABASE_FILE, { readOnly: true });
 	assert.equal(migratedDatabase.prepare("SELECT migration_status FROM global_sites WHERE key = 'passport'").get()?.migration_status, 'ready');
 	assert.equal(migratedDatabase.prepare("SELECT name FROM sqlite_master WHERE type = 'table' AND name = 'passport_users'").get()?.name, 'passport_users');

@@ -44,7 +44,7 @@ globalThis.fetch = async (input, init) => {
 
 const cookie = (response, name) => response.headers.getSetCookie().map((value) => value.split(';')[0]).find((value) => value.startsWith(`${name}=`));
 const fingerprint = 'a'.repeat(64);
-const fingerprintData = JSON.stringify({ canvas_crc32: 'aaaaaaaa' });
+const fingerprintData = JSON.stringify({ canvas_cyrb53: '4b5a6c7d8e9f', audio_cyrb53: '1a2b3c4d5e6f' });
 const withFingerprint = (headers = {}) => ({ 'x-device-key': fingerprint, 'x-device-fingerprint': fingerprintData, ...headers });
 const redirectTarget = async (response) => {
 	const location = response.headers.get('location');
