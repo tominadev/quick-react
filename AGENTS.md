@@ -23,7 +23,7 @@
 ## 架构约束
 
 - 本项目按当前数据结构和接口直接收敛实现，默认不兼容旧版本的字段、接口、数据格式或行为；只有主人明确要求时才增加兼容层，并应限定兼容范围和清理计划。
-- 数据表统一使用 `id` 作为本表主键，并默认包含 `created_at`、`updated_at`、`created_uid`、`updated_uid`；跨表引用使用被引用实体的语义名称加 `_id`（例如 `passport_user_emails.id` 在其他表中使用 `user_email_id`），原业务唯一字段保留为唯一约束而非主键。
+- 数据表统一使用 `id` 作为本表主键，并强制包含以下五个 `NOT NULL` 字段：`id BigInt @id @default(autoincrement())`、`created_at BigInt`、`updated_at BigInt`、`created_uid BigInt`、`updated_uid BigInt`。新增时五个字段均必须有值；更新时只自动更新 `updated_at`、`updated_uid`，不得修改创建字段。无操作者时使用固定系统 UID（如 `0`）。跨表引用使用被引用实体的语义名称加 `_id`（例如 `passport_user_emails.id` 在其他表中使用 `user_email_id`），原业务唯一字段保留为唯一约束而非主键；安全令牌和外部标识仍保留字符串类型。
 
 - 后端负责页面、导航、按钮、查询字段、文案和权限配置；前端保持通用渲染逻辑。
 - 操作完成后的刷新、跳转、弹窗、关闭窗口及目标路径必须由后端通过统一响应协议明确下发；前端业务组件不得根据接口路径、站点类型、登录模式、返回数据或当前页面自行推断下一步。前端只能在统一协议执行器中把稳定 action 映射为通用界面行为。
