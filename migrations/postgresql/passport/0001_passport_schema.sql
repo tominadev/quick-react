@@ -56,11 +56,15 @@ CREATE TABLE IF NOT EXISTS passport_emails (
 );
 
 CREATE TABLE IF NOT EXISTS passport_user_emails (
+	id BIGSERIAL PRIMARY KEY,
+	created_at BIGINT NOT NULL,
+	updated_at BIGINT NOT NULL,
+	created_duid BIGINT,
+	updated_duid BIGINT,
 	user_id BIGINT NOT NULL REFERENCES passport_users(user_id) ON DELETE RESTRICT,
 	email_id BIGINT NOT NULL UNIQUE REFERENCES passport_emails(id) ON DELETE RESTRICT,
 	is_primary SMALLINT NOT NULL DEFAULT 0 CHECK (is_primary IN (0, 1)),
-	created_at BIGINT NOT NULL,
-	PRIMARY KEY (user_id, email_id)
+	UNIQUE (user_id, email_id)
 );
 
 CREATE TABLE IF NOT EXISTS passport_email_otp (

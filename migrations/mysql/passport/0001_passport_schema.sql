@@ -60,11 +60,15 @@ CREATE TABLE IF NOT EXISTS passport_emails (
 );
 
 CREATE TABLE IF NOT EXISTS passport_user_emails (
+	id BIGINT NOT NULL AUTO_INCREMENT PRIMARY KEY,
+	created_at BIGINT NOT NULL,
+	updated_at BIGINT NOT NULL,
+	created_duid BIGINT NULL,
+	updated_duid BIGINT NULL,
 	user_id BIGINT NOT NULL,
 	email_id BIGINT NOT NULL,
 	is_primary TINYINT NOT NULL DEFAULT 0 CHECK (is_primary IN (0, 1)),
-	created_at BIGINT NOT NULL,
-	PRIMARY KEY (user_id, email_id),
+	UNIQUE KEY passport_user_emails_user_email (user_id, email_id),
 	UNIQUE KEY passport_user_emails_email_owner (email_id),
 	CONSTRAINT passport_user_emails_user_fk FOREIGN KEY (user_id) REFERENCES passport_users(user_id) ON DELETE RESTRICT,
 	CONSTRAINT passport_user_emails_email_fk FOREIGN KEY (email_id) REFERENCES passport_emails(id) ON DELETE RESTRICT

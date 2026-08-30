@@ -72,11 +72,15 @@ CREATE INDEX IF NOT EXISTS passport_emails_lookup
 	ON passport_emails(email);
 
 CREATE TABLE IF NOT EXISTS passport_user_emails (
+	id INTEGER PRIMARY KEY AUTOINCREMENT,
+	created_at INTEGER NOT NULL,
+	updated_at INTEGER NOT NULL,
+	created_duid INTEGER,
+	updated_duid INTEGER,
 	user_id INTEGER NOT NULL,
 	email_id INTEGER NOT NULL,
 	is_primary INTEGER NOT NULL DEFAULT 0 CHECK (is_primary IN (0, 1)),
-	created_at INTEGER NOT NULL,
-	PRIMARY KEY (user_id, email_id),
+	UNIQUE (user_id, email_id),
 	FOREIGN KEY (user_id) REFERENCES passport_users(user_id) ON DELETE RESTRICT,
 	FOREIGN KEY (email_id) REFERENCES passport_emails(id) ON DELETE RESTRICT
 );
