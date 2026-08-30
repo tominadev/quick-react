@@ -31,7 +31,7 @@ const validEndpoint = (value: string) => {
 	try { return ['http:', 'https:'].includes(new URL(value).protocol); } catch { return false; }
 };
 const credentialOptions = async (database: DatabaseAdapter) => {
-	const rows = await allSql<{ id: number; name: string; provider: string }>(database, sql(database).select({ table: 'global_cloud_credentials', columns: { id: 'id', name: 'name', provider: 'provider' }, where: [{ column: 'status', value: 'enabled' }], orderBy: [{ column: 'provider' }, { column: 'name' }] }));
+	const rows = await allSql<{ id: number; name: string; provider: string }>(database, sql({ database }).select({ table: 'global_cloud_credentials', columns: { id: 'id', name: 'name', provider: 'provider' }, where: [{ column: 'status', value: 'enabled' }], orderBy: [{ column: 'provider' }, { column: 'name' }] }));
 	const providerNames = new Map<string, string>(cloudProviderOptions.map((item) => [item.value, item.text]));
 	return rows.filter((item) => providerSupportsObjectStorage(item.provider))
 		.map((item) => ({ value: String(item.id), text: `${item.name} (${providerNames.get(item.provider) ?? item.provider})` }));
@@ -40,12 +40,12 @@ const columnsWithCredentials = async (database: DatabaseAdapter) => {
 	const options = await credentialOptions(database);
 	return baseColumns.map((column) => column.dataIndex === 'cloud_credential_id' ? { ...column, options } : column);
 };
-const loadCredential = (database: DatabaseAdapter, credentialId: number) => firstSql<CloudCredential>(database, sql(database).select({ table: 'global_cloud_credentials', columns: { id: 'id', name: 'name', provider: 'provider', account_id: 'account_id', access_key_id: 'access_key_id', access_key_secret: 'access_key_secret', status: 'status' }, where: [{ column: 'id', value: credentialId }, { column: 'status', value: 'enabled' }] }));
+const loadCredential = (database: DatabaseAdapter, credentialId: number) => firstSql<CloudCredential>(database, sql({ database }).select({ table: 'global_cloud_credentials', columns: { id: 'id', name: 'name', provider: 'provider', account_id: 'account_id', access_key_id: 'access_key_id', access_key_secret: 'access_key_secret', status: 'status' }, where: [{ column: 'id', value: credentialId }, { column: 'status', value: 'enabled' }] }));
 const parseExtra = (value: unknown, fallback = '{}') => {
 	const extra = text(value) || fallback;
 	try { JSON.parse(extra); return extra; } catch { return null; }
 };
-const targetById = (database: DatabaseAdapter, id: number) => firstSql<CloudStorageTarget>(database, sql(database).select({ table: 'global_cloud_object_storage_buckets', alias: 'b', columns: { id: 'b.id', provider: 'c.provider', cloud_credential_id: 'b.cloud_credential_id', endpoint: 'b.endpoint', region: 'b.region', bucket: 'b.bucket', path_style: 'b.path_style', public_base_url: 'b.public_base_url', extra_config: 'b.extra_config', access_key_id: 'c.access_key_id', access_key_secret: 'c.access_key_secret' }, joins: [{ table: 'global_cloud_credentials', alias: 'c', left: 'c.id', right: 'b.cloud_credential_id' }], where: [{ column: 'b.id', value: id }, { column: 'b.status', value: 'enabled' }, { column: 'c.status', value: 'enabled' }] }));
+const targetById = (database: DatabaseAdapter, id: number) => firstSql<CloudStorageTarget>(database, sql({ database }).select({ table: 'global_cloud_object_storage_buckets', alias: 'b', columns: { id: 'b.id', provider: 'c.provider', cloud_credential_id: 'b.cloud_credential_id', endpoint: 'b.endpoint', region: 'b.region', bucket: 'b.bucket', path_style: 'b.path_style', public_base_url: 'b.public_base_url', extra_config: 'b.extra_config', access_key_id: 'c.access_key_id', access_key_secret: 'c.access_key_secret' }, joins: [{ table: 'global_cloud_credentials', alias: 'c', left: 'c.id', right: 'b.cloud_credential_id' }], where: [{ column: 'b.id', value: id }, { column: 'b.status', value: 'enabled' }, { column: 'c.status', value: 'enabled' }] }));
 
 const handler: ApiHandler = async (c, next, params) => {
 	const database = c.get('database');
@@ -77,7 +77,7 @@ const handler: ApiHandler = async (c, next, params) => {
 	}
 	if (!params.id && c.req.method === 'GET') {
 		const [rows, columns] = await Promise.all([
-			allSql<Record<string, unknown>>(database, sql(database).select({ table: 'global_cloud_object_storage_buckets', alias: 'b', columns: { id: 'b.id', cloud_credential_id: 'b.cloud_credential_id', credential_name: 'c.name', provider: 'c.provider', endpoint: 'b.endpoint', region: 'b.region', bucket: 'b.bucket', path_style: 'b.path_style', public_base_url: 'b.public_base_url', status: 'b.status', created_at: 'b.created_at', updated_at: 'b.updated_at' }, joins: [{ table: 'global_cloud_credentials', alias: 'c', left: 'c.id', right: 'b.cloud_credential_id' }], orderBy: [{ column: 'b.id', direction: 'DESC' }] })),
+			allSql<Record<string, unknown>>(database, sql({ database }).select({ table: 'global_cloud_object_storage_buckets', alias: 'b', columns: { id: 'b.id', cloud_credential_id: 'b.cloud_credential_id', credential_name: 'c.name', provider: 'c.provider', endpoint: 'b.endpoint', region: 'b.region', bucket: 'b.bucket', path_style: 'b.path_style', public_base_url: 'b.public_base_url', status: 'b.status', created_at: 'b.created_at', updated_at: 'b.updated_at' }, joins: [{ table: 'global_cloud_credentials', alias: 'c', left: 'c.id', right: 'b.cloud_credential_id' }], orderBy: [{ column: 'b.id', direction: 'DESC' }] })),
 			columnsWithCredentials(database),
 		]);
 		const dataSource = rows.map((row) => ({ ...row, product: getCloudStorageProduct(String(row.provider)) }));
@@ -92,20 +92,20 @@ const handler: ApiHandler = async (c, next, params) => {
 		if (extra === null) return apiMessage(c, 400, '扩展配置必须是有效 JSON');
 		try {
 			const now = Date.now();
-			await runSql(database, sql(database).insert('global_cloud_object_storage_buckets', { cloud_credential_id: credentialId, endpoint, region: text(body.region), bucket, path_style: booleanValue(body.path_style) ? 1 : 0, public_base_url: text(body.public_base_url), extra_config: extra, status: body.status === statusValues.disabled ? statusValues.disabled : statusValues.enabled }));
+			await runSql(database, sql({ database }).insert('global_cloud_object_storage_buckets', { cloud_credential_id: credentialId, endpoint, region: text(body.region), bucket, path_style: booleanValue(body.path_style) ? 1 : 0, public_base_url: text(body.public_base_url), extra_config: extra, status: body.status === statusValues.disabled ? statusValues.disabled : statusValues.enabled }));
 		} catch { return apiMessage(c, 409, '该凭据、Endpoint 和 Bucket 已经存在'); }
 		return apiMessageData(c, 201, 'Bucket 创建成功', {});
 	}
 	if (!params.id && c.req.method === 'DELETE') {
 		const ids = await c.req.json<unknown>().catch(() => []);
 		for (const id of Array.isArray(ids) ? ids : []) {
-			try { await runSql(database, sql(database).delete('global_cloud_object_storage_buckets', { id: Number(id) })); }
+			try { await runSql(database, sql({ database }).delete('global_cloud_object_storage_buckets', { id: Number(id) })); }
 			catch { return apiMessage(c, 409, 'Bucket 已绑定到站点，不能删除'); }
 		}
 		return apiMessage(c, 200, '删除成功');
 	}
 	if (params.id && c.req.method === 'GET') {
-		const row = await firstSql<Record<string, unknown>>(database, sql(database).select({ table: 'global_cloud_object_storage_buckets', where: [{ column: 'id', value: Number(params.id) }] }));
+		const row = await firstSql<Record<string, unknown>>(database, sql({ database }).select({ table: 'global_cloud_object_storage_buckets', where: [{ column: 'id', value: Number(params.id) }] }));
 		return row ? apiResponse(c, 200, row) : apiMessage(c, 404, 'Bucket 不存在');
 	}
 	if (params.id && c.req.method === 'POST' && c.req.query('action') === 'test') {
@@ -115,7 +115,7 @@ const handler: ApiHandler = async (c, next, params) => {
 		catch (error) { return apiMessage(c, 502, error instanceof Error ? error.message : 'Bucket 测试失败'); }
 	}
 	if (params.id && c.req.method === 'PUT') {
-		const current = await firstSql<Record<string, unknown>>(database, sql(database).select({ table: 'global_cloud_object_storage_buckets', where: [{ column: 'id', value: Number(params.id) }] }));
+		const current = await firstSql<Record<string, unknown>>(database, sql({ database }).select({ table: 'global_cloud_object_storage_buckets', where: [{ column: 'id', value: Number(params.id) }] }));
 		if (!current) return apiMessage(c, 404, 'Bucket 不存在');
 		const body = await parseBody(c);
 		const fields = ['cloud_credential_id', 'endpoint', 'region', 'bucket', 'path_style', 'public_base_url', 'extra_config', 'status'];
@@ -128,12 +128,12 @@ const handler: ApiHandler = async (c, next, params) => {
 		const extra = changed.has('extra_config') ? parseExtra(body.extra_config) : String(current.extra_config);
 		if (extra === null) return apiMessage(c, 400, '扩展配置必须是有效 JSON');
 		try {
-			await runSql(database, sql(database).update('global_cloud_object_storage_buckets', { cloud_credential_id: credentialId, endpoint, region: changed.has('region') ? text(body.region) : current.region, bucket, path_style: changed.has('path_style') ? (booleanValue(body.path_style) ? 1 : 0) : current.path_style, public_base_url: changed.has('public_base_url') ? text(body.public_base_url) : current.public_base_url, extra_config: extra, status: changed.has('status') && body.status === statusValues.disabled ? statusValues.disabled : changed.has('status') ? statusValues.enabled : current.status }, { id: Number(params.id) }));
+			await runSql(database, sql({ database }).update('global_cloud_object_storage_buckets', { cloud_credential_id: credentialId, endpoint, region: changed.has('region') ? text(body.region) : current.region, bucket, path_style: changed.has('path_style') ? (booleanValue(body.path_style) ? 1 : 0) : current.path_style, public_base_url: changed.has('public_base_url') ? text(body.public_base_url) : current.public_base_url, extra_config: extra, status: changed.has('status') && body.status === statusValues.disabled ? statusValues.disabled : changed.has('status') ? statusValues.enabled : current.status }, { id: Number(params.id) }));
 		} catch { return apiMessage(c, 409, '该凭据、Endpoint 和 Bucket 已经存在'); }
 		return apiMessage(c, 200, '保存成功');
 	}
 	if (params.id && c.req.method === 'DELETE') {
-		try { await runSql(database, sql(database).delete('global_cloud_object_storage_buckets', { id: Number(params.id) })); }
+		try { await runSql(database, sql({ database }).delete('global_cloud_object_storage_buckets', { id: Number(params.id) })); }
 		catch { return apiMessage(c, 409, 'Bucket 已绑定到站点，不能删除'); }
 		return apiMessage(c, 200, '删除成功');
 	}

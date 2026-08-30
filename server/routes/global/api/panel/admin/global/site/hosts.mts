@@ -29,20 +29,20 @@ const parseBody = async (c: Parameters<ApiHandler>[0]): Promise<Record<string, u
 
 const removeHost = async (c: Parameters<ApiHandler>[0], id: number) => {
 	const database = c.get('database');
-	const host = await firstSql<{ hostname: string; status: string }>(database, sql(database).select({ table: 'global_site_hosts', columns: { hostname: 'hostname', status: 'status' }, where: [{ column: 'id', value: id }] }));
+	const host = await firstSql<{ hostname: string; status: string }>(database, sql({ database }).select({ table: 'global_site_hosts', columns: { hostname: 'hostname', status: 'status' }, where: [{ column: 'id', value: id }] }));
 	if (!host) return undefined;
 	if (host.status !== statusValues.disabled) return apiMessage(c, 409, '域名必须先停用才能删除');
-	const bot = await firstSql(database, sql(database).select({ table: 'global_telegram_bots', columns: { id: 'id' }, where: [{ column: 'webhook_hostname', value: host.hostname }], limit: 1 }));
+	const bot = await firstSql(database, sql({ database }).select({ table: 'global_telegram_bots', columns: { id: 'id' }, where: [{ column: 'webhook_hostname', value: host.hostname }], limit: 1 }));
 	if (bot) return apiMessage(c, 409, '域名正在被 Telegram 机器人使用，不能删除');
-	await runSql(database, sql(database).delete('global_site_hosts', { id }));
+	await runSql(database, sql({ database }).delete('global_site_hosts', { id }));
 	return undefined;
 };
 
 const handler: ApiHandler = async (c, next, params) => {
 	const database = c.get('database');
 	if (!params.id && c.req.method === 'GET') {
-		const rows = await allSql<Record<string, unknown>>(database, sql(database).select({ table: 'global_site_hosts', columns: { id: 'id', hostname: 'hostname', site_key: 'site_key', status: 'status', created_at: 'created_at' }, orderBy: [{ column: 'id' }] }));
-		const sites = await allSql<{ site_key: string; name: string }>(database, sql(database).select({ table: 'global_sites', columns: { site_key: 'site_key', name: 'name' }, where: [{ column: 'status', value: 'enabled' }, { column: 'migration_status', value: 'ready' }], orderBy: [{ column: 'site_key' }] }));
+		const rows = await allSql<Record<string, unknown>>(database, sql({ database }).select({ table: 'global_site_hosts', columns: { id: 'id', hostname: 'hostname', site_key: 'site_key', status: 'status', created_at: 'created_at' }, orderBy: [{ column: 'id' }] }));
+		const sites = await allSql<{ site_key: string; name: string }>(database, sql({ database }).select({ table: 'global_sites', columns: { site_key: 'site_key', name: 'name' }, where: [{ column: 'status', value: 'enabled' }, { column: 'migration_status', value: 'ready' }], orderBy: [{ column: 'site_key' }] }));
 		const siteOptions = sites.map((site) => ({ value: site.site_key, text: `${site.name} (${site.site_key})` }));
 		const tableColumns = columns.map((column) => column.dataIndex === 'site_key' ? { ...column, options: siteOptions } : column);
 		return apiResponse(c, 200, { table: { option: { rowKey: 'id', actions: { query: [{ key: 'search', label: '搜索' }], toolbar: [{ key: 'create', label: '新增' }, { key: 'delete', label: '删除' }], row: [{ key: 'edit', label: '编辑' }, { key: 'delete', label: '删除' }] } }, columns: tableColumns, dataSource: rows, totalRecords: rows.length } });
@@ -52,9 +52,9 @@ const handler: ApiHandler = async (c, next, params) => {
 		const hostname = normalizeHostPattern(body.hostname);
 		const siteKey = String(body.site_key ?? '').trim();
 		if (!hostname) return apiMessage(c, 400, 'Host 不合法');
-		const site = await firstSql(database, sql(database).select({ table: 'global_sites', columns: { site_key: 'site_key' }, where: [{ column: 'site_key', value: siteKey }, { column: 'status', value: 'enabled' }, { column: 'migration_status', value: 'ready' }] }));
+		const site = await firstSql(database, sql({ database }).select({ table: 'global_sites', columns: { site_key: 'site_key' }, where: [{ column: 'site_key', value: siteKey }, { column: 'status', value: 'enabled' }, { column: 'migration_status', value: 'ready' }] }));
 		if (!site) return apiMessage(c, 400, '站点不存在或尚未就绪');
-		await runSql(database, sql(database).insert('global_site_hosts', { hostname, site_key: siteKey, status: 'enabled' }));
+		await runSql(database, sql({ database }).insert('global_site_hosts', { hostname, site_key: siteKey, status: 'enabled' }));
 		await c.get('siteRouter').refresh();
 		return apiMessage(c, 201, '新增成功');
 	}
@@ -68,11 +68,11 @@ const handler: ApiHandler = async (c, next, params) => {
 		return apiMessage(c, 200, '删除成功');
 	}
 	if (params.id && c.req.method === 'GET') {
-		const row = await firstSql<Record<string, unknown>>(database, sql(database).select({ table: 'global_site_hosts', columns: { id: 'id', hostname: 'hostname', site_key: 'site_key', status: 'status', created_at: 'created_at' }, where: [{ column: 'id', value: Number(params.id) }] }));
+		const row = await firstSql<Record<string, unknown>>(database, sql({ database }).select({ table: 'global_site_hosts', columns: { id: 'id', hostname: 'hostname', site_key: 'site_key', status: 'status', created_at: 'created_at' }, where: [{ column: 'id', value: Number(params.id) }] }));
 		return row ? apiResponse(c, 200, row) : apiMessage(c, 404, 'Host 不存在');
 	}
 	if (params.id && c.req.method === 'PUT') {
-		const current = await firstSql<{ hostname: string; site_key: string; status: string }>(database, sql(database).select({ table: 'global_site_hosts', columns: { hostname: 'hostname', site_key: 'site_key', status: 'status' }, where: [{ column: 'id', value: Number(params.id) }] }));
+		const current = await firstSql<{ hostname: string; site_key: string; status: string }>(database, sql({ database }).select({ table: 'global_site_hosts', columns: { hostname: 'hostname', site_key: 'site_key', status: 'status' }, where: [{ column: 'id', value: Number(params.id) }] }));
 		if (!current) return apiMessage(c, 404, 'Host 不存在');
 		const body = await parseBody(c);
 		const changedFields = getChangedFields(body, ['hostname', 'site_key', 'status']);
@@ -80,9 +80,9 @@ const handler: ApiHandler = async (c, next, params) => {
 		if (changedFields.has('hostname') && !hostname) return apiMessage(c, 400, 'Host 不合法');
 		const status = !changedFields.has('status') ? null : body.status === statusValues.disabled ? statusValues.disabled : body.status === statusValues.enabled ? statusValues.enabled : null;
 		const nextSiteKey = changedFields.has('site_key') && typeof body.site_key === 'string' ? body.site_key.trim() : current.site_key;
-		const site = await firstSql(database, sql(database).select({ table: 'global_sites', columns: { site_key: 'site_key' }, where: [{ column: 'site_key', value: nextSiteKey }, { column: 'status', value: 'enabled' }, { column: 'migration_status', value: 'ready' }] }));
+		const site = await firstSql(database, sql({ database }).select({ table: 'global_sites', columns: { site_key: 'site_key' }, where: [{ column: 'site_key', value: nextSiteKey }, { column: 'status', value: 'enabled' }, { column: 'migration_status', value: 'ready' }] }));
 		if (!site) return apiMessage(c, 400, '站点不存在或尚未就绪');
-		const bot = await firstSql(database, sql(database).select({ table: 'global_telegram_bots', columns: { id: 'id' }, where: [{ column: 'webhook_hostname', value: current.hostname }], limit: 1 }));
+		const bot = await firstSql(database, sql({ database }).select({ table: 'global_telegram_bots', columns: { id: 'id' }, where: [{ column: 'webhook_hostname', value: current.hostname }], limit: 1 }));
 		// 机器人回调域名只能留在身份中心站点上，否则 Telegram 的 webhook 会指向没有身份数据的站点。
 		const accountsSiteKey = (await c.get('siteRouter').resolveByApi(accountsIdentityApi))?.siteKey;
 		if (bot && ((hostname && hostname !== current.hostname) || nextSiteKey !== accountsSiteKey || status === statusValues.disabled)) {
@@ -92,7 +92,7 @@ const handler: ApiHandler = async (c, next, params) => {
 		if (hostname) values.hostname = hostname;
 		if (changedFields.has('site_key')) values.site_key = nextSiteKey;
 		if (status) values.status = status;
-		if (Object.keys(values).length) await runSql(database, sql(database).update('global_site_hosts', values, { id: Number(params.id) }));
+		if (Object.keys(values).length) await runSql(database, sql({ database }).update('global_site_hosts', values, { id: Number(params.id) }));
 		await c.get('siteRouter').refresh();
 		return apiMessage(c, 200, '保存成功');
 	}

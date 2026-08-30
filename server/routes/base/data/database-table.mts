@@ -38,11 +38,11 @@ export const readTable = async (database: DatabaseAdapter, mode: 'columns' | 'ro
 	const sqliteRowId = !primaryKey && (database.dialect ?? 'sqlite') === 'sqlite';
 	const rowKey = primaryKey ?? (sqliteRowId ? '__rowid__' : '');
 	const pageNum = page(pageNumValue, 1), pageSize = page(pageSizeValue, 10);
-	const total = await firstSql<{ count: number | string }>(database, sql(database).count(selectedTableName));
+	const total = await firstSql<{ count: number | string }>(database, sql({ database }).count(selectedTableName));
 	// Database administration pages must preserve 64-bit IDs. Casting integer
 	// columns to text prevents SQLite from coercing snowflake IDs to unsafe JS numbers.
 	const selectedColumns = databaseSelectColumns(info);
-	const rows = await allSql<TableData>(database, sql(database).select({ table: selectedTableName, columns: selectedColumns, sqliteRowIdAlias: sqliteRowId ? '__rowid__' : undefined, limit: pageSize, offset: (pageNum - 1) * pageSize }));
+	const rows = await allSql<TableData>(database, sql({ database }).select({ table: selectedTableName, columns: selectedColumns, sqliteRowIdAlias: sqliteRowId ? '__rowid__' : undefined, limit: pageSize, offset: (pageNum - 1) * pageSize }));
 	const dataSource = rows.map((row, index) => ({ ...row, key: rowKey ? String(row[rowKey]) : `readonly-${(pageNum - 1) * pageSize + index + 1}` }));
 	const dataColumns = info.map(tableColumn);
 	const idIndex = dataColumns.findIndex((column) => column.dataIndex === 'id');

@@ -22,7 +22,7 @@ const parseCredentials = async (c: Parameters<ApiHandler>[0]) => {
 };
 
 const registrationAvailable = async (database: DatabaseAdapter) => {
-	const row = await firstSql<{ value: string }>(database, sql(database).select({ table: 'base_system_bootstrap', columns: { value: 'value' }, where: [{ column: 'key', value: 'initial_admin' }] }));
+	const row = await firstSql<{ value: string }>(database, sql({ database }).select({ table: 'base_system_bootstrap', columns: { value: 'value' }, where: [{ column: 'key', value: 'initial_admin' }] }));
 	return row?.value === 'open';
 };
 
@@ -55,30 +55,30 @@ const localSign: ApiHandler = async (c, next) => {
 		}
 		const now = Date.now();
 		const storedPassword = await createStoredPassword(credentials.password);
-		const claimed = await runSql(database, sql(database).update('base_system_bootstrap', { value: 'claimed' }, [{ column: 'key', value: 'initial_admin' }, { column: 'value', value: 'open' }]));
+		const claimed = await runSql(database, sql({ database }).update('base_system_bootstrap', { value: 'claimed' }, [{ column: 'key', value: 'initial_admin' }, { column: 'value', value: 'open' }]));
 		if (Number(claimed.meta?.changes ?? 0) !== 1) return apiMessage(c, 409, '初始管理员已经存在');
 		try {
-			await runSql(database, sql(database).insert('base_system_users', { username: credentials.username, password: storedPassword, roles: '["admin"]', status: 'enabled' }));
+			await runSql(database, sql({ database }).insert('base_system_users', { username: credentials.username, password: storedPassword, roles: '["admin"]', status: 'enabled' }));
 		} catch (error) {
-			await runSql(database, sql(database).update('base_system_bootstrap', { value: 'open' }, [{ column: 'key', value: 'initial_admin' }, { column: 'value', value: 'claimed' }]));
+			await runSql(database, sql({ database }).update('base_system_bootstrap', { value: 'open' }, [{ column: 'key', value: 'initial_admin' }, { column: 'value', value: 'claimed' }]));
 			throw error;
 		}
 		return apiMessage(c, 201, '初始管理员创建成功，请登录');
 	}
 	if (c.req.method === 'POST') {
 		const credentials = await parseCredentials(c);
-		const user = await firstSql<{ id: number; username: string; password: string; roles: string }>(database, sql(database).select({ table: 'base_system_users', columns: { id: 'id', username: 'username', password: 'password', roles: 'roles' }, where: [{ column: 'username', value: credentials.username }, { column: 'status', value: 'enabled' }] }));
+		const user = await firstSql<{ id: number; username: string; password: string; roles: string }>(database, sql({ database }).select({ table: 'base_system_users', columns: { id: 'id', username: 'username', password: 'password', roles: 'roles' }, where: [{ column: 'username', value: credentials.username }, { column: 'status', value: 'enabled' }] }));
 		if (!user || !await verifyStoredPassword(credentials.password, user.password)) return apiMessage(c, 401, '用户名或密码错误', { component: 'modal', type: 'error' });
 		const sessionId = crypto.randomUUID();
 		const maxAge = credentials.remember ? 30 * 24 * 60 * 60 : 24 * 60 * 60;
 		const now = Date.now();
-		await runSql(database, sql(database).insert('base_system_sessions', { id: sessionId, user_id: user.id, expires_at: now + maxAge * 1000 }));
+		await runSql(database, sql({ database }).insert('base_system_sessions', { id: sessionId, user_id: user.id, expires_at: now + maxAge * 1000 }));
 		c.header('Set-Cookie', createSessionCookie(sessionId, new URL(c.req.url).protocol === 'https:', maxAge));
 		return apiMessageData(c, 200, '登录成功', { user: { id: user.id, username: user.username }, next: { action: 'reload' } });
 	}
 	if (c.req.method === 'DELETE') {
 		const sessionId = readSessionId(c.req.raw);
-		if (sessionId) await runSql(database, sql(database).delete('base_system_sessions', { id: sessionId }));
+		if (sessionId) await runSql(database, sql({ database }).delete('base_system_sessions', { id: sessionId }));
 		c.header('Set-Cookie', clearSessionCookie(new URL(c.req.url).protocol === 'https:'));
 		if (c.req.query('logout') !== 'local') c.header('Set-Cookie', clearPassportSessionCookie(isSecureRequest(c)), { append: true });
 		return apiMessageData(c, 200, '已退出登录', { next: { action: 'reload' } });
@@ -112,7 +112,7 @@ const handler: ApiHandler = async (c, next) => {
 	if (c.req.method === 'DELETE') {
 		const database = c.get('database'), sessionId = readSessionId(c.req.raw);
 		const localOnly = c.req.query('logout') === 'local';
-		const oidcSession = !localOnly && sessionId ? await firstSql<{ sid: string }>(database, sql(database).select({
+		const oidcSession = !localOnly && sessionId ? await firstSql<{ sid: string }>(database, sql({ database }).select({
 			table: 'base_oidc_sessions', columns: { sid: 'sid' }, where: [{ column: 'issuer', value: config.issuer }, { column: 'session_id', value: sessionId }],
 		})) : undefined;
 		if (oidcSession) {
@@ -125,7 +125,7 @@ const handler: ApiHandler = async (c, next) => {
 				if (!response.ok) throw new Error(`Accounts 注销请求失败（HTTP ${response.status}）`);
 			} catch (error) { return apiMessage(c, 502, error instanceof Error ? error.message : 'Accounts 注销失败'); }
 		}
-		if (sessionId) await runSql(database, sql(database).delete('base_system_sessions', { id: sessionId }));
+		if (sessionId) await runSql(database, sql({ database }).delete('base_system_sessions', { id: sessionId }));
 		c.header('Set-Cookie', clearSessionCookie(isSecureRequest(c)));
 		if (!localOnly) c.header('Set-Cookie', clearPassportSessionCookie(isSecureRequest(c)), { append: true });
 		return apiMessageData(c, 200, '已退出 Accounts 及所有关联站点', { next: { action: 'reload' } });
@@ -144,7 +144,7 @@ const handler: ApiHandler = async (c, next) => {
 					if (source.origin === requestOrigin(c) && !source.pathname.startsWith('/api/')) returnPath = `${source.pathname}${source.search}`;
 				}
 			} catch { /* 无效 Referer 使用站点首页作为安全回退 */ }
-			await runSql(database, sql(database).insert('base_oidc_login_requests', { id, issuer: config.issuer, state, nonce, code_verifier: verifier, return_path: returnPath, expires_at: now + 600_000 }));
+			await runSql(database, sql({ database }).insert('base_oidc_login_requests', { id, issuer: config.issuer, state, nonce, code_verifier: verifier, return_path: returnPath, expires_at: now + 600_000 }));
 			const callback = `${requestOrigin(c)}/api/accounts/oidc/callback`;
 			const authorize = new URL(discovery.authorization_endpoint); authorize.search = new URLSearchParams({ response_type: 'code', client_id: config.clientId, redirect_uri: callback, scope: 'openid profile email', state, nonce, code_challenge: await sha256Base64Url(verifier), code_challenge_method: 'S256' }).toString();
 			c.header('Set-Cookie', accountsLoginCookie(id, isSecureRequest(c)));

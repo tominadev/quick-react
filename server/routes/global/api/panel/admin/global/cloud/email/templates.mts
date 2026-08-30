@@ -39,26 +39,26 @@ const cloudContentSnapshot = (template: CloudEmailTemplate, provider: string) =>
 ] : [template.template_key, template.name, template.subject, template.body_html]);
 const cloudContentHash = async (template: CloudEmailTemplate, provider: string) => [...new Uint8Array(await crypto.subtle.digest('SHA-256', encoder.encode(cloudContentSnapshot(template, provider))))]
 	.map((byte) => byte.toString(16).padStart(2, '0')).join('');
-const loadTemplate = (database: DatabaseAdapter, id: number) => firstSql<CloudEmailTemplate>(database, sql(database).select({ table: 'global_cloud_email_templates', where: [{ column: 'id', value: id }] }));
+const loadTemplate = (database: DatabaseAdapter, id: number) => firstSql<CloudEmailTemplate>(database, sql({ database }).select({ table: 'global_cloud_email_templates', where: [{ column: 'id', value: id }] }));
 const savePublication = async (database: DatabaseAdapter, template: CloudEmailTemplate, target: CloudEmailScope) => {
 	const contentHash = await cloudContentHash(template, target.provider);
-	const current = await firstSql<{ provider_template_id: string; content_hash: string; status: string }>(database, sql(database).select({ table: 'global_cloud_email_template_publications', columns: { provider_template_id: 'provider_template_id', content_hash: 'content_hash', status: 'status' }, where: [{ column: 'template_id', value: template.id }, { column: 'cloud_credential_id', value: target.cloud_credential_id }, { column: 'region', value: target.region }] }));
+	const current = await firstSql<{ provider_template_id: string; content_hash: string; status: string }>(database, sql({ database }).select({ table: 'global_cloud_email_template_publications', columns: { provider_template_id: 'provider_template_id', content_hash: 'content_hash', status: 'status' }, where: [{ column: 'template_id', value: template.id }, { column: 'cloud_credential_id', value: target.cloud_credential_id }, { column: 'region', value: target.region }] }));
 	const contentUnchanged = current && (current.content_hash === contentHash
 		|| (target.provider === 'aliyun' && current.content_hash === `legacy:${cloudContentSnapshot(template, target.provider)}`));
 	let publicationStatus = current?.status;
 	if (current && contentUnchanged && publicationStatus === 'reviewing') {
 		const refreshed = await refreshCloudEmailTemplate(target, current.provider_template_id);
 		publicationStatus = refreshed.status;
-		await runSql(database, sql(database).update('global_cloud_email_template_publications', { status: publicationStatus }, { template_id: template.id, cloud_credential_id: target.cloud_credential_id, region: target.region }));
+		await runSql(database, sql({ database }).update('global_cloud_email_template_publications', { status: publicationStatus }, { template_id: template.id, cloud_credential_id: target.cloud_credential_id, region: target.region }));
 	}
 	if (current && contentUnchanged && (publicationStatus === 'ready' || publicationStatus === 'reviewing')) {
-		if (current.content_hash !== contentHash) await runSql(database, sql(database).update('global_cloud_email_template_publications', { content_hash: contentHash }, { template_id: template.id, cloud_credential_id: target.cloud_credential_id, region: target.region }));
+		if (current.content_hash !== contentHash) await runSql(database, sql({ database }).update('global_cloud_email_template_publications', { content_hash: contentHash }, { template_id: template.id, cloud_credential_id: target.cloud_credential_id, region: target.region }));
 		return 'skipped' as const;
 	}
 	const publication = await publishCloudEmailTemplate(target, template, current?.provider_template_id);
 	const now = Date.now();
-	if (current) await runSql(database, sql(database).update('global_cloud_email_template_publications', { provider_template_id: publication.providerTemplateId, content_hash: contentHash, status: publication.status }, { template_id: template.id, cloud_credential_id: target.cloud_credential_id, region: target.region }));
-	else await runSql(database, sql(database).insert('global_cloud_email_template_publications', { template_id: template.id, cloud_credential_id: target.cloud_credential_id, region: target.region, provider_template_id: publication.providerTemplateId, content_hash: contentHash, status: publication.status }));
+	if (current) await runSql(database, sql({ database }).update('global_cloud_email_template_publications', { provider_template_id: publication.providerTemplateId, content_hash: contentHash, status: publication.status }, { template_id: template.id, cloud_credential_id: target.cloud_credential_id, region: target.region }));
+	else await runSql(database, sql({ database }).insert('global_cloud_email_template_publications', { template_id: template.id, cloud_credential_id: target.cloud_credential_id, region: target.region, provider_template_id: publication.providerTemplateId, content_hash: contentHash, status: publication.status }));
 	return 'submitted' as const;
 };
 const syncCloudTemplates = async (database: DatabaseAdapter, credentialId: number, region: string, templateType: string) => {
@@ -72,8 +72,8 @@ const syncCloudTemplates = async (database: DatabaseAdapter, credentialId: numbe
 			const remote = target.provider === 'aliyun'
 				? await getAliyunDirectMailTemplate(target, summary.providerTemplateId)
 				: await getTencentSesTemplate(target, summary.providerTemplateId);
-			let local = await firstSql<{ template_id: number; template_type: string; subject: string; body_text: string }>(database, sql(database).select({ table: 'global_cloud_email_template_publications', alias: 'p', columns: { template_id: 'p.template_id', template_type: 't.template_type', subject: 't.subject', body_text: 't.body_text' }, joins: [{ table: 'global_cloud_email_templates', alias: 't', left: 't.id', right: 'p.template_id' }], where: [{ column: 'p.provider_template_id', value: remote.providerTemplateId }, { column: 'p.cloud_credential_id', value: target.cloud_credential_id }, { column: 'p.region', value: target.region }], limit: 1 }));
-			if (!local) local = await firstSql<{ template_id: number; template_type: string; subject: string; body_text: string }>(database, sql(database).select({ table: 'global_cloud_email_templates', columns: { template_id: 'id', template_type: 'template_type', subject: 'subject', body_text: 'body_text' }, where: [{ column: 'template_key', value: importedTemplateKey(target.provider, target.cloud_credential_id, target.region, remote.providerTemplateId) }] }));
+			let local = await firstSql<{ template_id: number; template_type: string; subject: string; body_text: string }>(database, sql({ database }).select({ table: 'global_cloud_email_template_publications', alias: 'p', columns: { template_id: 'p.template_id', template_type: 't.template_type', subject: 't.subject', body_text: 't.body_text' }, joins: [{ table: 'global_cloud_email_templates', alias: 't', left: 't.id', right: 'p.template_id' }], where: [{ column: 'p.provider_template_id', value: remote.providerTemplateId }, { column: 'p.cloud_credential_id', value: target.cloud_credential_id }, { column: 'p.region', value: target.region }], limit: 1 }));
+			if (!local) local = await firstSql<{ template_id: number; template_type: string; subject: string; body_text: string }>(database, sql({ database }).select({ table: 'global_cloud_email_templates', columns: { template_id: 'id', template_type: 'template_type', subject: 'subject', body_text: 'body_text' }, where: [{ column: 'template_key', value: importedTemplateKey(target.provider, target.cloud_credential_id, target.region, remote.providerTemplateId) }] }));
 			const normalize = target.provider === 'aliyun' ? localTemplateText : (value: string) => value;
 			const effectiveType = local?.template_type ?? templateType;
 			const remoteText = 'text' in remote ? normalize(remote.text) : '';
@@ -84,27 +84,27 @@ const syncCloudTemplates = async (database: DatabaseAdapter, credentialId: numbe
 			const variableError = validateCloudEmailTemplateVariables(effectiveType, { subject, body_text: bodyText, body_html: bodyHtml });
 			if (variableError) throw new Error(variableError);
 			if (local) {
-				await runSql(database, sql(database).update('global_cloud_email_templates', { subject, body_text: bodyText, body_html: bodyHtml }, { id: local.template_id }));
+				await runSql(database, sql({ database }).update('global_cloud_email_templates', { subject, body_text: bodyText, body_html: bodyHtml }, { id: local.template_id }));
 				updated += 1;
 			} else {
 				const templateKey = importedTemplateKey(target.provider, target.cloud_credential_id, target.region, remote.providerTemplateId);
-				await runSql(database, sql(database).insert('global_cloud_email_templates', { template_key: templateKey, template_type: templateType, name: remote.name, subject, body_text: bodyText, body_html: bodyHtml, status: 'enabled' }));
-				local = await firstSql<{ template_id: number; template_type: string; subject: string; body_text: string }>(database, sql(database).select({ table: 'global_cloud_email_templates', columns: { template_id: 'id', template_type: 'template_type', subject: 'subject', body_text: 'body_text' }, where: [{ column: 'template_key', value: templateKey }] }));
+				await runSql(database, sql({ database }).insert('global_cloud_email_templates', { template_key: templateKey, template_type: templateType, name: remote.name, subject, body_text: bodyText, body_html: bodyHtml, status: 'enabled' }));
+				local = await firstSql<{ template_id: number; template_type: string; subject: string; body_text: string }>(database, sql({ database }).select({ table: 'global_cloud_email_templates', columns: { template_id: 'id', template_type: 'template_type', subject: 'subject', body_text: 'body_text' }, where: [{ column: 'template_key', value: templateKey }] }));
 				if (!local) throw new Error('本地模板创建后无法读取');
 				imported += 1;
 			}
 			const synced = await loadTemplate(database, local.template_id);
 			if (!synced) throw new Error('本地模板同步后无法读取');
 			const contentHash = await cloudContentHash(synced, target.provider);
-			const publication = await firstSql(database, sql(database).select({ table: 'global_cloud_email_template_publications', columns: { template_id: 'template_id' }, where: [{ column: 'template_id', value: local.template_id }, { column: 'cloud_credential_id', value: target.cloud_credential_id }, { column: 'region', value: target.region }] }));
-			if (publication) await runSql(database, sql(database).update('global_cloud_email_template_publications', { provider_template_id: remote.providerTemplateId, content_hash: contentHash, status: remote.status }, { template_id: local.template_id, cloud_credential_id: target.cloud_credential_id, region: target.region }));
-			else await runSql(database, sql(database).insert('global_cloud_email_template_publications', { template_id: local.template_id, cloud_credential_id: target.cloud_credential_id, region: target.region, provider_template_id: remote.providerTemplateId, content_hash: contentHash, status: remote.status }));
+			const publication = await firstSql(database, sql({ database }).select({ table: 'global_cloud_email_template_publications', columns: { template_id: 'template_id' }, where: [{ column: 'template_id', value: local.template_id }, { column: 'cloud_credential_id', value: target.cloud_credential_id }, { column: 'region', value: target.region }] }));
+			if (publication) await runSql(database, sql({ database }).update('global_cloud_email_template_publications', { provider_template_id: remote.providerTemplateId, content_hash: contentHash, status: remote.status }, { template_id: local.template_id, cloud_credential_id: target.cloud_credential_id, region: target.region }));
+			else await runSql(database, sql({ database }).insert('global_cloud_email_template_publications', { template_id: local.template_id, cloud_credential_id: target.cloud_credential_id, region: target.region, provider_template_id: remote.providerTemplateId, content_hash: contentHash, status: remote.status }));
 		} catch (error) { failures.push(`${summary.name}：${error instanceof Error ? error.message : '同步失败'}`); }
 	}
 	return { imported, updated, total: remoteTemplates.length, failures };
 };
 const loadSyncOptions = async (database: DatabaseAdapter) => {
-	const credentials = await allSql<{ id: number; name: string; provider: string }>(database, sql(database).select({ table: 'global_cloud_credentials', columns: { id: 'id', name: 'name', provider: 'provider' }, where: [{ column: 'status', value: 'enabled' }], orderBy: [{ column: 'provider' }, { column: 'name' }] }));
+	const credentials = await allSql<{ id: number; name: string; provider: string }>(database, sql({ database }).select({ table: 'global_cloud_credentials', columns: { id: 'id', name: 'name', provider: 'provider' }, where: [{ column: 'status', value: 'enabled' }], orderBy: [{ column: 'provider' }, { column: 'name' }] }));
 	const providerNames = new Map<string, string>(cloudProviderOptions.map((item) => [item.value, item.text]));
 	const enabled = credentials.filter((item) => providerSupportsEmailPush(item.provider));
 	return {
@@ -117,23 +117,23 @@ const loadSyncOptions = async (database: DatabaseAdapter) => {
 	};
 };
 const deleteTemplate = async (database: DatabaseAdapter, id: number) => {
-	const row = await firstSql<{ id: number; status: string }>(database, sql(database).select({ table: 'global_cloud_email_templates', columns: { id: 'id', status: 'status' }, where: [{ column: 'id', value: id }] }));
+	const row = await firstSql<{ id: number; status: string }>(database, sql({ database }).select({ table: 'global_cloud_email_templates', columns: { id: 'id', status: 'status' }, where: [{ column: 'id', value: id }] }));
 	if (!row) return '邮件模板不存在';
 	if (row.status !== statusValues.disabled) return '邮件模板必须先停用才能删除';
 	const association = (await Promise.all([
-		firstSql(database, sql(database).select({ table: 'global_cloud_email_bindings', columns: { template_id: 'template_id' }, where: [{ column: 'template_id', value: id }], limit: 1 })),
-		firstSql(database, sql(database).select({ table: 'global_cloud_email_template_publications', columns: { template_id: 'template_id' }, where: [{ column: 'template_id', value: id }], limit: 1 })),
+		firstSql(database, sql({ database }).select({ table: 'global_cloud_email_bindings', columns: { template_id: 'template_id' }, where: [{ column: 'template_id', value: id }], limit: 1 })),
+		firstSql(database, sql({ database }).select({ table: 'global_cloud_email_template_publications', columns: { template_id: 'template_id' }, where: [{ column: 'template_id', value: id }], limit: 1 })),
 	])).some(Boolean);
 	if (association) return '邮件模板仍有站点绑定或云端发布记录，不能删除';
-	await runSql(database, sql(database).delete('global_cloud_email_templates', { id }));
+	await runSql(database, sql({ database }).delete('global_cloud_email_templates', { id }));
 };
 
 const handler: ApiHandler = async (c, next, params) => {
 	const database = c.get('database');
 	if (!params.id && c.req.method === 'GET') {
 		const [templates, publications, syncOptions] = await Promise.all([
-			allSql<Record<string, unknown>>(database, sql(database).select({ table: 'global_cloud_email_templates', orderBy: [{ column: 'id', direction: 'DESC' }] })),
-			allSql<{ template_id: number; status: string }>(database, sql(database).select({ table: 'global_cloud_email_template_publications', columns: { template_id: 'template_id', status: 'status' }, orderBy: [{ column: 'template_id' }] })),
+			allSql<Record<string, unknown>>(database, sql({ database }).select({ table: 'global_cloud_email_templates', orderBy: [{ column: 'id', direction: 'DESC' }] })),
+			allSql<{ template_id: number; status: string }>(database, sql({ database }).select({ table: 'global_cloud_email_template_publications', columns: { template_id: 'template_id', status: 'status' }, orderBy: [{ column: 'template_id' }] })),
 			loadSyncOptions(database),
 		]);
 		const publicationMap = new Map<number, string[]>();
@@ -165,9 +165,9 @@ const handler: ApiHandler = async (c, next, params) => {
 		if (variableError) return apiMessage(c, 400, variableError);
 		try {
 			const now = Date.now();
-			await runSql(database, sql(database).insert('global_cloud_email_templates', { template_key: templateKey, template_type: templateType, name, subject, body_text: bodyText, body_html: bodyHtml, status: body.status === statusValues.disabled ? statusValues.disabled : statusValues.enabled }));
+			await runSql(database, sql({ database }).insert('global_cloud_email_templates', { template_key: templateKey, template_type: templateType, name, subject, body_text: bodyText, body_html: bodyHtml, status: body.status === statusValues.disabled ? statusValues.disabled : statusValues.enabled }));
 		} catch { return apiMessage(c, 409, '模板 Key 已经存在'); }
-		const template = await firstSql<CloudEmailTemplate>(database, sql(database).select({ table: 'global_cloud_email_templates', where: [{ column: 'template_key', value: templateKey }] }));
+		const template = await firstSql<CloudEmailTemplate>(database, sql({ database }).select({ table: 'global_cloud_email_templates', where: [{ column: 'template_key', value: templateKey }] }));
 		if (!template) return apiMessage(c, 500, '模板创建后无法读取');
 		return apiMessageData(c, 201, '邮件模板创建成功，请选择云凭据和 Region 发布', { id: template.id });
 	}
@@ -180,7 +180,7 @@ const handler: ApiHandler = async (c, next, params) => {
 		return apiMessage(c, 200, '删除成功');
 	}
 	if (params.id && c.req.method === 'GET') {
-		const row = await firstSql<Record<string, unknown>>(database, sql(database).select({ table: 'global_cloud_email_templates', where: [{ column: 'id', value: Number(params.id) }] }));
+		const row = await firstSql<Record<string, unknown>>(database, sql({ database }).select({ table: 'global_cloud_email_templates', where: [{ column: 'id', value: Number(params.id) }] }));
 		return row ? apiResponse(c, 200, row) : apiMessage(c, 404, '邮件模板不存在');
 	}
 	if (params.id && c.req.method === 'POST' && c.req.query('action') === 'publish') {
@@ -198,7 +198,7 @@ const handler: ApiHandler = async (c, next, params) => {
 		} catch (error) { return apiMessage(c, 502, error instanceof Error ? error.message : '模板发布失败'); }
 	}
 	if (params.id && c.req.method === 'POST' && c.req.query('action') === 'refresh') {
-		const publications = await allSql<{ cloud_credential_id: number; region: string; provider_template_id: string }>(database, sql(database).select({ table: 'global_cloud_email_template_publications', columns: { cloud_credential_id: 'cloud_credential_id', region: 'region', provider_template_id: 'provider_template_id' }, where: [{ column: 'template_id', value: Number(params.id) }] }));
+		const publications = await allSql<{ cloud_credential_id: number; region: string; provider_template_id: string }>(database, sql({ database }).select({ table: 'global_cloud_email_template_publications', columns: { cloud_credential_id: 'cloud_credential_id', region: 'region', provider_template_id: 'provider_template_id' }, where: [{ column: 'template_id', value: Number(params.id) }] }));
 		if (!publications.length) return apiMessage(c, 404, '模板尚未发布到云端');
 		const failures: string[] = [];
 		for (const row of publications) {
@@ -206,7 +206,7 @@ const handler: ApiHandler = async (c, next, params) => {
 				const target = await loadCloudEmailScope(database, row.cloud_credential_id, row.region);
 				if (!target) throw new Error(`云凭据 ${row.cloud_credential_id} 不存在或已停用`);
 				const publication = await refreshCloudEmailTemplate(target, row.provider_template_id);
-				await runSql(database, sql(database).update('global_cloud_email_template_publications', { status: publication.status }, { template_id: Number(params.id), cloud_credential_id: row.cloud_credential_id, region: row.region }));
+				await runSql(database, sql({ database }).update('global_cloud_email_template_publications', { status: publication.status }, { template_id: Number(params.id), cloud_credential_id: row.cloud_credential_id, region: row.region }));
 			} catch (error) { failures.push(error instanceof Error ? error.message : `${row.cloud_credential_id}/${row.region} 状态刷新失败`); }
 		}
 		return failures.length ? apiMessage(c, 502, failures.join('；')) : apiMessage(c, 200, '云端模板状态已刷新');
@@ -218,7 +218,7 @@ const handler: ApiHandler = async (c, next, params) => {
 		if (!defaults) return apiMessage(c, 400, '该模板类型没有后端默认值');
 		const variableError = validateCloudEmailTemplateVariables(current.template_type, defaults);
 		if (variableError) return apiMessage(c, 500, `后端默认模板配置错误：${variableError}`);
-		await runSql(database, sql(database).update('global_cloud_email_templates', { name: defaults.name, subject: defaults.subject, body_text: defaults.body_text, body_html: defaults.body_html }, { id: current.id }));
+		await runSql(database, sql({ database }).update('global_cloud_email_templates', { name: defaults.name, subject: defaults.subject, body_text: defaults.body_text, body_html: defaults.body_html }, { id: current.id }));
 		return apiMessage(c, 200, '模板已还原默认，请选择云凭据和 Region 发布更新');
 	}
 	if (params.id && c.req.method === 'PUT') {
@@ -234,11 +234,11 @@ const handler: ApiHandler = async (c, next, params) => {
 		const variableError = validateCloudEmailTemplateVariables(templateType, { subject, body_text: bodyText, body_html: bodyHtml });
 		if (variableError) return apiMessage(c, 400, variableError);
 		if (templateType !== current.template_type) {
-			const binding = await firstSql(database, sql(database).select({ table: 'global_cloud_email_bindings', columns: { template_id: 'template_id' }, where: [{ column: 'template_id', value: current.id }], limit: 1 }));
+			const binding = await firstSql(database, sql({ database }).select({ table: 'global_cloud_email_bindings', columns: { template_id: 'template_id' }, where: [{ column: 'template_id', value: current.id }], limit: 1 }));
 			if (binding) return apiMessage(c, 409, '模板已有站点绑定，不能修改类型');
 		}
 		try {
-			await runSql(database, sql(database).update('global_cloud_email_templates', { template_key: templateKey, template_type: templateType, name, subject, body_text: bodyText, body_html: bodyHtml, status }, { id: current.id }));
+			await runSql(database, sql({ database }).update('global_cloud_email_templates', { template_key: templateKey, template_type: templateType, name, subject, body_text: bodyText, body_html: bodyHtml, status }, { id: current.id }));
 		} catch { return apiMessage(c, 409, '模板 Key 已经存在'); }
 		return apiMessage(c, 200, '保存成功，请按需选择云凭据和 Region 发布更新');
 	}

@@ -35,8 +35,8 @@ export const oidcDiscovery = (c: Context<AppEnv>) => {
 /** 仅撤销 Accounts 自身会话；不通知 OIDC 客户端，供账户中心的独立退出使用。 */
 export const revokePassportSession = async (database: DatabaseAdapter, sessionId: string) => {
 	const now = Date.now();
-	await runSql(database, sql(database).update('passport_oidc_access_tokens', { revoked_at: now }, [{ column: 'session_id', value: sessionId }, { column: 'revoked_at', operator: 'IS NULL' }]));
-	await runSql(database, sql(database).delete('passport_sessions', { id: sessionId }));
+	await runSql(database, sql({ database }).update('passport_oidc_access_tokens', { revoked_at: now }, [{ column: 'session_id', value: sessionId }, { column: 'revoked_at', operator: 'IS NULL' }]));
+	await runSql(database, sql({ database }).delete('passport_sessions', { id: sessionId }));
 };
 
 export const revokeOidcSession = async (database: DatabaseAdapter, sessionId: string, issuer: string, requester: typeof fetch = fetch) => {

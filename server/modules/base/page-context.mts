@@ -11,7 +11,7 @@ const callbackPagePaths = ['/accounts/external/callback', '/accounts/external/we
 /** 本站是否还能创建初始管理员：由本站数据库里的引导状态决定，和站点是哪个无关。 */
 const registrationAvailable = async (c: Context<AppEnv>) => {
 	const database = c.get('database');
-	const row = await firstSql<{ value: string }>(database, sql(database).select({ table: 'base_system_bootstrap', columns: { value: 'value' }, where: [{ column: 'key', value: 'initial_admin' }] }));
+	const row = await firstSql<{ value: string }>(database, sql({ database }).select({ table: 'base_system_bootstrap', columns: { value: 'value' }, where: [{ column: 'key', value: 'initial_admin' }] }));
 	return row?.value === 'open';
 };
 

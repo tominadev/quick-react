@@ -31,7 +31,7 @@ const text = (value: unknown) => typeof value === 'string' ? value.trim() : '';
 const booleanValue = (value: unknown) => value === true || value === 1 || value === '1';
 const emailPattern = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
 const credentialOptions = async (database: DatabaseAdapter) => {
-	const rows = await allSql<{ id: number; name: string; provider: string }>(database, sql(database).select({ table: 'global_cloud_credentials', columns: { id: 'id', name: 'name', provider: 'provider' }, where: [{ column: 'status', value: 'enabled' }], orderBy: [{ column: 'provider' }, { column: 'name' }] }));
+	const rows = await allSql<{ id: number; name: string; provider: string }>(database, sql({ database }).select({ table: 'global_cloud_credentials', columns: { id: 'id', name: 'name', provider: 'provider' }, where: [{ column: 'status', value: 'enabled' }], orderBy: [{ column: 'provider' }, { column: 'name' }] }));
 	const names = new Map<string, string>(cloudProviderOptions.map((item) => [item.value, item.text]));
 	const enabled = rows.filter((item) => providerSupportsEmailPush(item.provider));
 	return {
@@ -42,17 +42,17 @@ const credentialOptions = async (database: DatabaseAdapter) => {
 	};
 };
 const validCredential = async (database: DatabaseAdapter, id: number, region: string) => {
-	const credential = await firstSql<{ id: number; provider: string }>(database, sql(database).select({ table: 'global_cloud_credentials', columns: { id: 'id', provider: 'provider' }, where: [{ column: 'id', value: id }, { column: 'status', value: 'enabled' }] }));
+	const credential = await firstSql<{ id: number; provider: string }>(database, sql({ database }).select({ table: 'global_cloud_credentials', columns: { id: 'id', provider: 'provider' }, where: [{ column: 'id', value: id }, { column: 'status', value: 'enabled' }] }));
 	return Boolean(credential && providerSupportsEmailPush(credential.provider) && getCloudEmailRegions(credential.provider).some((item) => item === region));
 };
-const loadCredential = (database: DatabaseAdapter, id: number) => firstSql<CloudCredential>(database, sql(database).select({ table: 'global_cloud_credentials', where: [{ column: 'id', value: id }, { column: 'status', value: 'enabled' }] }));
+const loadCredential = (database: DatabaseAdapter, id: number) => firstSql<CloudCredential>(database, sql({ database }).select({ table: 'global_cloud_credentials', where: [{ column: 'id', value: id }, { column: 'status', value: 'enabled' }] }));
 const deleteChannel = async (database: DatabaseAdapter, id: number) => {
-	const row = await firstSql<{ id: number; status: string }>(database, sql(database).select({ table: 'global_cloud_email_channels', columns: { id: 'id', status: 'status' }, where: [{ column: 'id', value: id }] }));
+	const row = await firstSql<{ id: number; status: string }>(database, sql({ database }).select({ table: 'global_cloud_email_channels', columns: { id: 'id', status: 'status' }, where: [{ column: 'id', value: id }] }));
 	if (!row) return '邮件通道不存在';
 	if (row.status !== statusValues.disabled) return '邮件通道必须先停用才能删除';
-	const association = await firstSql(database, sql(database).select({ table: 'global_cloud_email_bindings', columns: { channel_id: 'channel_id' }, where: [{ column: 'channel_id', value: id }], limit: 1 }));
+	const association = await firstSql(database, sql({ database }).select({ table: 'global_cloud_email_bindings', columns: { channel_id: 'channel_id' }, where: [{ column: 'channel_id', value: id }], limit: 1 }));
 	if (association) return '邮件通道仍有站点绑定，不能删除';
-	await runSql(database, sql(database).delete('global_cloud_email_channels', { id }));
+	await runSql(database, sql({ database }).delete('global_cloud_email_channels', { id }));
 };
 
 const handler: ApiHandler = async (c, next, params) => {
@@ -77,7 +77,7 @@ const handler: ApiHandler = async (c, next, params) => {
 	}
 	if (!params.id && c.req.method === 'GET') {
 		const [rows, options] = await Promise.all([
-			allSql<Record<string, unknown>>(database, sql(database).select({ table: 'global_cloud_email_channels', alias: 'ch', columns: { id: 'ch.id', cloud_credential_id: 'ch.cloud_credential_id', credential_name: 'c.name', provider: 'c.provider', region: 'ch.region', account_name: 'ch.account_name', from_alias: 'ch.from_alias', reply_to_address: 'ch.reply_to_address', status: 'ch.status', created_at: 'ch.created_at', updated_at: 'ch.updated_at' }, joins: [{ table: 'global_cloud_credentials', alias: 'c', left: 'c.id', right: 'ch.cloud_credential_id' }], orderBy: [{ column: 'ch.id', direction: 'DESC' }] })),
+			allSql<Record<string, unknown>>(database, sql({ database }).select({ table: 'global_cloud_email_channels', alias: 'ch', columns: { id: 'ch.id', cloud_credential_id: 'ch.cloud_credential_id', credential_name: 'c.name', provider: 'c.provider', region: 'ch.region', account_name: 'ch.account_name', from_alias: 'ch.from_alias', reply_to_address: 'ch.reply_to_address', status: 'ch.status', created_at: 'ch.created_at', updated_at: 'ch.updated_at' }, joins: [{ table: 'global_cloud_credentials', alias: 'c', left: 'c.id', right: 'ch.cloud_credential_id' }], orderBy: [{ column: 'ch.id', direction: 'DESC' }] })),
 			credentialOptions(database),
 		]);
 		const tableColumns = columns.map((column) => column.dataIndex === 'cloud_credential_id' ? { ...column, options: options.credentials }
@@ -91,7 +91,7 @@ const handler: ApiHandler = async (c, next, params) => {
 		if (!Number.isInteger(credentialId) || !await validCredential(database, credentialId, region) || !emailPattern.test(accountName) || !fromAlias) return apiMessage(c, 400, '云凭据、Region 或发信身份不合法');
 		try {
 			const now = Date.now();
-			await runSql(database, sql(database).insert('global_cloud_email_channels', { cloud_credential_id: credentialId, region, account_name: accountName, from_alias: fromAlias, reply_to_address: booleanValue(body.reply_to_address) ? 1 : 0, status: body.status === statusValues.disabled ? statusValues.disabled : statusValues.enabled }));
+			await runSql(database, sql({ database }).insert('global_cloud_email_channels', { cloud_credential_id: credentialId, region, account_name: accountName, from_alias: fromAlias, reply_to_address: booleanValue(body.reply_to_address) ? 1 : 0, status: body.status === statusValues.disabled ? statusValues.disabled : statusValues.enabled }));
 		} catch { return apiMessage(c, 409, '该凭据、Region 和发信地址已经存在'); }
 		return apiMessageData(c, 201, '邮件通道创建成功', {});
 	}
@@ -108,8 +108,8 @@ const handler: ApiHandler = async (c, next, params) => {
 		const channel = await loadCloudEmailTarget(database, Number(params.id));
 		if (!channel) return apiMessage(c, 404, '邮件通道不存在或已停用');
 		const [templates, publications] = await Promise.all([
-			allSql<CloudEmailTemplate>(database, sql(database).select({ table: 'global_cloud_email_templates', where: [{ column: 'status', value: 'enabled' }, { column: 'template_type', value: 'email_verification' }], orderBy: [{ column: 'name' }, { column: 'template_key' }] })),
-			allSql<{ template_id: number; status: string }>(database, sql(database).select({ table: 'global_cloud_email_template_publications', columns: { template_id: 'template_id', status: 'status' }, where: [{ column: 'cloud_credential_id', value: channel.cloud_credential_id }, { column: 'region', value: channel.region }] })),
+			allSql<CloudEmailTemplate>(database, sql({ database }).select({ table: 'global_cloud_email_templates', where: [{ column: 'status', value: 'enabled' }, { column: 'template_type', value: 'email_verification' }], orderBy: [{ column: 'name' }, { column: 'template_key' }] })),
+			allSql<{ template_id: number; status: string }>(database, sql({ database }).select({ table: 'global_cloud_email_template_publications', columns: { template_id: 'template_id', status: 'status' }, where: [{ column: 'cloud_credential_id', value: channel.cloud_credential_id }, { column: 'region', value: channel.region }] })),
 		]);
 		const publicationStatuses = new Map(publications.map((item) => [Number(item.template_id), item.status]));
 		return apiResponse(c, 200, { options: templates.map((item) => ({ ...item, publication_status: publicationStatuses.get(Number(item.id)) })).filter((item) => !validateCloudEmailTemplateVariables(item.template_type, item)
@@ -117,7 +117,7 @@ const handler: ApiHandler = async (c, next, params) => {
 			.map((item) => ({ value: String(item.id), text: `${item.name} (${item.template_key})` })) });
 	}
 	if (params.id && c.req.method === 'GET') {
-		const row = await firstSql<Record<string, unknown>>(database, sql(database).select({ table: 'global_cloud_email_channels', where: [{ column: 'id', value: Number(params.id) }] }));
+		const row = await firstSql<Record<string, unknown>>(database, sql({ database }).select({ table: 'global_cloud_email_channels', where: [{ column: 'id', value: Number(params.id) }] }));
 		return row ? apiResponse(c, 200, row) : apiMessage(c, 404, '邮件通道不存在');
 	}
 	if (params.id && c.req.method === 'POST' && c.req.query('action') === 'test') {
@@ -125,7 +125,7 @@ const handler: ApiHandler = async (c, next, params) => {
 		if (!emailPattern.test(to) || !Number.isInteger(templateId) || !/^\d{6}$/.test(code)) return apiMessage(c, 400, '收件人、验证码模板或 6 位数字验证码不合法');
 		const [target, template] = await Promise.all([
 			loadCloudEmailTarget(database, Number(params.id)),
-			firstSql<CloudEmailTemplate>(database, sql(database).select({ table: 'global_cloud_email_templates', where: [{ column: 'id', value: templateId }, { column: 'template_type', value: 'email_verification' }, { column: 'status', value: 'enabled' }] })),
+			firstSql<CloudEmailTemplate>(database, sql({ database }).select({ table: 'global_cloud_email_templates', where: [{ column: 'id', value: templateId }, { column: 'template_type', value: 'email_verification' }, { column: 'status', value: 'enabled' }] })),
 		]);
 		if (!target || !template) return apiMessage(c, 404, '邮件通道或启用的验证码模板不存在');
 		const variableError = validateCloudEmailTemplateVariables(template.template_type, template);
@@ -135,7 +135,7 @@ const handler: ApiHandler = async (c, next, params) => {
 			const rendered = renderCloudEmailTemplate(template, variables);
 			let providerTemplateId: string | undefined;
 			if (target.provider === 'tencent') {
-				const publication = await firstSql<{ provider_template_id: string }>(database, sql(database).select({ table: 'global_cloud_email_template_publications', columns: { provider_template_id: 'provider_template_id' }, where: [{ column: 'template_id', value: template.id }, { column: 'cloud_credential_id', value: target.cloud_credential_id }, { column: 'region', value: target.region }, { column: 'status', value: 'ready' }] }));
+				const publication = await firstSql<{ provider_template_id: string }>(database, sql({ database }).select({ table: 'global_cloud_email_template_publications', columns: { provider_template_id: 'provider_template_id' }, where: [{ column: 'template_id', value: template.id }, { column: 'cloud_credential_id', value: target.cloud_credential_id }, { column: 'region', value: target.region }, { column: 'status', value: 'ready' }] }));
 				if (!publication) return apiMessage(c, 400, '腾讯云 SES 测试发件需要已审核通过的云端模板');
 				providerTemplateId = publication.provider_template_id;
 			}
@@ -144,7 +144,7 @@ const handler: ApiHandler = async (c, next, params) => {
 		} catch (error) { return apiMessage(c, 502, error instanceof Error ? error.message : '测试邮件发送失败'); }
 	}
 	if (params.id && c.req.method === 'PUT') {
-		const current = await firstSql<Record<string, unknown>>(database, sql(database).select({ table: 'global_cloud_email_channels', where: [{ column: 'id', value: Number(params.id) }] }));
+		const current = await firstSql<Record<string, unknown>>(database, sql({ database }).select({ table: 'global_cloud_email_channels', where: [{ column: 'id', value: Number(params.id) }] }));
 		if (!current) return apiMessage(c, 404, '邮件通道不存在');
 		const body = await parseBody(c), changed = getChangedFields(body, ['cloud_credential_id', 'region', 'account_name', 'from_alias', 'reply_to_address', 'status']);
 		const credentialId = changed.has('cloud_credential_id') ? Number(body.cloud_credential_id) : Number(current.cloud_credential_id);
@@ -154,11 +154,11 @@ const handler: ApiHandler = async (c, next, params) => {
 		if (!Number.isInteger(credentialId) || !await validCredential(database, credentialId, region) || !emailPattern.test(accountName) || !fromAlias) return apiMessage(c, 400, '云凭据、Region 或发信身份不合法');
 		const identityChanged = credentialId !== Number(current.cloud_credential_id) || region !== current.region || accountName !== current.account_name;
 		if (identityChanged) {
-			const binding = await firstSql(database, sql(database).select({ table: 'global_cloud_email_bindings', columns: { channel_id: 'channel_id' }, where: [{ column: 'channel_id', value: Number(params.id) }], limit: 1 }));
+			const binding = await firstSql(database, sql({ database }).select({ table: 'global_cloud_email_bindings', columns: { channel_id: 'channel_id' }, where: [{ column: 'channel_id', value: Number(params.id) }], limit: 1 }));
 			if (binding) return apiMessage(c, 409, '邮件通道已有站点绑定，不能修改凭据、Region 或发信地址');
 		}
 		try {
-			await runSql(database, sql(database).update('global_cloud_email_channels', { cloud_credential_id: credentialId, region, account_name: accountName, from_alias: fromAlias, reply_to_address: changed.has('reply_to_address') ? (booleanValue(body.reply_to_address) ? 1 : 0) : current.reply_to_address, status: changed.has('status') && body.status === statusValues.disabled ? statusValues.disabled : changed.has('status') ? statusValues.enabled : current.status }, { id: Number(params.id) }));
+			await runSql(database, sql({ database }).update('global_cloud_email_channels', { cloud_credential_id: credentialId, region, account_name: accountName, from_alias: fromAlias, reply_to_address: changed.has('reply_to_address') ? (booleanValue(body.reply_to_address) ? 1 : 0) : current.reply_to_address, status: changed.has('status') && body.status === statusValues.disabled ? statusValues.disabled : changed.has('status') ? statusValues.enabled : current.status }, { id: Number(params.id) }));
 		} catch { return apiMessage(c, 409, '该凭据、Region 和发信地址已经存在'); }
 		return apiMessage(c, 200, '保存成功');
 	}

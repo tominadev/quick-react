@@ -21,7 +21,7 @@ const createFormPage = (issuerOptions: Array<{ value: string; text: string; fiel
 const loadIssuerOptions = async (c: Parameters<ApiHandler>[0], currentIssuer: string) => {
 	const database = c.get('globalDatabase');
 	const accountsSite = await c.get('siteRouter').resolveByApi(accountsIdentityApi);
-	const rows = accountsSite ? await allSql<{ hostname: string }>(database, sql(database).select({
+	const rows = accountsSite ? await allSql<{ hostname: string }>(database, sql({ database }).select({
 		table: 'global_site_hosts', alias: 'h',
 		columns: { hostname: 'h.hostname' },
 		joins: [{ table: 'global_sites', alias: 's', left: 's.site_key', right: 'h.site_key' }],

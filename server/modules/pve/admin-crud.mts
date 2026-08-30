@@ -15,7 +15,7 @@ const normalizeStatus = (row: Record<string, unknown>) => {
 export const pveCrud = (config: Config): ApiHandler => async (c, next, params) => {
 	const database = c.get('database');
 	if (c.req.method === 'GET' && !params.id) {
-		const rawRows = await allSql<Record<string, unknown>>(database, sql(database).select({ table: config.table, orderBy: [{ column: config.key }] }));
+		const rawRows = await allSql<Record<string, unknown>>(database, sql({ database }).select({ table: config.table, orderBy: [{ column: config.key }] }));
 		const rows = rawRows.map(normalizeStatus);
 		const required = new Set(await requiredColumns(database, config.table));
 		const preparedColumns = config.prepareColumns ? await config.prepareColumns(database) : config.columns;
@@ -23,7 +23,7 @@ export const pveCrud = (config: Config): ApiHandler => async (c, next, params) =
 		return apiResponse(c, 200, { table: { option: { rowKey: config.key, actions: { toolbar: [{ key: 'create', label: '新增' }], row: [{ key: 'edit', label: '编辑' }] } }, columns, dataSource: rows, totalRecords: rows.length } });
 	}
 	if (c.req.method === 'GET' && params.id) {
-		const row = await firstSql<Record<string, unknown>>(database, sql(database).select({ table: config.table, where: [{ column: config.key, value: params.id }] }));
+		const row = await firstSql<Record<string, unknown>>(database, sql({ database }).select({ table: config.table, where: [{ column: config.key, value: params.id }] }));
 		if (!row) return apiMessage(c, 404, '请求的资源不存在');
 		return apiResponse(c, 200, row);
 	}
@@ -34,8 +34,8 @@ export const pveCrud = (config: Config): ApiHandler => async (c, next, params) =
 		if (missing.length) return apiMessage(c, 400, `请填写必填字段：${missing.join('、')}`);
 		const values: Record<string, unknown> = {};
 		for (const field of config.writable) values[field] = body[field];
-		if (!params.id) { await runSql(database, sql(database).insert(config.table, values)); return apiMessage(c, 201, '创建成功'); }
-		await runSql(database, sql(database).update(config.table, values, { [config.key]: params.id })); return apiMessage(c, 200, '保存成功');
+		if (!params.id) { await runSql(database, sql({ database }).insert(config.table, values)); return apiMessage(c, 201, '创建成功'); }
+		await runSql(database, sql({ database }).update(config.table, values, { [config.key]: params.id })); return apiMessage(c, 200, '保存成功');
 	}
 	return next();
 };

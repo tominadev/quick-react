@@ -24,7 +24,7 @@ const handler: ApiHandler = async (c) => {
 	if (!user || user.status !== 'enabled') return apiMessage(c, 400, 'Accounts 用户不存在或已停用');
 	const accessToken = randomToken(32), now = Date.now(), expiresIn = 3600, issuer = oidcIssuer(c);
 	const authorizationCodeHash = await sha256(rawCode);
-	const builder = sql(database), consumeCode = builder.update('passport_oidc_authorization_codes', { consumed_at: now }, [{ column: 'code_hash', value: authorizationCodeHash }, { column: 'consumed_at', operator: 'IS NULL' }]);
+	const builder = sql({ database }), consumeCode = builder.update('passport_oidc_authorization_codes', { consumed_at: now }, [{ column: 'code_hash', value: authorizationCodeHash }, { column: 'consumed_at', operator: 'IS NULL' }]);
 	const insertToken = builder.insert('passport_oidc_access_tokens', { token_hash: await sha256(accessToken), client_id: clientId, user_id: code.user_id, scope: code.scope, expires_at: now + expiresIn * 1000, session_id: code.session_id, authorization_code_hash: authorizationCodeHash });
 	await database.batch([consumeCode, insertToken]);
 	const idToken = await signIdToken(database, { iss: issuer, sub: user.sub, aud: clientId, exp: Math.floor(now / 1000) + expiresIn, iat: Math.floor(now / 1000), sid: code.session_id, ...(code.nonce ? { nonce: code.nonce } : {}), name: user.name, ...(user.preferred_username ? { preferred_username: user.preferred_username } : {}), ...(user.email ? { email: user.email, email_verified: true } : {}) });

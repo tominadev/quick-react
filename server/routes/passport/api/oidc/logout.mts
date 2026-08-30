@@ -15,7 +15,7 @@ const handler: ApiHandler = async (c) => {
 		const body = await parseFormBody(c.req.raw), clientId = String(body.client_id ?? ''), clientSecret = String(body.client_secret ?? ''), sid = String(body.sid ?? '');
 		const client = await oidcClient(database, clientId);
 		if (!client || client.status !== 'enabled' || !safeEqual(client.secret_hash, await sha256(clientSecret))) return apiMessage(c, 401, '客户端认证失败');
-		const issued = sid ? await firstSql(database, sql(database).select({ table: 'passport_oidc_access_tokens', columns: { session_id: 'session_id' }, where: [{ column: 'client_id', value: clientId }, { column: 'session_id', value: sid }], limit: 1 })) : undefined;
+		const issued = sid ? await firstSql(database, sql({ database }).select({ table: 'passport_oidc_access_tokens', columns: { session_id: 'session_id' }, where: [{ column: 'client_id', value: clientId }, { column: 'session_id', value: sid }], limit: 1 })) : undefined;
 		if (!issued) return apiMessage(c, 400, 'OIDC 会话不存在或不属于当前客户端');
 		await revokeOidcSession(database, sid, oidcIssuer(c), c.env.OIDC_FETCH ?? fetch);
 		return apiMessage(c, 200, 'Accounts 总会话已注销');

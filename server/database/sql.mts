@@ -1,6 +1,7 @@
 import type { DatabaseAdapter, DatabaseRunResult } from './index.mjs';
 
 export type SqlDialect = 'sqlite' | 'mysql' | 'postgresql';
+export type SqlContext = { database: DatabaseAdapter; actorUid?: string | number | null };
 export type SqlQuery = { query: string; values: unknown[] };
 type SqlValue = unknown;
 type Values = Record<string, SqlValue | undefined>;
@@ -140,8 +141,8 @@ export class SqliteSqlBuilder extends SqlBuilder { constructor() { super('sqlite
 export class MysqlSqlBuilder extends SqlBuilder { constructor() { super('mysql'); } protected placeholder() { return '?'; } }
 export class PostgresqlSqlBuilder extends SqlBuilder { constructor() { super('postgresql'); } protected placeholder(index: number) { return `$${index}`; } }
 
-export const sql = (database: DatabaseAdapter) => {
-	const dialect = dialectOf(database);
+export const sql = (context: SqlContext) => {
+	const dialect = dialectOf(context.database);
 	return dialect === 'mysql' ? new MysqlSqlBuilder() : dialect === 'postgresql' ? new PostgresqlSqlBuilder() : new SqliteSqlBuilder();
 };
 export const runSql = (database: DatabaseAdapter, statement: SqlQuery): Promise<DatabaseRunResult> => database.prepare(statement.query).bind(...statement.values).run();

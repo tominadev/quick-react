@@ -12,7 +12,7 @@ export const memoryConfigStore: ConfigStore = {
 
 export const createDatabaseConfigStore = (database: DatabaseAdapter): ConfigStore => ({
 	get: async (key) => {
-		const row = await firstSql<{ value: string }>(database, sql(database).select({ table: 'base_system_configs', columns: { value: 'value' }, where: [{ column: 'key', value: key }] }));
+		const row = await firstSql<{ value: string }>(database, sql({ database }).select({ table: 'base_system_configs', columns: { value: 'value' }, where: [{ column: 'key', value: key }] }));
 		if (!row) return undefined;
 		try {
 			return JSON.parse(row.value);
@@ -21,7 +21,7 @@ export const createDatabaseConfigStore = (database: DatabaseAdapter): ConfigStor
 		}
 	},
 	put: async (key, value) => {
-		await runSql(database, sql(database).upsert('base_system_configs', ['key'], { key, value: JSON.stringify(value) }, ['value', 'updated_at']));
+		await runSql(database, sql({ database }).upsert('base_system_configs', ['key'], { key, value: JSON.stringify(value) }, ['value', 'updated_at']));
 	},
 });
 

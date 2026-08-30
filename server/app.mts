@@ -51,7 +51,7 @@ const resolveSiteDsn = (dsn: string) => {
 };
 
 const migrateSite = async (siteKey: string) => {
-	const rows = await allSql<{ site_key: string; base_site_key: string | null; dsn: string; database_binding: string; is_system: number }>(defaultDatabase, sql(defaultDatabase).select({ table: 'global_sites', columns: { site_key: 'site_key', base_site_key: 'base_site_key', dsn: 'dsn', database_binding: 'database_binding', is_system: 'is_system' } }));
+	const rows = await allSql<{ site_key: string; base_site_key: string | null; dsn: string; database_binding: string; is_system: number }>(defaultDatabase, sql({ database: defaultDatabase }).select({ table: 'global_sites', columns: { site_key: 'site_key', base_site_key: 'base_site_key', dsn: 'dsn', database_binding: 'database_binding', is_system: 'is_system' } }));
 	const sites = new Map(rows.map((site) => [site.site_key, site]));
 	const site = sites.get(siteKey);
 	if (!site || site.is_system) throw new Error('Site is not eligible for business migration');
@@ -69,20 +69,20 @@ const migrateSite = async (siteKey: string) => {
 		current = parent;
 	}
 	chain.unshift('base');
-	await runSql(defaultDatabase, sql(defaultDatabase).update('global_sites', { migration_status: 'migrating' }, { site_key: siteKey }));
+	await runSql(defaultDatabase, sql({ database: defaultDatabase }).update('global_sites', { migration_status: 'migrating' }, { site_key: siteKey }));
 	try {
 		const target = site.dsn ? resolveSiteDsn(site.dsn) : defaultDatabase;
 		await migrateDatabase(target, resolve(projectDirectory, 'migrations'), chain);
-		await runSql(defaultDatabase, sql(defaultDatabase).update('global_sites', { migration_status: 'ready' }, { site_key: siteKey }));
+		await runSql(defaultDatabase, sql({ database: defaultDatabase }).update('global_sites', { migration_status: 'ready' }, { site_key: siteKey }));
 	} catch (error) {
-		await runSql(defaultDatabase, sql(defaultDatabase).update('global_sites', { migration_status: 'failed' }, { site_key: siteKey }));
+		await runSql(defaultDatabase, sql({ database: defaultDatabase }).update('global_sites', { migration_status: 'failed' }, { site_key: siteKey }));
 		throw error;
 	}
 };
 await initializeCodeSites(defaultDatabase, workerCodeSites, Object.fromEntries(
 	Object.entries(workerSiteNavigations).map(([siteKey, navigation]) => [siteKey, navigation[0]?.label || siteKey]),
 ));
-const codeSiteRows = await allSql<{ site_key: string; database_binding: string }>(defaultDatabase, sql(defaultDatabase).select({ table: 'global_sites', columns: { site_key: 'site_key', database_binding: 'database_binding' }, where: [{ column: 'is_system', value: 0 }] }));
+const codeSiteRows = await allSql<{ site_key: string; database_binding: string }>(defaultDatabase, sql({ database: defaultDatabase }).select({ table: 'global_sites', columns: { site_key: 'site_key', database_binding: 'database_binding' }, where: [{ column: 'is_system', value: 0 }] }));
 for (const site of codeSiteRows) {
 	if (!workerCodeSites.includes(site.site_key as typeof workerCodeSites[number]) || site.database_binding) continue;
 	await migrateSite(site.site_key);

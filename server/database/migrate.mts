@@ -27,11 +27,11 @@ export const migrateDatabase = async (database: DatabaseAdapter, migrationsRoot:
 		for (const file of files) {
 			const migrationKey = `${group}/${file}`;
 			const apply = async (target: DatabaseAdapter) => {
-				const applied = await firstSql(target, sql(target).select({ table: 'global_schema_migrations', columns: { migration_key: 'migration_key' }, where: [{ column: 'migration_key', value: migrationKey }] }));
+				const applied = await firstSql(target, sql({ database: target }).select({ table: 'global_schema_migrations', columns: { migration_key: 'migration_key' }, where: [{ column: 'migration_key', value: migrationKey }] }));
 				if (applied) return;
 				const migrationSql = await readFile(join(directory, file), 'utf8');
 				await target.exec?.(migrationSql);
-				await runSql(target, sql(target).insert('global_schema_migrations', { migration_key: migrationKey, applied_at: Date.now() }));
+				await runSql(target, sql({ database: target }).insert('global_schema_migrations', { migration_key: migrationKey, applied_at: Date.now() }));
 			};
 			if (database.transaction) await database.transaction(apply);
 			else await apply(database);
@@ -53,6 +53,6 @@ export const initializeCodeSites = async (
 	for (const siteKey of codeSites) {
 		if (!siteKeyPattern.test(siteKey) || siteKey === 'base') continue;
 		const name = siteNames[siteKey] || siteKey;
-		await runSql(database, sql(database).ignoreInsert('global_sites', ['site_key'], { site_key: siteKey, name, base_site_key: 'base', dsn: '', database_binding: '', status: 'enabled', migration_status: 'ready', is_default: 0, is_system: 0 }));
+		await runSql(database, sql({ database }).ignoreInsert('global_sites', ['site_key'], { site_key: siteKey, name, base_site_key: 'base', dsn: '', database_binding: '', status: 'enabled', migration_status: 'ready', is_default: 0, is_system: 0 }));
 	}
 };

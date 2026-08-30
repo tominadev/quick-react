@@ -256,49 +256,49 @@ export const importLegacyPassportData = async ({ parsed, databaseFile, globalDat
 		const imported = { users: 0, telegramAccounts: 0, emails: 0, userEmails: 0, otps: 0, menus: 0 };
 		try {
 			const result = await database.transaction(async (target) => {
-				for (const user of parsed.users) imported.users += changes(await runSql(target, sql(target).ignoreInsert('passport_users', ['user_id'], { user_id: BigInt(user.userId), nickname: user.nickname, status: 'enabled', created_at: user.createdAt, updated_at: user.updatedAt })));
+				for (const user of parsed.users) imported.users += changes(await runSql(target, sql({ database: target }).ignoreInsert('passport_users', ['user_id'], { user_id: BigInt(user.userId), nickname: user.nickname, status: 'enabled', created_at: user.createdAt, updated_at: user.updatedAt })));
 				for (const account of parsed.telegramAccounts) {
-					const existing = await firstSql(target, sql(target).select({ table: 'passport_telegram_accounts', columns: { user_id: { column: 'user_id', cast: 'text' } }, where: [{ column: 'bot_id', value: BigInt(botId) }, { column: 'telegram_user_id', value: BigInt(account.telegramUserId) }] }));
+					const existing = await firstSql(target, sql({ database: target }).select({ table: 'passport_telegram_accounts', columns: { user_id: { column: 'user_id', cast: 'text' } }, where: [{ column: 'bot_id', value: BigInt(botId) }, { column: 'telegram_user_id', value: BigInt(account.telegramUserId) }] }));
 					if (existing && existing.user_id !== account.userId) fail(`Telegram identity ${account.telegramUserId} is already owned by another user`);
-					if (!existing) imported.telegramAccounts += changes(await runSql(target, sql(target).insert('passport_telegram_accounts', { user_id: BigInt(account.userId), bot_id: BigInt(botId), telegram_user_id: BigInt(account.telegramUserId), chat_id: BigInt(account.chatId), nickname: account.nickname, created_at: account.createdAt, updated_at: account.updatedAt })));
+					if (!existing) imported.telegramAccounts += changes(await runSql(target, sql({ database: target }).insert('passport_telegram_accounts', { user_id: BigInt(account.userId), bot_id: BigInt(botId), telegram_user_id: BigInt(account.telegramUserId), chat_id: BigInt(account.chatId), nickname: account.nickname, created_at: account.createdAt, updated_at: account.updatedAt })));
 				}
 				for (const item of parsed.emails) {
-					let existingEmail = await firstSql(target, sql(target).select({ table: 'passport_emails', columns: { id: { column: 'id', cast: 'text' }, verified: 'verified', updated_at: 'updated_at' }, where: [{ column: 'email', value: item.email }] }));
+					let existingEmail = await firstSql(target, sql({ database: target }).select({ table: 'passport_emails', columns: { id: { column: 'id', cast: 'text' }, verified: 'verified', updated_at: 'updated_at' }, where: [{ column: 'email', value: item.email }] }));
 					if (!existingEmail) {
-						const insertResult = await runSql(target, sql(target).insert('passport_emails', { email: item.email, verified: 1, created_at: item.createdAt, updated_at: item.updatedAt }));
+						const insertResult = await runSql(target, sql({ database: target }).insert('passport_emails', { email: item.email, verified: 1, created_at: item.createdAt, updated_at: item.updatedAt }));
 						imported.emails += changes(insertResult);
 						existingEmail = { id: String(insertResult.meta?.lastRowId ?? ''), verified: 1, updated_at: item.updatedAt };
 						if (!existingEmail.id) fail(`email ${item.email} insert did not return an id`);
 					} else if (!Number(existingEmail.verified)) {
-						imported.emails += changes(await runSql(target, sql(target).update('passport_emails', { verified: 1, updated_at: Math.max(Number(existingEmail.updated_at), item.updatedAt) }, [{ column: 'id', value: BigInt(existingEmail.id) }, { column: 'verified', value: 0 }])));
+						imported.emails += changes(await runSql(target, sql({ database: target }).update('passport_emails', { verified: 1, updated_at: Math.max(Number(existingEmail.updated_at), item.updatedAt) }, [{ column: 'id', value: BigInt(existingEmail.id) }, { column: 'verified', value: 0 }])));
 					}
-					const owner = await firstSql(target, sql(target).select({ table: 'passport_user_emails', columns: { user_id: { column: 'user_id', cast: 'text' } }, where: [{ column: 'email_id', value: BigInt(existingEmail.id) }] }));
+					const owner = await firstSql(target, sql({ database: target }).select({ table: 'passport_user_emails', columns: { user_id: { column: 'user_id', cast: 'text' } }, where: [{ column: 'email_id', value: BigInt(existingEmail.id) }] }));
 					if (owner && owner.user_id !== item.userId) fail(`email ${item.email} is already owned by another user`);
-					if (!owner) imported.userEmails += changes(await runSql(target, sql(target).insert('passport_user_emails', { user_id: BigInt(item.userId), email_id: BigInt(existingEmail.id), is_primary: item.isPrimary ? 1 : 0, created_at: item.createdAt })));
+					if (!owner) imported.userEmails += changes(await runSql(target, sql({ database: target }).insert('passport_user_emails', { user_id: BigInt(item.userId), email_id: BigInt(existingEmail.id), is_primary: item.isPrimary ? 1 : 0, created_at: item.createdAt })));
 				}
 				for (const otp of parsed.otps) {
 					const where = [{ column: 'bot_id', value: BigInt(botId) }, { column: 'telegram_user_id', value: BigInt(otp.telegramUserId) }, { column: 'email', value: otp.email }, { column: 'created_at', value: otp.createdAt }, { column: 'status', value: otp.status }];
-					if (await firstSql(target, sql(target).select({ table: 'passport_email_otp', columns: { id: 'id' }, where, limit: 1 }))) continue;
+					if (await firstSql(target, sql({ database: target }).select({ table: 'passport_email_otp', columns: { id: 'id' }, where, limit: 1 }))) continue;
 					const placeholderHash = `legacy-${otp.status}:${createHash('sha256').update(`${botId}\u0000${otp.telegramUserId}\u0000${otp.email}\u0000${otp.createdAt}`).digest('hex')}`;
-					imported.otps += changes(await runSql(target, sql(target).insert('passport_email_otp', { bot_id: BigInt(botId), telegram_user_id: BigInt(otp.telegramUserId), chat_id: BigInt(otp.chatId), email: otp.email, code_hash: placeholderHash, attempt_count: otp.attemptCount, status: otp.status, expires_at: otp.expiresAt, created_at: otp.createdAt })));
+					imported.otps += changes(await runSql(target, sql({ database: target }).insert('passport_email_otp', { bot_id: BigInt(botId), telegram_user_id: BigInt(otp.telegramUserId), chat_id: BigInt(otp.chatId), email: otp.email, code_hash: placeholderHash, attempt_count: otp.attemptCount, status: otp.status, expires_at: otp.expiresAt, created_at: otp.createdAt })));
 				}
-				for (const menu of parsed.menus) imported.menus += changes(await runSql(target, sql(target).ignoreInsert('passport_telegram_menus', ['bot_id', 'telegram_user_id'], { bot_id: BigInt(botId), telegram_user_id: BigInt(menu.telegramUserId), chat_id: BigInt(menu.chatId), message_id: BigInt(menu.messageId), mode: menu.mode, created_at: menu.createdAt, updated_at: menu.updatedAt })));
+				for (const menu of parsed.menus) imported.menus += changes(await runSql(target, sql({ database: target }).ignoreInsert('passport_telegram_menus', ['bot_id', 'telegram_user_id'], { bot_id: BigInt(botId), telegram_user_id: BigInt(menu.telegramUserId), chat_id: BigInt(menu.chatId), message_id: BigInt(menu.messageId), mode: menu.mode, created_at: menu.createdAt, updated_at: menu.updatedAt })));
 
-				for (const user of parsed.users) if (!await firstSql(target, sql(target).select({ table: 'passport_users', columns: { found: 'user_id' }, where: [{ column: 'user_id', value: BigInt(user.userId) }] }))) fail(`user ${user.userId} was not imported`);
+				for (const user of parsed.users) if (!await firstSql(target, sql({ database: target }).select({ table: 'passport_users', columns: { found: 'user_id' }, where: [{ column: 'user_id', value: BigInt(user.userId) }] }))) fail(`user ${user.userId} was not imported`);
 				for (const account of parsed.telegramAccounts) {
-					const owner = await firstSql(target, sql(target).select({ table: 'passport_telegram_accounts', columns: { user_id: { column: 'user_id', cast: 'text' } }, where: [{ column: 'bot_id', value: BigInt(botId) }, { column: 'telegram_user_id', value: BigInt(account.telegramUserId) }] }));
+					const owner = await firstSql(target, sql({ database: target }).select({ table: 'passport_telegram_accounts', columns: { user_id: { column: 'user_id', cast: 'text' } }, where: [{ column: 'bot_id', value: BigInt(botId) }, { column: 'telegram_user_id', value: BigInt(account.telegramUserId) }] }));
 					if (owner?.user_id !== account.userId) fail(`Telegram identity ${account.telegramUserId} failed verification`);
 				}
 				for (const item of parsed.emails) {
-					const owner = await firstSql(target, sql(target).select({ table: 'passport_emails', alias: 'e', columns: { user_id: { column: 'ue.user_id', cast: 'text' }, verified: 'e.verified' }, joins: [{ table: 'passport_user_emails', alias: 'ue', left: 'ue.email_id', right: 'e.id' }], where: [{ column: 'e.email', value: item.email }] }));
+					const owner = await firstSql(target, sql({ database: target }).select({ table: 'passport_emails', alias: 'e', columns: { user_id: { column: 'ue.user_id', cast: 'text' }, verified: 'e.verified' }, joins: [{ table: 'passport_user_emails', alias: 'ue', left: 'ue.email_id', right: 'e.id' }], where: [{ column: 'e.email', value: item.email }] }));
 					if (owner?.user_id !== item.userId || Number(owner.verified) !== 1) fail(`email ${item.email} failed verification`);
 				}
 				for (const otp of parsed.otps) {
-					const found = await firstSql(target, sql(target).select({ table: 'passport_email_otp', columns: { found: 'id' }, where: [{ column: 'bot_id', value: BigInt(botId) }, { column: 'telegram_user_id', value: BigInt(otp.telegramUserId) }, { column: 'email', value: otp.email }, { column: 'created_at', value: otp.createdAt }, { column: 'status', value: otp.status }], limit: 1 }));
+					const found = await firstSql(target, sql({ database: target }).select({ table: 'passport_email_otp', columns: { found: 'id' }, where: [{ column: 'bot_id', value: BigInt(botId) }, { column: 'telegram_user_id', value: BigInt(otp.telegramUserId) }, { column: 'email', value: otp.email }, { column: 'created_at', value: otp.createdAt }, { column: 'status', value: otp.status }], limit: 1 }));
 					if (!found) fail(`OTP history for Telegram identity ${otp.telegramUserId} failed verification`);
 				}
 				for (const menu of parsed.menus) {
-					const found = await firstSql(target, sql(target).select({ table: 'passport_telegram_menus', columns: { found: 'bot_id' }, where: [{ column: 'bot_id', value: BigInt(botId) }, { column: 'telegram_user_id', value: BigInt(menu.telegramUserId) }] }));
+					const found = await firstSql(target, sql({ database: target }).select({ table: 'passport_telegram_menus', columns: { found: 'bot_id' }, where: [{ column: 'bot_id', value: BigInt(botId) }, { column: 'telegram_user_id', value: BigInt(menu.telegramUserId) }] }));
 					if (!found) fail(`menu for Telegram identity ${menu.telegramUserId} failed verification`);
 				}
 				const output = { ...parsed.stats, botId, dryRun, imported };

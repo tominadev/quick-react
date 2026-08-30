@@ -60,16 +60,16 @@ const identityFrom = (bot: PassportTelegramBot, user: TelegramUser | undefined, 
 	return { botId: bot.id, telegramUserId, chatId, nickname: nickname(user ?? {}, telegramUserId) };
 };
 
-const loadMenu = (database: DatabaseAdapter, identity: TelegramIdentity) => firstSql<MenuState>(database, sql(database).select({ table: 'passport_telegram_menus', columns: { chat_id: { column: 'chat_id', cast: 'text' }, message_id: { column: 'message_id', cast: 'text' }, mode: 'mode' }, where: [{ column: 'bot_id', value: identity.botId }, { column: 'telegram_user_id', value: identity.telegramUserId }] }));
+const loadMenu = (database: DatabaseAdapter, identity: TelegramIdentity) => firstSql<MenuState>(database, sql({ database }).select({ table: 'passport_telegram_menus', columns: { chat_id: { column: 'chat_id', cast: 'text' }, message_id: { column: 'message_id', cast: 'text' }, mode: 'mode' }, where: [{ column: 'bot_id', value: identity.botId }, { column: 'telegram_user_id', value: identity.telegramUserId }] }));
 const saveMenu = async (database: DatabaseAdapter, identity: TelegramIdentity, messageId: string, mode: MenuMode) => {
 	const now = Date.now();
 	const existing = await loadMenu(database, identity);
-	if (existing) await runSql(database, sql(database).update('passport_telegram_menus', { chat_id: identity.chatId, message_id: messageId, mode }, { bot_id: identity.botId, telegram_user_id: identity.telegramUserId }));
+	if (existing) await runSql(database, sql({ database }).update('passport_telegram_menus', { chat_id: identity.chatId, message_id: messageId, mode }, { bot_id: identity.botId, telegram_user_id: identity.telegramUserId }));
 	else {
 		try {
-			await runSql(database, sql(database).insert('passport_telegram_menus', { bot_id: identity.botId, telegram_user_id: identity.telegramUserId, chat_id: identity.chatId, message_id: messageId, mode }));
+			await runSql(database, sql({ database }).insert('passport_telegram_menus', { bot_id: identity.botId, telegram_user_id: identity.telegramUserId, chat_id: identity.chatId, message_id: messageId, mode }));
 		} catch {
-			await runSql(database, sql(database).update('passport_telegram_menus', { chat_id: identity.chatId, message_id: messageId, mode }, { bot_id: identity.botId, telegram_user_id: identity.telegramUserId }));
+			await runSql(database, sql({ database }).update('passport_telegram_menus', { chat_id: identity.chatId, message_id: messageId, mode }, { bot_id: identity.botId, telegram_user_id: identity.telegramUserId }));
 		}
 	}
 };
@@ -85,8 +85,8 @@ const showRootMenu = async (database: DatabaseAdapter, bot: PassportTelegramBot,
 };
 const editAccounts = (database: DatabaseAdapter, bot: PassportTelegramBot, identity: TelegramIdentity, messageId: string) => editMenu(database, bot, identity, messageId, 'menu', '账户服务', accountsKeyboard);
 
-const pendingOtp = (database: DatabaseAdapter, identity: TelegramIdentity) => firstSql<{ email: string }>(database, sql(database).select({ table: 'passport_email_otp', columns: { email: 'email' }, where: [{ column: 'bot_id', value: identity.botId }, { column: 'telegram_user_id', value: identity.telegramUserId }, { column: 'status', value: 'pending' }], orderBy: [{ column: 'created_at', direction: 'DESC' }, { column: 'id', direction: 'DESC' }], limit: 1 }));
-const latestOtp = (database: DatabaseAdapter, identity: TelegramIdentity) => firstSql<{ email: string }>(database, sql(database).select({ table: 'passport_email_otp', columns: { email: 'email' }, where: [{ column: 'bot_id', value: identity.botId }, { column: 'telegram_user_id', value: identity.telegramUserId }], orderBy: [{ column: 'created_at', direction: 'DESC' }, { column: 'id', direction: 'DESC' }], limit: 1 }));
+const pendingOtp = (database: DatabaseAdapter, identity: TelegramIdentity) => firstSql<{ email: string }>(database, sql({ database }).select({ table: 'passport_email_otp', columns: { email: 'email' }, where: [{ column: 'bot_id', value: identity.botId }, { column: 'telegram_user_id', value: identity.telegramUserId }, { column: 'status', value: 'pending' }], orderBy: [{ column: 'created_at', direction: 'DESC' }, { column: 'id', direction: 'DESC' }], limit: 1 }));
+const latestOtp = (database: DatabaseAdapter, identity: TelegramIdentity) => firstSql<{ email: string }>(database, sql({ database }).select({ table: 'passport_email_otp', columns: { email: 'email' }, where: [{ column: 'bot_id', value: identity.botId }, { column: 'telegram_user_id', value: identity.telegramUserId }], orderBy: [{ column: 'created_at', direction: 'DESC' }, { column: 'id', direction: 'DESC' }], limit: 1 }));
 const issueAndSendOtp = async (database: DatabaseAdapter, globalDatabase: DatabaseAdapter, siteKey: string, identity: TelegramIdentity, email: string) => {
 	const issued = await issueTelegramEmailOtp(database, identity, email);
 	try {
@@ -107,13 +107,13 @@ const promptOtp = (database: DatabaseAdapter, bot: PassportTelegramBot, identity
 );
 
 const listEmails = async (database: DatabaseAdapter, bot: PassportTelegramBot, identity: TelegramIdentity, messageId: string) => {
-	const rows = await allSql<{ id: string; email: string; verified: number }>(database, sql(database).select({ table: 'passport_telegram_accounts', alias: 'a', columns: { id: { column: 'e.id', cast: 'text' }, email: 'e.email', verified: 'e.verified' }, joins: [{ table: 'passport_user_emails', alias: 'ue', left: 'ue.user_id', right: 'a.user_id' }, { table: 'passport_emails', alias: 'e', left: 'e.id', right: 'ue.email_id' }], where: [{ column: 'a.bot_id', value: identity.botId }, { column: 'a.telegram_user_id', value: identity.telegramUserId }], orderBy: [{ column: 'ue.is_primary', direction: 'DESC' }, { column: 'e.email' }] }));
+	const rows = await allSql<{ id: string; email: string; verified: number }>(database, sql({ database }).select({ table: 'passport_telegram_accounts', alias: 'a', columns: { id: { column: 'e.id', cast: 'text' }, email: 'e.email', verified: 'e.verified' }, joins: [{ table: 'passport_user_emails', alias: 'ue', left: 'ue.user_id', right: 'a.user_id' }, { table: 'passport_emails', alias: 'e', left: 'e.id', right: 'ue.email_id' }], where: [{ column: 'a.bot_id', value: identity.botId }, { column: 'a.telegram_user_id', value: identity.telegramUserId }], orderBy: [{ column: 'ue.is_primary', direction: 'DESC' }, { column: 'e.email' }] }));
 	const rowsKeyboard = rows.map((item) => [{ text: `${item.email} (${item.verified ? '已验证' : '未验证'})`, callback_data: `email:open:${item.id}` }]);
 	rowsKeyboard.push([{ text: '返回账户服务', callback_data: 'menu:accounts' }]);
 	await editMenu(database, bot, identity, messageId, 'menu', rows.length ? '请选择邮箱' : '暂无已绑定邮箱', { inline_keyboard: rowsKeyboard });
 };
 const openEmail = async (database: DatabaseAdapter, bot: PassportTelegramBot, identity: TelegramIdentity, messageId: string, emailId: string) => {
-	const row = await firstSql<{ email: string; verified: number }>(database, sql(database).select({ table: 'passport_telegram_accounts', alias: 'a', columns: { email: 'e.email', verified: 'e.verified' }, joins: [{ table: 'passport_user_emails', alias: 'ue', left: 'ue.user_id', right: 'a.user_id' }, { table: 'passport_emails', alias: 'e', left: 'e.id', right: 'ue.email_id' }], where: [{ column: 'a.bot_id', value: identity.botId }, { column: 'a.telegram_user_id', value: identity.telegramUserId }, { column: 'e.id', value: emailId }] }));
+	const row = await firstSql<{ email: string; verified: number }>(database, sql({ database }).select({ table: 'passport_telegram_accounts', alias: 'a', columns: { email: 'e.email', verified: 'e.verified' }, joins: [{ table: 'passport_user_emails', alias: 'ue', left: 'ue.user_id', right: 'a.user_id' }, { table: 'passport_emails', alias: 'e', left: 'e.id', right: 'ue.email_id' }], where: [{ column: 'a.bot_id', value: identity.botId }, { column: 'a.telegram_user_id', value: identity.telegramUserId }, { column: 'e.id', value: emailId }] }));
 	if (!row) return editMenu(database, bot, identity, messageId, 'menu', '邮箱不存在或不属于当前账户', backAccountsKeyboard);
 	return editMenu(database, bot, identity, messageId, 'menu', `${row.verified ? '邮箱已验证' : '邮箱未验证'}：${row.email}`, keyboard([{ text: '返回邮箱列表', callback_data: 'menu:emails' }]));
 };
@@ -175,14 +175,14 @@ const handleCallback = async (database: DatabaseAdapter, globalDatabase: Databas
 	const data = typeof callback.data === 'string' ? callback.data : '';
 	const loginMatch = /^login:(approve|deny):([0-9a-f-]{36})(?::(\d{1,2}))?$/i.exec(data);
 	if (loginMatch) {
-		const challenge = await firstSql<{ expected_number: number; status: string; expires_at: number }>(database, sql(database).select({ table: 'passport_login_challenges', columns: { expected_number: 'expected_number', status: 'status', expires_at: 'expires_at' }, where: [{ column: 'id', value: loginMatch[2] }, { column: 'bot_id', value: identity.botId }, { column: 'telegram_user_id', value: identity.telegramUserId }] }));
+		const challenge = await firstSql<{ expected_number: number; status: string; expires_at: number }>(database, sql({ database }).select({ table: 'passport_login_challenges', columns: { expected_number: 'expected_number', status: 'status', expires_at: 'expires_at' }, where: [{ column: 'id', value: loginMatch[2] }, { column: 'bot_id', value: identity.botId }, { column: 'telegram_user_id', value: identity.telegramUserId }] }));
 		if (!challenge || challenge.status !== 'pending' || challenge.expires_at <= Date.now()) {
-			if (challenge?.status === 'pending') await runSql(database, sql(database).update('passport_login_challenges', { status: 'expired' }, { id: loginMatch[2], status: 'pending' }));
+			if (challenge?.status === 'pending') await runSql(database, sql({ database }).update('passport_login_challenges', { status: 'expired' }, { id: loginMatch[2], status: 'pending' }));
 			if (callbackId) await answerTelegramCallback(bot.botToken, callbackId, '登录确认已失效').catch(() => undefined);
 			return;
 		}
 		if (loginMatch[1] === 'deny') {
-			await runSql(database, sql(database).update('passport_login_challenges', { status: 'denied' }, { id: loginMatch[2], status: 'pending' }));
+			await runSql(database, sql({ database }).update('passport_login_challenges', { status: 'denied' }, { id: loginMatch[2], status: 'pending' }));
 			if (callbackId) await answerTelegramCallback(bot.botToken, callbackId, '已拒绝登录').catch(() => undefined);
 			await editTelegramMessage(bot.botToken, String(identity.chatId), messageId, '本次网页登录已拒绝');
 			return;
@@ -191,7 +191,7 @@ const handleCallback = async (database: DatabaseAdapter, globalDatabase: Databas
 			if (callbackId) await answerTelegramCallback(bot.botToken, callbackId, '数字不匹配，请选择网页显示的数字').catch(() => undefined);
 			return;
 		}
-		await runSql(database, sql(database).update('passport_login_challenges', { status: 'approved' }, { id: loginMatch[2], status: 'pending' }));
+		await runSql(database, sql({ database }).update('passport_login_challenges', { status: 'approved' }, { id: loginMatch[2], status: 'pending' }));
 		if (callbackId) await answerTelegramCallback(bot.botToken, callbackId, '登录已批准').catch(() => undefined);
 		await editTelegramMessage(bot.botToken, String(identity.chatId), messageId, '网页登录已批准，请返回网页完成登录');
 		return;

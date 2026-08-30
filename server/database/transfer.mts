@@ -36,16 +36,16 @@ const seedRows = new Map<string, { column: string; value: string }>([
 
 const targetMustBeEmpty = async (target: DatabaseAdapter, tables: string[]) => {
 	for (const table of tables) {
-		const count = Number((await firstSql<{ count: number | string }>(target, sql(target).count(table)))?.count ?? 0);
+		const count = Number((await firstSql<{ count: number | string }>(target, sql({ database: target }).count(table)))?.count ?? 0);
 		if (!count) continue;
 		const seed = seedRows.get(table);
 		if (!seed || count !== 1) throw new Error(`目标表 ${table} 已有 ${count} 行数据；只能迁移到空目标库`);
-		const row = await firstSql<Record<string, unknown>>(target, sql(target).select({ table, columns: { value: seed.column }, limit: 1 }));
+		const row = await firstSql<Record<string, unknown>>(target, sql({ database: target }).select({ table, columns: { value: seed.column }, limit: 1 }));
 		if (String(row?.value ?? '') !== seed.value) throw new Error(`目标表 ${table} 包含非迁移种子数据；迁移已拒绝`);
 	}
 	for (const table of [...tables].reverse()) {
 		const seed = seedRows.get(table);
-		if (seed) await runSql(target, sql(target).delete(table, { [seed.column]: seed.value }));
+		if (seed) await runSql(target, sql({ database: target }).delete(table, { [seed.column]: seed.value }));
 	}
 };
 
@@ -77,10 +77,10 @@ export const transferPortableDatabase = async (
 			const primaryKey = sourceColumns.filter((column) => column.pk > 0).sort((left, right) => left.pk - right.pk).map((column) => column.name);
 			if (!primaryKey.length) throw new Error(`表 ${table} 没有主键，无法执行稳定的分批迁移`);
 			const selected = Object.fromEntries(columns.map((column) => [column, column]));
-			const sourceCount = Number((await firstSql<{ count: number | bigint }>(source, sql(source).count(table)))?.count ?? 0);
+			const sourceCount = Number((await firstSql<{ count: number | bigint }>(source, sql({ database: source }).count(table)))?.count ?? 0);
 			let transferred = 0;
 			while (transferred < sourceCount) {
-				const rows = await allSql<Record<string, unknown>>(source, sql(source).select({
+				const rows = await allSql<Record<string, unknown>>(source, sql({ database: source }).select({
 					table,
 					columns: selected,
 					orderBy: primaryKey.map((column) => ({ column, direction: 'ASC' })),
@@ -88,13 +88,13 @@ export const transferPortableDatabase = async (
 					offset: transferred,
 				}));
 				if (!rows.length) throw new Error(`表 ${table} 在迁移过程中发生变化，迁移已中止`);
-				const statements: SqlQuery[] = rows.map((row) => sql(transactionTarget).insert(table, Object.fromEntries(columns.map((column) => [column, row[column]]))));
+				const statements: SqlQuery[] = rows.map((row) => sql({ database: transactionTarget }).insert(table, Object.fromEntries(columns.map((column) => [column, row[column]]))));
 				if (transactionTarget.batch) await transactionTarget.batch(statements);
 				else for (const statement of statements) await runSql(transactionTarget, statement);
 				transferred += rows.length;
 			}
 			if (transactionTarget.dialect === 'postgresql' && columns.includes('id')) await allSql(transactionTarget, synchronizePostgresqlIdentity(table, 'id'));
-			const copied = Number((await firstSql<{ count: number | string }>(transactionTarget, sql(transactionTarget).count(table)))?.count ?? 0);
+			const copied = Number((await firstSql<{ count: number | string }>(transactionTarget, sql({ database: transactionTarget }).count(table)))?.count ?? 0);
 			if (copied !== sourceCount) throw new Error(`表 ${table} 行数校验失败：源库 ${sourceCount}，目标库 ${copied}`);
 			const progress = { table, rows: copied };
 			result.push(progress);

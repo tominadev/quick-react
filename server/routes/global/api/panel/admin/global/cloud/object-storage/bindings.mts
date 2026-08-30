@@ -40,16 +40,16 @@ const purposeState = (rows: BindingPurposeRow[]) => ({
 	default_purposes: rows.filter((item) => Boolean(item.is_default)).map((item) => item.purpose),
 });
 const savePurposes = async (database: DatabaseAdapter, bindingId: number, siteKey: string, selected: string[], defaults: string[]) => {
-	for (const purpose of selected) await runSql(database, sql(database).insert('global_cloud_object_storage_binding_purposes', { binding_id: bindingId, site_key: siteKey, purpose, is_default: 0 }));
+	for (const purpose of selected) await runSql(database, sql({ database }).insert('global_cloud_object_storage_binding_purposes', { binding_id: bindingId, site_key: siteKey, purpose, is_default: 0 }));
 	for (const purpose of defaults) {
-		await runSql(database, sql(database).update('global_cloud_object_storage_binding_purposes', { is_default: 0 }, [{ column: 'site_key', value: siteKey }, { column: 'purpose', value: purpose }, { column: 'binding_id', operator: '!=', value: bindingId }]));
-		await runSql(database, sql(database).update('global_cloud_object_storage_binding_purposes', { is_default: 1 }, { binding_id: bindingId, purpose }));
+		await runSql(database, sql({ database }).update('global_cloud_object_storage_binding_purposes', { is_default: 0 }, [{ column: 'site_key', value: siteKey }, { column: 'purpose', value: purpose }, { column: 'binding_id', operator: '!=', value: bindingId }]));
+		await runSql(database, sql({ database }).update('global_cloud_object_storage_binding_purposes', { is_default: 1 }, { binding_id: bindingId, purpose }));
 	}
 };
 const validateTarget = async (database: DatabaseAdapter, siteKey: string, bucketId: number) => {
 	const [site, bucket] = await Promise.all([
-		firstSql(database, sql(database).select({ table: 'global_sites', columns: { site_key: 'site_key' }, where: [{ column: 'site_key', value: siteKey }, { column: 'status', value: 'enabled' }, { column: 'migration_status', value: 'ready' }] })),
-		firstSql(database, sql(database).select({ table: 'global_cloud_object_storage_buckets', columns: { id: 'id' }, where: [{ column: 'id', value: bucketId }, { column: 'status', value: 'enabled' }] })),
+		firstSql(database, sql({ database }).select({ table: 'global_sites', columns: { site_key: 'site_key' }, where: [{ column: 'site_key', value: siteKey }, { column: 'status', value: 'enabled' }, { column: 'migration_status', value: 'ready' }] })),
+		firstSql(database, sql({ database }).select({ table: 'global_cloud_object_storage_buckets', columns: { id: 'id' }, where: [{ column: 'id', value: bucketId }, { column: 'status', value: 'enabled' }] })),
 	]);
 	return Boolean(site && bucket);
 };
@@ -58,8 +58,8 @@ const handler: ApiHandler = async (c, next, params) => {
 	const database = c.get('database');
 	const listOptions = async () => {
 		const [sites, buckets] = await Promise.all([
-			allSql<{ site_key: string; name: string }>(database, sql(database).select({ table: 'global_sites', columns: { site_key: 'site_key', name: 'name' }, where: [{ column: 'status', value: 'enabled' }, { column: 'migration_status', value: 'ready' }], orderBy: [{ column: 'site_key' }] })),
-			allSql<{ id: number; bucket: string; credential_name: string; provider: string }>(database, sql(database).select({ table: 'global_cloud_object_storage_buckets', alias: 'b', columns: { id: 'b.id', bucket: 'b.bucket', credential_name: 'c.name', provider: 'c.provider' }, joins: [{ table: 'global_cloud_credentials', alias: 'c', left: 'c.id', right: 'b.cloud_credential_id' }], where: [{ column: 'b.status', value: 'enabled' }, { column: 'c.status', value: 'enabled' }], orderBy: [{ column: 'c.name' }, { column: 'b.bucket' }] })),
+			allSql<{ site_key: string; name: string }>(database, sql({ database }).select({ table: 'global_sites', columns: { site_key: 'site_key', name: 'name' }, where: [{ column: 'status', value: 'enabled' }, { column: 'migration_status', value: 'ready' }], orderBy: [{ column: 'site_key' }] })),
+			allSql<{ id: number; bucket: string; credential_name: string; provider: string }>(database, sql({ database }).select({ table: 'global_cloud_object_storage_buckets', alias: 'b', columns: { id: 'b.id', bucket: 'b.bucket', credential_name: 'c.name', provider: 'c.provider' }, joins: [{ table: 'global_cloud_credentials', alias: 'c', left: 'c.id', right: 'b.cloud_credential_id' }], where: [{ column: 'b.status', value: 'enabled' }, { column: 'c.status', value: 'enabled' }], orderBy: [{ column: 'c.name' }, { column: 'b.bucket' }] })),
 		]);
 		return {
 			sites: sites.map((item) => ({ value: item.site_key, text: `${item.name} (${item.site_key})` })),
@@ -68,8 +68,8 @@ const handler: ApiHandler = async (c, next, params) => {
 	};
 	if (!params.id && c.req.method === 'GET') {
 		const [rows, purposeRows, options] = await Promise.all([
-			allSql<Record<string, unknown>>(database, sql(database).select({ table: 'global_cloud_object_storage_bindings', alias: 'b', columns: { id: 'b.id', site_key: 'b.site_key', site_name: 's.name', bucket_id: 'b.bucket_id', bucket: 'bkt.bucket', credential_name: 'c.name', provider: 'c.provider', key_prefix: 'b.key_prefix', status: 'b.status', created_at: 'b.created_at', updated_at: 'b.updated_at' }, joins: [{ table: 'global_sites', alias: 's', left: 's.site_key', right: 'b.site_key' }, { table: 'global_cloud_object_storage_buckets', alias: 'bkt', left: 'bkt.id', right: 'b.bucket_id' }, { table: 'global_cloud_credentials', alias: 'c', left: 'c.id', right: 'bkt.cloud_credential_id' }], orderBy: [{ column: 'b.id', direction: 'DESC' }] })),
-			allSql<BindingPurposeRow>(database, sql(database).select({ table: 'global_cloud_object_storage_binding_purposes', columns: { binding_id: 'binding_id', purpose: 'purpose', is_default: 'is_default' }, orderBy: [{ column: 'purpose' }] })),
+			allSql<Record<string, unknown>>(database, sql({ database }).select({ table: 'global_cloud_object_storage_bindings', alias: 'b', columns: { id: 'b.id', site_key: 'b.site_key', site_name: 's.name', bucket_id: 'b.bucket_id', bucket: 'bkt.bucket', credential_name: 'c.name', provider: 'c.provider', key_prefix: 'b.key_prefix', status: 'b.status', created_at: 'b.created_at', updated_at: 'b.updated_at' }, joins: [{ table: 'global_sites', alias: 's', left: 's.site_key', right: 'b.site_key' }, { table: 'global_cloud_object_storage_buckets', alias: 'bkt', left: 'bkt.id', right: 'b.bucket_id' }, { table: 'global_cloud_credentials', alias: 'c', left: 'c.id', right: 'bkt.cloud_credential_id' }], orderBy: [{ column: 'b.id', direction: 'DESC' }] })),
+			allSql<BindingPurposeRow>(database, sql({ database }).select({ table: 'global_cloud_object_storage_binding_purposes', columns: { binding_id: 'binding_id', purpose: 'purpose', is_default: 'is_default' }, orderBy: [{ column: 'purpose' }] })),
 			listOptions(),
 		]);
 		const purposeMap = new Map<number, BindingPurposeRow[]>();
@@ -89,33 +89,33 @@ const handler: ApiHandler = async (c, next, params) => {
 		const createdAt = Date.now();
 		let createdBindingId: number | undefined;
 		try {
-			await runSql(database, sql(database).insert('global_cloud_object_storage_bindings', { site_key: siteKey, bucket_id: bucketId, key_prefix: keyPrefix, status }));
-			const binding = await firstSql<{ id: number }>(database, sql(database).select({ table: 'global_cloud_object_storage_bindings', columns: { id: 'id' }, where: [{ column: 'site_key', value: siteKey }, { column: 'bucket_id', value: bucketId }, { column: 'key_prefix', value: keyPrefix }] }));
+			await runSql(database, sql({ database }).insert('global_cloud_object_storage_bindings', { site_key: siteKey, bucket_id: bucketId, key_prefix: keyPrefix, status }));
+			const binding = await firstSql<{ id: number }>(database, sql({ database }).select({ table: 'global_cloud_object_storage_bindings', columns: { id: 'id' }, where: [{ column: 'site_key', value: siteKey }, { column: 'bucket_id', value: bucketId }, { column: 'key_prefix', value: keyPrefix }] }));
 			if (!binding) throw new Error('绑定创建后无法读取');
 			createdBindingId = binding.id;
 			await savePurposes(database, binding.id, siteKey, selected, status === statusValues.enabled ? defaults : []);
 		} catch (error) {
-			if (createdBindingId) await runSql(database, sql(database).delete('global_cloud_object_storage_bindings', { id: createdBindingId })).catch(() => undefined);
+			if (createdBindingId) await runSql(database, sql({ database }).delete('global_cloud_object_storage_bindings', { id: createdBindingId })).catch(() => undefined);
 			return apiMessage(c, 400, error instanceof Error ? error.message : '创建绑定失败');
 		}
 		return apiMessageData(c, 201, 'Bucket 绑定创建成功', {});
 	}
 	if (!params.id && c.req.method === 'DELETE') {
 		const ids = await c.req.json<unknown>().catch(() => []);
-		for (const id of Array.isArray(ids) ? ids : []) await runSql(database, sql(database).delete('global_cloud_object_storage_bindings', { id: Number(id) }));
+		for (const id of Array.isArray(ids) ? ids : []) await runSql(database, sql({ database }).delete('global_cloud_object_storage_bindings', { id: Number(id) }));
 		return apiMessage(c, 200, '删除成功');
 	}
 	if (params.id && c.req.method === 'GET') {
 		const [row, purposeRows] = await Promise.all([
-			firstSql<Record<string, unknown>>(database, sql(database).select({ table: 'global_cloud_object_storage_bindings', where: [{ column: 'id', value: Number(params.id) }] })),
-			allSql<BindingPurposeRow>(database, sql(database).select({ table: 'global_cloud_object_storage_binding_purposes', columns: { binding_id: 'binding_id', purpose: 'purpose', is_default: 'is_default' }, where: [{ column: 'binding_id', value: Number(params.id) }], orderBy: [{ column: 'purpose' }] })),
+			firstSql<Record<string, unknown>>(database, sql({ database }).select({ table: 'global_cloud_object_storage_bindings', where: [{ column: 'id', value: Number(params.id) }] })),
+			allSql<BindingPurposeRow>(database, sql({ database }).select({ table: 'global_cloud_object_storage_binding_purposes', columns: { binding_id: 'binding_id', purpose: 'purpose', is_default: 'is_default' }, where: [{ column: 'binding_id', value: Number(params.id) }], orderBy: [{ column: 'purpose' }] })),
 		]);
 		return row ? apiResponse(c, 200, { ...row, ...purposeState(purposeRows) }) : apiMessage(c, 404, 'Bucket 绑定不存在');
 	}
 	if (params.id && c.req.method === 'PUT') {
-		const current = await firstSql<Record<string, unknown>>(database, sql(database).select({ table: 'global_cloud_object_storage_bindings', where: [{ column: 'id', value: Number(params.id) }] }));
+		const current = await firstSql<Record<string, unknown>>(database, sql({ database }).select({ table: 'global_cloud_object_storage_bindings', where: [{ column: 'id', value: Number(params.id) }] }));
 		if (!current) return apiMessage(c, 404, 'Bucket 绑定不存在');
-		const currentPurposes = await allSql<BindingPurposeRow>(database, sql(database).select({ table: 'global_cloud_object_storage_binding_purposes', columns: { binding_id: 'binding_id', purpose: 'purpose', is_default: 'is_default' }, where: [{ column: 'binding_id', value: Number(params.id) }] }));
+		const currentPurposes = await allSql<BindingPurposeRow>(database, sql({ database }).select({ table: 'global_cloud_object_storage_binding_purposes', columns: { binding_id: 'binding_id', purpose: 'purpose', is_default: 'is_default' }, where: [{ column: 'binding_id', value: Number(params.id) }] }));
 		const body = await parseBody(c);
 		const changed = getChangedFields(body, ['site_key', 'bucket_id', 'purposes', 'default_purposes', 'key_prefix', 'status']);
 		const siteKey = changed.has('site_key') ? text(body.site_key) : String(current.site_key);
@@ -127,17 +127,17 @@ const handler: ApiHandler = async (c, next, params) => {
 		const status = changed.has('status') && body.status === statusValues.disabled ? statusValues.disabled : changed.has('status') ? statusValues.enabled : String(current.status);
 		if (!siteKey || !Number.isInteger(bucketId) || !selected.length || !await validateTarget(database, siteKey, bucketId)) return apiMessage(c, 400, '站点、Bucket 或用途不合法');
 		if (defaults.some((purpose) => !selected.includes(purpose))) return apiMessage(c, 400, '默认用途必须包含在已选用途中');
-		const duplicate = await firstSql(database, sql(database).select({ table: 'global_cloud_object_storage_bindings', columns: { id: 'id' }, where: [{ column: 'site_key', value: siteKey }, { column: 'bucket_id', value: bucketId }, { column: 'key_prefix', value: keyPrefix }, { column: 'id', operator: '!=', value: Number(params.id) }] }));
+		const duplicate = await firstSql(database, sql({ database }).select({ table: 'global_cloud_object_storage_bindings', columns: { id: 'id' }, where: [{ column: 'site_key', value: siteKey }, { column: 'bucket_id', value: bucketId }, { column: 'key_prefix', value: keyPrefix }, { column: 'id', operator: '!=', value: Number(params.id) }] }));
 		if (duplicate) return apiMessage(c, 409, '相同站点、Bucket 和对象前缀的绑定已存在');
 		try {
-			await runSql(database, sql(database).delete('global_cloud_object_storage_binding_purposes', { binding_id: Number(params.id) }));
-			await runSql(database, sql(database).update('global_cloud_object_storage_bindings', { site_key: siteKey, bucket_id: bucketId, key_prefix: keyPrefix, status }, { id: Number(params.id) }));
+			await runSql(database, sql({ database }).delete('global_cloud_object_storage_binding_purposes', { binding_id: Number(params.id) }));
+			await runSql(database, sql({ database }).update('global_cloud_object_storage_bindings', { site_key: siteKey, bucket_id: bucketId, key_prefix: keyPrefix, status }, { id: Number(params.id) }));
 			await savePurposes(database, Number(params.id), siteKey, selected, status === statusValues.enabled ? defaults : []);
 		} catch (error) { return apiMessage(c, 400, error instanceof Error ? error.message : '保存绑定失败'); }
 		return apiMessage(c, 200, '保存成功');
 	}
 	if (params.id && c.req.method === 'DELETE') {
-		await runSql(database, sql(database).delete('global_cloud_object_storage_bindings', { id: Number(params.id) }));
+		await runSql(database, sql({ database }).delete('global_cloud_object_storage_bindings', { id: Number(params.id) }));
 		return apiMessage(c, 200, '删除成功');
 	}
 	return next();

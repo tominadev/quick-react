@@ -22,9 +22,9 @@ const text = (value: unknown) => typeof value === 'string' ? value.trim() : '';
 const booleanValue = (value: unknown) => value === true || value === 1 || value === '1';
 const listOptions = async (database: DatabaseAdapter) => {
 	const [sites, channels, templates] = await Promise.all([
-		allSql<{ site_key: string; name: string }>(database, sql(database).select({ table: 'global_sites', columns: { site_key: 'site_key', name: 'name' }, where: [{ column: 'status', value: 'enabled' }, { column: 'migration_status', value: 'ready' }], orderBy: [{ column: 'site_key' }] })),
-		allSql<{ id: number; account_name: string; region: string; credential_name: string; provider: string }>(database, sql(database).select({ table: 'global_cloud_email_channels', alias: 'ch', columns: { id: 'ch.id', account_name: 'ch.account_name', region: 'ch.region', credential_name: 'c.name', provider: 'c.provider' }, joins: [{ table: 'global_cloud_credentials', alias: 'c', left: 'c.id', right: 'ch.cloud_credential_id' }], where: [{ column: 'ch.status', value: 'enabled' }, { column: 'c.status', value: 'enabled' }], orderBy: [{ column: 'c.name' }, { column: 'ch.account_name' }] })),
-		allSql<{ id: number; template_key: string; template_type: string; name: string }>(database, sql(database).select({ table: 'global_cloud_email_templates', columns: { id: 'id', template_key: 'template_key', template_type: 'template_type', name: 'name' }, where: [{ column: 'status', value: 'enabled' }], orderBy: [{ column: 'template_type' }, { column: 'template_key' }] })),
+		allSql<{ site_key: string; name: string }>(database, sql({ database }).select({ table: 'global_sites', columns: { site_key: 'site_key', name: 'name' }, where: [{ column: 'status', value: 'enabled' }, { column: 'migration_status', value: 'ready' }], orderBy: [{ column: 'site_key' }] })),
+		allSql<{ id: number; account_name: string; region: string; credential_name: string; provider: string }>(database, sql({ database }).select({ table: 'global_cloud_email_channels', alias: 'ch', columns: { id: 'ch.id', account_name: 'ch.account_name', region: 'ch.region', credential_name: 'c.name', provider: 'c.provider' }, joins: [{ table: 'global_cloud_credentials', alias: 'c', left: 'c.id', right: 'ch.cloud_credential_id' }], where: [{ column: 'ch.status', value: 'enabled' }, { column: 'c.status', value: 'enabled' }], orderBy: [{ column: 'c.name' }, { column: 'ch.account_name' }] })),
+		allSql<{ id: number; template_key: string; template_type: string; name: string }>(database, sql({ database }).select({ table: 'global_cloud_email_templates', columns: { id: 'id', template_key: 'template_key', template_type: 'template_type', name: 'name' }, where: [{ column: 'status', value: 'enabled' }], orderBy: [{ column: 'template_type' }, { column: 'template_key' }] })),
 	]);
 	return {
 		sites: sites.map((item) => ({ value: item.site_key, text: `${item.name} (${item.site_key})` })),
@@ -37,15 +37,15 @@ type TargetValidation = { purpose: string } | { error: string };
 const validateTarget = async (database: DatabaseAdapter, siteKey: string, channelId: number, templateId: number, enabled: boolean): Promise<TargetValidation> => {
 	if (!siteKey) return { error: '请选择站点' };
 	const [site, channel, template] = await Promise.all([
-		firstSql(database, sql(database).select({ table: 'global_sites', columns: { site_key: 'site_key' }, where: [{ column: 'site_key', value: siteKey }, { column: 'status', value: 'enabled' }, { column: 'migration_status', value: 'ready' }] })),
-		firstSql<{ id: number; cloud_credential_id: number; region: string }>(database, sql(database).select({ table: 'global_cloud_email_channels', alias: 'ch', columns: { id: 'ch.id', cloud_credential_id: 'ch.cloud_credential_id', region: 'ch.region' }, joins: [{ table: 'global_cloud_credentials', alias: 'c', left: 'c.id', right: 'ch.cloud_credential_id' }], where: [{ column: 'ch.id', value: channelId }, { column: 'ch.status', value: 'enabled' }, { column: 'c.status', value: 'enabled' }] })),
-		firstSql<{ id: number; template_type: string }>(database, sql(database).select({ table: 'global_cloud_email_templates', columns: { id: 'id', template_type: 'template_type' }, where: [{ column: 'id', value: templateId }, { column: 'status', value: 'enabled' }] })),
+		firstSql(database, sql({ database }).select({ table: 'global_sites', columns: { site_key: 'site_key' }, where: [{ column: 'site_key', value: siteKey }, { column: 'status', value: 'enabled' }, { column: 'migration_status', value: 'ready' }] })),
+		firstSql<{ id: number; cloud_credential_id: number; region: string }>(database, sql({ database }).select({ table: 'global_cloud_email_channels', alias: 'ch', columns: { id: 'ch.id', cloud_credential_id: 'ch.cloud_credential_id', region: 'ch.region' }, joins: [{ table: 'global_cloud_credentials', alias: 'c', left: 'c.id', right: 'ch.cloud_credential_id' }], where: [{ column: 'ch.id', value: channelId }, { column: 'ch.status', value: 'enabled' }, { column: 'c.status', value: 'enabled' }] })),
+		firstSql<{ id: number; template_type: string }>(database, sql({ database }).select({ table: 'global_cloud_email_templates', columns: { id: 'id', template_type: 'template_type' }, where: [{ column: 'id', value: templateId }, { column: 'status', value: 'enabled' }] })),
 	]);
 	if (!site) return { error: '所选站点不可用：站点必须已启用且迁移完成' };
 	if (!channel) return { error: '所选邮件通道不可用：通道及其云凭据必须均已启用' };
 	if (!template) return { error: '所选邮件模板不可用：模板必须已启用' };
 	if (!enabled) return { purpose: template.template_type };
-	const publication = await firstSql<{ status: string }>(database, sql(database).select({ table: 'global_cloud_email_template_publications', columns: { status: 'status' }, where: [{ column: 'template_id', value: templateId }, { column: 'cloud_credential_id', value: channel.cloud_credential_id }, { column: 'region', value: channel.region }] }));
+	const publication = await firstSql<{ status: string }>(database, sql({ database }).select({ table: 'global_cloud_email_template_publications', columns: { status: 'status' }, where: [{ column: 'template_id', value: templateId }, { column: 'cloud_credential_id', value: channel.cloud_credential_id }, { column: 'region', value: channel.region }] }));
 	if (!publication) return { error: '所选模板尚未发布到该邮件通道使用的云凭据和 Region，请先在模板管理中发布/更新' };
 	if (publication.status !== 'ready') {
 		const statusText = publication.status === 'reviewing' ? '审核中' : publication.status === 'failed' ? '审核未通过' : `状态为 ${publication.status}`;
@@ -53,19 +53,19 @@ const validateTarget = async (database: DatabaseAdapter, siteKey: string, channe
 	}
 	return { purpose: template.template_type };
 };
-const clearOtherDefaults = (database: DatabaseAdapter, id: number, siteKey: string, purpose: string) => runSql(database, sql(database).update('global_cloud_email_bindings', { is_default: 0 }, [{ column: 'site_key', value: siteKey }, { column: 'purpose', value: purpose }, { column: 'id', operator: '!=', value: id }, { column: 'is_default', value: 1 }]));
+const clearOtherDefaults = (database: DatabaseAdapter, id: number, siteKey: string, purpose: string) => runSql(database, sql({ database }).update('global_cloud_email_bindings', { is_default: 0 }, [{ column: 'site_key', value: siteKey }, { column: 'purpose', value: purpose }, { column: 'id', operator: '!=', value: id }, { column: 'is_default', value: 1 }]));
 const deleteBinding = async (database: DatabaseAdapter, id: number) => {
-	const row = await firstSql<{ id: number; status: string }>(database, sql(database).select({ table: 'global_cloud_email_bindings', columns: { id: 'id', status: 'status' }, where: [{ column: 'id', value: id }] }));
+	const row = await firstSql<{ id: number; status: string }>(database, sql({ database }).select({ table: 'global_cloud_email_bindings', columns: { id: 'id', status: 'status' }, where: [{ column: 'id', value: id }] }));
 	if (!row) return '邮件绑定不存在';
 	if (row.status !== statusValues.disabled) return '邮件绑定必须先停用才能删除';
-	await runSql(database, sql(database).delete('global_cloud_email_bindings', { id }));
+	await runSql(database, sql({ database }).delete('global_cloud_email_bindings', { id }));
 };
 
 const handler: ApiHandler = async (c, next, params) => {
 	const database = c.get('database');
 	if (!params.id && c.req.method === 'GET') {
 		const [rows, options] = await Promise.all([
-			allSql<Record<string, unknown>>(database, sql(database).select({ table: 'global_cloud_email_bindings', alias: 'b', columns: { id: 'b.id', site_key: 'b.site_key', site_name: 's.name', channel_id: 'b.channel_id', account_name: 'ch.account_name', region: 'ch.region', credential_name: 'c.name', provider: 'c.provider', template_id: 'b.template_id', template_key: 't.template_key', template_name: 't.name', purpose: 'b.purpose', is_default: 'b.is_default', status: 'b.status', created_at: 'b.created_at', updated_at: 'b.updated_at' }, joins: [{ table: 'global_sites', alias: 's', left: 's.site_key', right: 'b.site_key' }, { table: 'global_cloud_email_channels', alias: 'ch', left: 'ch.id', right: 'b.channel_id' }, { table: 'global_cloud_credentials', alias: 'c', left: 'c.id', right: 'ch.cloud_credential_id' }, { table: 'global_cloud_email_templates', alias: 't', left: 't.id', right: 'b.template_id' }], orderBy: [{ column: 'b.id', direction: 'DESC' }] })),
+			allSql<Record<string, unknown>>(database, sql({ database }).select({ table: 'global_cloud_email_bindings', alias: 'b', columns: { id: 'b.id', site_key: 'b.site_key', site_name: 's.name', channel_id: 'b.channel_id', account_name: 'ch.account_name', region: 'ch.region', credential_name: 'c.name', provider: 'c.provider', template_id: 'b.template_id', template_key: 't.template_key', template_name: 't.name', purpose: 'b.purpose', is_default: 'b.is_default', status: 'b.status', created_at: 'b.created_at', updated_at: 'b.updated_at' }, joins: [{ table: 'global_sites', alias: 's', left: 's.site_key', right: 'b.site_key' }, { table: 'global_cloud_email_channels', alias: 'ch', left: 'ch.id', right: 'b.channel_id' }, { table: 'global_cloud_credentials', alias: 'c', left: 'c.id', right: 'ch.cloud_credential_id' }, { table: 'global_cloud_email_templates', alias: 't', left: 't.id', right: 'b.template_id' }], orderBy: [{ column: 'b.id', direction: 'DESC' }] })),
 			listOptions(database),
 		]);
 		const tableColumns = columns.map((column) => column.dataIndex === 'site_key' ? { ...column, options: options.sites }
@@ -84,7 +84,7 @@ const handler: ApiHandler = async (c, next, params) => {
 		const { purpose } = target;
 		try {
 			const now = Date.now();
-			const builder = sql(database);
+			const builder = sql({ database });
 			const insert = builder.insert('global_cloud_email_bindings', { site_key: siteKey, channel_id: channelId, template_id: templateId, purpose, is_default: isDefault && !database.batch ? isDefault : 0, status });
 			if (isDefault && database.batch) await database.batch([
 				insert,
@@ -106,11 +106,11 @@ const handler: ApiHandler = async (c, next, params) => {
 		return apiMessage(c, 200, '删除成功');
 	}
 	if (params.id && c.req.method === 'GET') {
-		const row = await firstSql<Record<string, unknown>>(database, sql(database).select({ table: 'global_cloud_email_bindings', where: [{ column: 'id', value: Number(params.id) }] }));
+		const row = await firstSql<Record<string, unknown>>(database, sql({ database }).select({ table: 'global_cloud_email_bindings', where: [{ column: 'id', value: Number(params.id) }] }));
 		return row ? apiResponse(c, 200, row) : apiMessage(c, 404, '邮件绑定不存在');
 	}
 	if (params.id && c.req.method === 'PUT') {
-		const current = await firstSql<Record<string, unknown>>(database, sql(database).select({ table: 'global_cloud_email_bindings', where: [{ column: 'id', value: Number(params.id) }] }));
+		const current = await firstSql<Record<string, unknown>>(database, sql({ database }).select({ table: 'global_cloud_email_bindings', where: [{ column: 'id', value: Number(params.id) }] }));
 		if (!current) return apiMessage(c, 404, '邮件绑定不存在');
 		const body = await parseBody(c), changed = getChangedFields(body, ['site_key', 'channel_id', 'template_id', 'is_default', 'status']);
 		const siteKey = changed.has('site_key') ? text(body.site_key) : String(current.site_key), channelId = changed.has('channel_id') ? Number(body.channel_id) : Number(current.channel_id);
@@ -124,7 +124,7 @@ const handler: ApiHandler = async (c, next, params) => {
 		const { purpose } = target;
 		try {
 			const now = Date.now();
-			const builder = sql(database);
+			const builder = sql({ database });
 			const update = builder.update('global_cloud_email_bindings', { site_key: siteKey, channel_id: channelId, template_id: templateId, purpose, is_default: isDefault && !database.batch ? isDefault : 0, status }, { id: Number(params.id) });
 			if (isDefault && database.batch) await database.batch([
 				update,
