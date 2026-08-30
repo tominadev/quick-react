@@ -28,15 +28,15 @@ try {
 	const now = Date.now();
 	database.prepare(`INSERT INTO global_site_hosts (hostname, site_key, status, created_at) VALUES (?, 'passport', 'enabled', ?)`).run('passport.test', now);
 	database.prepare(`INSERT INTO global_site_hosts (hostname, site_key, status, created_at) VALUES (?, 'global', 'enabled', ?)`).run('global.test', now);
-	database.prepare(`INSERT INTO global_sites (site_key, name, base_site_key, dsn, status, migration_status, is_default, is_system)
+	database.prepare(`INSERT INTO global_sites (key, name, base_site_key, dsn, status, migration_status, is_default, is_system)
 		VALUES ('business', 'Business', 'base', '', 'enabled', 'ready', 0, 0)`).run();
 	database.prepare(`INSERT INTO global_site_hosts (hostname, site_key, status, created_at) VALUES (?, 'business', 'enabled', ?)`).run('business.test', now);
 	database.prepare(`INSERT INTO base_configs (created_at, updated_at, key, value) VALUES (?, ?, 'accounts-oidc-client', ?)`).run(now, now, JSON.stringify({ enabled: true, issuer: 'https://passport.test', clientId: 'shared-client', clientSecret: 'shared-secret' }));
 	database.prepare(`INSERT INTO global_telegram_bots
-		(id, name, bot_token, bot_username, secret_token, webhook_hostname, status, created_at, updated_at)
+		(id, name, token, username, secret_token, webhook_hostname, status, created_at, updated_at)
 		VALUES (1, 'login-bot', '1:test-token', 'passport_login_bot', 'login-secret', 'passport.test', 'enabled', ?, ?)`).run(now, now);
 	const userId = '1000000000000000000';
-	database.prepare(`INSERT INTO passport_users (user_id, nickname, status, created_at, updated_at) VALUES (?, 'PassportUser', 'enabled', ?, ?)`).run(userId, now, now);
+	database.prepare(`INSERT INTO passport_users (user_id, name, nickname, status, created_at, updated_at) VALUES (?, ?, 'PassportUser', 'enabled', ?, ?)`).run(userId, `passport_${userId}`, now, now);
 	database.prepare(`INSERT INTO passport_emails (id, email, verified, created_at, updated_at) VALUES (101, 'user@example.com', 1, ?, ?)`).run(now, now);
 	database.prepare(`INSERT INTO passport_user_emails (user_id, email_id, is_primary, created_at, updated_at) VALUES (?, 101, 1, ?, ?)`).run(userId, now, now);
 	database.prepare(`INSERT INTO passport_telegram_accounts
@@ -44,11 +44,13 @@ try {
 		VALUES (201, ?, 1, 9001, 9001, 'PassportUser', ?, ?)`).run(userId, now, now);
 	database.close();
 	const fingerprint = 'a'.repeat(64);
+	const fingerprintData = JSON.stringify({ canvas_crc32: 'aaaaaaaa' });
 
 	const request = async (path, options = {}) => {
 		const headers = new Headers(options.headers);
 		if (options.cookie) headers.set('cookie', options.cookie);
-		if (!headers.has('x-device-fingerprint')) headers.set('x-device-fingerprint', fingerprint);
+		if (!headers.has('x-device-key')) headers.set('x-device-key', fingerprint);
+		if (!headers.has('x-device-fingerprint')) headers.set('x-device-fingerprint', fingerprintData);
 		if (options.body !== undefined) headers.set('content-type', 'application/json');
 		return app.request(`http://${options.host ?? 'passport.test'}${path}`, {
 			method: options.method,
@@ -135,8 +137,8 @@ try {
 	assert.equal((await request('/api/sign.php?logout=local', { method: 'DELETE', cookie: passportCookie })).status, 200);
 	assert.equal((await (await request('/api/accounts/sign.php', { cookie: passportCookie })).json()).user.id, userId);
 	const localSessionDatabase = new DatabaseSync(process.env.DEFAULT_DATABASE_FILE);
-	localSessionDatabase.prepare("INSERT INTO base_users (id, username, password, roles, status, created_at, updated_at) VALUES (99, 'local_user', '!local', '[]', 'enabled', ?, ?)").run(Date.now(), Date.now());
-	localSessionDatabase.prepare("INSERT INTO base_devices (id, user_id, fingerprint, status, last_seen_at, created_at, updated_at) VALUES (301, 99, ?, 'active', ?, ?, ?)").run(fingerprint, Date.now(), Date.now(), Date.now());
+	localSessionDatabase.prepare("INSERT INTO base_users (id, name, password, roles, status, created_at, updated_at) VALUES (99, 'local_user', '!local', '[]', 'enabled', ?, ?)").run(Date.now(), Date.now());
+	localSessionDatabase.prepare("INSERT INTO base_devices (id, user_id, key, fingerprint, status, last_seen_at, created_at, updated_at) VALUES (301, 99, ?, ?, 'active', ?, ?, ?)").run(fingerprint, fingerprintData, Date.now(), Date.now(), Date.now());
 	localSessionDatabase.prepare("INSERT INTO base_device_users (device_id, user_id, status, last_seen_at, created_at, updated_at) VALUES (301, 99, 'active', ?, ?, ?)").run(Date.now(), Date.now(), Date.now());
 	const localSessionToken = 'local-passport-session';
 	const localSessionHash = Buffer.from(await crypto.subtle.digest('SHA-256', new TextEncoder().encode(localSessionToken))).toString('base64url');

@@ -43,24 +43,11 @@ CREATE TABLE "passport_users" (
     "created_duid" BIGINT,
     "updated_duid" BIGINT,
     "user_id" BIGINT NOT NULL,
+    "name" TEXT NOT NULL,
     "nickname" TEXT NOT NULL,
     "status" "PassportAccountStatus" NOT NULL DEFAULT 'enabled',
 
     CONSTRAINT "passport_users_pkey" PRIMARY KEY ("id")
-);
-
--- CreateTable
-CREATE TABLE "passport_usernames" (
-    "id" BIGSERIAL NOT NULL,
-    "created_at" BIGINT NOT NULL,
-    "updated_at" BIGINT NOT NULL,
-    "deleted_at" BIGINT NOT NULL DEFAULT 0,
-    "created_duid" BIGINT,
-    "updated_duid" BIGINT,
-    "user_id" BIGINT NOT NULL,
-    "username" TEXT NOT NULL,
-
-    CONSTRAINT "passport_usernames_pkey" PRIMARY KEY ("id")
 );
 
 -- CreateTable
@@ -120,7 +107,8 @@ CREATE TABLE "passport_devices" (
     "deleted_at" BIGINT NOT NULL DEFAULT 0,
     "created_duid" BIGINT,
     "updated_duid" BIGINT,
-    "fingerprint" TEXT NOT NULL,
+    "key" TEXT NOT NULL,
+    "fingerprint" JSONB NOT NULL DEFAULT '{}',
     "user_agent" TEXT NOT NULL DEFAULT '',
     "platform" TEXT NOT NULL DEFAULT '',
     "ip_address" TEXT NOT NULL DEFAULT '',
@@ -611,10 +599,7 @@ CREATE TABLE "passport_oidc_signing_keys" (
 CREATE UNIQUE INDEX "passport_users_user_id_deleted_at_key" ON "passport_users"("user_id", "deleted_at");
 
 -- CreateIndex
-CREATE UNIQUE INDEX "passport_usernames_user_id_deleted_at_key" ON "passport_usernames"("user_id", "deleted_at");
-
--- CreateIndex
-CREATE UNIQUE INDEX "passport_usernames_username_deleted_at_key" ON "passport_usernames"("username", "deleted_at");
+CREATE UNIQUE INDEX "passport_users_name_deleted_at_key" ON "passport_users"("name", "deleted_at");
 
 -- CreateIndex
 CREATE INDEX "passport_user_email_otps_user_id_status_created_at_idx" ON "passport_user_email_otps"("user_id", "status", "created_at");
@@ -635,7 +620,7 @@ CREATE INDEX "passport_sessions_expires_at_idx" ON "passport_sessions"("expires_
 CREATE UNIQUE INDEX "passport_sessions_token_hash_deleted_at_key" ON "passport_sessions"("token_hash", "deleted_at");
 
 -- CreateIndex
-CREATE UNIQUE INDEX "passport_devices_fingerprint_deleted_at_key" ON "passport_devices"("fingerprint", "deleted_at");
+CREATE UNIQUE INDEX "passport_devices_key_deleted_at_key" ON "passport_devices"("key", "deleted_at");
 
 -- CreateIndex
 CREATE UNIQUE INDEX "passport_device_users_device_id_user_id_deleted_at_key" ON "passport_device_users"("device_id", "user_id", "deleted_at");

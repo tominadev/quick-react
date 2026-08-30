@@ -24,8 +24,9 @@
 
 - 本项目按当前数据结构和接口直接收敛实现，默认不兼容旧版本的字段、接口、数据格式或行为；只有主人明确要求时才增加兼容层，并应限定兼容范围和清理计划。
 - 数据表字段顺序固定：前六个字段必须依次为 `id BigInt @id @default(autoincrement())`、`created_at BigInt`、`updated_at BigInt`、`deleted_at BigInt @default(0)`、`created_duid BigInt?`、`updated_duid BigInt?`。所有表（包括 `base_devices`、`base_device_users`、`base_device_snapshots` 等设备来源表）都必须保留软删除字段和两个可空审计字段。其中 `duid` 明确定义为 `device_user_id`；这六个字段是公共层管理的系统字段，后台和用户表单只能展示，禁止新增或编辑写入。新增时由公共层写入时间字段，更新时只自动更新 `updated_at`、`updated_duid`，不得修改创建字段；软删除和恢复只能调用公共层专用操作。普通设备操作写入真实 `device_user_id`，系统、机器人或无设备操作写入 `NULL`。跨表引用使用被引用实体的语义名称加 `_id`（例如 `passport_user_emails.id` 在其他表中使用 `user_email_id`），原业务唯一字段保留为唯一约束而非主键；安全令牌和外部标识仍保留字符串类型。
+- 实体表内部的业务字段只使用字段本身的名称，不重复实体前缀。例如设备表保存 UUID 业务键时字段名为 `key`，按“实体名 + 字段名”组合后的跨表名称就是 `device_key`，不可能产生 `device_device_key`；后者仅会在设备表错误地把字段命名为 `device_key` 后又重复添加实体前缀时出现，属于错误命名。如果关联的是设备记录主键，始终使用 `device_id`；该规则同样适用于 `passport_device_id` 等带命名空间的跨表引用。
 - 审计记录只保存 `created_duid`、`updated_duid`，通过 `device_user_id -> user_id + device_id` 关联账号和设备，禁止在同一审计记录中重复保存 UID、DID；业务归属字段（如 `owner_uid`、`user_id`）与审计来源字段分开维护。
-- Base 和 Passport 的设备表都属于可审计业务表，统一记录 `created_duid`、`updated_duid`；Passport 使用自己的 `passport_devices`、`passport_device_users` 管理 Accounts 设备，二者不得共用设备用户关联表。Passport 设备和 Base 设备分别只服务各自的身份与会话域，跨站点通过统一的 `passport_user_id` 与客户端指纹对应。
+- Base 和 Passport 的设备表都属于可审计业务表，统一记录 `created_duid`、`updated_duid`；Passport 使用自己的 `passport_devices`、`passport_device_users` 管理 Accounts 设备，二者不得共用设备用户关联表。Passport 设备和 Base 设备分别只服务各自的身份与会话域，跨站点通过 `passport_user_id + passport_device_id` 的服务端关联对应；客户端 `fingerprint` 可能碰撞，只能作为分析证据，禁止作为设备唯一键或注销依据。
 - `passport_devices` 的全局拉黑只允许管理员或安全管理员执行；普通账号只能拉黑或解除自己在 `passport_device_users` 中的设备关系。退出登录只撤销会话，不能被实现为设备拉黑。
 - 所有业务表默认只查询 `deleted_at = 0` 的记录；回收站必须显式使用删除范围查询，不得让已删除记录混入正常业务。软删除、恢复和清理操作必须由公共数据层统一提供。
 - 业务唯一字段（例如 `session_token_hash`、`username`、外部平台账号标识和幂等键）必须使用 `UNIQUE` 约束或唯一索引，不得继续作为表主键；主键统一使用本表自增 `id`。

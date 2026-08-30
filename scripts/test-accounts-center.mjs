@@ -23,6 +23,7 @@ const userId = '1000000000000000001';
 const primaryEmailId = '2000000000000000001';
 const sessionId = 'accounts-center-session';
 const fingerprint = 'a'.repeat(64);
+const fingerprintData = JSON.stringify({ canvas_crc32: 'aaaaaaaa' });
 const localSessionToken = 'local-session';
 const localSessionHash = Buffer.from(await crypto.subtle.digest('SHA-256', new TextEncoder().encode(localSessionToken))).toString('base64url');
 const cookie = `passport_session=${sessionId}`;
@@ -36,24 +37,23 @@ try {
 		VALUES (91, 'center-email', 'aliyun', 'mail-key', 'mail-secret', 'enabled', ?, ?)`).run(now, now);
 	database.prepare(`INSERT INTO global_cloud_email_channels (id, cloud_credential_id, region, account_name, from_alias, reply_to_address, status, created_at, updated_at)
 		VALUES (92, 91, 'cn-hangzhou', 'noreply@example.com', 'Accounts', 0, 'enabled', ?, ?)`).run(now, now);
-	database.prepare(`INSERT INTO global_cloud_email_templates (id, template_key, template_type, name, subject, body_text, body_html, status, created_at, updated_at)
+	database.prepare(`INSERT INTO global_cloud_email_templates (id, key, type, name, subject, body_text, body_html, status, created_at, updated_at)
 		VALUES (93, 'email_verification_center', 'email_verification', '账户中心邮箱验证码', '验证码 {{code}}', '验证码：{{code}}', '<p>验证码：{{code}}</p>', 'enabled', ?, ?)`).run(now, now);
 	database.prepare(`INSERT INTO global_cloud_email_template_publications (template_id, cloud_credential_id, region, provider_template_id, content_hash, status, created_at, updated_at)
 		VALUES (93, 91, 'cn-hangzhou', 'center-template', 'test', 'ready', ?, ?)`).run(now, now);
 	database.prepare(`INSERT INTO global_cloud_email_bindings (site_key, channel_id, template_id, purpose, is_default, status, created_at, updated_at)
 		VALUES ('passport', 92, 93, 'email_verification', 1, 'enabled', ?, ?)`).run(now, now);
-	database.prepare("INSERT INTO passport_users (user_id, nickname, status, created_at, updated_at) VALUES (?, '账户中心用户', 'enabled', ?, ?)").run(userId, now, now);
-	database.prepare('INSERT INTO passport_usernames (user_id, username, created_at, updated_at) VALUES (?, ?, ?, ?)').run(userId, 'center2026', now, now);
+	database.prepare("INSERT INTO passport_users (user_id, name, nickname, status, created_at, updated_at) VALUES (?, 'center2026', '账户中心用户', 'enabled', ?, ?)").run(userId, now, now);
 	database.prepare("INSERT INTO passport_emails (id, email, verified, created_at, updated_at) VALUES (?, 'center@example.com', 1, ?, ?)").run(primaryEmailId, now, now);
 	database.prepare('INSERT INTO passport_user_emails (user_id, email_id, is_primary, created_at, updated_at) VALUES (?, ?, 1, ?, ?)').run(userId, primaryEmailId, now, now);
-	database.prepare("INSERT INTO passport_devices (id, fingerprint, status, last_seen_at, created_at, updated_at) VALUES (41, ?, 'active', ?, ?, ?)").run(fingerprint, now, now, now);
+	database.prepare("INSERT INTO passport_devices (id, key, fingerprint, status, last_seen_at, created_at, updated_at) VALUES (41, ?, ?, 'active', ?, ?, ?)").run(fingerprint, fingerprintData, now, now, now);
 	database.prepare("INSERT INTO passport_device_users (device_id, user_id, status, last_seen_at, created_at, updated_at) VALUES (41, ?, 'active', ?, ?, ?)").run(userId, now, now, now);
 	database.prepare('INSERT INTO passport_sessions (token_hash, user_id, device_id, expires_at, created_at, updated_at) VALUES (?, ?, 41, ?, ?, ?)').run(Buffer.from(await crypto.subtle.digest('SHA-256', new TextEncoder().encode(sessionId))).toString('hex'), userId, now + 3600_000, now, now);
 	database.close();
 
 	const request = (path, options = {}) => app.request(`http://accounts.test${path}`, {
 		method: options.method,
-		headers: { 'x-device-fingerprint': fingerprint, ...(options.cookie ? { cookie: options.cookie } : {}), ...(options.body === undefined ? {} : { 'content-type': 'application/json' }), ...options.headers },
+		headers: { 'x-device-key': fingerprint, 'x-device-fingerprint': fingerprintData, ...(options.cookie ? { cookie: options.cookie } : {}), ...(options.body === undefined ? {} : { 'content-type': 'application/json' }), ...options.headers },
 		body: options.body === undefined ? undefined : JSON.stringify(options.body),
 	});
 
@@ -67,8 +67,8 @@ try {
 	// 同时存在站点本地会话时，仍以 Accounts 昵称为准，两个中心入口和两套独立退出动作都给出。
 	const localDatabase = new DatabaseSync(process.env.DEFAULT_DATABASE_FILE);
 	const localNow = Date.now();
-	localDatabase.prepare("INSERT INTO base_users (id, username, password, roles, status, created_at, updated_at) VALUES (9, 'admin', '!local', '[\"admin\"]', 'enabled', ?, ?)").run(localNow, localNow);
-	localDatabase.prepare("INSERT INTO base_devices (id, user_id, fingerprint, status, last_seen_at, created_at, updated_at) VALUES (42, 9, ?, 'active', ?, ?, ?)").run(fingerprint, localNow, localNow, localNow);
+	localDatabase.prepare("INSERT INTO base_users (id, name, password, roles, status, created_at, updated_at) VALUES (9, 'admin', '!local', '[\"admin\"]', 'enabled', ?, ?)").run(localNow, localNow);
+	localDatabase.prepare("INSERT INTO base_devices (id, user_id, key, fingerprint, status, last_seen_at, created_at, updated_at) VALUES (42, 9, ?, ?, 'active', ?, ?, ?)").run(fingerprint, fingerprintData, localNow, localNow, localNow);
 	localDatabase.prepare("INSERT INTO base_device_users (device_id, user_id, status, last_seen_at, created_at, updated_at) VALUES (42, 9, 'active', ?, ?, ?)").run(localNow, localNow, localNow);
 	localDatabase.prepare('INSERT INTO base_sessions (created_at, updated_at, token_hash, user_id, expires_at, device_id) VALUES (?, ?, ?, 9, ?, 42)').run(localNow, localNow, localSessionHash, localNow + 3600_000);
 	localDatabase.close();
@@ -81,15 +81,15 @@ try {
 	assert.equal(overview.dashboard.recentRows.find((row) => row.key === 'username').value, 'center2026');
 	assert.equal(overview.dashboard.recentRows.find((row) => row.key === 'password').value, '未设置');
 
-	// 个人资料：用户名只读，昵称可改。
+	// 个人资料：用户名和昵称都可改，且沿用统一格式校验。
 	const profile = await (await request('/api/panel/accounts/profile.php', { cookie })).json();
 	assert.equal(profile.currentValues.username, 'center2026');
 	assert.equal(profile.currentValues.primary_email, 'center@example.com');
-	assert.ok(profile.formPage.fields.find((field) => field.name === 'username').readOnlyWhen);
+	assert.equal(profile.formPage.fields.find((field) => field.name === 'username').readOnlyWhen, undefined);
 	assert.equal((await request('/api/panel/accounts/profile.php', { method: 'PUT', cookie, body: { nickname: '  ' } })).status, 400);
-	const savedProfile = await request('/api/panel/accounts/profile.php', { method: 'PUT', cookie, body: { nickname: '新昵称' } });
+	const savedProfile = await request('/api/panel/accounts/profile.php', { method: 'PUT', cookie, body: { username: 'center2027', nickname: '新昵称' } });
 	assert.equal(savedProfile.status, 200);
-	assert.equal((await savedProfile.json()).currentValues.nickname, '新昵称');
+	assert.deepEqual((await savedProfile.json()).currentValues, { locked: '1', username: 'center2027', nickname: '新昵称', primary_email: 'center@example.com' });
 
 	// 邮箱管理提供绑定、设为主邮箱和解绑。
 	const emailsPath = '/api/panel/accounts/emails.php';
@@ -140,7 +140,7 @@ try {
 	const identityNow = Date.now();
 	identityDatabase.prepare("INSERT INTO passport_external_providers (provider,display_name,client_id,client_secret,status,created_at,updated_at) VALUES ('google','Google','g','s','enabled',?,?)").run(identityNow, identityNow);
 	identityDatabase.prepare("INSERT INTO passport_external_identities (user_id,provider,subject,profile,created_at,updated_at) VALUES (?,'google','google-sub','{\"name\":\"Google用户\"}',?,?)").run(userId, identityNow, identityNow);
-	identityDatabase.prepare("INSERT INTO global_telegram_bots (id,name,bot_token,bot_username,secret_token,webhook_hostname,status,created_at,updated_at) VALUES (7,'bot','7:token','center_bot','secret','accounts.test','enabled',?,?)").run(identityNow, identityNow);
+	identityDatabase.prepare("INSERT INTO global_telegram_bots (id,name,token,username,secret_token,webhook_hostname,status,created_at,updated_at) VALUES (7,'bot','7:token','center_bot','secret','accounts.test','enabled',?,?)").run(identityNow, identityNow);
 	identityDatabase.close();
 
 	// 只剩最后一个登录方式且没有密码时，不允许解绑。

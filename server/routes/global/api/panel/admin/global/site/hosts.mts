@@ -42,7 +42,7 @@ const handler: ApiHandler = async (c, next, params) => {
 	const database = c.get('database');
 	if (!params.id && c.req.method === 'GET') {
 		const rows = await allSql<Record<string, unknown>>(database, sql({ database }).select({ table: 'global_site_hosts', columns: { id: 'id', hostname: 'hostname', site_key: 'site_key', status: 'status', created_at: 'created_at' }, orderBy: [{ column: 'id' }] }));
-		const sites = await allSql<{ site_key: string; name: string }>(database, sql({ database }).select({ table: 'global_sites', columns: { site_key: 'site_key', name: 'name' }, where: [{ column: 'status', value: 'enabled' }, { column: 'migration_status', value: 'ready' }], orderBy: [{ column: 'site_key' }] }));
+		const sites = await allSql<{ site_key: string; name: string }>(database, sql({ database }).select({ table: 'global_sites', columns: { site_key: 'key', name: 'name' }, where: [{ column: 'status', value: 'enabled' }, { column: 'migration_status', value: 'ready' }], orderBy: [{ column: 'key' }] }));
 		const siteOptions = sites.map((site) => ({ value: site.site_key, text: `${site.name} (${site.site_key})` }));
 		const tableColumns = columns.map((column) => column.dataIndex === 'site_key' ? { ...column, options: siteOptions } : column);
 		return apiResponse(c, 200, { table: { option: { rowKey: 'id', actions: { query: [{ key: 'search', label: '搜索' }], toolbar: [{ key: 'create', label: '新增' }, { key: 'delete', label: '删除' }], row: [{ key: 'edit', label: '编辑' }, { key: 'delete', label: '删除' }] } }, columns: tableColumns, dataSource: rows, totalRecords: rows.length } });
@@ -52,7 +52,7 @@ const handler: ApiHandler = async (c, next, params) => {
 		const hostname = normalizeHostPattern(body.hostname);
 		const siteKey = String(body.site_key ?? '').trim();
 		if (!hostname) return apiMessage(c, 400, 'Host 不合法');
-		const site = await firstSql(database, sql({ database }).select({ table: 'global_sites', columns: { site_key: 'site_key' }, where: [{ column: 'site_key', value: siteKey }, { column: 'status', value: 'enabled' }, { column: 'migration_status', value: 'ready' }] }));
+		const site = await firstSql(database, sql({ database }).select({ table: 'global_sites', columns: { site_key: 'key' }, where: [{ column: 'key', value: siteKey }, { column: 'status', value: 'enabled' }, { column: 'migration_status', value: 'ready' }] }));
 		if (!site) return apiMessage(c, 400, '站点不存在或尚未就绪');
 		await runSql(database, sql({ database }).insert('global_site_hosts', { hostname, site_key: siteKey, status: 'enabled' }));
 		await c.get('siteRouter').refresh();
@@ -80,7 +80,7 @@ const handler: ApiHandler = async (c, next, params) => {
 		if (changedFields.has('hostname') && !hostname) return apiMessage(c, 400, 'Host 不合法');
 		const status = !changedFields.has('status') ? null : body.status === statusValues.disabled ? statusValues.disabled : body.status === statusValues.enabled ? statusValues.enabled : null;
 		const nextSiteKey = changedFields.has('site_key') && typeof body.site_key === 'string' ? body.site_key.trim() : current.site_key;
-		const site = await firstSql(database, sql({ database }).select({ table: 'global_sites', columns: { site_key: 'site_key' }, where: [{ column: 'site_key', value: nextSiteKey }, { column: 'status', value: 'enabled' }, { column: 'migration_status', value: 'ready' }] }));
+		const site = await firstSql(database, sql({ database }).select({ table: 'global_sites', columns: { site_key: 'key' }, where: [{ column: 'key', value: nextSiteKey }, { column: 'status', value: 'enabled' }, { column: 'migration_status', value: 'ready' }] }));
 		if (!site) return apiMessage(c, 400, '站点不存在或尚未就绪');
 		const bot = await firstSql(database, sql({ database }).select({ table: 'global_telegram_bots', columns: { id: 'id' }, where: [{ column: 'webhook_hostname', value: current.hostname }], limit: 1 }));
 		// 机器人回调域名只能留在身份中心站点上，否则 Telegram 的 webhook 会指向没有身份数据的站点。

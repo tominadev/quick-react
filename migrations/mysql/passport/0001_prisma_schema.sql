@@ -10,26 +10,12 @@ CREATE TABLE `passport_users` (
     `created_duid` BIGINT NULL,
     `updated_duid` BIGINT NULL,
     `user_id` BIGINT NOT NULL,
+    `name` VARCHAR(191) NOT NULL,
     `nickname` VARCHAR(191) NOT NULL,
     `status` ENUM('enabled', 'disabled') NOT NULL DEFAULT 'enabled',
 
     UNIQUE INDEX `passport_users_user_id_deleted_at_key`(`user_id`, `deleted_at`),
-    PRIMARY KEY (`id`)
-) DEFAULT CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci;
-
--- CreateTable
-CREATE TABLE `passport_usernames` (
-    `id` BIGINT NOT NULL AUTO_INCREMENT,
-    `created_at` BIGINT NOT NULL,
-    `updated_at` BIGINT NOT NULL,
-    `deleted_at` BIGINT NOT NULL DEFAULT 0,
-    `created_duid` BIGINT NULL,
-    `updated_duid` BIGINT NULL,
-    `user_id` BIGINT NOT NULL,
-    `username` VARCHAR(191) NOT NULL,
-
-    UNIQUE INDEX `passport_usernames_user_id_deleted_at_key`(`user_id`, `deleted_at`),
-    UNIQUE INDEX `passport_usernames_username_deleted_at_key`(`username`, `deleted_at`),
+    UNIQUE INDEX `passport_users_name_deleted_at_key`(`name`, `deleted_at`),
     PRIMARY KEY (`id`)
 ) DEFAULT CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci;
 
@@ -96,7 +82,8 @@ CREATE TABLE `passport_devices` (
     `deleted_at` BIGINT NOT NULL DEFAULT 0,
     `created_duid` BIGINT NULL,
     `updated_duid` BIGINT NULL,
-    `fingerprint` VARCHAR(191) NOT NULL,
+    `key` VARCHAR(191) NOT NULL,
+    `fingerprint` JSON NOT NULL,
     `user_agent` VARCHAR(191) NOT NULL DEFAULT '',
     `platform` VARCHAR(191) NOT NULL DEFAULT '',
     `ip_address` VARCHAR(191) NOT NULL DEFAULT '',
@@ -105,7 +92,7 @@ CREATE TABLE `passport_devices` (
     `last_seen_at` BIGINT NOT NULL,
     `revoked_at` BIGINT NULL,
 
-    UNIQUE INDEX `passport_devices_fingerprint_deleted_at_key`(`fingerprint`, `deleted_at`),
+    UNIQUE INDEX `passport_devices_key_deleted_at_key`(`key`, `deleted_at`),
     PRIMARY KEY (`id`)
 ) DEFAULT CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci;
 

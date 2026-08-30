@@ -64,14 +64,14 @@ try {
 	database.exec(await readFile(join(projectDirectory, 'migrations/global/0001_prisma_schema.sql'), 'utf8'));
 	database.exec(await readFile(join(projectDirectory, 'migrations/base/0001_prisma_schema.sql'), 'utf8'));
 	database.exec(await readFile(join(projectDirectory, 'migrations/passport/0001_prisma_schema.sql'), 'utf8'));
-	database.exec("INSERT INTO global_sites (created_at, updated_at, site_key, name, base_site_key, dsn, status, migration_status, is_default, is_system) VALUES (0, 0, 'global', '全局控制面', 'base', '', 'enabled', 'ready', 1, 1)");
+	database.exec("INSERT INTO global_sites (created_at, updated_at, key, name, base_site_key, dsn, status, migration_status, is_default, is_system) VALUES (0, 0, 'global', '全局控制面', 'base', '', 'enabled', 'ready', 1, 1)");
 	database.exec("INSERT INTO base_bootstrap (created_at, updated_at, key, value) VALUES (0, 0, 'initial_admin', 'open')");
-	database.prepare(`INSERT INTO global_sites (site_key, name, base_site_key, dsn, status, migration_status, is_default, is_system)
+	database.prepare(`INSERT INTO global_sites (key, name, base_site_key, dsn, status, migration_status, is_default, is_system)
 		VALUES ('passport', 'Passport', 'base', '', 'enabled', 'ready', 0, 1)`).run();
 	database.prepare(`INSERT INTO global_site_hosts (hostname, site_key, status, created_at)
 		VALUES ('passport.example.com', 'passport', 'enabled', 1)`).run();
 	for (const id of [7, 8]) database.prepare(`INSERT INTO global_telegram_bots
-		(id, name, bot_token, bot_username, secret_token, webhook_hostname, status, created_at, updated_at)
+		(id, name, token, username, secret_token, webhook_hostname, status, created_at, updated_at)
 		VALUES (?, ?, ?, ?, ?, 'passport.example.com', 'disabled', 1, 1)`).run(id, `bot-${id}`, `token-${id}`, `bot_${id}`, `secret-${id}`);
 	database.close();
 

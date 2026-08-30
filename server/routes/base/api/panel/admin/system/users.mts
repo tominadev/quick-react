@@ -30,11 +30,11 @@ const publicUser = (row: Record<string, unknown>) => ({
 const handler: ApiHandler = async (c, next, params) => {
 	const database = c.get('database');
 	if (c.req.method === 'GET' && !params.id) {
-		const rows = await allSql<Record<string, unknown>>(database, sql({ database }).select({ table: 'base_users', columns: { id: 'id', username: 'username', roles: 'roles', status: 'status', password: 'password', created_at: 'created_at', updated_at: 'updated_at' }, orderBy: [{ column: 'id', direction: 'DESC' }] }));
+		const rows = await allSql<Record<string, unknown>>(database, sql({ database }).select({ table: 'base_users', columns: { id: 'id', username: 'name', roles: 'roles', status: 'status', password: 'password', created_at: 'created_at', updated_at: 'updated_at' }, orderBy: [{ column: 'id', direction: 'DESC' }] }));
 		return apiResponse(c, 200, { table: { option: { rowKey: 'id', actions: { query: [{ key: 'search', label: '搜索' }], toolbar: [{ key: 'create', label: '新增' }, { key: 'delete', label: '删除' }], row: [{ key: 'edit', label: '编辑' }, { key: 'delete', label: '删除' }] } }, columns, dataSource: rows.map(publicUser), totalRecords: rows.length } });
 	}
 	if (params.id && c.req.method === 'GET') {
-		const row = await firstSql<Record<string, unknown>>(database, sql({ database }).select({ table: 'base_users', columns: { id: 'id', username: 'username', roles: 'roles', status: 'status', password: 'password', created_at: 'created_at', updated_at: 'updated_at' }, where: [{ column: 'id', value: params.id }] }));
+		const row = await firstSql<Record<string, unknown>>(database, sql({ database }).select({ table: 'base_users', columns: { id: 'id', username: 'name', roles: 'roles', status: 'status', password: 'password', created_at: 'created_at', updated_at: 'updated_at' }, where: [{ column: 'id', value: params.id }] }));
 		return row ? apiResponse(c, 200, publicUser(row)) : apiMessage(c, 404, '用户不存在');
 	}
 	if (!params.id && c.req.method === 'POST') {
@@ -46,8 +46,8 @@ const handler: ApiHandler = async (c, next, params) => {
 		const unknownRoles = unknownAssignableRoles(roles);
 		if (unknownRoles.length) return apiMessage(c, 400, `不支持的角色：${unknownRoles.join('、')}`);
 		try {
-			await runSql(database, sql({ database }).insert('base_users', { username, password: await createStoredPassword(password), roles: serializeRoles(roles), status: String(body.status ?? 'enabled') }));
-			const created = await firstSql<{ id: number | string }>(database, sql({ database }).select({ table: 'base_users', columns: { id: 'id' }, where: [{ column: 'username', value: username }] }));
+			await runSql(database, sql({ database }).insert('base_users', { name: username, password: await createStoredPassword(password), roles: serializeRoles(roles), status: String(body.status ?? 'enabled') }));
+			const created = await firstSql<{ id: number | string }>(database, sql({ database }).select({ table: 'base_users', columns: { id: 'id' }, where: [{ column: 'name', value: username }] }));
 			return apiMessageData(c, 201, '用户已创建', { id: created?.id, username });
 		} catch {
 			return apiMessage(c, 409, '用户名已存在');
@@ -60,7 +60,7 @@ const handler: ApiHandler = async (c, next, params) => {
 		const changedFields = getChangedFields(body, ['username', 'roles', 'status', 'password']);
 		const values: Record<string, unknown> = {};
 		for (const key of ['username', 'status']) {
-			if (changedFields.has(key)) values[key] = String(body[key] ?? '');
+			if (changedFields.has(key)) values[key === 'username' ? 'name' : key] = String(body[key] ?? '');
 		}
 		if (changedFields.has('roles')) {
 			const roles = parseRoles(body.roles);

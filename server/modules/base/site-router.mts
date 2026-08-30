@@ -100,7 +100,7 @@ export class SiteRouter {
 	constructor(private readonly database: DatabaseAdapter, private readonly ttlMs = 30_000) {}
 
 	private async loadSnapshot() {
-		const siteRows = await allSql<SiteRow>(this.database, sql({ database: this.database }).select({ table: 'global_sites', columns: { site_key: 'site_key', name: 'name', base_site_key: 'base_site_key', dsn: 'dsn', database_binding: 'database_binding', status: 'status', migration_status: 'migration_status', is_default: 'is_default', is_system: 'is_system' }, where: [{ column: 'status', value: 'enabled' }, { column: 'migration_status', value: 'ready' }] }));
+		const siteRows = await allSql<SiteRow>(this.database, sql({ database: this.database }).select({ table: 'global_sites', columns: { site_key: 'key', name: 'name', base_site_key: 'base_site_key', dsn: 'dsn', database_binding: 'database_binding', status: 'status', migration_status: 'migration_status', is_default: 'is_default', is_system: 'is_system' }, where: [{ column: 'status', value: 'enabled' }, { column: 'migration_status', value: 'ready' }] }));
 		const sites = new Map(siteRows.filter((row) => siteKeyPattern.test(row.site_key)).map((row) => [row.site_key, createSiteRecord(row)]));
 		for (const site of sites.values()) buildSiteChain(site, sites);
 

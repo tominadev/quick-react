@@ -11,6 +11,7 @@ import { isSecureRequest, requestOrigin } from '@server/modules/base/request-ori
 import { sha256 } from '@server/modules/passport/accounts/oidc.mjs';
 import { sendDefaultCloudEmail } from '@server/modules/global/cloud/email.mjs';
 import { renderExternalRedirect } from '@server/templates/passport/api/accounts/external.mjs';
+import { clearDeviceFingerprintTransportCookie, clearDeviceKeyTransportCookie } from '@server/modules/base/device-fingerprint.mjs';
 
 const providerId = (value: string): ExternalProviderId | undefined => value === 'google' || value === 'wechat' ? value : undefined;
 const sameRedirectUri = (left: string, right: string) => {
@@ -48,6 +49,8 @@ const handler: ApiHandler = async (c, _next, params) => {
 		await runSql(database, sql({ database }).insert('passport_sessions', { token_hash: await sha256(sessionId), user_id: verified.userId, device_id: await ensurePassportDevice(database, verified.userId, c.req.raw, c.get('clientIp'), c.get('transportIp')), expires_at: now + maxAge * 1000 }));
 		await runSql(database, sql({ database }).update('passport_external_login_states', { qr_status: 'consumed', qr_user_id: verified.userId }, { id_hash: await sha256(bindState) }));
 		c.header('Set-Cookie', createPassportSessionCookie(sessionId, secure, maxAge));
+		c.header('Set-Cookie', clearDeviceKeyTransportCookie(secure), { append: true });
+		c.header('Set-Cookie', clearDeviceFingerprintTransportCookie(secure), { append: true });
 		// 二维码页可能开在业务站点的登录弹窗里，必须把后续去向一并返回，不能让它自己跳首页。
 		return apiResponse(c, 200, { status: 'completed', redirectTo: await postLoginRedirect(c, database, verified.userId) });
 	}
@@ -80,6 +83,8 @@ const handler: ApiHandler = async (c, _next, params) => {
 		await runSql(database, sql({ database }).insert('passport_sessions', { token_hash: await sha256(sessionId), user_id: polled.qr_user_id, device_id: deviceId, expires_at: now + 24 * 60 * 60 * 1000 }));
 		await runSql(database, sql({ database }).update('passport_external_login_states', { qr_status: 'consumed' }, [{ column: 'id_hash', value: await sha256(pollState) }, { column: 'qr_status', value: 'authorized' }]));
 		c.header('Set-Cookie', createPassportSessionCookie(sessionId, secure, 24 * 60 * 60));
+		c.header('Set-Cookie', clearDeviceKeyTransportCookie(secure), { append: true });
+		c.header('Set-Cookie', clearDeviceFingerprintTransportCookie(secure), { append: true });
 		const redirectTo = current && String(current.id) === String(polled.qr_user_id)
 			? `/panel/accounts/identities${c.get('techStackConfig').pageSuffix}`
 			: await postLoginRedirect(c, database, String(polled.qr_user_id), polled.oidc_request_id ?? undefined);
@@ -180,6 +185,8 @@ const handler: ApiHandler = async (c, _next, params) => {
 			// 已登录用户完成一次第三方认证：用于绑定身份、绑定邮箱或重设密码，按发起页面返回。
 			c.header('Set-Cookie', clearExternalStateCookie(secure));
 			c.header('Set-Cookie', externalVerifiedCookie(secure), { append: true });
+			c.header('Set-Cookie', clearDeviceKeyTransportCookie(secure), { append: true });
+			c.header('Set-Cookie', clearDeviceFingerprintTransportCookie(secure), { append: true });
 			const requested = readCookie(c.req.raw, bindReturnCookieName) ?? '';
 			const pageSuffix = c.get('techStackConfig').pageSuffix;
 			// 只接受账户中心内部路径，避免被引导到站外。
@@ -191,6 +198,8 @@ const handler: ApiHandler = async (c, _next, params) => {
 		await runSql(database, sql({ database }).insert('passport_sessions', { token_hash: await sha256(sessionId), user_id: userId, device_id: await ensurePassportDevice(database, userId, c.req.raw, c.get('clientIp'), c.get('transportIp')), expires_at: now + maxAge * 1000 }));
 		c.header('Set-Cookie', clearExternalStateCookie(secure));
 		c.header('Set-Cookie', createPassportSessionCookie(sessionId, secure, maxAge), { append: true });
+		c.header('Set-Cookie', clearDeviceKeyTransportCookie(secure), { append: true });
+		c.header('Set-Cookie', clearDeviceFingerprintTransportCookie(secure), { append: true });
 		// 第三方认证通过：30 分钟内允许发送邮箱验证码、重设密码。
 		c.header('Set-Cookie', externalVerifiedCookie(secure), { append: true });
 		// 去向由后端统一决定：先补全用户名和密码，再继续待处理的 OIDC 授权。

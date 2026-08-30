@@ -13,6 +13,7 @@ const uploads = [];
 let listCalls = 0;
 let storedKey = '';
 const fingerprint = 'a'.repeat(64);
+const fingerprintData = JSON.stringify({ canvas_crc32: 'aaaaaaaa' });
 
 globalThis.fetch = async (input, init) => {
 	const url = new URL(String(input));
@@ -68,7 +69,7 @@ try {
 	const authorizationUrl = JSON.parse(startHtml.match(/<script>location\.href=([^;]+);<\/script>/s)[1]);
 	const state = new URL(authorizationUrl).searchParams.get('state');
 	const stateCookie = start.headers.getSetCookie().map((value) => value.split(';')[0]).find((value) => value.startsWith('accounts_external_state='));
-	const callback = await app.request(`https://accounts.test/api/accounts/external/google?code=code&state=${encodeURIComponent(state)}`, { headers: { cookie: stateCookie, 'x-device-fingerprint': fingerprint } });
+	const callback = await app.request(`https://accounts.test/api/accounts/external/google?code=code&state=${encodeURIComponent(state)}`, { headers: { cookie: stateCookie, 'x-device-key': fingerprint, 'x-device-fingerprint': fingerprintData } });
 	assert.equal(callback.status, 200);
 	assert.match(await callback.text(), /正在返回|登录成功/);
 
@@ -85,7 +86,7 @@ try {
 	const again = await app.request('https://accounts.test/api/accounts/external/google');
 	const againState = new URL(await redirectTarget(again)).searchParams.get('state');
 	const againCookie = again.headers.getSetCookie().map((value) => value.split(';')[0]).find((value) => value.startsWith('accounts_external_state='));
-	await app.request(`https://accounts.test/api/accounts/external/google?code=code&state=${encodeURIComponent(againState)}`, { headers: { cookie: againCookie, 'x-device-fingerprint': fingerprint } });
+	await app.request(`https://accounts.test/api/accounts/external/google?code=code&state=${encodeURIComponent(againState)}`, { headers: { cookie: againCookie, 'x-device-key': fingerprint, 'x-device-fingerprint': fingerprintData } });
 	await new Promise((resolve) => setTimeout(resolve, 80));
 	assert.equal(uploads.length, 1, '已有头像不应该重复上传');
 

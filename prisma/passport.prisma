@@ -72,21 +72,10 @@ model passport_users {
   updated_duid BigInt?
   user_id     BigInt
   @@unique([user_id, deleted_at])
+  name        String
+  @@unique([name, deleted_at])
   nickname    String
   status      PassportAccountStatus @default(enabled)
-}
-
-model passport_usernames {
-  id          BigInt @id @default(autoincrement())
-  created_at  BigInt
-  updated_at  BigInt
-  deleted_at BigInt @default(0)
-  created_duid BigInt?
-  updated_duid BigInt?
-  user_id     BigInt
-  @@unique([user_id, deleted_at])
-  username    String
-  @@unique([username, deleted_at])
 }
 
 model passport_user_email_otps {
@@ -145,8 +134,8 @@ model passport_devices {
   deleted_at BigInt @default(0)
   created_duid BigInt?
   updated_duid BigInt?
-  fingerprint  String
-  @@unique([fingerprint, deleted_at])
+  key           String
+  fingerprint  Json   @default("{}")
   user_agent   String @default("")
   platform     String @default("")
   ip_address   String @default("")
@@ -154,6 +143,8 @@ model passport_devices {
   status       PassportDeviceStatus @default(active)
   last_seen_at BigInt
   revoked_at   BigInt?
+
+  @@unique([key, deleted_at])
 }
 
 model passport_device_users {

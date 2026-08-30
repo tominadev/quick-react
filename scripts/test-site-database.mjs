@@ -13,9 +13,11 @@ const sitePath = '/api/panel/admin/global/site/sites.php';
 try {
 	const { app } = await import(`../dist/server.mjs?site-database=${Date.now()}`);
 	const fingerprint = 'a'.repeat(64);
+	const fingerprintData = JSON.stringify({ canvas_crc32: 'aaaaaaaa' });
 	const request = async (path, options = {}) => {
 		const headers = new Headers(options.headers);
-		if (!headers.has('x-device-fingerprint')) headers.set('x-device-fingerprint', fingerprint);
+		if (!headers.has('x-device-key')) headers.set('x-device-key', fingerprint);
+		if (!headers.has('x-device-fingerprint')) headers.set('x-device-fingerprint', fingerprintData);
 		if (options.cookie) headers.set('cookie', options.cookie);
 		if (options.body !== undefined) headers.set('content-type', 'application/json');
 		return app.request(`http://localhost${path}`, { method: options.method, headers, body: options.body === undefined ? undefined : JSON.stringify(options.body) });
@@ -60,14 +62,14 @@ try {
 	assert.equal(shop.db_password, '', '密码不能回显');
 	assert.equal(shop.dsn, undefined);
 	const stored = new DatabaseSync(process.env.DEFAULT_DATABASE_FILE, { readOnly: true });
-	const storedDsn = stored.prepare("SELECT dsn FROM global_sites WHERE site_key = 'shop'").get().dsn;
+	const storedDsn = stored.prepare("SELECT dsn FROM global_sites WHERE key = 'shop'").get().dsn;
 	assert.equal(storedDsn, 'mysql://shop_user:p%40ss%20word@db.internal:3306/shop');
 	stored.close();
 
 	// 只改端口时保留原密码。
 	assert.equal((await request(`${sitePath}/shop`, { method: 'PUT', cookie, body: { db_port: '3307', __changedFields: ['db_port'] } })).status, 200);
 	const afterPort = new DatabaseSync(process.env.DEFAULT_DATABASE_FILE, { readOnly: true });
-	assert.equal(afterPort.prepare("SELECT dsn FROM global_sites WHERE site_key = 'shop'").get().dsn, 'mysql://shop_user:p%40ss%20word@db.internal:3307/shop');
+	assert.equal(afterPort.prepare("SELECT dsn FROM global_sites WHERE key = 'shop'").get().dsn, 'mysql://shop_user:p%40ss%20word@db.internal:3307/shop');
 	afterPort.close();
 
 	// 连接测试：跟随默认库无需测试；独立 SQLite 能连上并报告表数量。

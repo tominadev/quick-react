@@ -9,7 +9,7 @@ CREATE TABLE "global_sites" (
     "deleted_at" BIGINT NOT NULL DEFAULT 0,
     "created_duid" BIGINT,
     "updated_duid" BIGINT,
-    "site_key" TEXT NOT NULL,
+    "key" TEXT NOT NULL,
     "name" TEXT NOT NULL,
     "base_site_key" TEXT,
     "dsn" TEXT NOT NULL DEFAULT '',
@@ -106,8 +106,8 @@ CREATE TABLE "global_telegram_bots" (
     "created_duid" BIGINT,
     "updated_duid" BIGINT,
     "name" TEXT NOT NULL,
-    "bot_token" TEXT NOT NULL,
-    "bot_username" TEXT NOT NULL,
+    "token" TEXT NOT NULL,
+    "username" TEXT NOT NULL,
     "secret_token" TEXT NOT NULL,
     "webhook_hostname" TEXT NOT NULL,
     "status" TEXT NOT NULL DEFAULT 'enabled'
@@ -137,8 +137,8 @@ CREATE TABLE "global_cloud_email_templates" (
     "deleted_at" BIGINT NOT NULL DEFAULT 0,
     "created_duid" BIGINT,
     "updated_duid" BIGINT,
-    "template_key" TEXT NOT NULL,
-    "template_type" TEXT NOT NULL DEFAULT 'email_verification',
+    "key" TEXT NOT NULL,
+    "type" TEXT NOT NULL DEFAULT 'email_verification',
     "name" TEXT NOT NULL,
     "subject" TEXT NOT NULL,
     "body_text" TEXT NOT NULL,
@@ -179,7 +179,7 @@ CREATE TABLE "global_cloud_email_template_publications" (
 );
 
 -- CreateIndex
-CREATE UNIQUE INDEX "global_sites_site_key_deleted_at_key" ON "global_sites"("site_key", "deleted_at");
+CREATE UNIQUE INDEX "global_sites_key_deleted_at_key" ON "global_sites"("key", "deleted_at");
 
 -- CreateIndex
 CREATE UNIQUE INDEX "global_site_hosts_hostname_deleted_at_key" ON "global_site_hosts"("hostname", "deleted_at");
@@ -206,16 +206,16 @@ CREATE INDEX "global_telegram_bots_webhook_hostname_idx" ON "global_telegram_bot
 CREATE UNIQUE INDEX "global_telegram_bots_name_deleted_at_key" ON "global_telegram_bots"("name", "deleted_at");
 
 -- CreateIndex
-CREATE UNIQUE INDEX "global_telegram_bots_bot_token_deleted_at_key" ON "global_telegram_bots"("bot_token", "deleted_at");
+CREATE UNIQUE INDEX "global_telegram_bots_token_deleted_at_key" ON "global_telegram_bots"("token", "deleted_at");
 
 -- CreateIndex
-CREATE UNIQUE INDEX "global_telegram_bots_bot_username_deleted_at_key" ON "global_telegram_bots"("bot_username", "deleted_at");
+CREATE UNIQUE INDEX "global_telegram_bots_username_deleted_at_key" ON "global_telegram_bots"("username", "deleted_at");
 
 -- CreateIndex
 CREATE UNIQUE INDEX "global_cloud_email_channels_cloud_credential_id_region_account_name_deleted_at_key" ON "global_cloud_email_channels"("cloud_credential_id", "region", "account_name", "deleted_at");
 
 -- CreateIndex
-CREATE UNIQUE INDEX "global_cloud_email_templates_template_key_deleted_at_key" ON "global_cloud_email_templates"("template_key", "deleted_at");
+CREATE UNIQUE INDEX "global_cloud_email_templates_key_deleted_at_key" ON "global_cloud_email_templates"("key", "deleted_at");
 
 -- CreateIndex
 CREATE UNIQUE INDEX "global_cloud_email_bindings_site_key_channel_id_template_id_purpose_deleted_at_key" ON "global_cloud_email_bindings"("site_key", "channel_id", "template_id", "purpose", "deleted_at");

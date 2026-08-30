@@ -9,7 +9,7 @@ CREATE TABLE `global_sites` (
     `deleted_at` BIGINT NOT NULL DEFAULT 0,
     `created_duid` BIGINT NULL,
     `updated_duid` BIGINT NULL,
-    `site_key` VARCHAR(191) NOT NULL,
+    `key` VARCHAR(191) NOT NULL,
     `name` VARCHAR(191) NOT NULL,
     `base_site_key` VARCHAR(191) NULL,
     `dsn` VARCHAR(191) NOT NULL DEFAULT '',
@@ -21,7 +21,7 @@ CREATE TABLE `global_sites` (
     `is_system` INTEGER NOT NULL DEFAULT 0,
     `passport_sso_enabled` INTEGER NOT NULL DEFAULT 0,
 
-    UNIQUE INDEX `global_sites_site_key_deleted_at_key`(`site_key`, `deleted_at`),
+    UNIQUE INDEX `global_sites_key_deleted_at_key`(`key`, `deleted_at`),
     PRIMARY KEY (`id`)
 ) DEFAULT CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci;
 
@@ -125,16 +125,16 @@ CREATE TABLE `global_telegram_bots` (
     `created_duid` BIGINT NULL,
     `updated_duid` BIGINT NULL,
     `name` VARCHAR(191) NOT NULL,
-    `bot_token` VARCHAR(191) NOT NULL,
-    `bot_username` VARCHAR(191) NOT NULL,
+    `token` VARCHAR(191) NOT NULL,
+    `username` VARCHAR(191) NOT NULL,
     `secret_token` VARCHAR(191) NOT NULL,
     `webhook_hostname` VARCHAR(191) NOT NULL,
     `status` ENUM('enabled', 'disabled') NOT NULL DEFAULT 'enabled',
 
     INDEX `global_telegram_bots_webhook_hostname_idx`(`webhook_hostname`),
     UNIQUE INDEX `global_telegram_bots_name_deleted_at_key`(`name`, `deleted_at`),
-    UNIQUE INDEX `global_telegram_bots_bot_token_deleted_at_key`(`bot_token`, `deleted_at`),
-    UNIQUE INDEX `global_telegram_bots_bot_username_deleted_at_key`(`bot_username`, `deleted_at`),
+    UNIQUE INDEX `global_telegram_bots_token_deleted_at_key`(`token`, `deleted_at`),
+    UNIQUE INDEX `global_telegram_bots_username_deleted_at_key`(`username`, `deleted_at`),
     PRIMARY KEY (`id`)
 ) DEFAULT CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci;
 
@@ -165,15 +165,15 @@ CREATE TABLE `global_cloud_email_templates` (
     `deleted_at` BIGINT NOT NULL DEFAULT 0,
     `created_duid` BIGINT NULL,
     `updated_duid` BIGINT NULL,
-    `template_key` VARCHAR(191) NOT NULL,
-    `template_type` VARCHAR(191) NOT NULL DEFAULT 'email_verification',
+    `key` VARCHAR(191) NOT NULL,
+    `type` VARCHAR(191) NOT NULL DEFAULT 'email_verification',
     `name` VARCHAR(191) NOT NULL,
     `subject` VARCHAR(191) NOT NULL,
     `body_text` VARCHAR(191) NOT NULL,
     `body_html` VARCHAR(191) NOT NULL,
     `status` ENUM('enabled', 'disabled') NOT NULL DEFAULT 'enabled',
 
-    UNIQUE INDEX `global_cloud_email_templates_template_key_deleted_at_key`(`template_key`, `deleted_at`),
+    UNIQUE INDEX `global_cloud_email_templates_key_deleted_at_key`(`key`, `deleted_at`),
     PRIMARY KEY (`id`)
 ) DEFAULT CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci;
 

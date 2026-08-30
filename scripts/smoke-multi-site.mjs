@@ -93,14 +93,16 @@ try {
 	const { app } = await import(`../dist/server.mjs?smoke=${Date.now()}`);
 	internalApp = app;
 	const fingerprint = 'a'.repeat(64);
+	const fingerprintData = JSON.stringify({ canvas_crc32: 'aaaaaaaa' });
 	const migratedDatabase = new DatabaseSync(process.env.DEFAULT_DATABASE_FILE, { readOnly: true });
-	assert.equal(migratedDatabase.prepare("SELECT migration_status FROM global_sites WHERE site_key = 'passport'").get()?.migration_status, 'ready');
+	assert.equal(migratedDatabase.prepare("SELECT migration_status FROM global_sites WHERE key = 'passport'").get()?.migration_status, 'ready');
 	assert.equal(migratedDatabase.prepare("SELECT name FROM sqlite_master WHERE type = 'table' AND name = 'passport_users'").get()?.name, 'passport_users');
 	migratedDatabase.close();
 	const request = async (host, path, options = {}) => {
 		const headers = new Headers(options.headers);
 		if (options.cookie) headers.set('cookie', options.cookie);
-		if (!headers.has('x-device-fingerprint')) headers.set('x-device-fingerprint', fingerprint);
+		if (!headers.has('x-device-key')) headers.set('x-device-key', fingerprint);
+		if (!headers.has('x-device-fingerprint')) headers.set('x-device-fingerprint', fingerprintData);
 		if (options.body !== undefined) headers.set('content-type', 'application/json');
 		return app.request(`http://${host}${path}`, {
 			method: options.method,
@@ -135,7 +137,7 @@ try {
 	const localDeviceDatabase = new DatabaseSync(process.env.DEFAULT_DATABASE_FILE, { readOnly: true });
 	assert.equal(localDeviceDatabase.prepare('SELECT COUNT(*) AS count FROM base_devices').get().count, 1);
 	assert.equal(localDeviceDatabase.prepare('SELECT COUNT(*) AS count FROM base_device_users').get().count, 1);
-	const adminUserId = localDeviceDatabase.prepare("SELECT id FROM base_users WHERE username = 'bootstrap_admin'").get().id;
+	const adminUserId = localDeviceDatabase.prepare("SELECT id FROM base_users WHERE name = 'bootstrap_admin'").get().id;
 	localDeviceDatabase.close();
 	assert.equal((await request('localhost', `/api/panel/admin/system/users.php/${adminUserId}`, { method: 'PUT', cookie, body: { status: 'enabled' } })).status, 200);
 	const auditedUserDatabase = new DatabaseSync(process.env.DEFAULT_DATABASE_FILE, { readOnly: true });
@@ -235,7 +237,7 @@ try {
 	assert.equal(oidcClientEdit.redirect_uri_source, 'https://site1.test/api/accounts/oidc/callback');
 	assert.equal(oidcClientEdit.backchannel_logout_path, '/api/accounts/oidc/backchannel-logout');
 	const oidcSettingsTest = await app.request('https://site1.test/api/panel/admin/system/settings/accounts-oidc.php?action=test', {
-		method: 'POST', headers: { cookie, 'x-device-fingerprint': fingerprint, 'content-type': 'application/json' }, body: JSON.stringify({ issuer: 'https://passport.test', clientId: createdOidcClient.id, clientSecret: createdOidcCredentials.client_secret }),
+		method: 'POST', headers: { cookie, 'x-device-key': fingerprint, 'x-device-fingerprint': fingerprintData, 'content-type': 'application/json' }, body: JSON.stringify({ issuer: 'https://passport.test', clientId: createdOidcClient.id, clientSecret: createdOidcCredentials.client_secret }),
 	});
 	assert.equal(oidcSettingsTest.status, 200);
 	assert.match((await oidcSettingsTest.json()).feedback.message, /连接测试通过/);
@@ -444,7 +446,7 @@ try {
 	assert.equal(directMailActions.at(-1)?.action, 'DescTemplate');
 	const legacyPublicationDatabase = new DatabaseSync(process.env.DEFAULT_DATABASE_FILE);
 	legacyPublicationDatabase.prepare(`UPDATE global_cloud_email_template_publications SET content_hash = 'legacy:' || (
-		SELECT json_array(template_key, name, subject, body_html) FROM global_cloud_email_templates WHERE id = ?1
+		SELECT json_array(key, name, subject, body_html) FROM global_cloud_email_templates WHERE id = ?1
 	) WHERE template_id = ?1 AND cloud_credential_id = ?2 AND region = 'cn-hangzhou'`).run(emailTemplate.id, emailCredential.id);
 	legacyPublicationDatabase.close();
 	const actionsBeforeUnchangedPublish = directMailActions.length;

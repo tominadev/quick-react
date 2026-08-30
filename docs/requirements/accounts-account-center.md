@@ -47,19 +47,14 @@
 - 提交 `user`、`public` 或未登记角色返回 400。
 - 个人中心的角色展示使用同一套标签。
 
-## 二、Accounts 用户名（必填、不可自助修改）
+## 二、Accounts 用户名（必填、可修改）
 
-上游需求规定"所有字段必须 NOT NULL，可选能力通过独立关联表表达"，因此用户名不加在 `passport_users` 上，而是独立关联表：
+用户名是 Accounts 用户本身的必填字段，直接保存在 `passport_users.name`，不再维护独立的用户名表。账号通过邮箱、Telegram、微信、Google 等方式完成首次认证时，系统先写入 `passport_<user_id>` 作为占位值；占位值只表示正式用户名尚未设置，不能作为对外的正式用户名。`user_id` 仍然是 Accounts 兼容现有系统的雪花 ID。
 
 ```text
-passport_usernames                      -- 用户设置用户名后才创建
-  id BIGINT PRIMARY KEY
-  created_at BIGINT NOT NULL
-  updated_at BIGINT NOT NULL
-  created_duid BIGINT
-  updated_duid BIGINT
-  user_id BIGINT UNIQUE
-  username TEXT NOT NULL UNIQUE
+passport_users
+  name TEXT NOT NULL
+  UNIQUE (name, deleted_at)
 ```
 
 - 格式：小写字母开头，只允许小写字母和数字，长度 6–12，正则 `^[a-z][a-z0-9]{5,11}$`。
@@ -68,7 +63,7 @@ passport_usernames                      -- 用户设置用户名后才创建
 - 历史导入或占位的用户名（不符合规则）在登录时必须先改成合法用户名才能继续，提示文案要说明当前用户名不符合规则。
 - 保留名单：`admin`、`root`、`system`、`support`、`official`、`passport`、`accounts`、`service`、`security` 不允许被普通用户占用。
 - 每次 Accounts 登录成功后，如果还没有用户名，必须先设置才能进入目标站点，**不提供跳过**。
-- 合法用户名设置后不允许自助修改（避免历史引用错乱），账户中心只展示；不合法的历史用户名可以改写一次。
+- 合法用户名设置后仍允许在账户资料中修改；修改时沿用相同格式、保留词和唯一性校验。
 
 ### 验收标准
 
@@ -202,7 +197,7 @@ passport_user_email_otps                -- 已登录用户添加邮箱时的验�
 
 ## 数据结构变更
 
-1. 新表 `passport_usernames`。
+1. `passport_users.name` 保存 Accounts 用户名；首次认证写入 `passport_<user_id>` 占位值。
 2. 新表 `passport_user_email_otps`。
 3. `base_oidc_login_requests` 同样遵循统一自增 `id`，原请求标识保存为唯一的 `request_id`。
 4. 迁移需要同时提供四份：`migrations/passport/`（sqlite）、`migrations/postgresql/passport/`、`migrations/mysql/passport/`、`migrations/d1/`（扁平合并序列），并同步 `prisma/passport.prisma`。
@@ -210,14 +205,14 @@ passport_user_email_otps                -- 已登录用户添加邮箱时的验�
 ## 不做的事
 
 - 不做角色的数据库化管理界面（角色与代码强绑定）。
-- 不做 Accounts 用户名的自助修改。
+- 不做独立的 Accounts 用户名表；用户名直接维护在 `passport_users.name`。
 - 不改动 base 站点本地账号（`base_users`）的既有登录逻辑。
 - 不实现手机号绑定与头像（沿用上游需求的范围）。
 
 ## 实现说明（2026-08-27）
 
 - 角色对照表在 `shared/types/role.mts`，用户管理的角色列改为多选；`base_users.roles` 以 PostgreSQL `String[]` 为规范，SQLite/D1 和 MySQL 使用生成器降级的 JSON 文本，适配器统一完成绑定转换。
-- 用户名存放在独立表 `passport_usernames`，密码沿用 `passport_user_credentials`，都遵循"可选能力用独立关联表"的约定。
+- 用户名直接存放在 `passport_users.name`，密码沿用 `passport_user_credentials`；新账号的占位用户名为 `passport_<user_id>`，正式用户名可以在账户资料中修改。
 - 补全流程在 `server/modules/passport/accounts/onboarding.mjs`，登录成功后由 `/api/accounts/sign` 继续返回 `formPage`；第三方 OAuth 回调改为先跳回登录页补全。进入补全步骤时会给 OIDC 授权请求和 cookie 续期。
 - 通用 `FormPage` 的自定义 action 现在也会应用响应里的 `formPage`/`currentValues`/`redirectTo`；只要响应里带 `formPage` 就不再安排跳转，修掉了多步表单被反馈倒计时带走的问题。
 - 账户中心概览用 `dashboard` 组件（统计 + 账户信息表），邮箱管理用 `table` 组件：工具栏"添加邮箱"发送验证码，工具栏"输入验证码"完成绑定（通用抽屉的新增表单只有一步，验证码必须作为独立动作）。
@@ -331,17 +326,17 @@ Accounts 站点上可能同时存在两种会话：站点本地账号（`base_us
 
 ## Accounts 设备管理与固定指纹（2026-08-29 确立）
 
-Accounts 提供类似 Google 的登录设备管理。Accounts 使用 Passport 层自己的 `passport_devices`、`passport_device_users` 管理身份中心设备；各业务站点和 Passport 本站的本地会话使用各自 Base 层的 `base_devices`、`base_device_users` 与 `base_sessions`。两类设备不共用关联表，跨站点只通过统一的 Passport 用户 ID 与客户端指纹对应。
+Accounts 提供类似 Google 的登录设备管理。Accounts 使用 Passport 层自己的 `passport_devices`、`passport_device_users` 管理身份中心设备；各业务站点和 Passport 本站的本地会话使用各自 Base 层的 `base_devices`、`base_device_users` 与 `base_sessions`。两类设备不共用关联表，跨站点通过 `passport_user_id + passport_device_id` 的服务端关联对应，不能使用可能碰撞的客户端 `fingerprint`。
 
-- Passport 设备表使用 `passport_devices`，业务站点设备表使用各自数据库中的 `base_devices`；设备主键自增，客户端生成的 SHA-256 `fingerprint` 作为唯一业务字段，不二次哈希。
+- Passport 设备表使用 `passport_devices`，业务站点设备表使用各自数据库中的 `base_devices`；设备主键自增，客户端保存在当前站点 `localStorage` 的 `device_key` 作为唯一业务字段。`device_key` 由已采集设备数据、当前时间和随机数拼接后计算 SHA-256；`fingerprint` 只保存独立的 JSON 设备特征，不承担唯一性。
 - Passport 设备与 Accounts 账号通过 `passport_device_users(device_id, user_id)` 多对多关联；Base 设备与本站本地账号通过 `base_device_users(device_id, user_id)` 多对多关联。同一浏览器可以在不同身份域拥有两条设备记录。
-- `passport_sessions` 和 `base_sessions` 分别只关联各自设备表；会话继续有效必须同时满足对应账号关联处于 active、设备指纹匹配且设备未注销。
+- `passport_sessions` 和 `base_sessions` 分别只关联各自设备表；会话继续有效必须同时满足对应账号关联处于 active、`device_key` 与设备记录匹配且设备未注销。
 - `passport_devices`、`passport_device_users`、`base_devices`、`base_device_users` 和设备快照表都必须保留 `created_duid`、`updated_duid` 审计字段；设备创建、注销、拉黑及解除操作必须记录实际操作者的 `device_user_id`，系统任务或无设备操作才使用 `NULL`。
 - 设备记录同样使用统一的 `deleted_at` 软删除字段；正常设备列表默认隐藏已删除记录，回收站查看或恢复必须通过显式的删除范围操作完成。
-- `passport_devices` 的全局拉黑只允许管理员或安全管理员操作，会阻止该指纹下所有 Accounts 账号登录；普通账号只能操作自己在 `passport_device_users` 中的关系级拉黑，不影响同一设备上的其他账号。退出登录只删除会话，不改变设备或设备用户关系。
-- 浏览器设备指纹固定计算为：`fingerprint = SHA-256(canvas.toDataURL())`。`canvas.toDataURL()` 的原始内容不落库，只保存哈希值。
-- `fingerprint` 是设备识别和会话继续有效的必要条件，不是单独的登录凭证。请求必须同时具备有效 `session_id`，且指纹与该 session 关联设备匹配；缺少、变化或被注销时，Accounts 会话立即失效。
+- `passport_devices` 的全局拉黑只允许管理员或安全管理员操作，会阻止该 `device_key` 下所有 Accounts 账号登录；普通账号只能操作自己在 `passport_device_users` 中的关系级拉黑，不影响同一设备上的其他账号。退出登录只删除会话，不改变设备或设备用户关系。
+- 浏览器 `fingerprint` 使用固定 Canvas 内容计算 CRC32，并以 JSON 保存，例如 `{"canvas_crc32":"a1b2c3d4"}`；Canvas 原始内容不落库。`device_key` 首次生成后写入当前站点的 `localStorage`。由于 OAuth/外部登录的第三方导航不能附加自定义请求头，API 公共响应会额外下发短期 HttpOnly 传输 Cookie，仅用于把 `device_key` 和 `fingerprint` 带到同源回调，成功回调后立即清除；该 Cookie 不是设备存储或会话凭证。
+- `device_key` 是设备识别和会话继续有效的必要条件；`fingerprint` JSON 是分析证据，不作为认证凭证。请求必须同时具备有效 `session_id` 和 `device_key`，且 `device_key` 与该 session 关联设备匹配；缺少、变化或被注销时，Accounts 会话立即失效。
 - 设备管理支持查看当前设备、查看全部设备、注销单台设备和注销全部其他设备。注销设备会使该设备关联的所有 `passport_sessions` 失效；允许因指纹碰撞造成误杀，安全优先于免打扰体验。
-- 设备 Cookie 可以作为固定指纹载体，但不得直接把指纹当作 session 凭证；认证仍由服务端 session 状态决定。
+- `device_key` 通过 `X-Device-Key` 请求头传输，不得直接把它当作 session 凭证；认证仍由服务端 session 状态决定。
 - 业务站点通过本地登录或 OIDC 获得身份，并使用 Base 层设备能力建立自己的 `base_sessions`；设备指纹、设备用户关系和快照由 Base 统一维护。
 - 设备网络信息分为两个层次：`ip_address` 只保存服务端依据可信代理列表解析出的单一真实客户端 IP；`network_info` 保存请求中实际收到的原始网络证据扁平 JSON（例如 `transport_ip`、`x_real_ip`、`x_forwarded_for`、`cf_connecting_ip`、`eo_connecting_ip`、`ali_cdn_real_ip` 和地址数组 `webrtc_ips`）。缺失值不写入 JSON，不保存 `true_client_ip` 或 `resolved_*` 等派生字段；可信代理列表仍是解析真实 IP 的依据。

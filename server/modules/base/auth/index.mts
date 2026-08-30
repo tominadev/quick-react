@@ -109,7 +109,7 @@ export const clearSessionCookie = (secure: boolean) =>
 export const loadCurrentUser = async (database: DatabaseAdapter, request: Request) => {
 	const sessionId = readSessionId(request);
 	if (!sessionId) return undefined;
-	const row = await firstSql<{ id: number; username: string; roles: string; device_id: string | null }>(database, sql({ database }).select({ table: 'base_sessions', alias: 's', columns: { id: 'u.id', username: 'u.username', roles: 'u.roles', device_id: { column: 's.device_id', cast: 'text' } }, joins: [{ table: 'base_users', alias: 'u', left: 'u.id', right: 's.user_id' }], where: [{ column: 's.token_hash', value: await hashSessionToken(sessionId) }, { column: 's.expires_at', operator: '>', value: Date.now() }, { column: 'u.status', value: 'enabled' }] }));
+	const row = await firstSql<{ id: number; username: string; roles: string; device_id: string | null }>(database, sql({ database }).select({ table: 'base_sessions', alias: 's', columns: { id: 'u.id', username: 'u.name', roles: 'u.roles', device_id: { column: 's.device_id', cast: 'text' } }, joins: [{ table: 'base_users', alias: 'u', left: 'u.id', right: 's.user_id' }], where: [{ column: 's.token_hash', value: await hashSessionToken(sessionId) }, { column: 's.expires_at', operator: '>', value: Date.now() }, { column: 'u.status', value: 'enabled' }] }));
 	if (!row) return undefined;
 	if (!row.device_id) {
 		await runSql(database, sql({ database }).delete('base_sessions', { token_hash: await hashSessionToken(sessionId) }));

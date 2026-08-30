@@ -12,9 +12,11 @@ process.env.SKIP_SERVER_LISTEN = '1';
 try {
 	const { app } = await import(`../dist/server.mjs?personal-center=${Date.now()}`);
 	const fingerprint = 'a'.repeat(64);
+	const fingerprintData = JSON.stringify({ canvas_crc32: 'aaaaaaaa' });
 	const request = async (path, options = {}) => {
 		const headers = new Headers(options.headers);
-		if (!headers.has('x-device-fingerprint')) headers.set('x-device-fingerprint', fingerprint);
+		if (!headers.has('x-device-key')) headers.set('x-device-key', fingerprint);
+		if (!headers.has('x-device-fingerprint')) headers.set('x-device-fingerprint', fingerprintData);
 		if (options.cookie) headers.set('cookie', options.cookie);
 		if (options.body !== undefined) headers.set('content-type', 'application/json');
 		return app.request(`http://localhost${path}`, { method: options.method, headers, body: options.body === undefined ? undefined : JSON.stringify(options.body) });

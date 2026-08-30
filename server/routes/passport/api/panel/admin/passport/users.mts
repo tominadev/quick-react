@@ -6,6 +6,7 @@ import { setPassportPassword } from '@server/modules/passport/identity.mjs';
 
 const columns = [
 	{ dataIndex: 'user_id', title: 'ID', dataType: 'text' as const },
+	{ dataIndex: 'name', title: '用户名' },
 	{ dataIndex: 'nickname', title: '昵称' },
 	{ dataIndex: 'password', title: '密码特征' },
 	{ dataIndex: 'status', title: '状态' },
@@ -24,7 +25,7 @@ const handler: ApiHandler = async (c, next, params) => {
 		return apiMessage(c, 200, '密码已重设');
 	}
 	if (c.req.method !== 'GET') return next();
-	const rows = await allSql<Record<string, unknown>>(database, sql({ database }).select({ table: 'passport_users', columns: { user_id: { column: 'user_id', cast: 'text' }, nickname: 'nickname', status: 'status', created_at: 'created_at', updated_at: 'updated_at' }, orderBy: [{ column: 'created_at', direction: 'DESC' }] }));
+	const rows = await allSql<Record<string, unknown>>(database, sql({ database }).select({ table: 'passport_users', columns: { user_id: { column: 'user_id', cast: 'text' }, name: 'name', nickname: 'nickname', status: 'status', created_at: 'created_at', updated_at: 'updated_at' }, orderBy: [{ column: 'created_at', direction: 'DESC' }] }));
 	const credentials = await allSql<Record<string, unknown>>(database, sql({ database }).select({ table: 'passport_user_credentials', columns: { user_id: { column: 'user_id', cast: 'text' }, password: 'password', created_at: 'created_at' }, orderBy: [{ column: 'created_at', direction: 'DESC' }] }));
 	const patterns = new Map<string, string>();
 	for (const credential of credentials) {

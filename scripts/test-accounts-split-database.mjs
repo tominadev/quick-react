@@ -27,12 +27,13 @@ const emailId = '2000000000000000007';
 const sessionId = 'accounts-split-session';
 const cookie = `passport_session=${sessionId}`;
 const fingerprint = 'a'.repeat(64);
+const fingerprintData = JSON.stringify({ canvas_crc32: 'aaaaaaaa' });
 
 try {
 	// 第一次启动建立 global 结构并登记代码站点。
 	await import(`../dist/server.mjs?accounts-split-boot=${Date.now()}`);
 	const bootstrap = new DatabaseSync(globalFile);
-	bootstrap.prepare("UPDATE global_sites SET dsn = ? WHERE site_key = 'passport'").run(`sqlite://${passportFile}`);
+	bootstrap.prepare("UPDATE global_sites SET dsn = ? WHERE key = 'passport'").run(`sqlite://${passportFile}`);
 	bootstrap.close();
 
 	// 第二次启动会把 passport 迁移到独立数据库文件。
@@ -45,7 +46,7 @@ try {
 		VALUES (91, 'split-email', 'aliyun', 'mail-key', 'mail-secret', 'enabled', ?, ?)`).run(now, now);
 	globalDatabase.prepare(`INSERT INTO global_cloud_email_channels (id, cloud_credential_id, region, account_name, from_alias, reply_to_address, status, created_at, updated_at)
 		VALUES (92, 91, 'cn-hangzhou', 'noreply@example.com', 'Accounts', 0, 'enabled', ?, ?)`).run(now, now);
-	globalDatabase.prepare(`INSERT INTO global_cloud_email_templates (id, template_key, template_type, name, subject, body_text, body_html, status, created_at, updated_at)
+	globalDatabase.prepare(`INSERT INTO global_cloud_email_templates (id, key, type, name, subject, body_text, body_html, status, created_at, updated_at)
 		VALUES (93, 'email_verification_split', 'email_verification', '分库邮箱验证码', '验证码 {{code}}', '验证码：{{code}}', '<p>验证码：{{code}}</p>', 'enabled', ?, ?)`).run(now, now);
 	globalDatabase.prepare(`INSERT INTO global_cloud_email_template_publications (template_id, cloud_credential_id, region, provider_template_id, content_hash, status, created_at, updated_at)
 		VALUES (93, 91, 'cn-hangzhou', 'split-template', 'test', 'ready', ?, ?)`).run(now, now);
@@ -54,18 +55,18 @@ try {
 	globalDatabase.close();
 
 	const passportDatabase = new DatabaseSync(passportFile);
-	passportDatabase.prepare("INSERT INTO passport_users (user_id, nickname, status, created_at, updated_at) VALUES (?, '分库用户', 'enabled', ?, ?)").run(userId, now, now);
+	passportDatabase.prepare("INSERT INTO passport_users (user_id, name, nickname, status, created_at, updated_at) VALUES (?, ?, '分库用户', 'enabled', ?, ?)").run(userId, `passport_${userId}`, now, now);
 	passportDatabase.prepare("INSERT INTO passport_emails (id, email, verified, created_at, updated_at) VALUES (?, 'split@example.com', 1, ?, ?)").run(emailId, now, now);
 	passportDatabase.prepare('INSERT INTO passport_user_emails (user_id, email_id, is_primary, created_at, updated_at) VALUES (?, ?, 1, ?, ?)').run(userId, emailId, now, now);
-	passportDatabase.prepare("INSERT INTO passport_devices (fingerprint,status,last_seen_at,created_at,updated_at) VALUES (?,'active',?,?,?)").run(fingerprint, now, now, now);
-	const deviceId = passportDatabase.prepare('SELECT id FROM passport_devices WHERE fingerprint = ?').get(fingerprint).id;
+	passportDatabase.prepare("INSERT INTO passport_devices (key,fingerprint,status,last_seen_at,created_at,updated_at) VALUES (?,?,'active',?,?,?)").run(fingerprint, fingerprintData, now, now, now);
+	const deviceId = passportDatabase.prepare('SELECT id FROM passport_devices WHERE key = ?').get(fingerprint).id;
 	passportDatabase.prepare("INSERT INTO passport_device_users (device_id,user_id,status,last_seen_at,created_at,updated_at) VALUES (?,?,'active',?,?,?)").run(deviceId, userId, now, now, now);
 	passportDatabase.prepare('INSERT INTO passport_sessions (token_hash, user_id, device_id, expires_at, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?)').run(Buffer.from(await crypto.subtle.digest('SHA-256', new TextEncoder().encode(sessionId))).toString('hex'), userId, deviceId, now + 3600_000, now, now);
 	passportDatabase.close();
 
 	const request = (path, options = {}) => app.request(`http://accounts.split.test${path}`, {
 		method: options.method,
-		headers: { 'x-device-fingerprint': fingerprint, ...(options.cookie ? { cookie: options.cookie } : {}), ...(options.body === undefined ? {} : { 'content-type': 'application/json' }), ...options.headers },
+		headers: { 'x-device-key': fingerprint, 'x-device-fingerprint': fingerprintData, ...(options.cookie ? { cookie: options.cookie } : {}), ...(options.body === undefined ? {} : { 'content-type': 'application/json' }), ...options.headers },
 		body: options.body === undefined ? undefined : JSON.stringify(options.body),
 	});
 
@@ -88,10 +89,9 @@ try {
 	assert.equal((await request('/api/accounts/sign.php', { method: 'POST', cookie, body: { step: 'set_username', username: 'split2026' } })).status, 200);
 	// 身份数据落在 passport 库，global 库不参与。
 	const splitPassport = new DatabaseSync(passportFile, { readOnly: true });
-	assert.equal(splitPassport.prepare('SELECT username FROM passport_usernames WHERE user_id = ?').get(userId).username, 'split2026');
+	assert.equal(splitPassport.prepare('SELECT name FROM passport_users WHERE user_id = ?').get(userId).name, 'split2026');
 	splitPassport.close();
 	const splitGlobal = new DatabaseSync(globalFile, { readOnly: true });
-	assert.equal(splitGlobal.prepare('SELECT COUNT(*) AS count FROM passport_usernames').get().count, 0, '用户名不应该写进 global 库');
 	assert.equal(splitGlobal.prepare('SELECT COUNT(*) AS count FROM passport_users').get().count, 0, '身份不应该写进 global 库');
 	splitGlobal.close();
 

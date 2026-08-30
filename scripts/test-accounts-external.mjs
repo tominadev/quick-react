@@ -44,7 +44,8 @@ globalThis.fetch = async (input, init) => {
 
 const cookie = (response, name) => response.headers.getSetCookie().map((value) => value.split(';')[0]).find((value) => value.startsWith(`${name}=`));
 const fingerprint = 'a'.repeat(64);
-const withFingerprint = (headers = {}) => ({ 'x-device-fingerprint': fingerprint, ...headers });
+const fingerprintData = JSON.stringify({ canvas_crc32: 'aaaaaaaa' });
+const withFingerprint = (headers = {}) => ({ 'x-device-key': fingerprint, 'x-device-fingerprint': fingerprintData, ...headers });
 const redirectTarget = async (response) => {
 	const location = response.headers.get('location');
 	if (location) return location;
@@ -69,7 +70,7 @@ try {
 		VALUES (91, 'external-email', 'aliyun', 'mail-key', 'mail-secret', 'enabled', ?, ?)`).run(now, now);
 	database.prepare(`INSERT INTO global_cloud_email_channels (id, cloud_credential_id, region, account_name, from_alias, reply_to_address, status, created_at, updated_at)
 		VALUES (92, 91, 'cn-hangzhou', 'noreply@example.com', 'Accounts', 0, 'enabled', ?, ?)`).run(now, now);
-	database.prepare(`INSERT INTO global_cloud_email_templates (id, template_key, template_type, name, subject, body_text, body_html, status, created_at, updated_at)
+	database.prepare(`INSERT INTO global_cloud_email_templates (id, key, type, name, subject, body_text, body_html, status, created_at, updated_at)
 		VALUES (93, 'email_verification_external', 'email_verification', '外部身份邮箱验证码', '验证码 {{code}}', '验证码：{{code}}', '<p>验证码：{{code}}</p>', 'enabled', ?, ?)`).run(now, now);
 	database.prepare(`INSERT INTO global_cloud_email_template_publications (template_id, cloud_credential_id, region, provider_template_id, content_hash, status, created_at, updated_at)
 		VALUES (93, 91, 'cn-hangzhou', 'external-template', 'test', 'ready', ?, ?)`).run(now, now);
@@ -100,17 +101,23 @@ try {
 	const changed = await (await app.request('http://accounts.test/api/accounts/sign.php?action=change_email', { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ step: 'email_confirm', email: 'wechat@example.com' }) })).json();
 	assert.equal(changed.formPage.initialValues.step, 'email');
 
-	const googleStart = await app.request('http://accounts.test/api/accounts/external/google');
+	// 第三方按钮先由 API 响应保存短期设备传输 Cookie；OAuth 回调本身是浏览器导航，不能附加自定义请求头。
+	const googleProviderAction = await jsonRequest(app, '/api/accounts/sign.php?action=provider:google', { step: 'email' });
+	const transportCookies = googleProviderAction.headers.getSetCookie().filter((value) => /^(quick_react_device_key_transport|quick_react_device_fingerprint_transport)=/.test(value));
+	assert.equal(transportCookies.length, 2);
+	const googleStart = await app.request('http://accounts.test/api/accounts/external/google', { headers: { cookie: transportCookies.map((value) => value.split(';')[0]).join('; ') } });
 	assert.equal(googleStart.status, 200);
 	const googleStateCookie = cookie(googleStart, 'accounts_external_state');
 	const googleAuthorization = new URL(await redirectTarget(googleStart));
 	assert.equal(googleAuthorization.hostname, 'accounts.google.com');
 	assert.equal(googleAuthorization.searchParams.get('code_challenge_method'), 'S256');
 	const googleState = googleAuthorization.searchParams.get('state');
-	const googleCallback = await app.request(`http://accounts.test/api/accounts/external/google?code=google-code&state=${encodeURIComponent(googleState)}`, { headers: withFingerprint({ cookie: googleStateCookie }) });
+	const googleCallback = await app.request(`http://accounts.test/api/accounts/external/google?code=google-code&state=${encodeURIComponent(googleState)}`, { headers: { cookie: `${googleStateCookie}; ${transportCookies.map((value) => value.split(';')[0]).join('; ')}` } });
 	assert.equal(googleCallback.status, 200);
 	const googleSession = cookie(googleCallback, 'passport_session');
 	assert.ok(googleSession);
+	assert.ok(googleCallback.headers.getSetCookie().some((value) => value.startsWith('quick_react_device_key_transport=;')));
+	assert.ok(googleCallback.headers.getSetCookie().some((value) => value.startsWith('quick_react_device_fingerprint_transport=;')));
 	// 新用户还没有用户名，回到登录页继续补全。
 	assert.match(await redirectTarget(googleCallback), /^\/accounts\/sign/);
 	const afterGoogle = new DatabaseSync(process.env.DEFAULT_DATABASE_FILE, { readOnly: true });
@@ -210,7 +217,7 @@ try {
 	assert.equal(namedResponse.status, 200);
 	assert.equal(named.formPage.initialValues.step, 'set_password');
 	assert.deepEqual(named.formPage.actions.map((action) => action.key), ['skip_password']);
-	assert.equal((await jsonRequest(app, '/api/accounts/sign.php', { step: 'set_username', username: 'wechat2027' }, wechatSession)).status, 400);
+	assert.equal((await jsonRequest(app, '/api/accounts/sign.php', { step: 'set_username', username: 'wechat2027' }, wechatSession)).status, 200);
 	const skipped = await (await app.request('http://accounts.test/api/accounts/sign.php?action=skip_password', { method: 'POST', headers: withFingerprint({ 'content-type': 'application/json', cookie: wechatSession }), body: JSON.stringify({ step: 'set_password' }) })).json();
 	assert.equal(skipped.redirectTo, '/panel/accounts.html');
 	// 跳过只对本次登录生效，下次进入登录页仍然提示设置密码。
@@ -253,7 +260,7 @@ try {
 	boundIdentities.close();
 
 	// 用户名被占用时也要给出明确提示，而不是数值溢出错误。
-	const takenUsername = await jsonRequest(app, '/api/accounts/sign.php', { step: 'set_username', username: 'wechat2026' }, googleSession);
+	const takenUsername = await jsonRequest(app, '/api/accounts/sign.php', { step: 'set_username', username: 'wechat2027' }, googleSession);
 	assert.equal(takenUsername.status, 400);
 	assert.match((await takenUsername.json()).feedback.message, /已被占用/);
 

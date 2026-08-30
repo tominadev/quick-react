@@ -54,6 +54,7 @@ export const renderWechatQrPage = (apiPath: string, signPath: string, popup: boo
 			</div>
 		</main>
 		<script src="https://cdn.jsdelivr.net/npm/qrcodejs@1.0.0/qrcode.min.js"></script>
+		<script src="/passport.js.nocache"></script>
 		<script>
 			const api = ${api};
 			const sign = ${sign};
@@ -62,6 +63,10 @@ export const renderWechatQrPage = (apiPath: string, signPath: string, popup: boo
 			let bindUrl = '';
 
 			const element = (id) => document.getElementById(id);
+			const requestHeaders = (init = {}) => {
+				if (!window.Passport?.getDeviceHeaders) throw new Error('设备标识脚本加载失败，请刷新页面后重试');
+				return window.Passport.getDeviceHeaders(init);
+			};
 			const show = (id, visible) => element(id).classList.toggle('hidden', !visible);
 			const setMessage = (text, error = false) => {
 				element('message').textContent = text;
@@ -77,14 +82,14 @@ export const renderWechatQrPage = (apiPath: string, signPath: string, popup: boo
 				show('refresh', false); show('fallback', false); show('email', false); show('code', false);
 				element('qr').innerHTML = ''; setMessage('正在获取二维码…');
 				try {
-					const response = await fetch(api + '?format=json' + (popup ? '&popup=1' : ''), { credentials: 'include' });
+					const response = await fetch(api + '?format=json' + (popup ? '&popup=1' : ''), { headers: await requestHeaders(), credentials: 'include' });
 					const data = await response.json();
 					if (!response.ok) throw new Error(data.feedback?.message || data.message || '获取二维码失败');
 					new QRCode(element('qr'), data.authorizationUrl); setMessage('请使用微信扫描二维码');
 					if (data.fallbackUrl) { element('fallback').onclick = () => window.location.assign(data.fallbackUrl); show('fallback', true); }
 					pollTimer = window.setInterval(async () => {
 						try {
-							const poll = await (await fetch(data.pollUrl, { credentials: 'include' })).json();
+							const poll = await (await fetch(data.pollUrl, { headers: await requestHeaders(), credentials: 'include' })).json();
 							if (poll.status === 'authenticated') { stopPolling(); window.location.assign(poll.redirectTo || '/'); }
 							else if (poll.status === 'needs_email') { stopPolling(); bindUrl = poll.bindUrl; show('qr', false); show('email', true); setMessage('微信身份已确认，请验证邮箱'); }
 							else if (poll.status === 'expired') { stopPolling(); show('refresh', true); setMessage('二维码已失效，请刷新后重新扫码', true); }
@@ -100,7 +105,7 @@ export const renderWechatQrPage = (apiPath: string, signPath: string, popup: boo
 				const email = element('emailInput').value.trim();
 				if (!email) { setMessage('请输入邮箱', true); return; }
 				if (!window.confirm('验证码将发送到：' + email + '\\n请确认邮箱地址正确。')) return;
-				const response = await fetch(bindUrl, { method: 'POST', headers: { 'content-type': 'application/json' }, credentials: 'include', body: JSON.stringify({ step: 'email', email }) });
+				const response = await fetch(bindUrl, { method: 'POST', headers: await requestHeaders({ 'content-type': 'application/json' }), credentials: 'include', body: JSON.stringify({ step: 'email', email }) });
 				const data = await response.json();
 				if (!response.ok) { setMessage(data.feedback?.message || '验证码发送失败', true); return; }
 				show('email', false); show('code', true); element('codeMessage').textContent = '请到 ' + email + ' 查收邮件，验证码已发送到该地址。';
@@ -110,7 +115,7 @@ export const renderWechatQrPage = (apiPath: string, signPath: string, popup: boo
 				const code = element('codeInput').value.trim();
 				if (!/^\\d{6}$/.test(code)) { setMessage('请输入 6 位数字验证码', true); return; }
 				element('verify').disabled = true;
-				const response = await fetch(bindUrl, { method: 'POST', headers: { 'content-type': 'application/json' }, credentials: 'include', body: JSON.stringify({ step: 'verify', code }) });
+				const response = await fetch(bindUrl, { method: 'POST', headers: await requestHeaders({ 'content-type': 'application/json' }), credentials: 'include', body: JSON.stringify({ step: 'verify', code }) });
 				const data = await response.json();
 				if (!response.ok) { setMessage(data.feedback?.message || '邮箱验证失败', true); element('verify').disabled = false; return; }
 				window.location.assign(data.redirectTo || '/');

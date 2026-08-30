@@ -24,7 +24,7 @@ const loadIssuerOptions = async (c: Parameters<ApiHandler>[0], currentIssuer: st
 	const rows = accountsSite ? await allSql<{ hostname: string }>(database, sql({ database }).select({
 		table: 'global_site_hosts', alias: 'h',
 		columns: { hostname: 'h.hostname' },
-		joins: [{ table: 'global_sites', alias: 's', left: 's.site_key', right: 'h.site_key' }],
+		joins: [{ table: 'global_sites', alias: 's', left: 's.key', right: 'h.site_key' }],
 		where: [{ column: 'h.site_key', value: accountsSite.siteKey }, { column: 'h.status', value: 'enabled' }, { column: 's.status', value: 'enabled' }, { column: 's.migration_status', value: 'ready' }],
 		orderBy: [{ column: 'h.hostname' }],
 	})) : [];

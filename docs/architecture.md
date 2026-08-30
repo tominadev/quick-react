@@ -87,6 +87,10 @@ return next();
 
 同一套业务 API 同时支持 Node.js 的 SQLite、MySQL、PostgreSQL 和 Cloudflare Worker 的 D1。数据库访问通过统一适配器与参数化 SQL 构造器完成；Worker 只访问默认 Binding 或预声明的站点 Binding，Node 运行时才支持 `sqlite://`、`mysql://`、`postgresql://` DSN。
 
+### 实体字段与跨表引用命名
+
+实体表内部的业务字段只使用字段本身的名称，不重复实体前缀。例如设备表保存 UUID 业务键时字段名为 `key`，按“实体名 + 字段名”组合后的跨表名称就是 `device_key`，不可能产生 `device_device_key`；后者仅会在设备表错误地把字段命名为 `device_key` 后又重复添加实体前缀时出现，属于错误命名。关联设备记录主键时统一使用 `device_id`；Passport 设备使用 `passport_device_id`。字段名和跨表引用名不能通过机械重复前缀生成。
+
 ### 站点继承与表归属分离
 
 业务站点可以继承 `base` 或其他业务站点，只覆盖需要修改的 API、导航和页面配置。代码继承不会改变业务表归属：表由声明它的代码级站点固定拥有，子站点继承父级 API 时仍访问父级声明的表。

@@ -24,7 +24,7 @@ const loadRedirectUriOptions = async (c: Parameters<ApiHandler>[0]): Promise<Arr
 	const rows = await allSql<{ hostname: string; site_key: string; site_name: string }>(database, sql({ database }).select({
 		table: 'global_site_hosts', alias: 'h',
 		columns: { hostname: 'h.hostname', site_key: 'h.site_key', site_name: 's.name' },
-		joins: [{ table: 'global_sites', alias: 's', left: 's.site_key', right: 'h.site_key' }],
+		joins: [{ table: 'global_sites', alias: 's', left: 's.key', right: 'h.site_key' }],
 		where: [{ column: 'h.status', value: 'enabled' }, { column: 's.status', value: 'enabled' }, { column: 's.migration_status', value: 'ready' }],
 		orderBy: [{ column: 'h.hostname' }],
 	}));

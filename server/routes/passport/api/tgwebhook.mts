@@ -12,7 +12,7 @@ type TelegramBot = {
 
 const jsonStatus = (c: Parameters<ApiHandler>[0], status: number, value: string) => c.json({ status: value }, status as 200 | 400 | 403 | 404 | 405 | 500);
 const decimalPattern = /^[1-9]\d*$/;
-const loadBot = (database: DatabaseAdapter, botId: string, hostname: string) => firstSql<TelegramBot>(database, sql({ database }).select({ table: 'global_telegram_bots', columns: { id: 'id', bot_token: 'bot_token', secret_token: 'secret_token', webhook_hostname: 'webhook_hostname' }, where: [{ column: 'id', value: botId }, { column: 'webhook_hostname', value: hostname }, { column: 'status', value: 'enabled' }] }));
+const loadBot = (database: DatabaseAdapter, botId: string, hostname: string) => firstSql<TelegramBot>(database, sql({ database }).select({ table: 'global_telegram_bots', columns: { id: 'id', bot_token: 'token', secret_token: 'secret_token', webhook_hostname: 'webhook_hostname' }, where: [{ column: 'id', value: botId }, { column: 'webhook_hostname', value: hostname }, { column: 'status', value: 'enabled' }] }));
 
 const constantTimeEqual = async (actual: string, expected: string) => {
 	const [actualHash, expectedHash] = await Promise.all([

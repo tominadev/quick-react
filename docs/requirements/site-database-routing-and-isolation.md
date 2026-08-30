@@ -234,7 +234,7 @@ server/routes/base/api/panel/admin/settings/system-config.mts
 ```sql
 CREATE TABLE global_sites (
   id INTEGER PRIMARY KEY AUTOINCREMENT,
-  site_key TEXT NOT NULL UNIQUE,
+  key TEXT NOT NULL UNIQUE,
   name TEXT NOT NULL,
   base_site_key TEXT,
   dsn TEXT NOT NULL DEFAULT '',
@@ -244,7 +244,7 @@ CREATE TABLE global_sites (
   migration_status TEXT NOT NULL DEFAULT 'ready',
   is_default INTEGER NOT NULL DEFAULT 0 CHECK (is_default IN (0, 1)),
   is_system INTEGER NOT NULL DEFAULT 0 CHECK (is_system IN (0, 1)),
-  CHECK (site_key GLOB '[a-z]*' AND site_key NOT GLOB '*[^a-z0-9_]*')
+  CHECK (key GLOB '[a-z]*' AND key NOT GLOB '*[^a-z0-9_]*')
 );
 
 CREATE UNIQUE INDEX global_sites_one_default
@@ -256,14 +256,14 @@ CREATE TABLE global_site_hosts (
   site_key TEXT NOT NULL,
   status TEXT NOT NULL DEFAULT 'enabled',
   created_at INTEGER NOT NULL,
-  FOREIGN KEY (site_key) REFERENCES global_sites(site_key)
+  FOREIGN KEY (site_key) REFERENCES global_sites(key)
 );
 ```
 
 `global` 是系统控制面引导站点，不依赖管理员先创建数据。`global` migration 必须幂等写入以下记录：
 
 ```text
-site_key: global
+key: global
 name: 全局控制面
 base_site_key: base
 dsn: ''
@@ -277,9 +277,9 @@ SQLite/D1 migration 使用等价于以下语义的幂等插入；其他数据库
 
 ```sql
 INSERT INTO global_sites (
-  site_key, name, base_site_key, dsn, status, migration_status, is_default, is_system
+  key, name, base_site_key, dsn, status, migration_status, is_default, is_system
 ) VALUES ('global', '全局控制面', 'base', '', 'enabled', 'ready', 1, 1)
-ON CONFLICT(site_key) DO NOTHING;
+ON CONFLICT(key) DO NOTHING;
 ```
 
 系统记录不可删除、不可禁用、不可修改 `site_key`，并且必须始终是唯一的启用默认站点。生产初始化任务必须在站点上线前为它写入至少一个明确的 `global_site_hosts` 控制面 Host；默认站点回退仍按本节匹配规则处理未绑定 Host，用于首次配置和明确允许的默认入口。
@@ -454,7 +454,7 @@ site1.prisma   -> 所有 Model 以 site1_ 开头，表名就是模型名
 ```prisma
 model global_sites {
   id       BigInt @id @default(autoincrement())
-  site_key String @unique
+  key      String @unique
 }
 
 model base_users {

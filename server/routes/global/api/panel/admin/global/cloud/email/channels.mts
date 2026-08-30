@@ -108,7 +108,7 @@ const handler: ApiHandler = async (c, next, params) => {
 		const channel = await loadCloudEmailTarget(database, Number(params.id));
 		if (!channel) return apiMessage(c, 404, '邮件通道不存在或已停用');
 		const [templates, publications] = await Promise.all([
-			allSql<CloudEmailTemplate>(database, sql({ database }).select({ table: 'global_cloud_email_templates', where: [{ column: 'status', value: 'enabled' }, { column: 'template_type', value: 'email_verification' }], orderBy: [{ column: 'name' }, { column: 'template_key' }] })),
+			allSql<CloudEmailTemplate>(database, sql({ database }).select({ table: 'global_cloud_email_templates', columns: { id: 'id', template_key: 'key', template_type: 'type', name: 'name', subject: 'subject', body_text: 'body_text', body_html: 'body_html', status: 'status' }, where: [{ column: 'status', value: 'enabled' }, { column: 'type', value: 'email_verification' }], orderBy: [{ column: 'name' }, { column: 'key' }] })),
 			allSql<{ template_id: number; status: string }>(database, sql({ database }).select({ table: 'global_cloud_email_template_publications', columns: { template_id: 'template_id', status: 'status' }, where: [{ column: 'cloud_credential_id', value: channel.cloud_credential_id }, { column: 'region', value: channel.region }] })),
 		]);
 		const publicationStatuses = new Map(publications.map((item) => [Number(item.template_id), item.status]));
@@ -125,7 +125,7 @@ const handler: ApiHandler = async (c, next, params) => {
 		if (!emailPattern.test(to) || !Number.isInteger(templateId) || !/^\d{6}$/.test(code)) return apiMessage(c, 400, '收件人、验证码模板或 6 位数字验证码不合法');
 		const [target, template] = await Promise.all([
 			loadCloudEmailTarget(database, Number(params.id)),
-			firstSql<CloudEmailTemplate>(database, sql({ database }).select({ table: 'global_cloud_email_templates', where: [{ column: 'id', value: templateId }, { column: 'template_type', value: 'email_verification' }, { column: 'status', value: 'enabled' }] })),
+			firstSql<CloudEmailTemplate>(database, sql({ database }).select({ table: 'global_cloud_email_templates', columns: { id: 'id', template_key: 'key', template_type: 'type', name: 'name', subject: 'subject', body_text: 'body_text', body_html: 'body_html', status: 'status' }, where: [{ column: 'id', value: templateId }, { column: 'type', value: 'email_verification' }, { column: 'status', value: 'enabled' }] })),
 		]);
 		if (!target || !template) return apiMessage(c, 404, '邮件通道或启用的验证码模板不存在');
 		const variableError = validateCloudEmailTemplateVariables(template.template_type, template);

@@ -12,9 +12,10 @@ process.env.SKIP_SERVER_LISTEN = '1';
 try {
 	const { app } = await import(`../dist/server.mjs?login-disabled=${Date.now()}`);
 	const fingerprint = 'a'.repeat(64);
+	const fingerprintData = JSON.stringify({ canvas_crc32: 'aaaaaaaa' });
 	const request = (path, options = {}) => app.request(`http://localhost${path}`, {
 		method: options.method,
-		headers: { 'x-device-fingerprint': fingerprint, ...(options.body === undefined ? {} : { 'content-type': 'application/json' }), ...options.headers },
+		headers: { 'x-device-key': fingerprint, 'x-device-fingerprint': fingerprintData, ...(options.body === undefined ? {} : { 'content-type': 'application/json' }), ...options.headers },
 		body: options.body === undefined ? undefined : JSON.stringify(options.body),
 	});
 	const initialData = async (path) => {
@@ -56,7 +57,7 @@ try {
 	const cookie = login.headers.get('set-cookie').split(';')[0];
 	assert.equal((await request('/api/panel/admin/global/site/hosts.php', { method: 'POST', headers: { cookie }, body: { hostname: 'accounts.test', site_key: 'passport' } })).status, 201);
 	const siteDatabase = new DatabaseSync(process.env.DEFAULT_DATABASE_FILE);
-	siteDatabase.prepare("INSERT INTO global_sites (site_key, name, base_site_key, dsn, database_binding, status, migration_status, is_default, is_system) VALUES ('business', 'Business', 'base', '', '', 'enabled', 'ready', 0, 0)").run();
+	siteDatabase.prepare("INSERT INTO global_sites (key, name, base_site_key, dsn, database_binding, status, migration_status, is_default, is_system) VALUES ('business', 'Business', 'base', '', '', 'enabled', 'ready', 0, 0)").run();
 	siteDatabase.close();
 	assert.equal((await request('/api/panel/admin/global/site/hosts.php', { method: 'POST', headers: { cookie }, body: { hostname: 'business.test', site_key: 'business' } })).status, 201);
 	const settingsPath = '/api/panel/admin/system/settings/accounts-oidc.php';

@@ -50,8 +50,8 @@ export const migrateDefaultDatabase = async (database: DatabaseAdapter, migratio
 	await migrateDatabase(database, migrationsRoot, ['global', 'base']);
 	// Prisma generates schema only. Keep the two required bootstrap rows as
 	// runtime seed data so a freshly generated database remains usable.
-	await runSql(database, sql({ database }).ignoreInsert('global_sites', ['site_key'], {
-		site_key: 'global', name: '全局控制面', base_site_key: 'base', dsn: '', database_binding: '',
+	await runSql(database, sql({ database }).ignoreInsert('global_sites', ['key'], {
+		key: 'global', name: '全局控制面', base_site_key: 'base', dsn: '', database_binding: '',
 		status: 'enabled', migration_status: 'ready', is_default: 1, is_system: 1,
 	}));
 	await seedBaseDatabase(database);
@@ -70,6 +70,6 @@ export const initializeCodeSites = async (
 	for (const siteKey of codeSites) {
 		if (!siteKeyPattern.test(siteKey) || siteKey === 'base') continue;
 		const name = siteNames[siteKey] || siteKey;
-		await runSql(database, sql({ database }).ignoreInsert('global_sites', ['site_key'], { site_key: siteKey, name, base_site_key: 'base', dsn: '', database_binding: '', status: 'enabled', migration_status: 'ready', is_default: 0, is_system: 0 }));
+		await runSql(database, sql({ database }).ignoreInsert('global_sites', ['key'], { key: siteKey, name, base_site_key: 'base', dsn: '', database_binding: '', status: 'enabled', migration_status: 'ready', is_default: 0, is_system: 0 }));
 	}
 };

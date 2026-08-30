@@ -128,6 +128,7 @@ passport_users
   created_duid BIGINT
   updated_duid BIGINT
   user_id BIGINT UNIQUE                  -- Accounts 语义用户 ID
+  name TEXT NOT NULL                     -- 正式用户名；首次认证时为 passport_<user_id> 占位值
   nickname TEXT NOT NULL
   status TEXT NOT NULL DEFAULT 'enabled'
 
@@ -419,8 +420,8 @@ Telegram 机器人属于平台入口配置，统一归 `global` 管理，不归 
 global_telegram_bots
   id BIGINT PRIMARY KEY
   name TEXT NOT NULL
-  bot_token TEXT NOT NULL
-  bot_username TEXT NOT NULL
+  token TEXT NOT NULL
+  username TEXT NOT NULL
   secret_token TEXT NOT NULL
   webhook_hostname TEXT NOT NULL
   status TEXT NOT NULL DEFAULT 'enabled'

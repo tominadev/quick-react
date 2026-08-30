@@ -62,12 +62,24 @@ const publicRow = (row: BotRow) => ({
 	updated_at: row.updated_at,
 });
 
-const loadBot = (database: DatabaseAdapter, id: number) => firstSql<BotRow>(database, sql({ database }).select({ table: 'global_telegram_bots', where: [{ column: 'id', value: id }] }));
+// Keep the API field names stable while reading the canonical short fields from the table.
+const botColumns = {
+	id: 'id',
+	name: 'name',
+	bot_token: 'token',
+	bot_username: 'username',
+	secret_token: 'secret_token',
+	webhook_hostname: 'webhook_hostname',
+	status: 'status',
+	created_at: 'created_at',
+	updated_at: 'updated_at',
+};
+const loadBot = (database: DatabaseAdapter, id: number) => firstSql<BotRow>(database, sql({ database }).select({ table: 'global_telegram_bots', columns: botColumns, where: [{ column: 'id', value: id }] }));
 const botAssociated = async (database: DatabaseAdapter, id: number) => (await Promise.all([
 	'passport_telegram_accounts', 'passport_email_otp', 'passport_telegram_menus', 'passport_telegram_identity_choices', 'passport_telegram_updates',
 ].map((table) => firstSql(database, sql({ database }).select({ table, columns: { bot_id: 'bot_id' }, where: [{ column: 'bot_id', value: id }], limit: 1 }))))).some(Boolean);
 const duplicateBot = async (database: DatabaseAdapter, id: number, name: string, token: string, username: string) => (await Promise.all([
-	['name', name], ['bot_token', token], ['bot_username', username],
+	['name', name], ['token', token], ['username', username],
 ].map(([column, value]) => firstSql(database, sql({ database }).select({ table: 'global_telegram_bots', columns: { id: 'id' }, where: [{ column, value }, { column: 'id', operator: '!=', value: id }], limit: 1 }))))).some(Boolean);
 
 const removeBot = async (c: Parameters<ApiHandler>[0], id: number) => {
@@ -87,7 +99,7 @@ const handler: ApiHandler = async (c, next, params) => {
 	const database = c.get('database');
 	if (!params.id && c.req.method === 'GET') {
 		const [rows, hosts] = await Promise.all([
-			allSql<BotRow>(database, sql({ database }).select({ table: 'global_telegram_bots', orderBy: [{ column: 'id', direction: 'DESC' }] })),
+			allSql<BotRow>(database, sql({ database }).select({ table: 'global_telegram_bots', columns: botColumns, orderBy: [{ column: 'id', direction: 'DESC' }] })),
 			passportHostOptions(c, database),
 		]);
 		const tableColumns = columns.map((column) => column.dataIndex === 'webhook_hostname' ? { ...column, options: hosts } : column);
@@ -104,9 +116,9 @@ const handler: ApiHandler = async (c, next, params) => {
 		catch (error) { return apiMessage(c, 502, error instanceof Error ? error.message : 'Bot Token 校验失败'); }
 		try {
 			const now = Date.now();
-			await runSql(database, sql({ database }).insert('global_telegram_bots', { name, bot_token: token, bot_username: identity.username, secret_token: secretToken, webhook_hostname: hostname, status }));
+			await runSql(database, sql({ database }).insert('global_telegram_bots', { name, token, username: identity.username, secret_token: secretToken, webhook_hostname: hostname, status }));
 		} catch { return apiMessage(c, 409, '机器人名称、Token 或 Username 已存在'); }
-		const created = await firstSql<{ id: number }>(database, sql({ database }).select({ table: 'global_telegram_bots', columns: { id: 'id' }, where: [{ column: 'bot_token', value: token }] }));
+		const created = await firstSql<{ id: number }>(database, sql({ database }).select({ table: 'global_telegram_bots', columns: { id: 'id' }, where: [{ column: 'token', value: token }] }));
 		if (!created) return apiMessage(c, 500, '机器人创建后无法读取');
 		if (status === statusValues.enabled) {
 			try { await setTelegramWebhook(token, webhookUrl(hostname, created.id), secretToken); }
@@ -163,7 +175,7 @@ const handler: ApiHandler = async (c, next, params) => {
 			else if (current.status === statusValues.enabled || token !== current.bot_token) await deleteTelegramWebhook(current.bot_token);
 			if (token !== current.bot_token && current.status === statusValues.enabled) await deleteTelegramWebhook(current.bot_token).catch(() => undefined);
 		} catch (error) { return apiMessage(c, 502, error instanceof Error ? error.message : 'Webhook 更新失败'); }
-		await runSql(database, sql({ database }).update('global_telegram_bots', { name, bot_token: token, bot_username: username, secret_token: secretToken, webhook_hostname: hostname, status }, { id }));
+		await runSql(database, sql({ database }).update('global_telegram_bots', { name, token, username, secret_token: secretToken, webhook_hostname: hostname, status }, { id }));
 		return apiMessage(c, 200, status === statusValues.enabled ? '机器人已保存并更新 Webhook' : '机器人已停用并删除 Webhook');
 	}
 	if (c.req.method === 'DELETE') {

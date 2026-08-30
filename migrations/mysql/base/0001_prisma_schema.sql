@@ -9,12 +9,12 @@ CREATE TABLE `base_users` (
     `deleted_at` BIGINT NOT NULL DEFAULT 0,
     `created_duid` BIGINT NULL,
     `updated_duid` BIGINT NULL,
-    `username` VARCHAR(191) NOT NULL,
+    `name` VARCHAR(191) NOT NULL,
     `password` VARCHAR(191) NOT NULL,
     `roles` VARCHAR(191) NOT NULL DEFAULT '[]',
     `status` ENUM('enabled', 'disabled') NOT NULL DEFAULT 'enabled',
 
-    UNIQUE INDEX `base_users_username_deleted_at_key`(`username`, `deleted_at`),
+    UNIQUE INDEX `base_users_name_deleted_at_key`(`name`, `deleted_at`),
     PRIMARY KEY (`id`)
 ) DEFAULT CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci;
 
@@ -129,7 +129,8 @@ CREATE TABLE `base_devices` (
     `created_duid` BIGINT NULL,
     `updated_duid` BIGINT NULL,
     `user_id` BIGINT NOT NULL,
-    `fingerprint` VARCHAR(191) NOT NULL,
+    `key` VARCHAR(191) NOT NULL,
+    `fingerprint` JSON NOT NULL,
     `user_agent` VARCHAR(191) NOT NULL DEFAULT '',
     `platform` VARCHAR(191) NOT NULL DEFAULT '',
     `ip_address` VARCHAR(191) NOT NULL DEFAULT '',
@@ -138,7 +139,7 @@ CREATE TABLE `base_devices` (
     `last_seen_at` BIGINT NOT NULL,
     `revoked_at` BIGINT NULL,
 
-    UNIQUE INDEX `base_devices_fingerprint_deleted_at_key`(`fingerprint`, `deleted_at`),
+    UNIQUE INDEX `base_devices_key_deleted_at_key`(`key`, `deleted_at`),
     PRIMARY KEY (`id`)
 ) DEFAULT CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci;
 
@@ -169,7 +170,7 @@ CREATE TABLE `base_device_snapshots` (
     `created_duid` BIGINT NULL,
     `updated_duid` BIGINT NULL,
     `device_id` BIGINT NOT NULL,
-    `fingerprint` VARCHAR(191) NOT NULL,
+    `fingerprint` JSON NOT NULL,
     `ip_address` VARCHAR(191) NOT NULL DEFAULT '',
     `network_info` JSON NOT NULL,
     `user_agent` VARCHAR(191) NOT NULL DEFAULT '',

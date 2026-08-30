@@ -29,8 +29,8 @@ model global_sites {
   deleted_at       BigInt @default(0)
   created_duid     BigInt?
   updated_duid     BigInt?
-  site_key         String
-  @@unique([site_key, deleted_at])
+  key              String
+  @@unique([key, deleted_at])
   name             String
   base_site_key    String?
   dsn              String  @default("")
@@ -131,10 +131,10 @@ model global_telegram_bots {
   updated_duid     BigInt?
   name             String
   @@unique([name, deleted_at])
-  bot_token        String
-  @@unique([bot_token, deleted_at])
-  bot_username     String
-  @@unique([bot_username, deleted_at])
+  token            String
+  @@unique([token, deleted_at])
+  username         String
+  @@unique([username, deleted_at])
   secret_token     String
   webhook_hostname String
   status           GlobalEnabledStatus @default(enabled)
@@ -166,9 +166,9 @@ model global_cloud_email_templates {
   deleted_at BigInt @default(0)
   created_duid  BigInt?
   updated_duid  BigInt?
-  template_key  String
-  @@unique([template_key, deleted_at])
-  template_type String @default("email_verification")
+  key           String
+  @@unique([key, deleted_at])
+  type          String @default("email_verification")
   name          String
   subject       String
   body_text     String

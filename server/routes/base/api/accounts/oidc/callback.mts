@@ -23,11 +23,11 @@ const generatedUsername = (username: string) => username.startsWith('passport_')
 
 /** Accounts 设置用户名后同步改写本站占位用户名；管理员手工改过的名字不覆盖。 */
 const syncLocalUsername = async (database: Parameters<typeof runSql>[0], userId: number, username: string) => {
-	const current = await firstSql<{ username: string }>(database, sql({ database }).select({ table: 'base_users', columns: { username: 'username' }, where: [{ column: 'id', value: userId }] }));
+	const current = await firstSql<{ username: string }>(database, sql({ database }).select({ table: 'base_users', columns: { username: 'name' }, where: [{ column: 'id', value: userId }] }));
 	if (!current || current.username === username || !generatedUsername(current.username)) return;
-	const taken = await firstSql(database, sql({ database }).select({ table: 'base_users', columns: { id: 'id' }, where: [{ column: 'username', value: username }] }));
+	const taken = await firstSql(database, sql({ database }).select({ table: 'base_users', columns: { id: 'id' }, where: [{ column: 'name', value: username }] }));
 	if (taken) return;
-	await runSql(database, sql({ database }).update('base_users', { username }, { id: userId }));
+	await runSql(database, sql({ database }).update('base_users', { name: username }, { id: userId }));
 };
 
 const handler: ApiHandler = async (c) => {
@@ -55,8 +55,8 @@ const handler: ApiHandler = async (c) => {
 		if (!account) {
 			// 先用占位用户名建号，再按 Accounts 用户名改写，避免撞上本站已有的同名账号。
 			const username = placeholderUsername(subject);
-			await runSql(database, sql({ database }).ignoreInsert('base_users', ['username'], { username, password: '!oidc', roles: [], status: 'enabled' }));
-			const user = await firstSql<{ id: number; status: string; password: string }>(database, sql({ database }).select({ table: 'base_users', columns: { id: 'id', status: 'status', password: 'password' }, where: [{ column: 'username', value: username }] }));
+			await runSql(database, sql({ database }).ignoreInsert('base_users', ['name'], { name: username, password: '!oidc', roles: [], status: 'enabled' }));
+			const user = await firstSql<{ id: number; status: string; password: string }>(database, sql({ database }).select({ table: 'base_users', columns: { id: 'id', status: 'status', password: 'password' }, where: [{ column: 'name', value: username }] }));
 			if (!user) throw new Error('无法创建本站 Accounts 用户');
 			if (user.password !== '!oidc') throw new Error('本站已存在同名用户，无法绑定 Accounts 身份');
 			await runSql(database, sql({ database }).insert('base_oidc_users', { issuer: config.issuer, subject, user_id: user.id, profile: JSON.stringify(claims) }));

@@ -50,7 +50,7 @@ CREATE TABLE `pve_instance_flavors` (
     `deleted_at` BIGINT NOT NULL DEFAULT 0,
     `created_duid` BIGINT NULL,
     `updated_duid` BIGINT NULL,
-    `instance_flavor_code` VARCHAR(191) NOT NULL,
+    `code` VARCHAR(191) NOT NULL,
     `name` VARCHAR(191) NOT NULL,
     `cpu_cores` INTEGER NOT NULL,
     `memory_gb` INTEGER NOT NULL,

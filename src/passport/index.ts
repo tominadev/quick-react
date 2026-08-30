@@ -1,4 +1,4 @@
-import { getDeviceFingerprint, getDeviceNetworkInfo } from '../utils/common/device-fingerprint.js';
+import { getDeviceHeaders } from '../utils/common/device-fingerprint.js';
 
 export type PassportLoginOptions = {
 	provider?: string;
@@ -27,10 +27,7 @@ const Passport = {
 		if (!popup) throw new Error('登录窗口被浏览器拦截');
 		let result: { redirectTo?: string; feedback?: { message?: string } };
 		try {
-			const [fingerprint, networkInfo] = await Promise.all([getDeviceFingerprint(), getDeviceNetworkInfo()]);
-			const headers = new Headers({ 'content-type': 'application/json' });
-			if (fingerprint) headers.set('X-Device-Fingerprint', fingerprint);
-			if (networkInfo) headers.set('X-WebRTC-IPs', networkInfo);
+			const headers = await getDeviceHeaders({ 'content-type': 'application/json' });
 			const response = await fetch(options.signInPath ?? defaultSignInPath(), { method: 'POST', headers, credentials: 'include', body: JSON.stringify({ action: 'login', ...(options.provider ? { provider: options.provider } : {}) }) });
 			result = await response.json() as typeof result;
 			if (!response.ok || !result.redirectTo) throw new Error(result.feedback?.message || 'Passport 登录初始化失败');
@@ -54,11 +51,9 @@ const Passport = {
 			window.addEventListener('message', listener);
 		});
 	},
+	getDeviceHeaders,
 	async logout(options: Pick<PassportLoginOptions, 'signInPath'> = {}): Promise<PassportLogoutResult> {
-		const [fingerprint, networkInfo] = await Promise.all([getDeviceFingerprint(), getDeviceNetworkInfo()]);
-		const headers = new Headers();
-		if (fingerprint) headers.set('X-Device-Fingerprint', fingerprint);
-		if (networkInfo) headers.set('X-WebRTC-IPs', networkInfo);
+		const headers = await getDeviceHeaders();
 		const response = await fetch(options.signInPath ?? defaultSignInPath(), { method: 'DELETE', headers, credentials: 'include' });
 		const result = await response.json() as PassportLogoutResult;
 		if (!response.ok) throw new Error(result.feedback?.message || '退出登录失败');

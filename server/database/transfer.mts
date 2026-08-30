@@ -15,7 +15,7 @@ export const portableTableGroups = {
 		'base_devices', 'base_device_users', 'base_device_snapshots',
 	],
 	passport: [
-		'passport_users', 'passport_usernames', 'passport_user_credentials', 'passport_sessions', 'passport_telegram_accounts',
+		'passport_users', 'passport_user_credentials', 'passport_sessions', 'passport_telegram_accounts',
 		'passport_devices', 'passport_device_users',
 		'passport_oauth_accounts', 'passport_emails', 'passport_user_emails', 'passport_email_otp',
 		'passport_user_roles', 'passport_group_prompts', 'passport_snowflake_state', 'passport_telegram_menus',
@@ -32,7 +32,7 @@ export type PortableTableGroup = keyof typeof portableTableGroups;
 export type TransferProgress = { table: string; rows: number };
 
 const seedRows = new Map<string, { column: string; value: string }>([
-	['global_sites', { column: 'site_key', value: 'global' }],
+	['global_sites', { column: 'key', value: 'global' }],
 	['base_bootstrap', { column: 'key', value: 'initial_admin' }],
 ]);
 

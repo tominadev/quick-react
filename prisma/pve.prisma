@@ -50,7 +50,7 @@ model pve_instance_flavors {
   deleted_at BigInt @default(0)
   created_duid         BigInt?
   updated_duid         BigInt?
-  instance_flavor_code String
+  code                 String
   name                 String
   cpu_cores            Int
   memory_gb            Int

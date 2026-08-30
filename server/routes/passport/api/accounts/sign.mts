@@ -151,7 +151,7 @@ const parseBody = async (c: Parameters<ApiHandler>[0]): Promise<Record<string, u
 
 const loadTelegramOptions = async (database: DatabaseAdapter, globalDatabase: DatabaseAdapter, email: string) => {
 	const accounts = await allSql<TelegramOption>(database, sql({ database }).select({ table: 'passport_emails', alias: 'e', columns: { account_id: { column: 'a.id', cast: 'text' }, bot_id: { column: 'a.bot_id', cast: 'text' }, telegram_user_id: { column: 'a.telegram_user_id', cast: 'text' }, chat_id: { column: 'a.chat_id', cast: 'text' }, nickname: 'a.nickname' }, joins: [{ table: 'passport_user_emails', alias: 'ue', left: 'ue.email_id', right: 'e.id' }, { table: 'passport_users', alias: 'u', left: 'u.user_id', right: 'ue.user_id' }, { table: 'passport_telegram_accounts', alias: 'a', left: 'a.user_id', right: 'u.user_id' }], where: [{ column: 'e.email', value: email }, { column: 'e.verified', value: 1 }, { column: 'u.status', value: 'enabled' }], orderBy: [{ column: 'a.created_at' }] }));
-	const bots = await allSql<Bot>(globalDatabase, sql({ database: globalDatabase }).select({ table: 'global_telegram_bots', columns: { id: { column: 'id', cast: 'text' }, name: 'name', bot_username: 'bot_username', bot_token: 'bot_token' }, where: [{ column: 'status', value: 'enabled' }] }));
+	const bots = await allSql<Bot>(globalDatabase, sql({ database: globalDatabase }).select({ table: 'global_telegram_bots', columns: { id: { column: 'id', cast: 'text' }, name: 'name', bot_username: 'username', bot_token: 'token' }, where: [{ column: 'status', value: 'enabled' }] }));
 	const botMap = new Map(bots.map((bot) => [bot.id, bot]));
 	return accounts.flatMap((account) => {
 		const bot = botMap.get(account.bot_id);

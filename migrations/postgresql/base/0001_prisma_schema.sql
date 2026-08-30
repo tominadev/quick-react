@@ -18,7 +18,7 @@ CREATE TABLE "base_users" (
     "deleted_at" BIGINT NOT NULL DEFAULT 0,
     "created_duid" BIGINT,
     "updated_duid" BIGINT,
-    "username" TEXT NOT NULL,
+    "name" TEXT NOT NULL,
     "password" TEXT NOT NULL,
     "roles" TEXT[] DEFAULT ARRAY[]::TEXT[],
     "status" "BaseUserStatus" NOT NULL DEFAULT 'enabled',
@@ -129,7 +129,8 @@ CREATE TABLE "base_devices" (
     "created_duid" BIGINT,
     "updated_duid" BIGINT,
     "user_id" BIGINT NOT NULL,
-    "fingerprint" TEXT NOT NULL,
+    "key" TEXT NOT NULL,
+    "fingerprint" JSONB NOT NULL DEFAULT '{}',
     "user_agent" TEXT NOT NULL DEFAULT '',
     "platform" TEXT NOT NULL DEFAULT '',
     "ip_address" TEXT NOT NULL DEFAULT '',
@@ -167,7 +168,7 @@ CREATE TABLE "base_device_snapshots" (
     "created_duid" BIGINT,
     "updated_duid" BIGINT,
     "device_id" BIGINT NOT NULL,
-    "fingerprint" TEXT NOT NULL,
+    "fingerprint" JSONB NOT NULL DEFAULT '{}',
     "ip_address" TEXT NOT NULL DEFAULT '',
     "network_info" JSONB NOT NULL DEFAULT '{}',
     "user_agent" TEXT NOT NULL DEFAULT '',
@@ -180,7 +181,7 @@ CREATE TABLE "base_device_snapshots" (
 );
 
 -- CreateIndex
-CREATE UNIQUE INDEX "base_users_username_deleted_at_key" ON "base_users"("username", "deleted_at");
+CREATE UNIQUE INDEX "base_users_name_deleted_at_key" ON "base_users"("name", "deleted_at");
 
 -- CreateIndex
 CREATE UNIQUE INDEX "base_sessions_token_hash_deleted_at_key" ON "base_sessions"("token_hash", "deleted_at");
@@ -207,7 +208,7 @@ CREATE UNIQUE INDEX "base_oidc_sessions_session_id_deleted_at_key" ON "base_oidc
 CREATE UNIQUE INDEX "base_oidc_sessions_issuer_sid_deleted_at_key" ON "base_oidc_sessions"("issuer", "sid", "deleted_at");
 
 -- CreateIndex
-CREATE UNIQUE INDEX "base_devices_fingerprint_deleted_at_key" ON "base_devices"("fingerprint", "deleted_at");
+CREATE UNIQUE INDEX "base_devices_key_deleted_at_key" ON "base_devices"("key", "deleted_at");
 
 -- CreateIndex
 CREATE UNIQUE INDEX "base_device_users_device_id_user_id_deleted_at_key" ON "base_device_users"("device_id", "user_id", "deleted_at");

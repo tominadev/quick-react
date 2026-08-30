@@ -24,29 +24,32 @@ export const normalizeAccountNickname = (value: string) => {
 /** 合法用户名：小写字母开头的小写字母数字组合，长度 6-12，且不是保留名称。 */
 export const isValidAccountUsername = (value: string) => usernamePattern.test(value) && !reservedUsernames.has(value);
 
-/** 历史导入或占位用户名（例如 passport_<user_id>）不符合规则，登录前必须改成合法用户名。 */
+/** 新账号先使用雪花 ID 组成的占位名；该值只表示正式用户名尚未设置。 */
+export const passportPlaceholderName = (userId: string) => `passport_${userId}`;
+const loadAccountName = async (database: DatabaseAdapter, userId: string) => (
+	await firstSql<{ name: string }>(database, sql({ database }).select({ table: 'passport_users', columns: { name: 'name' }, where: [{ column: 'user_id', value: userId }] }))
+)?.name;
+
 export const accountUsernameState = async (database: DatabaseAdapter, userId: string) => {
-	const username = await loadAccountUsername(database, userId);
-	if (!username) return { state: 'missing' as const, username: '' };
+	const username = await loadAccountName(database, userId);
+	if (!username || username.startsWith('passport_')) return { state: 'missing' as const, username: username ?? '' };
 	if (!isValidAccountUsername(username)) return { state: 'invalid' as const, username };
 	return { state: 'ready' as const, username };
 };
 
 export const loadAccountUsername = async (database: DatabaseAdapter, userId: string) => (
-	await firstSql<{ username: string }>(database, sql({ database }).select({ table: 'passport_usernames', columns: { username: 'username' }, where: [{ column: 'user_id', value: userId }] }))
-)?.username;
+	(await accountUsernameState(database, userId)).state === 'ready' ? loadAccountName(database, userId) : undefined
+);
 
 export const setAccountUsername = async (database: DatabaseAdapter, userId: string, rawUsername: string) => {
 	const username = normalizeAccountUsername(rawUsername);
-	const current = await accountUsernameState(database, userId);
-	if (current.state === 'ready') throw new Error('用户名已经设置，不能修改');
+	const current = await loadAccountName(database, userId);
+	if (!current) throw new Error('Accounts 用户不存在');
 	// 同上：user_id 是雪花 ID，必须按文本读取，否则用户名被占用时会抛数值溢出错误。
-	const taken = await firstSql(database, sql({ database }).select({ table: 'passport_usernames', columns: { user_id: { column: 'user_id', cast: 'text' } }, where: [{ column: 'username', value: username }] }));
+	const taken = await firstSql<{ user_id: string }>(database, sql({ database }).select({ table: 'passport_users', columns: { user_id: { column: 'user_id', cast: 'text' } }, where: [{ column: 'name', value: username }, { column: 'user_id', operator: '!=', value: userId }] }));
 	if (taken) throw new Error('该用户名已被占用，请更换后重试');
 	try {
-		// 占位或历史用户名允许改写，正式用户名只能新增一次。
-		if (current.state === 'invalid') await runSql(database, sql({ database }).update('passport_usernames', { username }, { user_id: userId }));
-		else await runSql(database, sql({ database }).insert('passport_usernames', { user_id: userId, username }));
+		await runSql(database, sql({ database }).update('passport_users', { name: username }, { user_id: userId }));
 	} catch {
 		throw new Error('该用户名已被占用，请更换后重试');
 	}
@@ -217,7 +220,7 @@ export const listAccountIdentities = async (database: DatabaseAdapter, globalDat
 		})),
 	]);
 	const bots = telegrams.length
-		? await allSql<{ id: string; bot_username: string }>(globalDatabase, sql({ database: globalDatabase }).select({ table: 'global_telegram_bots', columns: { id: { column: 'id', cast: 'text' }, bot_username: 'bot_username' } }))
+		? await allSql<{ id: string; bot_username: string }>(globalDatabase, sql({ database: globalDatabase }).select({ table: 'global_telegram_bots', columns: { id: { column: 'id', cast: 'text' }, bot_username: 'username' } }))
 		: [];
 	const providerNames = new Map(providers.map((provider) => [provider.id, provider.display_name]));
 	const botNames = new Map(bots.map((bot) => [bot.id, bot.bot_username]));

@@ -17,7 +17,7 @@ export const registeredClientRedirectUris = async (c: Context<AppEnv>, client: R
 	const site = c.get('site'), database = c.get('globalDatabase');
 	const rows = await allSql<{ hostname: string }>(database, sql({ database }).select({
 		table: 'global_site_hosts', alias: 'h', columns: { hostname: 'h.hostname' },
-		joins: [{ table: 'global_sites', alias: 's', left: 's.site_key', right: 'h.site_key' }],
+		joins: [{ table: 'global_sites', alias: 's', left: 's.key', right: 'h.site_key' }],
 		where: [{ column: 'h.status', value: 'enabled' }, { column: 's.status', value: 'enabled' }, { column: 's.migration_status', value: 'ready' }, { column: 's.dsn', value: site.dsn }, { column: 's.database_binding', value: site.databaseBinding }],
 	}));
 	const standard = rows.filter((row) => !row.hostname.startsWith('*.')).map((row) => `https://${row.hostname}/api/accounts/oidc/callback`);

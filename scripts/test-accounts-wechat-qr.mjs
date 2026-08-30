@@ -24,20 +24,20 @@ try {
 	const database = new DatabaseSync(process.env.DEFAULT_DATABASE_FILE);
 	const now = Date.now();
 	const fingerprint = 'a'.repeat(64);
+	const fingerprintData = JSON.stringify({ canvas_crc32: 'aaaaaaaa' });
 	database.prepare("INSERT INTO global_site_hosts (hostname, site_key, status, created_at) VALUES ('accounts.test','passport','enabled',?)").run(now);
 	database.prepare("INSERT INTO passport_external_providers (provider,display_name,client_id,client_secret,status,created_at,updated_at,wechat_mode) VALUES ('wechat','微信','wechat-app','secret','enabled',?,?,'official_account')").run(now, now);
-	database.prepare("INSERT INTO passport_users (user_id,nickname,status,created_at,updated_at) VALUES (?,'微信用户','enabled',?,?)").run(userId, now, now);
-	database.prepare("INSERT INTO passport_usernames (user_id,username,created_at,updated_at) VALUES (?,'wxuser2026',?,?)").run(userId, now, now);
+	database.prepare("INSERT INTO passport_users (user_id,name,nickname,status,created_at,updated_at) VALUES (?,'wxuser2026','微信用户','enabled',?,?)").run(userId, now, now);
 	database.prepare("INSERT INTO passport_emails (id,email,verified,created_at,updated_at) VALUES (2000000000000000011,'wx@example.com',1,?,?)").run(now, now);
 	database.prepare("INSERT INTO passport_user_emails (user_id,email_id,is_primary,created_at,updated_at) VALUES (?,2000000000000000011,1,?,?)").run(userId, now, now);
-	database.prepare("INSERT INTO passport_devices (fingerprint,status,last_seen_at,created_at,updated_at) VALUES (?,'active',?,?,?)").run(fingerprint, now, now, now);
-	const deviceId = database.prepare('SELECT id FROM passport_devices WHERE fingerprint = ?').get(fingerprint).id;
+	database.prepare("INSERT INTO passport_devices (key,fingerprint,status,last_seen_at,created_at,updated_at) VALUES (?,?,'active',?,?,?)").run(fingerprint, fingerprintData, now, now, now);
+	const deviceId = database.prepare('SELECT id FROM passport_devices WHERE key = ?').get(fingerprint).id;
 	database.prepare("INSERT INTO passport_device_users (device_id,user_id,status,last_seen_at,created_at,updated_at) VALUES (?,?,'active',?,?,?)").run(deviceId, userId, now, now, now);
 	database.prepare("INSERT INTO passport_sessions (token_hash,user_id,device_id,expires_at,created_at,updated_at) VALUES (?, ?, ?, ?, ?, ?)").run(Buffer.from(await crypto.subtle.digest('SHA-256', new TextEncoder().encode('desktop-session'))).toString('hex'), userId, deviceId, now + 3600000, now, now);
 	database.close();
 
 	// 电脑打开二维码页。
-	const qr = await (await app.request('https://accounts.test/api/accounts/external/wechat?format=json', { headers: { cookie: 'passport_session=desktop-session', 'x-device-fingerprint': fingerprint } })).json();
+	const qr = await (await app.request('https://accounts.test/api/accounts/external/wechat?format=json', { headers: { cookie: 'passport_session=desktop-session', 'x-device-key': fingerprint, 'x-device-fingerprint': fingerprintData } })).json();
 	assert.equal(qr.mode, 'qrcode');
 	const state = new URL(qr.authorizationUrl).searchParams.get('state');
 	assert.ok(state);
@@ -54,7 +54,7 @@ try {
 
 	// 电脑轮询拿到会话；二维码页可能开在业务站点的登录弹窗里，去向必须由后端给出，不能自己跳首页。
 	// 该用户还没有设置密码，按规则先回登录页提示，补全后登录页才带 request_id 回授权端点。
-	const polled = await app.request(`https://accounts.test${qr.pollUrl}`, { headers: { cookie: 'accounts_oidc_request=qr-request; passport_session=desktop-session', 'x-device-fingerprint': fingerprint } });
+	const polled = await app.request(`https://accounts.test${qr.pollUrl}`, { headers: { cookie: 'accounts_oidc_request=qr-request; passport_session=desktop-session', 'x-device-key': fingerprint, 'x-device-fingerprint': fingerprintData } });
 	const polledResult = await polled.json();
 	assert.equal(polledResult.status, 'authenticated');
 	assert.equal(polledResult.redirectTo, '/panel/accounts/identities.html');
@@ -73,7 +73,7 @@ try {
 	const secondQr = await (await app.request('https://accounts.test/api/accounts/external/wechat?format=json')).json();
 	const secondState = new URL(secondQr.authorizationUrl).searchParams.get('state');
 	await app.request(`https://accounts.test/api/accounts/external/wechat?code=wechat-code&state=${encodeURIComponent(secondState)}&consume=1`);
-	const standalone = await (await app.request(`https://accounts.test${secondQr.pollUrl}`, { headers: { 'x-device-fingerprint': fingerprint } })).json();
+	const standalone = await (await app.request(`https://accounts.test${secondQr.pollUrl}`, { headers: { 'x-device-key': fingerprint, 'x-device-fingerprint': fingerprintData } })).json();
 	assert.deepEqual(standalone, { status: 'authenticated', redirectTo: '/accounts/sign.html' });
 
 	const credentialDatabase = new DatabaseSync(process.env.DEFAULT_DATABASE_FILE);
@@ -82,13 +82,13 @@ try {
 	const thirdQr = await (await app.request('https://accounts.test/api/accounts/external/wechat?format=json')).json();
 	const thirdState = new URL(thirdQr.authorizationUrl).searchParams.get('state');
 	await app.request(`https://accounts.test/api/accounts/external/wechat?code=wechat-code&state=${encodeURIComponent(thirdState)}&consume=1`);
-	assert.deepEqual(await (await app.request(`https://accounts.test${thirdQr.pollUrl}`, { headers: { 'x-device-fingerprint': fingerprint } })).json(), { status: 'authenticated', redirectTo: '/panel/accounts.html' });
+	assert.deepEqual(await (await app.request(`https://accounts.test${thirdQr.pollUrl}`, { headers: { 'x-device-key': fingerprint, 'x-device-fingerprint': fingerprintData } })).json(), { status: 'authenticated', redirectTo: '/panel/accounts.html' });
 
 	// 补全完成后带待授权请求登录，才会继续 OIDC 授权并清掉待授权 cookie。
 	const fourthQr = await (await app.request('https://accounts.test/api/accounts/external/wechat?format=json')).json();
 	const fourthState = new URL(fourthQr.authorizationUrl).searchParams.get('state');
 	await app.request(`https://accounts.test/api/accounts/external/wechat?code=wechat-code&state=${encodeURIComponent(fourthState)}&consume=1`);
-	const continued = await app.request(`https://accounts.test${fourthQr.pollUrl}`, { headers: { cookie: 'accounts_oidc_request=qr-request', 'x-device-fingerprint': fingerprint } });
+	const continued = await app.request(`https://accounts.test${fourthQr.pollUrl}`, { headers: { cookie: 'accounts_oidc_request=qr-request', 'x-device-key': fingerprint, 'x-device-fingerprint': fingerprintData } });
 	assert.deepEqual(await continued.json(), { status: 'authenticated', redirectTo: '/api/oidc/authorize?request_id=qr-request' });
 	assert.ok(continued.headers.getSetCookie().some((value) => value.startsWith('accounts_oidc_request=;')), '继续授权后要清掉待授权 cookie');
 
@@ -96,7 +96,7 @@ try {
 	const expiredDatabase = new DatabaseSync(process.env.DEFAULT_DATABASE_FILE);
 	expiredDatabase.prepare('UPDATE passport_external_login_states SET expires_at = ?').run(Date.now() - 1000);
 	expiredDatabase.close();
-	const expiredPoll = await app.request(`https://accounts.test${fourthQr.pollUrl}`, { headers: { 'x-device-fingerprint': fingerprint } });
+	const expiredPoll = await app.request(`https://accounts.test${fourthQr.pollUrl}`, { headers: { 'x-device-key': fingerprint, 'x-device-fingerprint': fingerprintData } });
 	assert.equal(expiredPoll.status, 200);
 	assert.deepEqual(await expiredPoll.json(), { status: 'expired' });
 
