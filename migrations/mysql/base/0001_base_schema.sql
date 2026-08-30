@@ -8,13 +8,13 @@ CREATE TABLE IF NOT EXISTS base_system_users (
 	updated_at BIGINT NOT NULL
 );
 
-CREATE TABLE IF NOT EXISTS base_system_sessions (
+CREATE TABLE IF NOT EXISTS base_sessions (
 	id VARCHAR(128) NOT NULL PRIMARY KEY,
 	user_id BIGINT NOT NULL,
 	expires_at BIGINT NOT NULL,
 	created_at BIGINT NOT NULL,
-	KEY base_system_sessions_user_id (user_id),
-	CONSTRAINT base_system_sessions_user_fk FOREIGN KEY (user_id) REFERENCES base_system_users(id) ON DELETE CASCADE
+	KEY base_sessions_user_id (user_id),
+	CONSTRAINT base_sessions_user_fk FOREIGN KEY (user_id) REFERENCES base_system_users(id) ON DELETE CASCADE
 );
 
 CREATE TABLE IF NOT EXISTS base_system_configs (
@@ -59,5 +59,5 @@ CREATE TABLE IF NOT EXISTS base_oidc_sessions (
 	session_id VARCHAR(128) NOT NULL UNIQUE,
 	created_at BIGINT NOT NULL,
 	PRIMARY KEY (issuer, sid),
-	CONSTRAINT base_oidc_sessions_session_fk FOREIGN KEY (session_id) REFERENCES base_system_sessions(id) ON DELETE CASCADE
+	CONSTRAINT base_oidc_sessions_session_fk FOREIGN KEY (session_id) REFERENCES base_sessions(id) ON DELETE CASCADE
 );

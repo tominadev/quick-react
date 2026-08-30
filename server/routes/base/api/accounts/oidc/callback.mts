@@ -68,8 +68,8 @@ const handler: ApiHandler = async (c) => {
 		const maxAge = 24 * 60 * 60;
 		const previousSession = await firstSql<{ session_id: string }>(database, sql({ database }).select({ table: 'base_oidc_sessions', columns: { session_id: 'session_id' }, where: [{ column: 'issuer', value: config.issuer }, { column: 'sid', value: oidcSessionId }] }));
 		const sessionId = previousSession?.session_id ?? crypto.randomUUID();
-		if (previousSession) await runSql(database, sql({ database }).update('base_system_sessions', { user_id: account.user_id, expires_at: now + maxAge * 1000 }, { id: sessionId }));
-		else await runSql(database, sql({ database }).insert('base_system_sessions', { id: sessionId, user_id: account.user_id, expires_at: now + maxAge * 1000 }));
+		if (previousSession) await runSql(database, sql({ database }).update('base_sessions', { user_id: account.user_id, expires_at: now + maxAge * 1000 }, { id: sessionId }));
+		else await runSql(database, sql({ database }).insert('base_sessions', { id: sessionId, user_id: account.user_id, expires_at: now + maxAge * 1000 }));
 		await runSql(database, sql({ database }).upsert('base_oidc_sessions', ['issuer', 'sid'], { issuer: config.issuer, sid: oidcSessionId, session_id: sessionId }, ['session_id', 'created_at']));
 		await runSql(database, sql({ database }).delete('base_oidc_login_requests', { id: request.id }));
 		const secure = isSecureRequest(c);

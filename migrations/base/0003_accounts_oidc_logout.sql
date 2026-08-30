@@ -4,5 +4,5 @@ CREATE TABLE IF NOT EXISTS base_oidc_sessions (
 	session_id TEXT NOT NULL UNIQUE,
 	created_at INTEGER NOT NULL,
 	PRIMARY KEY (issuer, sid),
-	FOREIGN KEY (session_id) REFERENCES base_system_sessions(id) ON DELETE CASCADE
+	FOREIGN KEY (session_id) REFERENCES base_sessions(id) ON DELETE CASCADE
 );

@@ -8,13 +8,13 @@ CREATE TABLE IF NOT EXISTS base_system_users (
 	updated_at BIGINT NOT NULL
 );
 
-CREATE TABLE IF NOT EXISTS base_system_sessions (
+CREATE TABLE IF NOT EXISTS base_sessions (
 	id VARCHAR(128) PRIMARY KEY,
 	user_id BIGINT NOT NULL REFERENCES base_system_users(id) ON DELETE CASCADE,
 	expires_at BIGINT NOT NULL,
 	created_at BIGINT NOT NULL
 );
-CREATE INDEX IF NOT EXISTS base_system_sessions_user_id ON base_system_sessions(user_id);
+CREATE INDEX IF NOT EXISTS base_sessions_user_id ON base_sessions(user_id);
 
 CREATE TABLE IF NOT EXISTS base_system_configs (
 	"key" VARCHAR(255) PRIMARY KEY,
@@ -53,7 +53,7 @@ CREATE INDEX IF NOT EXISTS base_oidc_accounts_user ON base_oidc_accounts(user_id
 CREATE TABLE IF NOT EXISTS base_oidc_sessions (
 	issuer VARCHAR(512) NOT NULL,
 	sid VARCHAR(255) NOT NULL,
-	session_id VARCHAR(128) NOT NULL UNIQUE REFERENCES base_system_sessions(id) ON DELETE CASCADE,
+	session_id VARCHAR(128) NOT NULL UNIQUE REFERENCES base_sessions(id) ON DELETE CASCADE,
 	created_at BIGINT NOT NULL,
 	PRIMARY KEY (issuer, sid)
 );

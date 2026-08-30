@@ -72,13 +72,13 @@ const localSign: ApiHandler = async (c, next) => {
 		const sessionId = crypto.randomUUID();
 		const maxAge = credentials.remember ? 30 * 24 * 60 * 60 : 24 * 60 * 60;
 		const now = Date.now();
-		await runSql(database, sql({ database }).insert('base_system_sessions', { id: sessionId, user_id: user.id, expires_at: now + maxAge * 1000 }));
+		await runSql(database, sql({ database }).insert('base_sessions', { id: sessionId, user_id: user.id, expires_at: now + maxAge * 1000 }));
 		c.header('Set-Cookie', createSessionCookie(sessionId, new URL(c.req.url).protocol === 'https:', maxAge));
 		return apiMessageData(c, 200, '登录成功', { user: { id: user.id, username: user.username }, next: { action: 'reload' } });
 	}
 	if (c.req.method === 'DELETE') {
 		const sessionId = readSessionId(c.req.raw);
-		if (sessionId) await runSql(database, sql({ database }).delete('base_system_sessions', { id: sessionId }));
+		if (sessionId) await runSql(database, sql({ database }).delete('base_sessions', { id: sessionId }));
 		c.header('Set-Cookie', clearSessionCookie(new URL(c.req.url).protocol === 'https:'));
 		if (c.req.query('logout') !== 'local') c.header('Set-Cookie', clearPassportSessionCookie(isSecureRequest(c)), { append: true });
 		return apiMessageData(c, 200, '已退出登录', { next: { action: 'reload' } });
@@ -125,7 +125,7 @@ const handler: ApiHandler = async (c, next) => {
 				if (!response.ok) throw new Error(`Accounts 注销请求失败（HTTP ${response.status}）`);
 			} catch (error) { return apiMessage(c, 502, error instanceof Error ? error.message : 'Accounts 注销失败'); }
 		}
-		if (sessionId) await runSql(database, sql({ database }).delete('base_system_sessions', { id: sessionId }));
+		if (sessionId) await runSql(database, sql({ database }).delete('base_sessions', { id: sessionId }));
 		c.header('Set-Cookie', clearSessionCookie(isSecureRequest(c)));
 		if (!localOnly) c.header('Set-Cookie', clearPassportSessionCookie(isSecureRequest(c)), { append: true });
 		return apiMessageData(c, 200, '已退出 Accounts 及所有关联站点', { next: { action: 'reload' } });

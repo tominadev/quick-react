@@ -18,7 +18,7 @@ passport
 
 业务站点
   base_oidc_accounts       Accounts issuer + subject 的最小映射
-  base_system_sessions     本站 Host-only Session
+  base_sessions     本站 Host-only Session
   <site>_*                 站点业务数据及本站角色
 ```
 
@@ -494,7 +494,7 @@ npm run import:legacy-passport -- \
 - Passport 用户必须先通过 Telegram、微信扫码或 Google 建立身份，再绑定邮箱。
 - 用户名和密码只能后加，不能用于直接注册；手机暂不实现。
 - global 管理员与 Passport 用户完全分离。
-- global 管理员继续使用现有 `base_system_users` 和 `base_system_sessions` 后台账号体系。
+- global 管理员继续使用现有 `base_system_users` 和 `base_sessions` 后台账号体系。
 - 支持多机器人、多域名绑定和一个用户绑定多个机器人，但不因此生成新的用户 ID。
 - 机器人必须先停用，且确认没有关联数据后才能删除；历史来源不得被破坏。
 - 新用户使用修复后的老项目兼容雪花 ID 生成器，不能使用用户表自增 ID。

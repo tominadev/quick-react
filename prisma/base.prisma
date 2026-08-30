@@ -15,7 +15,7 @@ model base_system_users {
   status        String @default("enabled")
 }
 
-model base_system_sessions {
+model base_sessions {
   id         String @id
   created_at Int
   updated_at Int @default(0)

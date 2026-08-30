@@ -257,7 +257,7 @@ Accounts 站点上可能同时存在两种会话：站点本地账号（`base_sy
 
 | 站点 | Accounts 登录后建立的会话 | 是否创建 `base_system_users` |
 | --- | --- | --- |
-| 业务站点（OIDC 客户端） | `base_system_sessions`（本站会话） | 是。回调时按 `base_oidc_accounts(issuer, subject)` 映射或创建本地账号 |
+| 业务站点（OIDC 客户端） | `base_sessions`（本站会话） | 是。回调时按 `base_oidc_accounts(issuer, subject)` 映射或创建本地账号 |
 | Accounts 站点（passport） | `passport_sessions` | 否。`base_system_users` 在这里只是站点管理员账号 |
 
 因此 Accounts 站点上可能同时存在两种会话，头部以 Accounts 昵称为准。共库部署时三个站点看到同一张 `base_system_users` 表，但会话 Cookie 是 host-only 的，不会跨域名带过去。
@@ -324,7 +324,7 @@ Accounts 站点上可能同时存在两种会话：站点本地账号（`base_sy
 
 ## Accounts 设备管理与固定指纹（2026-08-29 确立）
 
-Accounts 提供类似 Google 的登录设备管理。设备数据只属于 Passport/Accounts，业务站点不创建或保存设备表，也不把设备指纹复制到 `base_system_sessions`。
+Accounts 提供类似 Google 的登录设备管理。设备数据由 Base 层的 `base_devices`、`base_device_users` 和 `base_device_snapshots` 统一提供，各业务站点使用自己的 Base 设备数据和 `base_sessions`。
 
 - 设备表使用 `base_devices`，至少保存 `device_id`、客户端生成的 `fingerprint`、设备描述、浏览器/系统、最近 IP、状态、首次使用时间、最近使用时间和注销时间；其中 `device_id` 直接等于客户端生成的 SHA-256 `fingerprint`，不再二次哈希。设备指纹仍全局唯一。
 - 设备与账号通过 `base_device_users(device_id, user_id)` 多对多关联，同一设备可以登录并切换多个 Accounts 账号；注销某个账号的设备只撤销该账号的关联，不影响同设备上的其他账号。
@@ -333,4 +333,4 @@ Accounts 提供类似 Google 的登录设备管理。设备数据只属于 Passp
 - `fingerprint` 是设备识别和会话继续有效的必要条件，不是单独的登录凭证。请求必须同时具备有效 `session_id`，且指纹与该 session 关联设备匹配；缺少、变化或被注销时，Accounts 会话立即失效。
 - 设备管理支持查看当前设备、查看全部设备、注销单台设备和注销全部其他设备。注销设备会使该设备关联的所有 `passport_sessions` 失效；允许因指纹碰撞造成误杀，安全优先于免打扰体验。
 - 设备 Cookie 可以作为固定指纹载体，但不得直接把指纹当作 session 凭证；认证仍由服务端 session 状态决定。
-- 业务站点只通过 OIDC 获得身份和建立自己的 `base_system_sessions`，不读取 `base_devices`，不依赖业务站点数据库保存指纹。
+- 业务站点通过本地登录或 OIDC 获得身份，并使用 Base 层设备能力建立自己的 `base_sessions`；设备指纹、设备用户关系和快照由 Base 统一维护。

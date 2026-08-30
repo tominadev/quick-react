@@ -344,7 +344,7 @@ Node 模式默认只有一个共享数据库，站点通过表前缀隔离：
 ```text
 database/default.sqlite
 base_system_users
-base_system_sessions
+base_sessions
 site1_orders
 ```
 
@@ -395,7 +395,7 @@ database/default.sqlite
 
 ```text
 global_sites / global_site_hosts
-base_system_users / base_system_sessions / base_system_configs
+base_system_users / base_sessions / base_system_configs
 site1_orders / site1_configs
 site2_orders / site2_configs
 ```
@@ -429,7 +429,7 @@ global_site_hosts
 
 ```text
 base_system_users
-base_system_sessions
+base_sessions
 base_system_configs
 ```
 
@@ -445,7 +445,7 @@ base.prisma    -> 所有 Model 以 base_ 开头，表名就是模型名
 site1.prisma   -> 所有 Model 以 site1_ 开头，表名就是模型名
 ```
 
-例如 `site1.prisma` 只能定义 `model site1_orders`、`model site1_products` 等模型，模型名就是实际表名。站点 schema 只定义当前站点新增的业务表，不重复定义继承来的 `base_system_users`、`base_system_sessions` 等模型。
+例如 `site1.prisma` 只能定义 `model site1_orders`、`model site1_products` 等模型，模型名就是实际表名。站点 schema 只定义当前站点新增的业务表，不重复定义继承来的 `base_system_users`、`base_sessions` 等模型。
 
 在默认共享数据库中，`global.prisma`、`base.prisma` 和所有启用站点的 schema 可以共同生成到 `default.sqlite`；在独立 DSN 数据库中，则按该站点的继承链生成 `base.prisma`、父站点 schema 和当前站点 schema。无论采用哪种模式，`base_*` 表都只在目标数据库中生成一份。
 

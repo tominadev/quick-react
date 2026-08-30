@@ -8,7 +8,7 @@ CREATE TABLE IF NOT EXISTS base_system_users (
 	updated_at INTEGER NOT NULL
 );
 
-CREATE TABLE IF NOT EXISTS base_system_sessions (
+CREATE TABLE IF NOT EXISTS base_sessions (
 	id TEXT PRIMARY KEY,
 	user_id INTEGER NOT NULL,
 	expires_at INTEGER NOT NULL,
@@ -16,8 +16,8 @@ CREATE TABLE IF NOT EXISTS base_system_sessions (
 	FOREIGN KEY (user_id) REFERENCES base_system_users(id) ON DELETE CASCADE
 );
 
-CREATE INDEX IF NOT EXISTS base_system_sessions_user_id
-	ON base_system_sessions(user_id);
+CREATE INDEX IF NOT EXISTS base_sessions_user_id
+	ON base_sessions(user_id);
 
 CREATE TABLE IF NOT EXISTS base_system_configs (
 	key TEXT PRIMARY KEY NOT NULL,
