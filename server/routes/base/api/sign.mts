@@ -22,7 +22,7 @@ const parseCredentials = async (c: Parameters<ApiHandler>[0]) => {
 };
 
 const registrationAvailable = async (database: DatabaseAdapter) => {
-	const row = await firstSql<{ value: string }>(database, sql({ database }).select({ table: 'base_system_bootstrap', columns: { value: 'value' }, where: [{ column: 'key', value: 'initial_admin' }] }));
+	const row = await firstSql<{ value: string }>(database, sql({ database }).select({ table: 'base_bootstrap', columns: { value: 'value' }, where: [{ column: 'key', value: 'initial_admin' }] }));
 	return row?.value === 'open';
 };
 
@@ -55,19 +55,19 @@ const localSign: ApiHandler = async (c, next) => {
 		}
 		const now = Date.now();
 		const storedPassword = await createStoredPassword(credentials.password);
-		const claimed = await runSql(database, sql({ database }).update('base_system_bootstrap', { value: 'claimed' }, [{ column: 'key', value: 'initial_admin' }, { column: 'value', value: 'open' }]));
+		const claimed = await runSql(database, sql({ database }).update('base_bootstrap', { value: 'claimed' }, [{ column: 'key', value: 'initial_admin' }, { column: 'value', value: 'open' }]));
 		if (Number(claimed.meta?.changes ?? 0) !== 1) return apiMessage(c, 409, '初始管理员已经存在');
 		try {
-			await runSql(database, sql({ database }).insert('base_system_users', { username: credentials.username, password: storedPassword, roles: '["admin"]', status: 'enabled' }));
+			await runSql(database, sql({ database }).insert('base_users', { username: credentials.username, password: storedPassword, roles: '["admin"]', status: 'enabled' }));
 		} catch (error) {
-			await runSql(database, sql({ database }).update('base_system_bootstrap', { value: 'open' }, [{ column: 'key', value: 'initial_admin' }, { column: 'value', value: 'claimed' }]));
+			await runSql(database, sql({ database }).update('base_bootstrap', { value: 'open' }, [{ column: 'key', value: 'initial_admin' }, { column: 'value', value: 'claimed' }]));
 			throw error;
 		}
 		return apiMessage(c, 201, '初始管理员创建成功，请登录');
 	}
 	if (c.req.method === 'POST') {
 		const credentials = await parseCredentials(c);
-		const user = await firstSql<{ id: number; username: string; password: string; roles: string }>(database, sql({ database }).select({ table: 'base_system_users', columns: { id: 'id', username: 'username', password: 'password', roles: 'roles' }, where: [{ column: 'username', value: credentials.username }, { column: 'status', value: 'enabled' }] }));
+		const user = await firstSql<{ id: number; username: string; password: string; roles: string }>(database, sql({ database }).select({ table: 'base_users', columns: { id: 'id', username: 'username', password: 'password', roles: 'roles' }, where: [{ column: 'username', value: credentials.username }, { column: 'status', value: 'enabled' }] }));
 		if (!user || !await verifyStoredPassword(credentials.password, user.password)) return apiMessage(c, 401, '用户名或密码错误', { component: 'modal', type: 'error' });
 		const sessionId = crypto.randomUUID();
 		const maxAge = credentials.remember ? 30 * 24 * 60 * 60 : 24 * 60 * 60;

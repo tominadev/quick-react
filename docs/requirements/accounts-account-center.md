@@ -22,7 +22,7 @@
 ## 〇、身份与权限的边界
 
 - Accounts 只分配身份，不分配权限：一次 Accounts 登录只带来 `accounts` 这个身份标记。
-- 站点权限一律来自站点自己的用户表：业务站点通过 OIDC 登录时会在本站 `base_system_users` 建立/绑定用户，角色由本站管理员在用户管理里分配，`base_system_users.roles` 是唯一的权限来源。
+- 站点权限一律来自站点自己的用户表：业务站点通过 OIDC 登录时会在本站 `base_users` 建立/绑定用户，角色由本站管理员在用户管理里分配，`base_users.roles` 是唯一的权限来源。
 - 因此 `passport_user_roles` 已废弃，代码不再读取；身份中心站点自己的后台权限同样由它本站的用户和角色决定。
 
 ## 一、角色对照表
@@ -39,7 +39,7 @@
   | `admin` | 管理员 | 是 | 管理后台准入角色 |
 
 - 展示统一为"中文名(英文键)"；未登记的历史角色原样显示并标注"未知角色"。
-- 用户管理的角色字段是多选下拉，选项只来自 `assignable` 的角色；存储格式仍是 `base_system_users.roles` 的 JSON 文本，由接口层负责数组与文本互转并拒绝白名单外的角色。
+- 用户管理的角色字段是多选下拉，选项只来自 `assignable` 的角色；存储格式仍是 `base_users.roles` 的 JSON 文本，由接口层负责数组与文本互转并拒绝白名单外的角色。
 
 ### 验收标准
 
@@ -204,12 +204,12 @@ passport_user_email_otps                -- 已登录用户添加邮箱时的验�
 
 - 不做角色的数据库化管理界面（角色与代码强绑定）。
 - 不做 Accounts 用户名的自助修改。
-- 不改动 base 站点本地账号（`base_system_users`）的既有登录逻辑。
+- 不改动 base 站点本地账号（`base_users`）的既有登录逻辑。
 - 不实现手机号绑定与头像（沿用上游需求的范围）。
 
 ## 实现说明（2026-08-27）
 
-- 角色对照表在 `shared/types/role.mts`，用户管理的角色列改为多选；`base_system_users.roles` 仍存 JSON 文本，由接口层转换。
+- 角色对照表在 `shared/types/role.mts`，用户管理的角色列改为多选；`base_users.roles` 仍存 JSON 文本，由接口层转换。
 - 用户名存放在独立表 `passport_usernames`，密码沿用 `passport_user_credentials`，都遵循"可选能力用独立关联表"的约定。
 - 补全流程在 `server/modules/passport/accounts/onboarding.mjs`，登录成功后由 `/api/accounts/sign` 继续返回 `formPage`；第三方 OAuth 回调改为先跳回登录页补全。进入补全步骤时会给 OIDC 授权请求和 cookie 续期。
 - 通用 `FormPage` 的自定义 action 现在也会应用响应里的 `formPage`/`currentValues`/`redirectTo`；只要响应里带 `formPage` 就不再安排跳转，修掉了多步表单被反馈倒计时带走的问题。
@@ -243,7 +243,7 @@ Google 应用验证要求首页公开说明应用的用途（[品牌验证要求
 
 ## 头部身份与两套个人中心（2026-08-27 补充）
 
-Accounts 站点上可能同时存在两种会话：站点本地账号（`base_system_users`，供站点管理员使用）和 Accounts 账号。
+Accounts 站点上可能同时存在两种会话：站点本地账号（`base_users`，供站点管理员使用）和 Accounts 账号。
 
 - 头部展示的身份**以 Accounts 昵称为准**；两个会话同时存在时也显示昵称，并同时给出「账户中心 / 退出 Accounts」和「个人中心 / 退出登录」两套入口。
 - `/panel/accounts`（账户中心）属于 Accounts 身份，`/panel/me`（个人中心）属于站点本地账号，两者并存，都没有废弃：业务站点和控制面的本地账号仍然使用 `/panel/me`。
@@ -255,12 +255,12 @@ Accounts 站点上可能同时存在两种会话：站点本地账号（`base_sy
 
 容易混淆的地方：Accounts 登录**在业务站点上确实绑定到 base 系统用户**，但在 Accounts 站点自身不绑定。
 
-| 站点 | Accounts 登录后建立的会话 | 是否创建 `base_system_users` |
+| 站点 | Accounts 登录后建立的会话 | 是否创建 `base_users` |
 | --- | --- | --- |
 | 业务站点（OIDC 客户端） | `base_sessions`（本站会话） | 是。回调时按 `base_oidc_accounts(issuer, subject)` 映射或创建本地账号 |
-| Accounts 站点（passport） | `passport_sessions` | 否。`base_system_users` 在这里只是站点管理员账号 |
+| Accounts 站点（passport） | `passport_sessions` | 否。`base_users` 在这里只是站点管理员账号 |
 
-因此 Accounts 站点上可能同时存在两种会话，头部以 Accounts 昵称为准。共库部署时三个站点看到同一张 `base_system_users` 表，但会话 Cookie 是 host-only 的，不会跨域名带过去。
+因此 Accounts 站点上可能同时存在两种会话，头部以 Accounts 昵称为准。共库部署时三个站点看到同一张 `base_users` 表，但会话 Cookie 是 host-only 的，不会跨域名带过去。
 
 ## 推荐登录方式与头像同步（2026-08-28 补充）
 

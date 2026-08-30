@@ -1,4 +1,4 @@
-CREATE TABLE IF NOT EXISTS base_system_users (
+CREATE TABLE IF NOT EXISTS base_users (
 	id BIGINT NOT NULL AUTO_INCREMENT PRIMARY KEY,
 	username VARCHAR(255) NOT NULL UNIQUE,
 	password TEXT NOT NULL,
@@ -14,21 +14,21 @@ CREATE TABLE IF NOT EXISTS base_sessions (
 	expires_at BIGINT NOT NULL,
 	created_at BIGINT NOT NULL,
 	KEY base_sessions_user_id (user_id),
-	CONSTRAINT base_sessions_user_fk FOREIGN KEY (user_id) REFERENCES base_system_users(id) ON DELETE CASCADE
+	CONSTRAINT base_sessions_user_fk FOREIGN KEY (user_id) REFERENCES base_users(id) ON DELETE CASCADE
 );
 
-CREATE TABLE IF NOT EXISTS base_system_configs (
+CREATE TABLE IF NOT EXISTS base_configs (
 	`key` VARCHAR(255) NOT NULL PRIMARY KEY,
 	value LONGTEXT NOT NULL,
 	updated_at BIGINT NOT NULL
 );
 
-CREATE TABLE IF NOT EXISTS base_system_bootstrap (
+CREATE TABLE IF NOT EXISTS base_bootstrap (
 	`key` VARCHAR(255) NOT NULL PRIMARY KEY,
 	value TEXT NOT NULL
 );
 
-INSERT IGNORE INTO base_system_bootstrap (`key`, value) VALUES ('initial_admin', 'open');
+INSERT IGNORE INTO base_bootstrap (`key`, value) VALUES ('initial_admin', 'open');
 
 CREATE TABLE IF NOT EXISTS base_oidc_login_requests (
 	id VARCHAR(128) NOT NULL PRIMARY KEY,
@@ -50,7 +50,7 @@ CREATE TABLE IF NOT EXISTS base_oidc_accounts (
 	updated_at BIGINT NOT NULL,
 	PRIMARY KEY (issuer, subject),
 	KEY base_oidc_accounts_user (user_id),
-	CONSTRAINT base_oidc_accounts_user_fk FOREIGN KEY (user_id) REFERENCES base_system_users(id) ON DELETE CASCADE
+	CONSTRAINT base_oidc_accounts_user_fk FOREIGN KEY (user_id) REFERENCES base_users(id) ON DELETE CASCADE
 );
 
 CREATE TABLE IF NOT EXISTS base_oidc_sessions (

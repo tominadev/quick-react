@@ -25,7 +25,7 @@ CREATE TABLE IF NOT EXISTS global_site_hosts (
 	FOREIGN KEY (site_key) REFERENCES global_sites(site_key)
 );
 
-CREATE TABLE IF NOT EXISTS base_system_users (
+CREATE TABLE IF NOT EXISTS base_users (
 	id INTEGER PRIMARY KEY AUTOINCREMENT,
 	username TEXT NOT NULL UNIQUE,
 	password TEXT NOT NULL,
@@ -40,13 +40,13 @@ CREATE TABLE IF NOT EXISTS base_sessions (
 	user_id INTEGER NOT NULL,
 	expires_at INTEGER NOT NULL,
 	created_at INTEGER NOT NULL,
-	FOREIGN KEY (user_id) REFERENCES base_system_users(id) ON DELETE CASCADE
+	FOREIGN KEY (user_id) REFERENCES base_users(id) ON DELETE CASCADE
 );
 
 CREATE INDEX IF NOT EXISTS base_sessions_user_id
 	ON base_sessions(user_id);
 
-CREATE TABLE IF NOT EXISTS base_system_configs (
+CREATE TABLE IF NOT EXISTS base_configs (
 	key TEXT PRIMARY KEY NOT NULL,
 	value TEXT NOT NULL,
 	updated_at INTEGER NOT NULL
@@ -57,12 +57,12 @@ INSERT INTO global_sites (
 ) VALUES ('global', '全局控制面', 'base', '', 'enabled', 'ready', 1, 1)
 ON CONFLICT(site_key) DO NOTHING;
 
-CREATE TABLE IF NOT EXISTS base_system_bootstrap (
+CREATE TABLE IF NOT EXISTS base_bootstrap (
 	key TEXT PRIMARY KEY NOT NULL,
 	value TEXT NOT NULL
 );
 
-INSERT INTO base_system_bootstrap (key, value) VALUES ('initial_admin', 'open')
+INSERT INTO base_bootstrap (key, value) VALUES ('initial_admin', 'open')
 ON CONFLICT(key) DO NOTHING;
 
 CREATE TABLE IF NOT EXISTS global_cloud_credentials (

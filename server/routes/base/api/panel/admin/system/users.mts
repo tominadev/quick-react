@@ -30,11 +30,11 @@ const publicUser = (row: Record<string, unknown>) => ({
 const handler: ApiHandler = async (c, next, params) => {
 	const database = c.get('database');
 	if (c.req.method === 'GET' && !params.id) {
-		const rows = await allSql<Record<string, unknown>>(database, sql({ database }).select({ table: 'base_system_users', columns: { id: 'id', username: 'username', roles: 'roles', status: 'status', password: 'password', created_at: 'created_at', updated_at: 'updated_at' }, orderBy: [{ column: 'id', direction: 'DESC' }] }));
+		const rows = await allSql<Record<string, unknown>>(database, sql({ database }).select({ table: 'base_users', columns: { id: 'id', username: 'username', roles: 'roles', status: 'status', password: 'password', created_at: 'created_at', updated_at: 'updated_at' }, orderBy: [{ column: 'id', direction: 'DESC' }] }));
 		return apiResponse(c, 200, { table: { option: { rowKey: 'id', actions: { query: [{ key: 'search', label: '搜索' }], toolbar: [{ key: 'create', label: '新增' }, { key: 'delete', label: '删除' }], row: [{ key: 'edit', label: '编辑' }, { key: 'delete', label: '删除' }] } }, columns, dataSource: rows.map(publicUser), totalRecords: rows.length } });
 	}
 	if (params.id && c.req.method === 'GET') {
-		const row = await firstSql<Record<string, unknown>>(database, sql({ database }).select({ table: 'base_system_users', columns: { id: 'id', username: 'username', roles: 'roles', status: 'status', password: 'password', created_at: 'created_at', updated_at: 'updated_at' }, where: [{ column: 'id', value: params.id }] }));
+		const row = await firstSql<Record<string, unknown>>(database, sql({ database }).select({ table: 'base_users', columns: { id: 'id', username: 'username', roles: 'roles', status: 'status', password: 'password', created_at: 'created_at', updated_at: 'updated_at' }, where: [{ column: 'id', value: params.id }] }));
 		return row ? apiResponse(c, 200, publicUser(row)) : apiMessage(c, 404, '用户不存在');
 	}
 	if (!params.id && c.req.method === 'POST') {
@@ -47,8 +47,8 @@ const handler: ApiHandler = async (c, next, params) => {
 		if (unknownRoles.length) return apiMessage(c, 400, `不支持的角色：${unknownRoles.join('、')}`);
 		const now = Date.now();
 		try {
-			await runSql(database, sql({ database }).insert('base_system_users', { username, password: await createStoredPassword(password), roles: serializeRoles(roles), status: String(body.status ?? 'enabled') }));
-			const created = await firstSql<{ id: number | string }>(database, sql({ database }).select({ table: 'base_system_users', columns: { id: 'id' }, where: [{ column: 'username', value: username }] }));
+			await runSql(database, sql({ database }).insert('base_users', { username, password: await createStoredPassword(password), roles: serializeRoles(roles), status: String(body.status ?? 'enabled') }));
+			const created = await firstSql<{ id: number | string }>(database, sql({ database }).select({ table: 'base_users', columns: { id: 'id' }, where: [{ column: 'username', value: username }] }));
 			return apiMessageData(c, 201, '用户已创建', { id: created?.id, username });
 		} catch {
 			return apiMessage(c, 409, '用户名已存在');
@@ -56,7 +56,7 @@ const handler: ApiHandler = async (c, next, params) => {
 	}
 	if (params.id && c.req.method === 'PUT') {
 		const body: Record<string, unknown> = await c.req.json<Record<string, unknown>>().catch(() => ({} as Record<string, unknown>));
-		const current = await firstSql<{ id: number }>(database, sql({ database }).select({ table: 'base_system_users', columns: { id: 'id' }, where: [{ column: 'id', value: params.id }] }));
+		const current = await firstSql<{ id: number }>(database, sql({ database }).select({ table: 'base_users', columns: { id: 'id' }, where: [{ column: 'id', value: params.id }] }));
 		if (!current) return apiMessage(c, 404, '用户不存在');
 		const changedFields = getChangedFields(body, ['username', 'roles', 'status', 'password']);
 		const values: Record<string, unknown> = {};
@@ -78,12 +78,12 @@ const handler: ApiHandler = async (c, next, params) => {
 		if (!Object.keys(values).length) return apiMessage(c, 400, '没有可修改的字段');
 		values.updated_at = Date.now();
 		try {
-			await runSql(database, sql({ database }).update('base_system_users', values, { id: params.id }));
+			await runSql(database, sql({ database }).update('base_users', values, { id: params.id }));
 			return apiMessage(c, 200, '用户已保存');
 		} catch { return apiMessage(c, 409, '用户名已存在'); }
 	}
 	if (params.id && c.req.method === 'DELETE') {
-		await runSql(database, sql({ database }).delete('base_system_users', { id: params.id }));
+		await runSql(database, sql({ database }).delete('base_users', { id: params.id }));
 		return apiMessage(c, 200, '用户已删除');
 	}
 	return next();

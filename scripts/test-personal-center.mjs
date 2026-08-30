@@ -40,7 +40,7 @@ try {
 
 	// 启用 Accounts 登录后给出说明和新页面入口，且入口指向账号中心。
 	const database = new DatabaseSync(process.env.DEFAULT_DATABASE_FILE);
-	database.prepare("INSERT INTO base_system_configs (key, value, updated_at) VALUES ('accounts-oidc-client', ?, ?)")
+	database.prepare("INSERT INTO base_configs (key, value, updated_at) VALUES ('accounts-oidc-client', ?, ?)")
 		.run(JSON.stringify({ enabled: true, issuer: 'https://accounts.test', clientId: 'acct', clientSecret: 'secret' }), Date.now());
 	database.close();
 	const linked = await (await request('/api/panel/me.php', { cookie })).json();

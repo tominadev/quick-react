@@ -7,8 +7,8 @@ model global_sites {
   id               Int     @id @default(autoincrement())
   created_at       Int     @default(0)
   updated_at       Int     @default(0)
-  created_duid      BigInt  @default(0)
-  updated_duid      BigInt  @default(0)
+  created_duid BigInt?
+  updated_duid BigInt?
   site_key         String  @unique
   name             String
   base_site_key    String?

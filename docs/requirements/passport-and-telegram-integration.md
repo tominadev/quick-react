@@ -131,7 +131,7 @@ passport_users
 passport_user_credentials                -- 用户主动设置密码后才创建
   id BIGINT PRIMARY KEY
   user_id BIGINT NOT NULL
-  password TEXT NOT NULL                 -- 与 base_system_users.password 相同的 JSON 格式
+  password TEXT NOT NULL                 -- 与 base_users.password 相同的 JSON 格式
   created_at BIGINT NOT NULL
 
 passport_sessions
@@ -312,7 +312,7 @@ passport_group_prompts
 
 `passport_users.user_id` 必须由兼容老项目的雪花 ID 生成器产生，不能使用自增 ID。其它表的 `id` 可以使用数据库自增实现，但跨数据库 migration 必须保持 64 位整数语义。头像对象路径后续由 `user_id` 推导为 `avatars/<user_id>.<ext>`，不在数据库中保存 `avatar_object_key` 或头像路径字段。
 
-`passport_user_credentials` 同时保存当前密码和密码历史，不再建立独立的密码历史表。首次设置密码和每次修改密码都新增一条记录，不更新旧记录。每条记录的 `created_at` 表示该密码设置或修改的时间；最新记录按 `created_at DESC, id DESC` 判断。`password` 使用与 `base_system_users.password` 相同的 JSON 结构：包含 PBKDF2-SHA256 编码后的 `hash` 和用于安全分析的 `pattern`，不保存明文密码。管理界面可以显示密码修改时间和特征，但不得显示哈希、JSON 凭据或原密码。
+`passport_user_credentials` 同时保存当前密码和密码历史，不再建立独立的密码历史表。首次设置密码和每次修改密码都新增一条记录，不更新旧记录。每条记录的 `created_at` 表示该密码设置或修改的时间；最新记录按 `created_at DESC, id DESC` 判断。`password` 使用与 `base_users.password` 相同的 JSON 结构：包含 PBKDF2-SHA256 编码后的 `hash` 和用于安全分析的 `pattern`，不保存明文密码。管理界面可以显示密码修改时间和特征，但不得显示哈希、JSON 凭据或原密码。
 
 登录时按最新记录到最旧记录逐条校验：匹配最新密码才允许建立 Session；如果只匹配到旧密码，则拒绝登录并提示用户新密码的修改时间，不能继续使用旧密码建立 Session。旧密码记录默认长期保留，除非后续增加明确的密码历史清理策略。
 
@@ -494,7 +494,7 @@ npm run import:legacy-passport -- \
 - Passport 用户必须先通过 Telegram、微信扫码或 Google 建立身份，再绑定邮箱。
 - 用户名和密码只能后加，不能用于直接注册；手机暂不实现。
 - global 管理员与 Passport 用户完全分离。
-- global 管理员继续使用现有 `base_system_users` 和 `base_sessions` 后台账号体系。
+- global 管理员继续使用现有 `base_users` 和 `base_sessions` 后台账号体系。
 - 支持多机器人、多域名绑定和一个用户绑定多个机器人，但不因此生成新的用户 ID。
 - 机器人必须先停用，且确认没有关联数据后才能删除；历史来源不得被破坏。
 - 新用户使用修复后的老项目兼容雪花 ID 生成器，不能使用用户表自增 ID。

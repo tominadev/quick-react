@@ -23,6 +23,6 @@ node esbuild.cjs
 
 如果使用 Cloudflare 和负载均衡，`TRUSTED_PROXY_IPS` 应配置为直接连接 Node 的负载均衡地址，而不是 Cloudflare 地址。
 
-也可以在管理后台的“技术栈伪装”页面动态修改 Nginx 开关、PHP 版本号、API 路径后缀和页面路径后缀。站点配置保存在当前数据库的 `base_system_configs` 表中；后缀支持例如 `.php`、`.json`、`.html`，留空表示无后缀，修改后无需重新构建。
+也可以在管理后台的“技术栈伪装”页面动态修改 Nginx 开关、PHP 版本号、API 路径后缀和页面路径后缀。站点配置保存在当前数据库的 `base_configs` 表中；后缀支持例如 `.php`、`.json`、`.html`，留空表示无后缀，修改后无需重新构建。
 
 PHP 版本仅接受数字版本格式（例如 `8.2.12`），留空则不发送 PHP 标识。`X-Powered-By: PHP/...` 只会出现在 `/api` 请求中，HTML 和 JS 静态资源不会添加该标识。

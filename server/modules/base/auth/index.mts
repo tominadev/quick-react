@@ -79,7 +79,7 @@ export const verifyPassword = async (password: string, encoded: string) => {
 	return difference === 0;
 };
 
-export const sessionCookieName = 'base_system_session';
+export const sessionCookieName = 'base_session';
 
 export const readSessionId = (request: Request) => {
 	const cookies = request.headers.get('cookie') ?? '';
@@ -99,7 +99,7 @@ export const clearSessionCookie = (secure: boolean) =>
 export const loadCurrentUser = async (database: DatabaseAdapter, request: Request) => {
 	const sessionId = readSessionId(request);
 	if (!sessionId) return undefined;
-	const row = await firstSql<{ id: number; username: string; roles: string }>(database, sql({ database }).select({ table: 'base_sessions', alias: 's', columns: { id: 'u.id', username: 'u.username', roles: 'u.roles' }, joins: [{ table: 'base_system_users', alias: 'u', left: 'u.id', right: 's.user_id' }], where: [{ column: 's.id', value: sessionId }, { column: 's.expires_at', operator: '>', value: Date.now() }, { column: 'u.status', value: 'enabled' }] }));
+	const row = await firstSql<{ id: number; username: string; roles: string }>(database, sql({ database }).select({ table: 'base_sessions', alias: 's', columns: { id: 'u.id', username: 'u.username', roles: 'u.roles' }, joins: [{ table: 'base_users', alias: 'u', left: 'u.id', right: 's.user_id' }], where: [{ column: 's.id', value: sessionId }, { column: 's.expires_at', operator: '>', value: Date.now() }, { column: 'u.status', value: 'enabled' }] }));
 	if (!row) return undefined;
 	let roles: string[] = [];
 	try {

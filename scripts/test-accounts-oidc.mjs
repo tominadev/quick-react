@@ -30,9 +30,9 @@ try {
 	const secretHash = Buffer.from(await sha256(clientSecret)).toString('hex'), challenge = base64Url(await sha256(verifier));
 	database.prepare(`INSERT INTO passport_oidc_clients (id, name, secret_hash, redirect_uris, allowed_scopes, require_pkce, status, created_at, updated_at, backchannel_logout_uri)
 		VALUES (?, 'Test Client', ?, '["https://client.test/callback","https://site1.test/api/accounts/oidc/callback"]', 'openid profile email', 1, 'enabled', ?, ?, 'https://site1.test/api/accounts/oidc/backchannel-logout')`).run(clientId, secretHash, now, now);
-	database.prepare(`INSERT INTO base_system_configs (key, value, updated_at) VALUES ('accounts-oidc-client', ?, ?)`).run(JSON.stringify({ enabled: true, issuer: 'https://accounts.test', clientId, clientSecret }), now);
-	database.prepare(`INSERT INTO base_system_users (id, username, password, roles, status, created_at, updated_at) VALUES (77, 'local_admin', 'unused', '["admin"]', 'enabled', ?, ?)`).run(now, now);
-	database.prepare(`INSERT INTO base_system_sessions (id, user_id, expires_at, created_at) VALUES ('local-session', 77, ?, ?)`).run(now + 3600_000, now);
+	database.prepare(`INSERT INTO base_configs (key, value, updated_at) VALUES ('accounts-oidc-client', ?, ?)`).run(JSON.stringify({ enabled: true, issuer: 'https://accounts.test', clientId, clientSecret }), now);
+	database.prepare(`INSERT INTO base_users (id, username, password, roles, status, created_at, updated_at) VALUES (77, 'local_admin', 'unused', '["admin"]', 'enabled', ?, ?)`).run(now, now);
+	database.prepare(`INSERT INTO base_sessions (id, user_id, expires_at, created_at) VALUES ('local-session', 77, ?, ?)`).run(now + 3600_000, now);
 	database.close();
 	const request = (path, options = {}) => app.request(`https://accounts.test${path}`, { method: options.method, headers: options.headers, body: options.body });
 	const discovery = await (await request('/.well-known/openid-configuration')).json();
@@ -87,7 +87,7 @@ try {
 	const selfAuthorized = await app.request(selfAuthorizeUrl, { headers: { cookie: `passport_session=${sessionId}` } });
 	const selfCallbackResponse = await app.request(selfAuthorized.headers.get('location'), { headers: { cookie: selfLoginCookie } });
 	assert.equal(selfCallbackResponse.status, 200);
-	const selfSessionCookie = selfCallbackResponse.headers.getSetCookie().find((item) => item.startsWith('base_system_session='))?.split(';')[0];
+	const selfSessionCookie = selfCallbackResponse.headers.getSetCookie().find((item) => item.startsWith('base_session='))?.split(';')[0];
 	assert.ok(selfSessionCookie);
 	const signedInPassport = await (await request('/api/sign.php', { headers: { cookie: selfSessionCookie } })).json();
 	assert.equal(signedInPassport.user.username, 'oidcuser1');
@@ -119,14 +119,14 @@ try {
 	assert.deepEqual(businessInitial.pageStatus.actions.map((action) => [action.label, action.action]), [['登录', 'accounts-login'], ['返回首页', 'navigate']]);
 	const businessSign = await (await app.request('https://site1.test/api/sign.php')).json();
 	assert.equal(businessSign.formPage.fields[0].name, 'action');
-	const enabledLocalSession = await (await app.request('https://site1.test/api/sign.php', { headers: { cookie: 'base_system_session=local-session' } })).json();
+	const enabledLocalSession = await (await app.request('https://site1.test/api/sign.php', { headers: { cookie: 'base_session=local-session' } })).json();
 	assert.equal(enabledLocalSession.user, null);
 	const modeDatabase = new DatabaseSync(process.env.DEFAULT_DATABASE_FILE);
-	modeDatabase.prepare(`UPDATE base_system_configs SET value = ? WHERE key = 'accounts-oidc-client'`).run(JSON.stringify({ enabled: false, issuer: 'https://accounts.test', clientId, clientSecret }));
-	const disabledLocalSession = await (await app.request('https://site1.test/api/sign.php', { headers: { cookie: 'base_system_session=local-session' } })).json();
+	modeDatabase.prepare(`UPDATE base_configs SET value = ? WHERE key = 'accounts-oidc-client'`).run(JSON.stringify({ enabled: false, issuer: 'https://accounts.test', clientId, clientSecret }));
+	const disabledLocalSession = await (await app.request('https://site1.test/api/sign.php', { headers: { cookie: 'base_session=local-session' } })).json();
 	assert.equal(disabledLocalSession.user.username, 'local_admin');
 	assert.equal(disabledLocalSession.formPage.fields[0].name, 'username');
-	modeDatabase.prepare(`UPDATE base_system_configs SET value = ? WHERE key = 'accounts-oidc-client'`).run(JSON.stringify({ enabled: true, issuer: 'https://accounts.test', clientId, clientSecret }));
+	modeDatabase.prepare(`UPDATE base_configs SET value = ? WHERE key = 'accounts-oidc-client'`).run(JSON.stringify({ enabled: true, issuer: 'https://accounts.test', clientId, clientSecret }));
 	modeDatabase.close();
 	// 业务站点不允许自动跳转到 Accounts，必须由用户点击按钮确认。
 	// 只保留弹窗登录：既不自动跳转，也不整页跳走。
@@ -144,7 +144,7 @@ try {
 	assert.match(popupBody, /postMessage/);
 	assert.match(popupBody, /next:\{action:'reload'\}/);
 	assert.equal(popupBody.includes('/accounts/oidc/popup'), false);
-	const businessSessionCookie = businessCallbackResponse.headers.getSetCookie().find((item) => item.startsWith('base_system_session='))?.split(';')[0];
+	const businessSessionCookie = businessCallbackResponse.headers.getSetCookie().find((item) => item.startsWith('base_session='))?.split(';')[0];
 	assert.ok(businessSessionCookie);
 	assert.equal(businessSessionCookie, selfSessionCookie);
 	const signedInBusiness = await (await app.request('https://site1.test/api/sign.php', { headers: { cookie: businessSessionCookie } })).json();
@@ -153,7 +153,7 @@ try {
 	assert.equal(signedInBusiness.user.username, 'oidcuser1');
 	assert.deepEqual(signedInBusiness.formPage.passportLogin, { enabled: true });
 	const businessUsers = new DatabaseSync(process.env.DEFAULT_DATABASE_FILE, { readOnly: true });
-	assert.equal(businessUsers.prepare("SELECT COUNT(*) AS count FROM base_system_users WHERE username LIKE 'passport\\_%' ESCAPE '\\'").get().count, 0);
+	assert.equal(businessUsers.prepare("SELECT COUNT(*) AS count FROM base_users WHERE username LIKE 'passport\\_%' ESCAPE '\\'").get().count, 0);
 	businessUsers.close();
 	const completed = new DatabaseSync(process.env.DEFAULT_DATABASE_FILE, { readOnly: true });
 	assert.equal(completed.prepare('SELECT COUNT(*) AS count FROM base_oidc_accounts').get().count, 1); completed.close();

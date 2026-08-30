@@ -31,7 +31,7 @@ try {
 	database.prepare(`INSERT INTO global_sites (site_key, name, base_site_key, dsn, status, migration_status, is_default, is_system)
 		VALUES ('business', 'Business', 'base', '', 'enabled', 'ready', 0, 0)`).run();
 	database.prepare(`INSERT INTO global_site_hosts (hostname, site_key, status, created_at) VALUES (?, 'business', 'enabled', ?)`).run('business.test', now);
-	database.prepare(`INSERT INTO base_system_configs (key, value, updated_at) VALUES ('accounts-oidc-client', ?, ?)`).run(JSON.stringify({ enabled: true, issuer: 'https://passport.test', clientId: 'shared-client', clientSecret: 'shared-secret' }), now);
+	database.prepare(`INSERT INTO base_configs (key, value, updated_at) VALUES ('accounts-oidc-client', ?, ?)`).run(JSON.stringify({ enabled: true, issuer: 'https://passport.test', clientId: 'shared-client', clientSecret: 'shared-secret' }), now);
 	database.prepare(`INSERT INTO global_telegram_bots
 		(id, name, bot_token, bot_username, secret_token, webhook_hostname, status, created_at, updated_at)
 		VALUES (1, 'login-bot', '1:test-token', 'passport_login_bot', 'login-secret', 'passport.test', 'enabled', ?, ?)`).run(now, now);
@@ -68,7 +68,7 @@ try {
 
 	// 和其它站点同一个开关：关掉账号登录就回到本站账号密码登录，重新开启又变回账号登录。
 	const switchDatabase = new DatabaseSync(process.env.DEFAULT_DATABASE_FILE);
-	const writeAccountsLogin = (enabled) => switchDatabase.prepare('INSERT INTO base_system_configs (key, value, updated_at) VALUES (?, ?, ?) ON CONFLICT(key) DO UPDATE SET value = excluded.value')
+	const writeAccountsLogin = (enabled) => switchDatabase.prepare('INSERT INTO base_configs (key, value, updated_at) VALUES (?, ?, ?) ON CONFLICT(key) DO UPDATE SET value = excluded.value')
 		.run('accounts-oidc-client', JSON.stringify({ enabled, issuer: 'https://passport.test', clientId: 'shared-client', clientSecret: 'shared-secret' }), Date.now());
 	writeAccountsLogin(false);
 	for (const host of ['passport.test', 'global.test', 'business.test']) {
@@ -128,14 +128,14 @@ try {
 	assert.equal((await request('/api/sign.php?logout=local', { method: 'DELETE', cookie: passportCookie })).status, 200);
 	assert.equal((await (await request('/api/accounts/sign.php', { cookie: passportCookie })).json()).user.id, userId);
 	const localSessionDatabase = new DatabaseSync(process.env.DEFAULT_DATABASE_FILE);
-	localSessionDatabase.prepare("INSERT INTO base_system_users (id, username, password, roles, status, created_at, updated_at) VALUES (99, 'local_user', '!local', '[]', 'enabled', ?, ?)").run(Date.now(), Date.now());
-	localSessionDatabase.prepare("INSERT INTO base_system_sessions (id, user_id, expires_at, created_at) VALUES ('local-passport-session', 99, ?, ?)").run(Date.now() + 3600000, Date.now());
+	localSessionDatabase.prepare("INSERT INTO base_users (id, username, password, roles, status, created_at, updated_at) VALUES (99, 'local_user', '!local', '[]', 'enabled', ?, ?)").run(Date.now(), Date.now());
+	localSessionDatabase.prepare("INSERT INTO base_sessions (id, user_id, expires_at, created_at) VALUES ('local-passport-session', 99, ?, ?)").run(Date.now() + 3600000, Date.now());
 	localSessionDatabase.close();
 	const accountsLogout = await request('/api/accounts/sign.php', { method: 'DELETE', cookie: passportCookie });
 	assert.equal(accountsLogout.status, 200);
 	assert.deepEqual((await accountsLogout.json()).next, { action: 'reload' });
 	const completedDatabase = new DatabaseSync(process.env.DEFAULT_DATABASE_FILE, { readOnly: true });
-	assert.equal(completedDatabase.prepare("SELECT COUNT(*) AS count FROM base_system_sessions WHERE id = 'local-passport-session'").get().count, 1, '退出 Accounts 不应删除本站会话');
+	assert.equal(completedDatabase.prepare("SELECT COUNT(*) AS count FROM base_sessions WHERE id = 'local-passport-session'").get().count, 1, '退出 Accounts 不应删除本站会话');
 	assert.equal(completedDatabase.prepare(`SELECT status FROM passport_login_challenges WHERE id = ?`).get(challengeId).status, 'consumed');
 	assert.equal(completedDatabase.prepare(`SELECT COUNT(*) AS count FROM passport_sessions`).get().count, 0);
 	completedDatabase.close();

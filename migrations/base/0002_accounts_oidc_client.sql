@@ -17,7 +17,7 @@ CREATE TABLE IF NOT EXISTS base_oidc_accounts (
 	created_at INTEGER NOT NULL,
 	updated_at INTEGER NOT NULL,
 	PRIMARY KEY (issuer, subject),
-	FOREIGN KEY (user_id) REFERENCES base_system_users(id) ON DELETE CASCADE
+	FOREIGN KEY (user_id) REFERENCES base_users(id) ON DELETE CASCADE
 );
 
 CREATE INDEX IF NOT EXISTS base_oidc_accounts_user ON base_oidc_accounts(user_id);

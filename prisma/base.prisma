@@ -3,12 +3,12 @@ datasource db {
   url      = env("DATABASE_URL")
 }
 
-model base_system_users {
+model base_users {
   id            Int    @id @default(autoincrement())
   created_at    Int
   updated_at    Int
-  created_duid   BigInt @default(0)
-  updated_duid   BigInt @default(0)
+  created_duid BigInt?
+  updated_duid BigInt?
   username      String @unique
   password      String
   roles         String @default("[]")
@@ -19,27 +19,27 @@ model base_sessions {
   id         String @id
   created_at Int
   updated_at Int @default(0)
-  created_duid BigInt @default(0)
-  updated_duid BigInt @default(0)
+  created_duid BigInt?
+  updated_duid BigInt?
   user_id    Int
   expires_at Int
 }
 
-model base_system_configs {
+model base_configs {
   key        String @id
   created_at Int @default(0)
   updated_at Int
-  created_duid BigInt @default(0)
-  updated_duid BigInt @default(0)
+  created_duid BigInt?
+  updated_duid BigInt?
   value      String
 }
 
-model base_system_bootstrap {
+model base_bootstrap {
   key   String @id
   created_at Int @default(0)
   updated_at Int @default(0)
-  created_duid BigInt @default(0)
-  updated_duid BigInt @default(0)
+  created_duid BigInt?
+  updated_duid BigInt?
   value String
 }
 

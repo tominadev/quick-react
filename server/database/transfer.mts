@@ -10,7 +10,7 @@ export const portableTableGroups = {
 		'global_cloud_email_template_publications',
 	],
 	base: [
-		'base_system_users', 'base_sessions', 'base_system_configs', 'base_system_bootstrap',
+		'base_users', 'base_sessions', 'base_configs', 'base_bootstrap',
 		'base_oidc_login_requests', 'base_oidc_accounts', 'base_oidc_sessions',
 	],
 	passport: [
@@ -31,7 +31,7 @@ export type TransferProgress = { table: string; rows: number };
 
 const seedRows = new Map<string, { column: string; value: string }>([
 	['global_sites', { column: 'site_key', value: 'global' }],
-	['base_system_bootstrap', { column: 'key', value: 'initial_admin' }],
+	['base_bootstrap', { column: 'key', value: 'initial_admin' }],
 ]);
 
 const targetMustBeEmpty = async (target: DatabaseAdapter, tables: string[]) => {

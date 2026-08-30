@@ -169,7 +169,7 @@ base/api/panel/admin.mts
 site2 -> site1 -> base
 ```
 
-每个业务表固定归属其声明代码级站点，继承不会把该表重映射为子站点前缀。例如，登录能力和 `base_system_users` 由 `base` 声明；`site1` 继承登录 API 时，仍通过 `base` 的 Repository 与 `base_*` 表执行。`site2` 继承 `site1` 的 API 时，`site1` 声明的表仍为 `site1_*`。因此，共享数据库中的继承站点会共享其父站点声明表中的业务数据；需要独立业务数据时，应在子站点声明自己的 `site2_*` 表和覆盖 API，而不是依赖自动改写表前缀。
+每个业务表固定归属其声明代码级站点，继承不会把该表重映射为子站点前缀。例如，登录能力和 `base_users` 由 `base` 声明；`site1` 继承登录 API 时，仍通过 `base` 的 Repository 与 `base_*` 表执行。`site2` 继承 `site1` 的 API 时，`site1` 声明的表仍为 `site1_*`。因此，共享数据库中的继承站点会共享其父站点声明表中的业务数据；需要独立业务数据时，应在子站点声明自己的 `site2_*` 表和覆盖 API，而不是依赖自动改写表前缀。
 
 构建阶段必须检查父站点存在、继承链无循环且不超过最大深度。数据库中新建或修改站点时也必须执行同样的校验。
 
@@ -343,14 +343,14 @@ Node 模式默认只有一个共享数据库，站点通过表前缀隔离：
 
 ```text
 database/default.sqlite
-base_system_users
+base_users
 base_sessions
 site1_orders
 ```
 
 如果未来支持 MySQL 或 PostgreSQL，`dsn` 保存不含密码的连接地址，`dsn_password` 单独保存密码。`dsn` 为空时自动使用 `sqlite://database/default.sqlite`。后台接口不返回真实密码，日志中的 DSN 也必须脱敏。任意 DSN 只允许 Node 运行时连接；Worker 不读取或使用它。
 
-`dsn` 为空时使用默认的 `sqlite://database/default.sqlite`；自定义 DSN 只影响当前站点的数据库连接。自定义数据库中仍需应用该站点继承链对应的 `base_*` 和站点专属 migration。独立数据库中的 `base_system_users`、会话和角色只在该库内有效，不与默认共享数据库或其他独立数据库共享。
+`dsn` 为空时使用默认的 `sqlite://database/default.sqlite`；自定义 DSN 只影响当前站点的数据库连接。自定义数据库中仍需应用该站点继承链对应的 `base_*` 和站点专属 migration。独立数据库中的 `base_users`、会话和角色只在该库内有效，不与默认共享数据库或其他独立数据库共享。
 
 `dsn` 与 `database_binding` 互斥。修改任一数据库目标时，站点必须自动切换为 `disabled + creating`，重新完成目标数据库 migration 后才能启用。
 
@@ -395,7 +395,7 @@ database/default.sqlite
 
 ```text
 global_sites / global_site_hosts
-base_system_users / base_sessions / base_system_configs
+base_users / base_sessions / base_configs
 site1_orders / site1_configs
 site2_orders / site2_configs
 ```
@@ -428,12 +428,12 @@ global_site_hosts
 `base.prisma` 定义所有继承站点共用的通行证基础表，模型名直接使用数据库表名，并且只在目标数据库中生成一份：
 
 ```text
-base_system_users
+base_users
 base_sessions
-base_system_configs
+base_configs
 ```
 
-因此 `global`、`site1` 和 `site2` 都使用 `base_system_users` 完成登录和通行证身份识别，不生成 `site1_users`、`site2_users` 或 `global_users`。如果某个站点需要扩展用户资料，应新增 `site1_user_profiles` 之类的站点表，通过 `user_id` 关联 `base_system_users`。
+因此 `global`、`site1` 和 `site2` 都使用 `base_users` 完成登录和通行证身份识别，不生成 `site1_users`、`site2_users` 或 `global_users`。如果某个站点需要扩展用户资料，应新增 `site1_user_profiles` 之类的站点表，通过 `user_id` 关联 `base_users`。
 
 ### Prisma schema 命名校验
 
@@ -445,7 +445,7 @@ base.prisma    -> 所有 Model 以 base_ 开头，表名就是模型名
 site1.prisma   -> 所有 Model 以 site1_ 开头，表名就是模型名
 ```
 
-例如 `site1.prisma` 只能定义 `model site1_orders`、`model site1_products` 等模型，模型名就是实际表名。站点 schema 只定义当前站点新增的业务表，不重复定义继承来的 `base_system_users`、`base_sessions` 等模型。
+例如 `site1.prisma` 只能定义 `model site1_orders`、`model site1_products` 等模型，模型名就是实际表名。站点 schema 只定义当前站点新增的业务表，不重复定义继承来的 `base_users`、`base_sessions` 等模型。
 
 在默认共享数据库中，`global.prisma`、`base.prisma` 和所有启用站点的 schema 可以共同生成到 `default.sqlite`；在独立 DSN 数据库中，则按该站点的继承链生成 `base.prisma`、父站点 schema 和当前站点 schema。无论采用哪种模式，`base_*` 表都只在目标数据库中生成一份。
 
@@ -457,7 +457,7 @@ model global_sites {
   site_key String @unique
 }
 
-model base_system_users {
+model base_users {
   id Int @id @default(autoincrement())
 }
 ```
@@ -493,7 +493,7 @@ Prisma 仅作为开发期工具使用，生成或检查 migration；运行时使
 }
 ```
 
-用户身份和额外角色均保存在 `base_system_users` 中，例如 `roles` JSON 字段保存 `['admin']`。角色不按站点区分：在同一数据库内，用户的额外角色对所有继承站点生效。角色名称由后端代码约定，导航生成时根据当前用户的角色过滤菜单。
+用户身份和额外角色均保存在 `base_users` 中，例如 `roles` JSON 字段保存 `['admin']`。角色不按站点区分：在同一数据库内，用户的额外角色对所有继承站点生效。角色名称由后端代码约定，导航生成时根据当前用户的角色过滤菜单。
 
 角色分为三类：
 
@@ -554,7 +554,7 @@ default.sqlite
   + site2 migration（生成 site2_*）
 ```
 
-站点继承只继承表结构和代码能力，不复制业务数据。`site2 -> site1 -> base` 时，独立数据库按完整继承链执行 migration；共享 `default.sqlite` 已经存在父站点表时，只执行缺失的 migration，不能重复创建 `base_*` 或 `site1_*`。当前站点始终只生成自己的 `site2_*` 表，`base_system_users` 等通行证表始终只有一份。
+站点继承只继承表结构和代码能力，不复制业务数据。`site2 -> site1 -> base` 时，独立数据库按完整继承链执行 migration；共享 `default.sqlite` 已经存在父站点表时，只执行缺失的 migration，不能重复创建 `base_*` 或 `site1_*`。当前站点始终只生成自己的 `site2_*` 表，`base_users` 等通行证表始终只有一份。
 
 因此迁移规划器需要根据目标数据库已有的 migration 记录和表前缀，区分以下两种情况：
 
@@ -618,7 +618,7 @@ Prisma 生成的 SQL 需要检查 D1 兼容性，必要时手动调整后再部�
 - 通配符 Host 只能匹配一层子域名。
 - 未匹配 Host 时，存在启用默认站点则回退；否则返回 404。
 - Host 路由快照最大刷新间隔为 30 秒，普通请求不查询数据库。
-- 只实现角色级访问控制，不增加权限表、站点成员关系或细粒度权限管理；`base_system_users` 中的额外角色在同一数据库内对所有继承站点生效，受保护 API 必须独立进行角色校验。
+- 只实现角色级访问控制，不增加权限表、站点成员关系或细粒度权限管理；`base_users` 中的额外角色在同一数据库内对所有继承站点生效，受保护 API 必须独立进行角色校验。
 - `database/` 是纯运行时目录，必须完全忽略 Git。
 - Prisma schema 只用于模型定义、校验和 migration，不进入 Worker runtime。
 - 不支持不同站点长期运行不同 schema 版本。同一发布版本下，所有可路由的共享库和独立库必须满足该版本要求的 migration 基线；独立库迁移完成前保持不可路由。
