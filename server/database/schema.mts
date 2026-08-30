@@ -59,7 +59,8 @@ export const requiredColumns = async (database: DatabaseAdapter, tableName: stri
 	const cached = cache.get(tableName);
 	if (cached) return cached;
 	const columns = await listColumns(database, tableName);
-	const required = columns.filter((column) => column.notnull && !column.pk && (column.defaultValue === undefined || column.defaultValue === null || column.defaultValue === '')).map((column) => column.name);
+	const managed = new Set(['created_at', 'updated_at']);
+	const required = columns.filter((column) => column.notnull && !column.pk && !managed.has(column.name) && (column.defaultValue === undefined || column.defaultValue === null || column.defaultValue === '')).map((column) => column.name);
 	cache.set(tableName, required);
 	return required;
 };
