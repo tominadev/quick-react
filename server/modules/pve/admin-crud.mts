@@ -18,8 +18,7 @@ export const pveCrud = (config: Config): ApiHandler => async (c, next, params) =
 		const rawRows = await allSql<Record<string, unknown>>(database, sql(database).select({ table: config.table, orderBy: [{ column: config.key }] }));
 		const rows = rawRows.map(normalizeStatus);
 		const required = new Set(await requiredColumns(database, config.table));
-		const columnsWithRules = config.columns.map((column) => required.has(String(column.dataIndex)) && !column.rules ? { ...column, rules: [{ required: true, message: `请输入${String(column.title ?? column.dataIndex)}` }] } : column);
-		const preparedColumns = config.prepareColumns ? await config.prepareColumns(database) : columnsWithRules;
+		const preparedColumns = config.prepareColumns ? await config.prepareColumns(database) : config.columns;
 		const columns = preparedColumns.map((column) => required.has(String(column.dataIndex)) && !column.rules ? { ...column, rules: [{ required: true, message: `请输入${String(column.title ?? column.dataIndex)}` }] } : column);
 		return apiResponse(c, 200, { table: { option: { rowKey: config.key, actions: { toolbar: [{ key: 'create', label: '新增' }], row: [{ key: 'edit', label: '编辑' }] } }, columns, dataSource: rows, totalRecords: rows.length } });
 	}
