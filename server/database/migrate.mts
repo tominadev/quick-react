@@ -6,7 +6,11 @@ import { firstSql, runSql, sql } from './sql.mjs';
 const ensureMigrationTable = async (database: DatabaseAdapter) => {
 	const keyType = database.dialect === 'mysql' ? 'VARCHAR(512)' : 'TEXT';
 	const numberType = database.dialect === 'sqlite' || !database.dialect ? 'INTEGER' : 'BIGINT';
-	await database.exec?.(`CREATE TABLE IF NOT EXISTS global_schema_migrations (migration_key ${keyType} PRIMARY KEY NOT NULL, applied_at ${numberType} NOT NULL)`);
+	await database.exec?.(`CREATE TABLE IF NOT EXISTS global_schema_migrations (migration_key ${keyType} PRIMARY KEY NOT NULL, applied_at ${numberType} NOT NULL, created_at ${numberType} NOT NULL DEFAULT 0, updated_at ${numberType} NOT NULL DEFAULT 0)`);
+	// Older installations only have migration_key/applied_at. Add the centrally managed timestamp columns before recording migrations.
+	for (const column of ['created_at', 'updated_at']) {
+		try { await database.exec?.(`ALTER TABLE global_schema_migrations ADD COLUMN ${column} ${numberType} NOT NULL DEFAULT 0`); } catch { /* column already exists */ }
+	}
 };
 
 export const migrateDatabase = async (database: DatabaseAdapter, migrationsRoot: string, migrationGroups: string[]) => {
