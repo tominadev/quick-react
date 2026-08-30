@@ -1,4 +1,4 @@
-CREATE TABLE IF NOT EXISTS passport_devices (
+CREATE TABLE IF NOT EXISTS base_devices (
 	id VARCHAR(128) PRIMARY KEY,
 	user_id BIGINT NOT NULL REFERENCES passport_users(user_id) ON DELETE RESTRICT,
 	fingerprint VARCHAR(128) NOT NULL,
@@ -11,7 +11,7 @@ CREATE TABLE IF NOT EXISTS passport_devices (
 	revoked_at BIGINT,
 	UNIQUE (fingerprint)
 );
-CREATE INDEX IF NOT EXISTS passport_devices_user_id ON passport_devices(user_id);
-CREATE INDEX IF NOT EXISTS passport_devices_status ON passport_devices(status);
+CREATE INDEX IF NOT EXISTS base_devices_user_id ON base_devices(user_id);
+CREATE INDEX IF NOT EXISTS base_devices_status ON base_devices(status);
 ALTER TABLE passport_sessions ADD COLUMN device_id VARCHAR(128);
 CREATE INDEX IF NOT EXISTS passport_sessions_device_id ON passport_sessions(device_id);

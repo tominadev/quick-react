@@ -27,15 +27,15 @@ export const readDeviceFingerprint = (request: Request) => {
 export const ensurePassportDevice = async (database: DatabaseAdapter, userId: string, request: Request) => {
 	const fingerprint = readDeviceFingerprint(request);
 	const id = fingerprint, now = Date.now();
-	const existing = await firstSql<{ id: string; status: string }>(database, sql({ database }).select({ table: 'passport_devices', columns: { id: 'id', status: 'status' }, where: [{ column: 'id', value: fingerprint }] }));
+	const existing = await firstSql<{ id: string; status: string }>(database, sql({ database }).select({ table: 'base_devices', columns: { id: 'id', status: 'status' }, where: [{ column: 'id', value: fingerprint }] }));
 	if (existing) {
-		await runSql(database, sql({ database }).update('passport_devices', { last_seen_at: now, user_agent: request.headers.get('user-agent') ?? '', platform: request.headers.get('sec-ch-ua-platform') ?? '', ip_address: request.headers.get('x-real-ip') ?? request.headers.get('x-forwarded-for')?.split(',')[0]?.trim() ?? '' }, { id: existing.id }));
+		await runSql(database, sql({ database }).update('base_devices', { last_seen_at: now, user_agent: request.headers.get('user-agent') ?? '', platform: request.headers.get('sec-ch-ua-platform') ?? '', ip_address: request.headers.get('x-real-ip') ?? request.headers.get('x-forwarded-for')?.split(',')[0]?.trim() ?? '' }, { id: existing.id }));
 	} else {
-		await runSql(database, sql({ database }).insert('passport_devices', { id, user_id: userId, fingerprint, user_agent: request.headers.get('user-agent') ?? '', platform: request.headers.get('sec-ch-ua-platform') ?? '', ip_address: request.headers.get('x-real-ip') ?? request.headers.get('x-forwarded-for')?.split(',')[0]?.trim() ?? '', status: 'active', last_seen_at: now }));
+		await runSql(database, sql({ database }).insert('base_devices', { id, user_id: userId, fingerprint, user_agent: request.headers.get('user-agent') ?? '', platform: request.headers.get('sec-ch-ua-platform') ?? '', ip_address: request.headers.get('x-real-ip') ?? request.headers.get('x-forwarded-for')?.split(',')[0]?.trim() ?? '', status: 'active', last_seen_at: now }));
 	}
-	const binding = await firstSql<{ device_id: string; status: string }>(database, sql({ database }).select({ table: 'passport_device_users', columns: { device_id: 'device_id', status: 'status' }, where: [{ column: 'device_id', value: id }, { column: 'user_id', value: userId }] }));
-	if (binding) await runSql(database, sql({ database }).update('passport_device_users', { status: 'active', revoked_at: null, last_seen_at: now }, { device_id: id, user_id: userId }));
-	else await runSql(database, sql({ database }).insert('passport_device_users', { device_id: id, user_id: userId, status: 'active', last_seen_at: now }));
+	const binding = await firstSql<{ device_id: string; status: string }>(database, sql({ database }).select({ table: 'base_device_users', columns: { device_id: 'device_id', status: 'status' }, where: [{ column: 'device_id', value: id }, { column: 'user_id', value: userId }] }));
+	if (binding) await runSql(database, sql({ database }).update('base_device_users', { status: 'active', revoked_at: null, last_seen_at: now }, { device_id: id, user_id: userId }));
+	else await runSql(database, sql({ database }).insert('base_device_users', { device_id: id, user_id: userId, status: 'active', last_seen_at: now }));
 	return id;
 };
 
@@ -61,12 +61,12 @@ export const loadPassportSession = async (database: DatabaseAdapter, request: Re
 		await runSql(database, sql({ database }).delete('passport_sessions', { id: sessionId }));
 		return undefined;
 	}
-	const binding = await firstSql<{ status: string }>(database, sql({ database }).select({ table: 'passport_device_users', columns: { status: 'status' }, where: [{ column: 'device_id', value: user.device_id }, { column: 'user_id', value: user.user_id }] }));
+	const binding = await firstSql<{ status: string }>(database, sql({ database }).select({ table: 'base_device_users', columns: { status: 'status' }, where: [{ column: 'device_id', value: user.device_id }, { column: 'user_id', value: user.user_id }] }));
 	if (!binding || binding.status !== 'active') {
 		await runSql(database, sql({ database }).delete('passport_sessions', { id: sessionId }));
 		return undefined;
 	}
-	const device = await firstSql<{ fingerprint: string; status: string }>(database, sql({ database }).select({ table: 'passport_devices', columns: { fingerprint: 'fingerprint', status: 'status' }, where: [{ column: 'id', value: user.device_id }] }));
+	const device = await firstSql<{ fingerprint: string; status: string }>(database, sql({ database }).select({ table: 'base_devices', columns: { fingerprint: 'fingerprint', status: 'status' }, where: [{ column: 'id', value: user.device_id }] }));
 	if (!device || device.status !== 'active' || device.fingerprint !== fingerprint) {
 		await runSql(database, sql({ database }).delete('passport_sessions', { id: sessionId }));
 		return undefined;

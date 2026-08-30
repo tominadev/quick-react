@@ -20,9 +20,9 @@ const handler: ApiHandler = async (c, next, params) => {
 		const currentSessionId = readPassportSessionId(c.req.raw);
 		const current = currentSessionId ? await firstSql<{ device_id: string | null }>(database, sql({ database }).select({ table: 'passport_sessions', columns: { device_id: 'device_id' }, where: [{ column: 'id', value: currentSessionId }, { column: 'user_id', value: userId }] })) : undefined;
 		const devices = await allSql<any>(database, sql({ database }).select({
-			table: 'passport_devices', alias: 'd',
+			table: 'base_devices', alias: 'd',
 			columns: { id: 'd.id', device: 'd.user_agent', platform: 'd.platform', ip_address: 'd.ip_address', status: 'du.status', created_at: 'du.created_at', last_seen_at: 'du.last_seen_at', current: 'd.id' },
-			joins: [{ table: 'passport_device_users', alias: 'du', left: 'd.id', right: 'du.device_id' }],
+			joins: [{ table: 'base_device_users', alias: 'du', left: 'd.id', right: 'du.device_id' }],
 			where: [{ column: 'du.user_id', value: userId }], orderBy: [{ column: 'du.last_seen_at', direction: 'DESC' }],
 		}));
 		return apiResponse(c, 200, { table: { option: { rowKey: 'id', actions: { row: [{ key: 'delete', label: '注销设备', confirm: '注销后该设备上的 Accounts 会话将立即失效，确认注销？' }] } }, columns, dataSource: devices.map((device) => ({ ...device, device: `${device.device || '未知浏览器'}${device.id === current?.device_id ? '（当前设备）' : ''}`, status: device.status === 'active' ? '正常' : '已注销' })), totalRecords: devices.length } });
@@ -32,9 +32,9 @@ const handler: ApiHandler = async (c, next, params) => {
 		const ids = Array.isArray(raw) ? raw.map(String) : [String(raw)];
 		if (!ids.length || ids.some((id) => !id)) return apiMessage(c, 400, '请选择要注销的设备');
 		for (const id of ids) {
-			const device = await firstSql<{ id: string }>(database, sql({ database }).select({ table: 'passport_device_users', columns: { id: { column: 'device_id', cast: 'text' } }, where: [{ column: 'device_id', value: id }, { column: 'user_id', value: userId }, { column: 'status', value: 'active' }] }));
+			const device = await firstSql<{ id: string }>(database, sql({ database }).select({ table: 'base_device_users', columns: { id: { column: 'device_id', cast: 'text' } }, where: [{ column: 'device_id', value: id }, { column: 'user_id', value: userId }, { column: 'status', value: 'active' }] }));
 			if (!device) return apiMessage(c, 404, '设备不存在或已经注销');
-			await runSql(database, sql({ database }).update('passport_device_users', { status: 'revoked', revoked_at: Date.now() }, { device_id: device.id, user_id: userId }));
+			await runSql(database, sql({ database }).update('base_device_users', { status: 'revoked', revoked_at: Date.now() }, { device_id: device.id, user_id: userId }));
 			await runSql(database, sql({ database }).delete('passport_sessions', { device_id: device.id, user_id: userId }));
 		}
 		return apiMessage(c, 200, '设备已注销');
