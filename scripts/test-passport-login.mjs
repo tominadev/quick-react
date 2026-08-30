@@ -70,7 +70,7 @@ try {
 
 	// 和其它站点同一个开关：关掉账号登录就回到本站账号密码登录，重新开启又变回账号登录。
 	const switchDatabase = new DatabaseSync(process.env.DEFAULT_DATABASE_FILE);
-	const writeAccountsLogin = (enabled) => switchDatabase.prepare('INSERT INTO base_configs (created_at, updated_at, key, value) VALUES (?, ?, ?, ?) ON CONFLICT(key) DO UPDATE SET value = excluded.value, updated_at = excluded.updated_at')
+	const writeAccountsLogin = (enabled) => switchDatabase.prepare('INSERT INTO base_configs (created_at, updated_at, key, value) VALUES (?, ?, ?, ?) ON CONFLICT(key, deleted_at) DO UPDATE SET value = excluded.value, updated_at = excluded.updated_at')
 		.run(Date.now(), Date.now(), 'accounts-oidc-client', JSON.stringify({ enabled, issuer: 'https://passport.test', clientId: 'shared-client', clientSecret: 'shared-secret' }));
 	writeAccountsLogin(false);
 	for (const host of ['passport.test', 'global.test', 'business.test']) {

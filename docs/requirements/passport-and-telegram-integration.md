@@ -118,7 +118,7 @@ site_members
 
 以下结构用于替代旧 CouchDB 的索引文档。所有数据库中的身份 ID、Telegram ID、Chat ID 和时间字段使用 64 位整数类型：SQLite 使用 `INTEGER`，MySQL 和 PostgreSQL 使用 `BIGINT`。Node 内部使用 `bigint` 或字符串，API JSON 始终使用字符串，禁止转换为 JavaScript `number`。
 
-Passport 身份主体和关联键统一使用 `NOT NULL`；不使用空字符串表达未设置。除 Base 设备三张来源表外，所有业务表字段顺序固定为 `id BIGINT` 自增主键、`created_at BIGINT`、`updated_at BIGINT`、可空 `created_duid BIGINT`、可空 `updated_duid BIGINT`。原业务标识（令牌、挑战号、客户端号、provider 等）保留字符串类型并建立唯一约束，不再占用主键。可选能力优先使用独立关联表，生命周期中的 `consumed_at`、`revoked_at` 等“事件尚未发生”时间允许使用 `NULL`。字符串字段必须在写入前得到有效值，枚举字段必须使用明确的状态值。
+Passport 身份主体和关联键统一使用 `NOT NULL`；不使用空字符串表达未设置。所有业务表（包括 Base 设备来源表）字段顺序固定为 `id BIGINT` 自增主键、`created_at BIGINT`、`updated_at BIGINT`、`deleted_at BIGINT DEFAULT 0`、可空 `created_duid BIGINT`、可空 `updated_duid BIGINT`。正常查询默认过滤 `deleted_at = 0`，回收站查询必须显式请求已删除范围。原业务标识（令牌、挑战号、客户端号、provider 等）保留字符串类型并建立唯一约束，不再占用主键。可选能力优先使用独立关联表，生命周期中的 `consumed_at`、`revoked_at` 等“事件尚未发生”时间允许使用 `NULL`。字符串字段必须在写入前得到有效值，枚举字段必须使用明确的状态值。
 
 ```text
 passport_users

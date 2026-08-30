@@ -127,6 +127,8 @@ Passport 是统一身份中心，并维护自己的 Passport 设备、`passport_
 
 PostgreSQL 是设备关系、会话和撤销状态的权威存储，依靠事务、唯一索引和外键保证一致性。Redis 等缓存只保存可重建的会话或撤销加速数据，事件总线（Redis Streams、NATS 或 Kafka）负责跨站点传播登录、注销和风险变更；CouchDB 或对象存储仅用于长期审计历史与事件归档，不作为当前会话的唯一事实来源。业务 API 通过统一数据库上下文获取 `duid`，不得在各业务表重复实现设备解析。
 
+所有 Prisma 业务表统一包含 `deleted_at` 软删除字段，SQL 公共层的 `select` 和 `count` 默认只返回 `deleted_at = 0` 的记录。固定系统字段 `id`、`created_at`、`updated_at`、`deleted_at`、`created_duid`、`updated_duid` 由公共层统一维护，后台和用户表单只能展示，禁止业务写入。回收站查询必须显式使用 `deleted: 'deleted'`，全量迁移或审计读取使用 `deleted: 'all'`；业务代码不得通过手写条件绕过默认删除范围。
+
 ## 安全策略定位
 
 本框架默认以最大化技术自由度为目标，而不是封闭式 SaaS。默认实现保留底层数据库、站点继承、调试、迁移和运行时适配能力；安全边界通过角色、配置和目录级 API 中间件表达，不把所有高级能力强行隐藏。

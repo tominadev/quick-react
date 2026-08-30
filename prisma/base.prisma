@@ -17,9 +17,11 @@ model base_users {
   id            BigInt @id @default(autoincrement())
   created_at    BigInt
   updated_at    BigInt
+  deleted_at BigInt @default(0)
   created_duid BigInt?
   updated_duid BigInt?
-  username      String @unique
+  username      String
+  @@unique([username, deleted_at])
   password      String
   roles         String[] @default([])
   status        BaseUserStatus @default(enabled)
@@ -29,9 +31,11 @@ model base_sessions {
   id         BigInt @id @default(autoincrement())
   created_at BigInt
   updated_at BigInt
+  deleted_at BigInt @default(0)
   created_duid BigInt?
   updated_duid BigInt?
-  token_hash String @unique
+  token_hash String
+  @@unique([token_hash, deleted_at])
   user_id    BigInt
   expires_at BigInt
   device_id  BigInt
@@ -41,9 +45,11 @@ model base_configs {
   id         BigInt @id @default(autoincrement())
   created_at BigInt
   updated_at BigInt
+  deleted_at BigInt @default(0)
   created_duid BigInt?
   updated_duid BigInt?
-  key        String @unique
+  key        String
+  @@unique([key, deleted_at])
   value      String
 }
 
@@ -51,9 +57,11 @@ model base_bootstrap {
   id           BigInt @id @default(autoincrement())
   created_at   BigInt
   updated_at   BigInt
+  deleted_at BigInt @default(0)
   created_duid BigInt?
   updated_duid BigInt?
-  key          String @unique
+  key          String
+  @@unique([key, deleted_at])
   value        String
 }
 
@@ -61,11 +69,14 @@ model base_oidc_login_requests {
   id            BigInt @id @default(autoincrement())
   created_at    BigInt
   updated_at    BigInt
+  deleted_at BigInt @default(0)
   created_duid  BigInt?
   updated_duid  BigInt?
-  request_id    String @unique
+  request_id    String
+  @@unique([request_id, deleted_at])
   issuer        String
-  state         String @unique
+  state         String
+  @@unique([state, deleted_at])
   nonce         String
   code_verifier String
   return_path   String @default("/")
@@ -76,6 +87,7 @@ model base_oidc_users {
   id            BigInt @id @default(autoincrement())
   created_at    BigInt
   updated_at    BigInt
+  deleted_at BigInt @default(0)
   created_duid  BigInt?
   updated_duid  BigInt?
   issuer        String
@@ -83,28 +95,34 @@ model base_oidc_users {
   user_id       BigInt
   profile       String @default("{}")
 
-  @@unique([issuer, subject])
+  @@unique([issuer, subject, deleted_at])
 }
 
 model base_oidc_sessions {
   id            BigInt @id @default(autoincrement())
   created_at    BigInt
   updated_at    BigInt
+  deleted_at BigInt @default(0)
   created_duid  BigInt?
   updated_duid  BigInt?
   issuer        String
   sid           String
-  session_id    BigInt @unique
+  session_id    BigInt
+  @@unique([session_id, deleted_at])
 
-  @@unique([issuer, sid])
+  @@unique([issuer, sid, deleted_at])
 }
 
 model base_devices {
   id           BigInt @id @default(autoincrement())
   created_at   BigInt
   updated_at   BigInt
+  deleted_at BigInt @default(0)
+  created_duid BigInt?
+  updated_duid BigInt?
   user_id      BigInt
-  fingerprint  String @unique
+  fingerprint  String
+  @@unique([fingerprint, deleted_at])
   user_agent   String @default("")
   platform     String @default("")
   ip_address   String @default("")
@@ -117,19 +135,25 @@ model base_device_users {
   id           BigInt @id @default(autoincrement())
   created_at   BigInt
   updated_at   BigInt
+  deleted_at BigInt @default(0)
+  created_duid BigInt?
+  updated_duid BigInt?
   device_id    BigInt
   user_id      BigInt
   status       BaseDeviceStatus @default(active)
   last_seen_at BigInt
   revoked_at   BigInt?
 
-  @@unique([device_id, user_id])
+  @@unique([device_id, user_id, deleted_at])
 }
 
 model base_device_snapshots {
   id            BigInt @id @default(autoincrement())
   created_at    BigInt
   updated_at    BigInt
+  deleted_at BigInt @default(0)
+  created_duid  BigInt?
+  updated_duid  BigInt?
   device_id     BigInt
   fingerprint   String
   ip_address    String @default("")

@@ -9,6 +9,7 @@ import { CountdownDisplay, formatCountdown } from '@/components/common/Countdown
 import { runAfterFeedback } from '@/utils/common/feedback.js';
 import { loginWithAccountsPopup } from '@/utils/common/passport.js';
 import { runApiNextAction } from '@/utils/common/response-action.js';
+import { isSystemField } from '@shared/system-fields.mjs';
 
 const renderTemplate = (template: string, values: Record<string, React.ReactNode>) => template
 	.split(/(\{[^{}]+\})/g)
@@ -261,7 +262,7 @@ export default function FormPage({ commonApi, apiPath, title, submitMethod = 'PU
 				setDirty(changedFields.current.size > 0);
 			}}
 		>
-			{formConfig?.fields.map((field) => field.type === 'hidden' ? (
+			{formConfig?.fields.filter((field) => !isSystemField(field.name)).map((field) => field.type === 'hidden' ? (
 				<Form.Item key={field.name} name={field.name} hidden><Input /></Form.Item>
 			) : (() => {
 				const sourceOptions = field.readOnlyWhen ? formConfig.fields.find((candidate) => candidate.name === field.readOnlyWhen?.field)?.options as FieldLinkOption[] | undefined : undefined;

@@ -40,3 +40,24 @@ export const loadPassportSession = async (database: DatabaseAdapter, request: Re
 	await runSql(database, sql({ database }).delete('passport_sessions', { token_hash: sessionHash }));
 	return undefined;
 };
+
+/** Resolve the Passport device-user binding that owns the current Accounts session. */
+export const loadPassportDeviceUserId = async (database: DatabaseAdapter, request: Request): Promise<string | number | bigint | null> => {
+	const sessionId = readPassportSessionId(request);
+	if (!sessionId) return null;
+	const sessionHash = await sha256(sessionId);
+	const session = await firstSql<{ user_id: string; device_id: string | null }>(database, sql({ database }).select({
+		table: 'passport_sessions',
+		columns: { user_id: { column: 'user_id', cast: 'text' }, device_id: { column: 'device_id', cast: 'text' } },
+		where: [{ column: 'token_hash', value: sessionHash }, { column: 'expires_at', operator: '>', value: Date.now() }],
+		limit: 1,
+	}));
+	if (!session?.device_id) return null;
+	const binding = await firstSql<{ id: string }>(database, sql({ database }).select({
+		table: 'passport_device_users',
+		columns: { id: { column: 'id', cast: 'text' } },
+		where: [{ column: 'device_id', value: session.device_id }, { column: 'user_id', value: session.user_id }, { column: 'status', value: 'active' }],
+		limit: 1,
+	}));
+	return binding?.id ?? null;
+};

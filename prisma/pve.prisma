@@ -12,9 +12,11 @@ model pve_regions {
   id           BigInt @id @default(autoincrement())
   created_at   BigInt @default(0)
   updated_at   BigInt @default(0)
+  deleted_at   BigInt @default(0)
   created_duid BigInt?
   updated_duid BigInt?
-  code         String @unique
+  code         String
+  @@unique([code, deleted_at])
   name         String
   display_name String
   status       PveEnabledStatus @default(enabled)
@@ -25,6 +27,7 @@ model pve_nodes {
   id               BigInt @id @default(autoincrement())
   created_at       BigInt @default(0)
   updated_at       BigInt @default(0)
+  deleted_at       BigInt @default(0)
   created_duid     BigInt?
   updated_duid     BigInt?
   region_id        BigInt
@@ -44,6 +47,7 @@ model pve_instance_flavors {
   id                   BigInt @id @default(autoincrement())
   created_at           BigInt
   updated_at           BigInt
+  deleted_at BigInt @default(0)
   created_duid         BigInt?
   updated_duid         BigInt?
   instance_flavor_code String
@@ -53,13 +57,14 @@ model pve_instance_flavors {
   status               PveEnabledStatus @default(enabled)
   sort_order           Int    @default(0)
 
-  @@unique([cpu_cores, memory_gb])
+  @@unique([cpu_cores, memory_gb, deleted_at])
 }
 
 model pve_vms {
   id                 BigInt @id @default(autoincrement())
   created_at         BigInt @default(0)
   updated_at         BigInt @default(0)
+  deleted_at         BigInt @default(0)
   created_duid       BigInt?
   updated_duid       BigInt?
   kind               String @default("qemu")
@@ -71,18 +76,19 @@ model pve_vms {
   pve_status         String @default("")
   pve_config         Json   @default("{}")
   error_message      String @default("")
-  deleted_at         BigInt?
 }
 
 model pve_vm_tasks {
   id               BigInt @id @default(autoincrement())
   created_at       BigInt @default(0)
   updated_at       BigInt @default(0)
+  deleted_at       BigInt @default(0)
   created_duid     BigInt?
   updated_duid     BigInt?
   vm_id            BigInt
   action           String
-  idempotency_key  String @unique
+  idempotency_key  String
+  @@unique([idempotency_key, deleted_at])
   status           String @default("pending")
   request_payload  Json   @default("{}")
   response_payload Json   @default("{}")

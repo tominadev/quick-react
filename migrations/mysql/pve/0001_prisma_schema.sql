@@ -6,6 +6,7 @@ CREATE TABLE `pve_regions` (
     `id` BIGINT NOT NULL AUTO_INCREMENT,
     `created_at` BIGINT NOT NULL DEFAULT 0,
     `updated_at` BIGINT NOT NULL DEFAULT 0,
+    `deleted_at` BIGINT NOT NULL DEFAULT 0,
     `created_duid` BIGINT NULL,
     `updated_duid` BIGINT NULL,
     `code` VARCHAR(191) NOT NULL,
@@ -14,7 +15,7 @@ CREATE TABLE `pve_regions` (
     `status` ENUM('enabled', 'disabled') NOT NULL DEFAULT 'enabled',
     `sort_order` INTEGER NOT NULL DEFAULT 0,
 
-    UNIQUE INDEX `pve_regions_code_key`(`code`),
+    UNIQUE INDEX `pve_regions_code_deleted_at_key`(`code`, `deleted_at`),
     PRIMARY KEY (`id`)
 ) DEFAULT CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci;
 
@@ -23,6 +24,7 @@ CREATE TABLE `pve_nodes` (
     `id` BIGINT NOT NULL AUTO_INCREMENT,
     `created_at` BIGINT NOT NULL DEFAULT 0,
     `updated_at` BIGINT NOT NULL DEFAULT 0,
+    `deleted_at` BIGINT NOT NULL DEFAULT 0,
     `created_duid` BIGINT NULL,
     `updated_duid` BIGINT NULL,
     `region_id` BIGINT NOT NULL,
@@ -45,6 +47,7 @@ CREATE TABLE `pve_instance_flavors` (
     `id` BIGINT NOT NULL AUTO_INCREMENT,
     `created_at` BIGINT NOT NULL,
     `updated_at` BIGINT NOT NULL,
+    `deleted_at` BIGINT NOT NULL DEFAULT 0,
     `created_duid` BIGINT NULL,
     `updated_duid` BIGINT NULL,
     `instance_flavor_code` VARCHAR(191) NOT NULL,
@@ -54,7 +57,7 @@ CREATE TABLE `pve_instance_flavors` (
     `status` ENUM('enabled', 'disabled') NOT NULL DEFAULT 'enabled',
     `sort_order` INTEGER NOT NULL DEFAULT 0,
 
-    UNIQUE INDEX `pve_instance_flavors_cpu_cores_memory_gb_key`(`cpu_cores`, `memory_gb`),
+    UNIQUE INDEX `pve_instance_flavors_cpu_cores_memory_gb_deleted_at_key`(`cpu_cores`, `memory_gb`, `deleted_at`),
     PRIMARY KEY (`id`)
 ) DEFAULT CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci;
 
@@ -63,6 +66,7 @@ CREATE TABLE `pve_vms` (
     `id` BIGINT NOT NULL AUTO_INCREMENT,
     `created_at` BIGINT NOT NULL DEFAULT 0,
     `updated_at` BIGINT NOT NULL DEFAULT 0,
+    `deleted_at` BIGINT NOT NULL DEFAULT 0,
     `created_duid` BIGINT NULL,
     `updated_duid` BIGINT NULL,
     `kind` VARCHAR(191) NOT NULL DEFAULT 'qemu',
@@ -74,7 +78,6 @@ CREATE TABLE `pve_vms` (
     `pve_status` VARCHAR(191) NOT NULL DEFAULT '',
     `pve_config` JSON NOT NULL,
     `error_message` VARCHAR(191) NOT NULL DEFAULT '',
-    `deleted_at` BIGINT NULL,
 
     PRIMARY KEY (`id`)
 ) DEFAULT CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci;
@@ -84,6 +87,7 @@ CREATE TABLE `pve_vm_tasks` (
     `id` BIGINT NOT NULL AUTO_INCREMENT,
     `created_at` BIGINT NOT NULL DEFAULT 0,
     `updated_at` BIGINT NOT NULL DEFAULT 0,
+    `deleted_at` BIGINT NOT NULL DEFAULT 0,
     `created_duid` BIGINT NULL,
     `updated_duid` BIGINT NULL,
     `vm_id` BIGINT NOT NULL,
@@ -95,6 +99,6 @@ CREATE TABLE `pve_vm_tasks` (
     `retry_count` INTEGER NOT NULL DEFAULT 0,
     `error_message` VARCHAR(191) NOT NULL DEFAULT '',
 
-    UNIQUE INDEX `pve_vm_tasks_idempotency_key_key`(`idempotency_key`),
+    UNIQUE INDEX `pve_vm_tasks_idempotency_key_deleted_at_key`(`idempotency_key`, `deleted_at`),
     PRIMARY KEY (`id`)
 ) DEFAULT CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci;

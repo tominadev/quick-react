@@ -2,6 +2,7 @@ import type { DatabaseAdapter } from '@server/database/index.mjs';
 import { databaseLabel, listColumns, listTables } from '@server/database/schema.mjs';
 import { allSql, firstSql, sql } from '@server/database/sql.mjs';
 import type { TableActions, TableColumn, TableData, TableResponse, TableSelectOption } from '@shared/types/table.mjs';
+import { isSystemField } from '@shared/system-fields.mjs';
 
 const page = (value: string | undefined, fallback: number) => Math.max(1, Number(value) || fallback);
 export const getTables = async (database: DatabaseAdapter) => (await listTables(database)).map((item) => ({ value: item.name, text: item.name }));
@@ -23,7 +24,13 @@ export const databaseTableActions = (editable: boolean): TableActions => ({
 	] : [],
 });
 export type DatabaseTableResponse = TableResponse & { tables: TableSelectOption[]; editable: boolean };
-const tableColumn = (column: Awaited<ReturnType<typeof getColumns>>[number]): TableColumn => ({ dataIndex: column.name, title: column.name, component: 'textbox', dataType: /INT/i.test(column.type) ? 'int' : /REAL|FLOA|DOUB|DECIMAL|NUMERIC/i.test(column.type) ? 'float' : 'string' });
+const tableColumn = (column: Awaited<ReturnType<typeof getColumns>>[number]): TableColumn => ({
+	dataIndex: column.name,
+	title: column.name,
+	component: 'textbox',
+	dataType: /INT/i.test(column.type) ? 'int' : /REAL|FLOA|DOUB|DECIMAL|NUMERIC/i.test(column.type) ? 'float' : 'string',
+	...(isSystemField(column.name) ? { form: { create: false, edit: false } } : {}),
+});
 export const databaseSelectColumns = (columns: Awaited<ReturnType<typeof getColumns>>) => Object.fromEntries(columns.map((column) => [column.name, /INT/i.test(column.type) ? { column: column.name, cast: 'text' as const } : column.name]));
 export const readTable = async (database: DatabaseAdapter, mode: 'columns' | 'rows', tableName: string | undefined, pageNumValue?: string, pageSizeValue?: string): Promise<DatabaseTableResponse> => {
 	const tables = await getTables(database);

@@ -3,9 +3,11 @@ import { apiMessage, apiMessageData, apiResponse } from '@server/modules/base/ap
 import { firstSql, runSql, sql } from '@server/database/sql.mjs';
 import { assertTable, databaseQueryFields, databaseSelectColumns, databaseTableActions, getColumns, readTable, tableRowKey } from '@server/routes/base/data/database-table.mjs';
 import { getChangedFields } from '@server/modules/base/changed-fields.mjs';
+import { isSystemField } from '@shared/system-fields.mjs';
 
 const body = async (c: Parameters<ApiHandler>[0]) => c.req.json<Record<string, unknown>>().catch(() => ({}));
 const editableFields = (values: Record<string, unknown>, names: Set<string>) => Object.entries(values).filter(([name]) => names.has(name));
+const protectedFields = (values: Record<string, unknown>) => Object.keys(values).filter(isSystemField);
 
 const handler: ApiHandler = async (c, next, params) => {
 	const database = c.get('database');
@@ -33,6 +35,8 @@ const handler: ApiHandler = async (c, next, params) => {
 	try { rowKey = tableRowKey(database, info); } catch (error) { return apiMessage(c, 400, error instanceof Error ? error.message : '数据表不能编辑'); }
 	if (params.id && c.req.method === 'PUT') {
 		const source = await body(c);
+		const protectedNames = protectedFields(source);
+		if (protectedNames.length) return apiMessage(c, 400, `系统字段不可修改：${protectedNames.join('、')}`);
 		const changedFields = getChangedFields(source, [...names]);
 		const values = editableFields(source, changedFields);
 		if (!values.length) return apiMessage(c, 400, '没有可更新的字段');
@@ -40,7 +44,10 @@ const handler: ApiHandler = async (c, next, params) => {
 		return apiMessage(c, 200, '保存成功');
 	}
 	if (c.req.method === 'POST') {
-		const values = editableFields(await body(c), names);
+		const source = await body(c);
+		const protectedNames = protectedFields(source);
+		if (protectedNames.length) return apiMessage(c, 400, `系统字段不可修改：${protectedNames.join('、')}`);
+		const values = editableFields(source, names);
 		if (!values.length) return apiMessage(c, 400, '没有可写入的字段');
 		await runSql(database, sql({ database }).insert(tableName, Object.fromEntries(values)));
 		return apiMessageData(c, 201, '新增成功', {});

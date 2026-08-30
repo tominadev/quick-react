@@ -124,6 +124,27 @@ export const loadCurrentUser = async (database: DatabaseAdapter, request: Reques
 	return undefined;
 };
 
+/** Resolve the Base device-user binding that owns the current session. */
+export const loadBaseDeviceUserId = async (database: DatabaseAdapter, request: Request): Promise<string | number | bigint | null> => {
+	const sessionId = readSessionId(request);
+	if (!sessionId) return null;
+	const sessionHash = await hashSessionToken(sessionId);
+	const session = await firstSql<{ user_id: string; device_id: string | null }>(database, sql({ database }).select({
+		table: 'base_sessions',
+		columns: { user_id: { column: 'user_id', cast: 'text' }, device_id: { column: 'device_id', cast: 'text' } },
+		where: [{ column: 'token_hash', value: sessionHash }, { column: 'expires_at', operator: '>', value: Date.now() }],
+		limit: 1,
+	}));
+	if (!session?.device_id) return null;
+	const binding = await firstSql<{ id: string }>(database, sql({ database }).select({
+		table: 'base_device_users',
+		columns: { id: { column: 'id', cast: 'text' } },
+		where: [{ column: 'device_id', value: session.device_id }, { column: 'user_id', value: session.user_id }, { column: 'status', value: 'active' }],
+		limit: 1,
+	}));
+	return binding?.id ?? null;
+};
+
 /** 当前本站会话是否由 Accounts OIDC 登录创建。 */
 export const sessionUsesAccountsOidc = async (database: DatabaseAdapter, request: Request) => {
 	const sessionId = readSessionId(request);

@@ -1,11 +1,14 @@
-import type { DatabaseAdapter, DatabaseRunResult } from './index.mjs';
+import type { DatabaseAdapter, DatabaseActorResolver, DatabaseActorUid, DatabaseRunResult } from './index.mjs';
+import { isSystemField, SYSTEM_FIELD_NAMES } from '@shared/system-fields.mjs';
 
 export type SqlDialect = 'sqlite' | 'mysql' | 'postgresql';
-export type SqlContext = { database: DatabaseAdapter; actorUid?: string | number | null };
+export type SqlActorContext = DatabaseActorUid | DatabaseActorResolver;
+export type SqlContext = { database: DatabaseAdapter; actorUid?: DatabaseActorUid; actorUidForTable?: DatabaseActorResolver };
 export type SqlQuery = { query: string; values: unknown[] };
 type SqlValue = unknown;
 type Values = Record<string, SqlValue | undefined>;
 type InsertSelectValue = SqlValue | { column: string };
+export type DeletedScope = 'active' | 'deleted' | 'all';
 
 const identifierPattern = /^[A-Za-z_][A-Za-z0-9_]*$/;
 export const quoteIdentifier = (identifier: string, dialect: SqlDialect) => {
@@ -16,14 +19,30 @@ export const quoteIdentifier = (identifier: string, dialect: SqlDialect) => {
 
 const dialectOf = (database: DatabaseAdapter): SqlDialect => database.dialect ?? 'sqlite';
 const definedEntries = (values: Values) => Object.entries(values).filter((entry): entry is [string, SqlValue] => entry[1] !== undefined);
+/** All business uniqueness is scoped to active rows so soft-deleted identifiers can be recreated. */
+const conflictTarget = (keys: string[]) => {
+	if (!keys.length) throw new Error('INSERT conflict keys cannot be empty');
+	return keys.includes('deleted_at') ? keys : [...keys, 'deleted_at'];
+};
+const assertBusinessWriteFields = (values: Values, options: { allowId?: boolean; allowDeletedAt?: boolean } = {}) => {
+	const protectedFields = Object.keys(values).filter((field) => isSystemField(field)
+		&& !(options.allowId && field === 'id')
+		&& !(options.allowDeletedAt && field === 'deleted_at'));
+	if (protectedFields.length) throw new Error(`系统字段由 SQL 公共层维护，业务代码不得传入：${protectedFields.join('、')}（固定字段：${SYSTEM_FIELD_NAMES.join('、')}）`);
+};
 
 export type SqlCondition = { column: string; value?: SqlValue; operator?: '=' | '!=' | '<' | '<=' | '>' | '>=' | 'IS NULL' | 'IS NOT NULL' };
 export type SqlJoin = { type?: 'INNER' | 'LEFT'; table: string; alias?: string; left: string; right: string };
 export type SqlColumn = string | { column: string; cast?: 'text' };
-export type SqlSelectOptions = { table: string; alias?: string; distinct?: boolean; columns?: Record<string, SqlColumn>; includeAll?: boolean; sqliteRowIdAlias?: string; joins?: SqlJoin[]; where?: SqlCondition[]; orderBy?: Array<{ column: string; direction?: 'ASC' | 'DESC' }>; limit?: number; offset?: number };
+/** Normal queries see active rows; recycle-bin code must explicitly request deleted/all rows. */
+export type SqlSelectOptions = { table: string; alias?: string; distinct?: boolean; columns?: Record<string, SqlColumn>; includeAll?: boolean; sqliteRowIdAlias?: string; joins?: SqlJoin[]; where?: SqlCondition[]; orderBy?: Array<{ column: string; direction?: 'ASC' | 'DESC' }>; limit?: number; offset?: number; deleted?: DeletedScope };
 
 export abstract class SqlBuilder {
-	constructor(readonly dialect: SqlDialect, readonly actorUid: string | number | null = null) {}
+	constructor(readonly dialect: SqlDialect, readonly actorContext: SqlActorContext = null) {}
+	protected actorUidFor(table: string): DatabaseActorUid | null {
+		const value = typeof this.actorContext === 'function' ? this.actorContext(table) : this.actorContext;
+		return value ?? null;
+	}
 	protected abstract placeholder(index: number): string;
 	protected placeholders(count: number, start = 1) { return Array.from({ length: count }, (_, index) => this.placeholder(start + index)); }
 
@@ -42,7 +61,12 @@ export abstract class SqlBuilder {
 		const columns = selectedColumns.join(', ');
 		let query = `SELECT${options.distinct ? ' DISTINCT' : ''} ${columns} FROM ${quoteIdentifier(options.table, this.dialect)}${options.alias ? ` AS ${quoteIdentifier(options.alias, this.dialect)}` : ''}`;
 		for (const join of options.joins ?? []) query += ` ${join.type ?? 'INNER'} JOIN ${quoteIdentifier(join.table, this.dialect)}${join.alias ? ` AS ${quoteIdentifier(join.alias, this.dialect)}` : ''} ON ${quoteIdentifier(join.left, this.dialect)} = ${quoteIdentifier(join.right, this.dialect)}`;
-		const conditions = options.where ?? [], boundConditions = conditions.filter((condition) => !['IS NULL', 'IS NOT NULL'].includes(condition.operator ?? ''));
+		const deletedScope = options.deleted ?? 'active';
+		const deletedConditions: SqlCondition[] = deletedScope === 'all' ? [] : [
+			{ column: `${options.alias ?? options.table}.deleted_at`, operator: deletedScope === 'deleted' ? '!=' : '=', value: 0 },
+			...(options.joins ?? []).map((join) => ({ column: `${join.alias ?? join.table}.deleted_at`, operator: deletedScope === 'deleted' ? '!=' as const : '=' as const, value: 0 })),
+		];
+		const conditions = [...deletedConditions, ...(options.where ?? [])], boundConditions = conditions.filter((condition) => !['IS NULL', 'IS NOT NULL'].includes(condition.operator ?? ''));
 		let parameterIndex = 0;
 		if (conditions.length) query += ` WHERE ${conditions.map((condition) => {
 			const operator = condition.operator ?? '=';
@@ -53,20 +77,23 @@ export abstract class SqlBuilder {
 		return { query, values: [...boundConditions.map((condition) => condition.value as SqlValue), ...(options.limit !== undefined ? [options.limit, ...(options.offset !== undefined ? [options.offset] : [])] : [])] };
 	}
 
-	count(table: string, where: SqlCondition[] = []): SqlQuery {
+	count(table: string, where: SqlCondition[] = [], deleted: DeletedScope = 'active'): SqlQuery {
 		let query = `SELECT COUNT(*) AS ${quoteIdentifier('count', this.dialect)} FROM ${quoteIdentifier(table, this.dialect)}`;
 		let parameterIndex = 0;
-		if (where.length) query += ` WHERE ${where.map((condition) => {
+		const conditions: SqlCondition[] = deleted === 'all' ? where : [{ column: 'deleted_at', operator: deleted === 'deleted' ? '!=' : '=', value: 0 }, ...where];
+		if (conditions.length) query += ` WHERE ${conditions.map((condition) => {
 			const operator = condition.operator ?? '=';
 			return ['IS NULL', 'IS NOT NULL'].includes(operator) ? `${quoteIdentifier(condition.column, this.dialect)} ${operator}` : `${quoteIdentifier(condition.column, this.dialect)} ${operator} ${this.placeholder(++parameterIndex)}`;
 		}).join(' AND ')}`;
-		return { query, values: where.filter((condition) => !['IS NULL', 'IS NOT NULL'].includes(condition.operator ?? '')).map((condition) => condition.value) };
+		return { query, values: conditions.filter((condition) => !['IS NULL', 'IS NOT NULL'].includes(condition.operator ?? '')).map((condition) => condition.value) };
 	}
 
 	insert(table: string, values: Values): SqlQuery {
-		if (Object.prototype.hasOwnProperty.call(values, 'created_at') || Object.prototype.hasOwnProperty.call(values, 'updated_at') || Object.prototype.hasOwnProperty.call(values, 'created_duid') || Object.prototype.hasOwnProperty.call(values, 'updated_duid')) throw new Error('审计字段由 SQL 公共层统一维护，业务代码不得传入');
-		const timestamp = Date.now();
-		const timestamped: Values = { created_at: timestamp, updated_at: timestamp, ...(this.actorUid !== null ? { created_duid: this.actorUid, updated_duid: this.actorUid } : {}), ...values };
+		// An internal allocator may provide an ID during creation; IDs are still
+		// immutable after creation and never appear in user-facing forms.
+		assertBusinessWriteFields(values, { allowId: true });
+		const timestamp = Date.now(), actorUid = this.actorUidFor(table);
+		const timestamped: Values = { created_at: timestamp, updated_at: timestamp, ...(actorUid !== null ? { created_duid: actorUid, updated_duid: actorUid } : {}), ...values };
 		const entries = definedEntries(timestamped); if (!entries.length) throw new Error('INSERT values cannot be empty');
 		return {
 			query: `INSERT INTO ${quoteIdentifier(table, this.dialect)} (${entries.map(([key]) => quoteIdentifier(key, this.dialect)).join(', ')}) VALUES (${this.placeholders(entries.length).join(', ')})`,
@@ -86,10 +113,10 @@ export abstract class SqlBuilder {
 	/** 数据库迁移专用：按源库原样写入审计字段，并在业务唯一键冲突时跳过。 */
 	ignoreInsertExisting(table: string, conflictKeys: string[], values: Values): SqlQuery {
 		const inserted = this.insertExisting(table, values);
-		if (!conflictKeys.length) throw new Error('INSERT conflict keys cannot be empty');
+		const target = conflictTarget(conflictKeys);
 		return this.dialect === 'mysql'
 			? { ...inserted, query: inserted.query.replace(/^INSERT /, 'INSERT IGNORE ') }
-			: { ...inserted, query: `${inserted.query} ON CONFLICT (${conflictKeys.map((key) => quoteIdentifier(key, this.dialect)).join(', ')}) DO NOTHING` };
+			: { ...inserted, query: `${inserted.query} ON CONFLICT (${target.map((key) => quoteIdentifier(key, this.dialect)).join(', ')}) DO NOTHING` };
 	}
 
 	insertFromSelect(table: string, values: Record<string, InsertSelectValue>, from: string, where: SqlCondition[]): SqlQuery {
@@ -108,9 +135,10 @@ export abstract class SqlBuilder {
 		};
 	}
 
-	update(table: string, values: Values, where: Values | SqlCondition[]): SqlQuery {
-		if (Object.prototype.hasOwnProperty.call(values, 'created_at') || Object.prototype.hasOwnProperty.call(values, 'updated_at') || Object.prototype.hasOwnProperty.call(values, 'created_duid') || Object.prototype.hasOwnProperty.call(values, 'updated_duid')) throw new Error('审计字段由 SQL 公共层统一维护，业务代码不得传入');
-		const entries = definedEntries({ updated_at: Date.now(), ...(this.actorUid !== null ? { updated_duid: this.actorUid } : {}), ...values }), conditions: SqlCondition[] = Array.isArray(where) ? where : definedEntries(where).map(([column, value]) => ({ column, value }));
+	private updateManaged(table: string, values: Values, where: Values | SqlCondition[], allowDeletedAt = false): SqlQuery {
+		assertBusinessWriteFields(values, { allowDeletedAt });
+		const actorUid = this.actorUidFor(table);
+		const entries = definedEntries({ updated_at: Date.now(), ...(actorUid !== null ? { updated_duid: actorUid } : {}), ...values }), conditions: SqlCondition[] = Array.isArray(where) ? where : definedEntries(where).map(([column, value]) => ({ column, value }));
 		if (!entries.length || !conditions.length) throw new Error('UPDATE values and where cannot be empty');
 		let parameterIndex = entries.length;
 		return {
@@ -122,6 +150,21 @@ export abstract class SqlBuilder {
 		};
 	}
 
+	update(table: string, values: Values, where: Values | SqlCondition[]): SqlQuery {
+		return this.updateManaged(table, values, where);
+	}
+
+	/** 将记录移入回收站；审计字段由 update 统一维护。 */
+	softDelete(table: string, where: Values | SqlCondition[]): SqlQuery {
+		return this.updateManaged(table, { deleted_at: Date.now() }, where, true);
+	}
+
+	/** 从回收站恢复记录；不会恢复已被物理清理的记录。 */
+	restore(table: string, where: Values | SqlCondition[]): SqlQuery {
+		return this.updateManaged(table, { deleted_at: 0 }, where, true);
+	}
+
+	/** 物理删除，仅供清理任务和明确的不可恢复操作使用。 */
 	delete(table: string, where: Values): SqlQuery {
 		const conditions = definedEntries(where); if (!conditions.length) throw new Error('DELETE where cannot be empty');
 		return { query: `DELETE FROM ${quoteIdentifier(table, this.dialect)} WHERE ${conditions.map(([key], index) => `${quoteIdentifier(key, this.dialect)} = ${this.placeholder(index + 1)}`).join(' AND ')}`, values: conditions.map(([, value]) => value) };
@@ -129,39 +172,47 @@ export abstract class SqlBuilder {
 
 	advanceNumber(table: string, column: string, floor: number, updatedAt: number, where: Values): SqlQuery {
 		const conditions = definedEntries(where); if (!conditions.length) throw new Error('advanceNumber where cannot be empty');
-		const target = quoteIdentifier(column, this.dialect), greatest = this.dialect === 'sqlite' ? 'MAX' : 'GREATEST';
+		const target = quoteIdentifier(column, this.dialect), greatest = this.dialect === 'sqlite' ? 'MAX' : 'GREATEST', actorUid = this.actorUidFor(table);
+		const audit = actorUid === null ? '' : `, ${quoteIdentifier('updated_duid', this.dialect)} = ${this.placeholder(3)}`;
+		const whereStart = actorUid === null ? 3 : 4;
 		return {
-			query: `UPDATE ${quoteIdentifier(table, this.dialect)} SET ${target} = ${greatest}(${target} + 1, ${this.placeholder(1)}), ${quoteIdentifier('updated_at', this.dialect)} = ${this.placeholder(2)} WHERE ${conditions.map(([key], index) => `${quoteIdentifier(key, this.dialect)} = ${this.placeholder(index + 3)}`).join(' AND ')}`,
-			values: [floor, updatedAt, ...conditions.map(([, value]) => value)],
+			query: `UPDATE ${quoteIdentifier(table, this.dialect)} SET ${target} = ${greatest}(${target} + 1, ${this.placeholder(1)}), ${quoteIdentifier('updated_at', this.dialect)} = ${this.placeholder(2)}${audit} WHERE ${conditions.map(([key], index) => `${quoteIdentifier(key, this.dialect)} = ${this.placeholder(index + whereStart)}`).join(' AND ')}`,
+			values: [floor, updatedAt, ...(actorUid === null ? [] : [actorUid]), ...conditions.map(([, value]) => value)],
 		};
 	}
 
 	upsert(table: string, conflictKeys: string[], values: Values, updateKeys: string[]): SqlQuery {
-		const inserted = this.insert(table, values), quotedUpdates = updateKeys.map((key) => quoteIdentifier(key, this.dialect));
-		if (!conflictKeys.length || !quotedUpdates.length) throw new Error('UPSERT conflict and update keys cannot be empty');
+		const inserted = this.insert(table, values), actorUid = this.actorUidFor(table);
+		const managedUpdateKeys = [...new Set([...updateKeys, 'updated_at', ...(actorUid === null ? [] : ['updated_duid'])])];
+		const quotedUpdates = managedUpdateKeys.map((key) => quoteIdentifier(key, this.dialect));
+		const target = conflictTarget(conflictKeys);
+		if (!quotedUpdates.length) throw new Error('UPSERT update keys cannot be empty');
 		const suffix = this.dialect === 'mysql'
 			? ` ON DUPLICATE KEY UPDATE ${quotedUpdates.map((key) => `${key} = VALUES(${key})`).join(', ')}`
-			: ` ON CONFLICT (${conflictKeys.map((key) => quoteIdentifier(key, this.dialect)).join(', ')}) DO UPDATE SET ${quotedUpdates.map((key) => `${key} = excluded.${key}`).join(', ')}`;
+			: ` ON CONFLICT (${target.map((key) => quoteIdentifier(key, this.dialect)).join(', ')}) DO UPDATE SET ${quotedUpdates.map((key) => `${key} = excluded.${key}`).join(', ')}`;
 		return { ...inserted, query: inserted.query + suffix };
 	}
 
 	ignoreInsert(table: string, conflictKeys: string[], values: Values): SqlQuery {
 		const inserted = this.insert(table, values);
+		const target = conflictTarget(conflictKeys);
 		return this.dialect === 'mysql'
 			? { ...inserted, query: inserted.query.replace(/^INSERT /, 'INSERT IGNORE ') }
-			: { ...inserted, query: `${inserted.query} ON CONFLICT (${conflictKeys.map((key) => quoteIdentifier(key, this.dialect)).join(', ')}) DO NOTHING` };
+			: { ...inserted, query: `${inserted.query} ON CONFLICT (${target.map((key) => quoteIdentifier(key, this.dialect)).join(', ')}) DO NOTHING` };
 	}
 
 	castText(expression: string) { const quoted = quoteIdentifier(expression, this.dialect); return this.dialect === 'mysql' ? `CAST(${quoted} AS CHAR)` : `CAST(${quoted} AS TEXT)`; }
 }
 
-export class SqliteSqlBuilder extends SqlBuilder { constructor(actorUid: string | number | null = null) { super('sqlite', actorUid); } protected placeholder() { return '?'; } }
-export class MysqlSqlBuilder extends SqlBuilder { constructor(actorUid: string | number | null = null) { super('mysql', actorUid); } protected placeholder() { return '?'; } }
-export class PostgresqlSqlBuilder extends SqlBuilder { constructor(actorUid: string | number | null = null) { super('postgresql', actorUid); } protected placeholder(index: number) { return `$${index}`; } }
+export class SqliteSqlBuilder extends SqlBuilder { constructor(actorContext: SqlActorContext = null) { super('sqlite', actorContext); } protected placeholder() { return '?'; } }
+export class MysqlSqlBuilder extends SqlBuilder { constructor(actorContext: SqlActorContext = null) { super('mysql', actorContext); } protected placeholder() { return '?'; } }
+export class PostgresqlSqlBuilder extends SqlBuilder { constructor(actorContext: SqlActorContext = null) { super('postgresql', actorContext); } protected placeholder(index: number) { return `$${index}`; } }
 
 export const sql = (context: SqlContext) => {
 	const dialect = dialectOf(context.database);
-	return dialect === 'mysql' ? new MysqlSqlBuilder(context.actorUid ?? null) : dialect === 'postgresql' ? new PostgresqlSqlBuilder(context.actorUid ?? null) : new SqliteSqlBuilder(context.actorUid ?? null);
+	const actorContext: SqlActorContext = context.actorUidForTable
+		?? (Object.prototype.hasOwnProperty.call(context, 'actorUid') ? context.actorUid ?? null : context.database.actorUidForTable ?? context.database.actorUid ?? null);
+	return dialect === 'mysql' ? new MysqlSqlBuilder(actorContext) : dialect === 'postgresql' ? new PostgresqlSqlBuilder(actorContext) : new SqliteSqlBuilder(actorContext);
 };
 export const runSql = (database: DatabaseAdapter, statement: SqlQuery): Promise<DatabaseRunResult> => database.prepare(statement.query).bind(...statement.values).run();
 export const firstSql = <T,>(database: DatabaseAdapter, statement: SqlQuery) => database.prepare(statement.query).bind(...statement.values).first<T>();

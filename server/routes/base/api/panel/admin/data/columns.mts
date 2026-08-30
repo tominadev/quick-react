@@ -4,6 +4,7 @@ import { addColumn, databaseTypeOptions, dropColumn, renameColumn } from '@serve
 import { runSql } from '@server/database/sql.mjs';
 import { assertTable, databaseQueryFields, databaseTableActions, getColumns, readTable } from '@server/routes/base/data/database-table.mjs';
 import { getChangedFields } from '@server/modules/base/changed-fields.mjs';
+import { isSystemField } from '@shared/system-fields.mjs';
 
 const readBody = async (c: Parameters<ApiHandler>[0]): Promise<Record<string, unknown>> => c.req.json<Record<string, unknown>>().catch(() => ({} as Record<string, unknown>));
 const columnName = (value: unknown) => typeof value === 'string' && /^[A-Za-z_][A-Za-z0-9_]*$/.test(value) ? value : '';
@@ -27,6 +28,7 @@ const handler: ApiHandler = async (c, next, params) => {
 			const name = columnName(body.name);
 			const type = columnType(body.type) || 'TEXT';
 			if (!name) return apiMessage(c, 400, '字段名必须是字母、数字或下划线，且不能以数字开头');
+			if (isSystemField(name)) return apiMessage(c, 400, '固定系统字段由公共层维护，不能新增或修改');
 			const notnull = body.notnull === true || body.notnull === 1 || body.notnull === '1';
 			const defaultValue = body.defaultValue ?? body.default;
 			if (notnull && defaultValue === undefined) return apiMessage(c, 400, '新增必填字段时必须提供默认值');
@@ -36,6 +38,7 @@ const handler: ApiHandler = async (c, next, params) => {
 		}
 		if (c.req.method === 'PUT' && params.id) {
 			const body = await readBody(c);
+			if (isSystemField(params.id)) return apiMessage(c, 400, '固定系统字段由公共层维护，不能修改');
 			const changedFields = getChangedFields(body, ['name', 'type']);
 			const current = (await getColumns(database, tableName)).find((column) => column.name === params.id);
 			if (!current) return apiMessage(c, 404, '字段不存在');
@@ -52,6 +55,7 @@ const handler: ApiHandler = async (c, next, params) => {
 		if (c.req.method === 'DELETE') {
 			const ids = await c.req.json<unknown>().catch(() => []);
 			if (!Array.isArray(ids) || !ids.length) return apiMessage(c, 400, '请选择要删除的字段');
+			if (ids.some((id) => typeof id === 'string' && isSystemField(id))) return apiMessage(c, 400, '固定系统字段由公共层维护，不能删除');
 			const columns = await getColumns(database, tableName);
 			if (ids.length >= columns.length) return apiMessage(c, 400, '不能删除数据表的全部字段');
 			try {

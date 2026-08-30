@@ -4,6 +4,7 @@ import type { Dayjs } from 'dayjs';
 import { useState, useRef } from 'react';
 import DrawerForm from '@/utils/antd/table_crud/drawer.js';
 import dayjs from 'dayjs';
+import { isSystemField } from '@shared/system-fields.mjs';
 
 interface testType {
 	setRow: (value: DataType) => void;
@@ -37,10 +38,11 @@ export function useDrawer(commonApi: CommonApi): [drawerType, React.JSX.Element]
 			setOpen(false);
 		},
 		drawerForm: (props: DrawerFuncProps, callback?: (value?: DataType) => void): testType => {
+			const editableColumns = props.columns.filter((column) => !isSystemField(column.dataIndex));
 			setTitle(props.title);
-			setColumns(props.columns);
+			setColumns(editableColumns);
 			setOptionsPath(props.optionsPath);
-			setRow(Object.fromEntries(props.columns
+			setRow(Object.fromEntries(editableColumns
 				.filter((column) => column.dataIndex === 'status' && column.component === 'switch')
 				.map((column) => [column.dataIndex, column.checkedValue ?? true])));
 			setOpen(true);
@@ -51,7 +53,7 @@ export function useDrawer(commonApi: CommonApi): [drawerType, React.JSX.Element]
 				setRow: (_row: DataType) => {
 					// 外部调用设置新的row值时，刷新新值
 					const normalizedRow = { ..._row };
-					for (const column of props.columns) {
+					for (const column of editableColumns) {
 						if (column.allowCustomValue && !column.multiple && normalizedRow[column.dataIndex] && !Array.isArray(normalizedRow[column.dataIndex])) {
 							normalizedRow[column.dataIndex] = [normalizedRow[column.dataIndex]];
 						}

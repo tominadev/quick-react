@@ -15,6 +15,7 @@ CREATE TABLE "base_users" (
     "id" BIGSERIAL NOT NULL,
     "created_at" BIGINT NOT NULL,
     "updated_at" BIGINT NOT NULL,
+    "deleted_at" BIGINT NOT NULL DEFAULT 0,
     "created_duid" BIGINT,
     "updated_duid" BIGINT,
     "username" TEXT NOT NULL,
@@ -30,6 +31,7 @@ CREATE TABLE "base_sessions" (
     "id" BIGSERIAL NOT NULL,
     "created_at" BIGINT NOT NULL,
     "updated_at" BIGINT NOT NULL,
+    "deleted_at" BIGINT NOT NULL DEFAULT 0,
     "created_duid" BIGINT,
     "updated_duid" BIGINT,
     "token_hash" TEXT NOT NULL,
@@ -45,6 +47,7 @@ CREATE TABLE "base_configs" (
     "id" BIGSERIAL NOT NULL,
     "created_at" BIGINT NOT NULL,
     "updated_at" BIGINT NOT NULL,
+    "deleted_at" BIGINT NOT NULL DEFAULT 0,
     "created_duid" BIGINT,
     "updated_duid" BIGINT,
     "key" TEXT NOT NULL,
@@ -58,6 +61,7 @@ CREATE TABLE "base_bootstrap" (
     "id" BIGSERIAL NOT NULL,
     "created_at" BIGINT NOT NULL,
     "updated_at" BIGINT NOT NULL,
+    "deleted_at" BIGINT NOT NULL DEFAULT 0,
     "created_duid" BIGINT,
     "updated_duid" BIGINT,
     "key" TEXT NOT NULL,
@@ -71,6 +75,7 @@ CREATE TABLE "base_oidc_login_requests" (
     "id" BIGSERIAL NOT NULL,
     "created_at" BIGINT NOT NULL,
     "updated_at" BIGINT NOT NULL,
+    "deleted_at" BIGINT NOT NULL DEFAULT 0,
     "created_duid" BIGINT,
     "updated_duid" BIGINT,
     "request_id" TEXT NOT NULL,
@@ -89,6 +94,7 @@ CREATE TABLE "base_oidc_users" (
     "id" BIGSERIAL NOT NULL,
     "created_at" BIGINT NOT NULL,
     "updated_at" BIGINT NOT NULL,
+    "deleted_at" BIGINT NOT NULL DEFAULT 0,
     "created_duid" BIGINT,
     "updated_duid" BIGINT,
     "issuer" TEXT NOT NULL,
@@ -104,6 +110,7 @@ CREATE TABLE "base_oidc_sessions" (
     "id" BIGSERIAL NOT NULL,
     "created_at" BIGINT NOT NULL,
     "updated_at" BIGINT NOT NULL,
+    "deleted_at" BIGINT NOT NULL DEFAULT 0,
     "created_duid" BIGINT,
     "updated_duid" BIGINT,
     "issuer" TEXT NOT NULL,
@@ -118,6 +125,9 @@ CREATE TABLE "base_devices" (
     "id" BIGSERIAL NOT NULL,
     "created_at" BIGINT NOT NULL,
     "updated_at" BIGINT NOT NULL,
+    "deleted_at" BIGINT NOT NULL DEFAULT 0,
+    "created_duid" BIGINT,
+    "updated_duid" BIGINT,
     "user_id" BIGINT NOT NULL,
     "fingerprint" TEXT NOT NULL,
     "user_agent" TEXT NOT NULL DEFAULT '',
@@ -135,6 +145,9 @@ CREATE TABLE "base_device_users" (
     "id" BIGSERIAL NOT NULL,
     "created_at" BIGINT NOT NULL,
     "updated_at" BIGINT NOT NULL,
+    "deleted_at" BIGINT NOT NULL DEFAULT 0,
+    "created_duid" BIGINT,
+    "updated_duid" BIGINT,
     "device_id" BIGINT NOT NULL,
     "user_id" BIGINT NOT NULL,
     "status" "BaseDeviceStatus" NOT NULL DEFAULT 'active',
@@ -149,6 +162,9 @@ CREATE TABLE "base_device_snapshots" (
     "id" BIGSERIAL NOT NULL,
     "created_at" BIGINT NOT NULL,
     "updated_at" BIGINT NOT NULL,
+    "deleted_at" BIGINT NOT NULL DEFAULT 0,
+    "created_duid" BIGINT,
+    "updated_duid" BIGINT,
     "device_id" BIGINT NOT NULL,
     "fingerprint" TEXT NOT NULL,
     "ip_address" TEXT NOT NULL DEFAULT '',
@@ -162,34 +178,34 @@ CREATE TABLE "base_device_snapshots" (
 );
 
 -- CreateIndex
-CREATE UNIQUE INDEX "base_users_username_key" ON "base_users"("username");
+CREATE UNIQUE INDEX "base_users_username_deleted_at_key" ON "base_users"("username", "deleted_at");
 
 -- CreateIndex
-CREATE UNIQUE INDEX "base_sessions_token_hash_key" ON "base_sessions"("token_hash");
+CREATE UNIQUE INDEX "base_sessions_token_hash_deleted_at_key" ON "base_sessions"("token_hash", "deleted_at");
 
 -- CreateIndex
-CREATE UNIQUE INDEX "base_configs_key_key" ON "base_configs"("key");
+CREATE UNIQUE INDEX "base_configs_key_deleted_at_key" ON "base_configs"("key", "deleted_at");
 
 -- CreateIndex
-CREATE UNIQUE INDEX "base_bootstrap_key_key" ON "base_bootstrap"("key");
+CREATE UNIQUE INDEX "base_bootstrap_key_deleted_at_key" ON "base_bootstrap"("key", "deleted_at");
 
 -- CreateIndex
-CREATE UNIQUE INDEX "base_oidc_login_requests_request_id_key" ON "base_oidc_login_requests"("request_id");
+CREATE UNIQUE INDEX "base_oidc_login_requests_request_id_deleted_at_key" ON "base_oidc_login_requests"("request_id", "deleted_at");
 
 -- CreateIndex
-CREATE UNIQUE INDEX "base_oidc_login_requests_state_key" ON "base_oidc_login_requests"("state");
+CREATE UNIQUE INDEX "base_oidc_login_requests_state_deleted_at_key" ON "base_oidc_login_requests"("state", "deleted_at");
 
 -- CreateIndex
-CREATE UNIQUE INDEX "base_oidc_users_issuer_subject_key" ON "base_oidc_users"("issuer", "subject");
+CREATE UNIQUE INDEX "base_oidc_users_issuer_subject_deleted_at_key" ON "base_oidc_users"("issuer", "subject", "deleted_at");
 
 -- CreateIndex
-CREATE UNIQUE INDEX "base_oidc_sessions_session_id_key" ON "base_oidc_sessions"("session_id");
+CREATE UNIQUE INDEX "base_oidc_sessions_session_id_deleted_at_key" ON "base_oidc_sessions"("session_id", "deleted_at");
 
 -- CreateIndex
-CREATE UNIQUE INDEX "base_oidc_sessions_issuer_sid_key" ON "base_oidc_sessions"("issuer", "sid");
+CREATE UNIQUE INDEX "base_oidc_sessions_issuer_sid_deleted_at_key" ON "base_oidc_sessions"("issuer", "sid", "deleted_at");
 
 -- CreateIndex
-CREATE UNIQUE INDEX "base_devices_fingerprint_key" ON "base_devices"("fingerprint");
+CREATE UNIQUE INDEX "base_devices_fingerprint_deleted_at_key" ON "base_devices"("fingerprint", "deleted_at");
 
 -- CreateIndex
-CREATE UNIQUE INDEX "base_device_users_device_id_user_id_key" ON "base_device_users"("device_id", "user_id");
+CREATE UNIQUE INDEX "base_device_users_device_id_user_id_deleted_at_key" ON "base_device_users"("device_id", "user_id", "deleted_at");

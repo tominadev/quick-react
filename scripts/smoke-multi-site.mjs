@@ -135,7 +135,12 @@ try {
 	const localDeviceDatabase = new DatabaseSync(process.env.DEFAULT_DATABASE_FILE, { readOnly: true });
 	assert.equal(localDeviceDatabase.prepare('SELECT COUNT(*) AS count FROM base_devices').get().count, 1);
 	assert.equal(localDeviceDatabase.prepare('SELECT COUNT(*) AS count FROM base_device_users').get().count, 1);
+	const adminUserId = localDeviceDatabase.prepare("SELECT id FROM base_users WHERE username = 'bootstrap_admin'").get().id;
 	localDeviceDatabase.close();
+	assert.equal((await request('localhost', `/api/panel/admin/system/users.php/${adminUserId}`, { method: 'PUT', cookie, body: { status: 'enabled' } })).status, 200);
+	const auditedUserDatabase = new DatabaseSync(process.env.DEFAULT_DATABASE_FILE, { readOnly: true });
+	assert.equal(String(auditedUserDatabase.prepare('SELECT updated_duid FROM base_users WHERE id = ?').get(adminUserId).updated_duid), '1');
+	auditedUserDatabase.close();
 	const invalidLogin = await request('localhost', '/api/sign.php', {
 		method: 'POST', body: { username: 'bootstrap_admin', password: 'wrong-password' },
 	});

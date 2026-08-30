@@ -74,7 +74,7 @@ const main = async () => {
 			const sql = await generatedSql(schema, 'sqlite', 'file:./database/default.sqlite', temporaryDirectory, `d1-${site}`);
 			await writeFile(join(d1Root, `${String(index + 1).padStart(4, '0')}_prisma_${site}.sql`), generatedFile(site, 'd1', sql));
 		}
-		await writeFile(join(d1Root, '0005_prisma_seed.sql'), generatedFile('seed', 'd1', `INSERT INTO global_sites (site_key, name, base_site_key, dsn, database_binding, status, migration_status, is_default, is_system) VALUES ('global', '全局控制面', 'base', '', '', 'enabled', 'ready', 1, 1) ON CONFLICT(site_key) DO NOTHING;\nINSERT INTO base_bootstrap (created_at, updated_at, key, value) VALUES (0, 0, 'initial_admin', 'open') ON CONFLICT(key) DO NOTHING;`));
+		await writeFile(join(d1Root, '0005_prisma_seed.sql'), generatedFile('seed', 'd1', `INSERT INTO global_sites (site_key, name, base_site_key, dsn, database_binding, status, migration_status, is_default, is_system) VALUES ('global', '全局控制面', 'base', '', '', 'enabled', 'ready', 1, 1) ON CONFLICT(site_key, deleted_at) DO NOTHING;\nINSERT INTO base_bootstrap (created_at, updated_at, key, value) VALUES (0, 0, 'initial_admin', 'open') ON CONFLICT(key, deleted_at) DO NOTHING;`));
 	} finally {
 		await rm(temporaryDirectory, { recursive: true, force: true });
 	}

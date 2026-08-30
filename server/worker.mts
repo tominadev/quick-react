@@ -10,11 +10,11 @@ import { createDatabaseConfigStore } from './modules/base/config-store.mjs';
 import { createD1Adapter, type D1DatabaseLike } from './database/d1.mjs';
 import { apiMessage } from './modules/base/api-response.mjs';
 import { oidcDiscovery } from './modules/passport/accounts/provider.mjs';
-import type { DatabaseAdapter } from './database/index.mjs';
+import { withDatabaseActors, type DatabaseAdapter } from './database/index.mjs';
 import { SiteRouter } from './modules/base/site-router.mjs';
-import { loadCurrentUser, sessionUsesAccountsOidc } from './modules/base/auth/index.mjs';
+import { loadBaseDeviceUserId, loadCurrentUser, sessionUsesAccountsOidc } from './modules/base/auth/index.mjs';
 import { loadAccountsOidcConfig, resolveAccountsLoginMode } from './modules/passport/accounts/client.mjs';
-import { clearPassportSessionCookie, loadPassportSession, readPassportSessionId } from './modules/passport/session.mjs';
+import { clearPassportSessionCookie, loadPassportDeviceUserId, loadPassportSession, readPassportSessionId } from './modules/passport/session.mjs';
 import { loadSystemConfigFromStore } from './modules/base/system-config.mjs';
 import { applyTechStackHeaders, loadTechStackConfigFromStore } from './modules/base/tech-stack.mjs';
 import { isSecureRequest } from './modules/base/request-origin.mjs';
@@ -126,6 +126,36 @@ const configureForRequest = async (c: Context<WorkerEnv>) => {
 		: undefined;
 	if (passportSessionId && !passportUser) c.header('Set-Cookie', clearPassportSessionCookie(isSecureRequest(c)), { append: true });
 	if (passportUser) c.set('passportUser', passportUser);
+	// Bind the authenticated device-user IDs once per request.  The SQL public
+	// layer then fills created/updated audit fields for every route uniformly.
+	const baseDeviceUserId = currentUser ? await loadBaseDeviceUserId(database, c.req.raw) : null;
+	const passportDeviceUserId = passportUser && passportDatabase ? await loadPassportDeviceUserId(passportDatabase, c.req.raw) : null;
+	// Passport administration is authorized by the site's Base admin session.
+	// When both layers share one database and no Accounts session is present,
+	// the Base device-user binding is therefore the only valid audit actor.
+	const passportActor = passportDeviceUserId ?? (passportDatabase === database ? baseDeviceUserId : null);
+	const scopedDatabase = withDatabaseActors(database, {
+		base: baseDeviceUserId,
+		...(passportDatabase === database ? { passport: passportActor } : {}),
+	});
+	const scopedPassportDatabase = passportDatabase && passportDatabase !== database
+		? withDatabaseActors(passportDatabase, { passport: passportDeviceUserId })
+		: scopedDatabase;
+	const globalDeviceUserId = defaultDatabase === database ? baseDeviceUserId : await loadBaseDeviceUserId(defaultDatabase, c.req.raw).catch(() => null);
+	const scopedGlobalDatabase = defaultDatabase === database
+		? scopedDatabase
+		: withDatabaseActors(defaultDatabase, { base: globalDeviceUserId });
+	const scopedConfigStore = createDatabaseConfigStore(scopedDatabase);
+	c.set('globalDatabase', scopedGlobalDatabase);
+	c.set('passportDatabase', scopedPassportDatabase);
+	c.set('database', scopedDatabase);
+	c.set('configStore', {
+		get: scopedConfigStore.get,
+		put: async (key: string, value: unknown) => {
+			await scopedConfigStore.put(key, value);
+			configurationCache.delete(database as object);
+		},
+	});
 	// Accounts 会话只带来身份（accounts 角色），站点权限一律来自本站用户自己的角色。
 	c.set('effectiveRoles', [
 		'public',

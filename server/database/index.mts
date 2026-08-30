@@ -15,13 +15,53 @@ export type DatabaseStatement = {
 	run: () => Promise<DatabaseRunResult>;
 };
 
+/**
+ * The device-user ID that owns a database write.  It is deliberately kept on
+ * the request-scoped adapter rather than passed through every business route.
+ */
+export type DatabaseActorUid = string | number | bigint | null;
+export type DatabaseActorResolver = (table: string) => DatabaseActorUid | undefined;
+
 export type DatabaseAdapter = {
 	dialect?: 'sqlite' | 'mysql' | 'postgresql';
+	/** Request-scoped audit actor used by the SQL builder. */
+	actorUid?: DatabaseActorUid;
+	/** Optional table-aware actor, needed when Base and Passport share a DB. */
+	actorUidForTable?: DatabaseActorResolver;
 	prepare: (query: string) => DatabaseStatement;
 	batch?: (statements: DatabaseBatchStatement[]) => Promise<DatabaseRunResult[]>;
 	exec?: (query: string) => Promise<void>;
 	transaction?: <T>(callback: (database: DatabaseAdapter) => Promise<T>) => Promise<T>;
 	close?: () => void | Promise<void>;
+};
+
+export type DatabaseActors = {
+	base?: DatabaseActorUid;
+	passport?: DatabaseActorUid;
+};
+
+/**
+ * Bind session actors to a request-scoped adapter.  Transactions receive a
+ * similarly bound adapter so writes made inside a transaction retain audit
+ * context.  An explicitly supplied `null` means a system/no-device action.
+ */
+export const withDatabaseActors = (database: DatabaseAdapter, actors: DatabaseActors): DatabaseAdapter => {
+	const hasBase = Object.prototype.hasOwnProperty.call(actors, 'base');
+	const hasPassport = Object.prototype.hasOwnProperty.call(actors, 'passport');
+	const inherited = (table: string) => database.actorUidForTable?.(table) ?? database.actorUid ?? null;
+	const bound: DatabaseAdapter = {
+		...database,
+		actorUidForTable: (table) => {
+			if (table.startsWith('passport_') && hasPassport) return actors.passport ?? null;
+			if (!table.startsWith('passport_') && hasBase) return actors.base ?? null;
+			return inherited(table);
+		},
+	};
+	if (database.transaction) {
+		bound.transaction = (callback) =>
+			database.transaction!((transactionDatabase) => callback(withDatabaseActors(transactionDatabase, actors)));
+	}
+	return bound;
 };
 
 export type DatabaseTarget = {

@@ -6,6 +6,7 @@ CREATE TABLE "pve_regions" (
     "id" INTEGER NOT NULL PRIMARY KEY AUTOINCREMENT,
     "created_at" BIGINT NOT NULL DEFAULT 0,
     "updated_at" BIGINT NOT NULL DEFAULT 0,
+    "deleted_at" BIGINT NOT NULL DEFAULT 0,
     "created_duid" BIGINT,
     "updated_duid" BIGINT,
     "code" TEXT NOT NULL,
@@ -20,6 +21,7 @@ CREATE TABLE "pve_nodes" (
     "id" INTEGER NOT NULL PRIMARY KEY AUTOINCREMENT,
     "created_at" BIGINT NOT NULL DEFAULT 0,
     "updated_at" BIGINT NOT NULL DEFAULT 0,
+    "deleted_at" BIGINT NOT NULL DEFAULT 0,
     "created_duid" BIGINT,
     "updated_duid" BIGINT,
     "region_id" BIGINT NOT NULL,
@@ -40,6 +42,7 @@ CREATE TABLE "pve_instance_flavors" (
     "id" INTEGER NOT NULL PRIMARY KEY AUTOINCREMENT,
     "created_at" BIGINT NOT NULL,
     "updated_at" BIGINT NOT NULL,
+    "deleted_at" BIGINT NOT NULL DEFAULT 0,
     "created_duid" BIGINT,
     "updated_duid" BIGINT,
     "instance_flavor_code" TEXT NOT NULL,
@@ -55,6 +58,7 @@ CREATE TABLE "pve_vms" (
     "id" INTEGER NOT NULL PRIMARY KEY AUTOINCREMENT,
     "created_at" BIGINT NOT NULL DEFAULT 0,
     "updated_at" BIGINT NOT NULL DEFAULT 0,
+    "deleted_at" BIGINT NOT NULL DEFAULT 0,
     "created_duid" BIGINT,
     "updated_duid" BIGINT,
     "kind" TEXT NOT NULL DEFAULT 'qemu',
@@ -65,8 +69,7 @@ CREATE TABLE "pve_vms" (
     "status" TEXT NOT NULL DEFAULT 'allocating',
     "pve_status" TEXT NOT NULL DEFAULT '',
     "pve_config" TEXT NOT NULL DEFAULT '{}',
-    "error_message" TEXT NOT NULL DEFAULT '',
-    "deleted_at" BIGINT
+    "error_message" TEXT NOT NULL DEFAULT ''
 );
 
 -- CreateTable
@@ -74,6 +77,7 @@ CREATE TABLE "pve_vm_tasks" (
     "id" INTEGER NOT NULL PRIMARY KEY AUTOINCREMENT,
     "created_at" BIGINT NOT NULL DEFAULT 0,
     "updated_at" BIGINT NOT NULL DEFAULT 0,
+    "deleted_at" BIGINT NOT NULL DEFAULT 0,
     "created_duid" BIGINT,
     "updated_duid" BIGINT,
     "vm_id" BIGINT NOT NULL,
@@ -87,10 +91,10 @@ CREATE TABLE "pve_vm_tasks" (
 );
 
 -- CreateIndex
-CREATE UNIQUE INDEX "pve_regions_code_key" ON "pve_regions"("code");
+CREATE UNIQUE INDEX "pve_regions_code_deleted_at_key" ON "pve_regions"("code", "deleted_at");
 
 -- CreateIndex
-CREATE UNIQUE INDEX "pve_instance_flavors_cpu_cores_memory_gb_key" ON "pve_instance_flavors"("cpu_cores", "memory_gb");
+CREATE UNIQUE INDEX "pve_instance_flavors_cpu_cores_memory_gb_deleted_at_key" ON "pve_instance_flavors"("cpu_cores", "memory_gb", "deleted_at");
 
 -- CreateIndex
-CREATE UNIQUE INDEX "pve_vm_tasks_idempotency_key_key" ON "pve_vm_tasks"("idempotency_key");
+CREATE UNIQUE INDEX "pve_vm_tasks_idempotency_key_deleted_at_key" ON "pve_vm_tasks"("idempotency_key", "deleted_at");

@@ -67,9 +67,11 @@ model passport_users {
   id          BigInt @id @default(autoincrement())
   created_at  BigInt
   updated_at  BigInt
+  deleted_at BigInt @default(0)
   created_duid BigInt?
   updated_duid BigInt?
-  user_id     BigInt @unique
+  user_id     BigInt
+  @@unique([user_id, deleted_at])
   nickname    String
   status      PassportAccountStatus @default(enabled)
 }
@@ -78,19 +80,24 @@ model passport_usernames {
   id          BigInt @id @default(autoincrement())
   created_at  BigInt
   updated_at  BigInt
+  deleted_at BigInt @default(0)
   created_duid BigInt?
   updated_duid BigInt?
-  user_id     BigInt @unique
-  username    String @unique
+  user_id     BigInt
+  @@unique([user_id, deleted_at])
+  username    String
+  @@unique([username, deleted_at])
 }
 
 model passport_user_email_otps {
   id            BigInt @id @default(autoincrement())
   created_at    BigInt
   updated_at    BigInt
+  deleted_at BigInt @default(0)
   created_duid  BigInt?
   updated_duid  BigInt?
-  otp_id        String @unique
+  otp_id        String
+  @@unique([otp_id, deleted_at])
   user_id       BigInt
   email         String
   code_hash     String
@@ -105,6 +112,7 @@ model passport_user_credentials {
   id         BigInt @id @default(autoincrement())
   created_at BigInt
   updated_at BigInt
+  deleted_at BigInt @default(0)
   created_duid BigInt?
   updated_duid BigInt?
   user_id    BigInt
@@ -117,9 +125,11 @@ model passport_sessions {
   id         BigInt @id @default(autoincrement())
   created_at BigInt
   updated_at BigInt
+  deleted_at BigInt @default(0)
   created_duid BigInt?
   updated_duid BigInt?
-  token_hash String @unique
+  token_hash String
+  @@unique([token_hash, deleted_at])
   user_id    BigInt
   expires_at BigInt
   device_id  BigInt
@@ -132,9 +142,11 @@ model passport_devices {
   id           BigInt @id @default(autoincrement())
   created_at   BigInt
   updated_at   BigInt
+  deleted_at BigInt @default(0)
   created_duid BigInt?
   updated_duid BigInt?
-  fingerprint  String @unique
+  fingerprint  String
+  @@unique([fingerprint, deleted_at])
   user_agent   String @default("")
   platform     String @default("")
   ip_address   String @default("")
@@ -147,6 +159,7 @@ model passport_device_users {
   id           BigInt @id @default(autoincrement())
   created_at   BigInt
   updated_at   BigInt
+  deleted_at BigInt @default(0)
   created_duid BigInt?
   updated_duid BigInt?
   device_id    BigInt
@@ -155,13 +168,14 @@ model passport_device_users {
   last_seen_at BigInt
   revoked_at   BigInt?
 
-  @@unique([device_id, user_id])
+  @@unique([device_id, user_id, deleted_at])
 }
 
 model passport_telegram_accounts {
   id               BigInt @id @default(autoincrement())
   created_at       BigInt
   updated_at       BigInt
+  deleted_at BigInt @default(0)
   created_duid     BigInt?
   updated_duid     BigInt?
   user_id          BigInt
@@ -170,52 +184,56 @@ model passport_telegram_accounts {
   chat_id          BigInt
   nickname         String
 
-  @@unique([bot_id, telegram_user_id])
+  @@unique([bot_id, telegram_user_id, deleted_at])
 }
 
 model passport_oauth_accounts {
   id               BigInt @id @default(autoincrement())
   created_at       BigInt
   updated_at       BigInt
+  deleted_at BigInt @default(0)
   created_duid     BigInt?
   updated_duid     BigInt?
   user_id          BigInt
   provider         String
   provider_user_id String
 
-  @@unique([provider, provider_user_id])
+  @@unique([provider, provider_user_id, deleted_at])
 }
 
 model passport_emails {
   id         BigInt @id @default(autoincrement())
   created_at BigInt
   updated_at BigInt
+  deleted_at BigInt @default(0)
   created_duid BigInt?
   updated_duid BigInt?
   email      String
   verified   Int    @default(0)
 
-  @@unique([email])
+  @@unique([email, deleted_at])
 }
 
 model passport_user_emails {
   id         BigInt @id @default(autoincrement())
   created_at BigInt
   updated_at BigInt
+  deleted_at BigInt @default(0)
   created_duid BigInt?
   updated_duid BigInt?
   user_id    BigInt
   email_id   BigInt
   is_primary Int    @default(0)
 
-  @@unique([user_id, email_id])
-  @@unique([email_id])
+  @@unique([user_id, email_id, deleted_at])
+  @@unique([email_id, deleted_at])
 }
 
 model passport_email_otp {
   id               BigInt @id @default(autoincrement())
   created_at       BigInt
   updated_at       BigInt
+  deleted_at BigInt @default(0)
   created_duid     BigInt?
   updated_duid     BigInt?
   bot_id           BigInt
@@ -234,9 +252,11 @@ model passport_snowflake_state {
   id             BigInt @id @default(autoincrement())
   created_at     BigInt
   updated_at     BigInt
+  deleted_at BigInt @default(0)
   created_duid   BigInt?
   updated_duid   BigInt?
-  worker_id      Int    @unique
+  worker_id      Int
+  @@unique([worker_id, deleted_at])
   last_timestamp BigInt
 }
 
@@ -244,6 +264,7 @@ model passport_telegram_menus {
   id                BigInt @id @default(autoincrement())
   created_at        BigInt
   updated_at        BigInt
+  deleted_at BigInt @default(0)
   created_duid      BigInt?
   updated_duid      BigInt?
   bot_id           BigInt
@@ -251,19 +272,20 @@ model passport_telegram_menus {
   chat_id          BigInt
   message_id       BigInt
   mode             String
-  @@unique([bot_id, telegram_user_id])
+  @@unique([bot_id, telegram_user_id, deleted_at])
 }
 
 model passport_telegram_updates {
   id         BigInt @id @default(autoincrement())
   created_at BigInt
   updated_at BigInt
+  deleted_at BigInt @default(0)
   created_duid BigInt?
   updated_duid BigInt?
   bot_id     BigInt
   update_id  BigInt
   status     PassportTelegramUpdateStatus
-  @@unique([bot_id, update_id])
+  @@unique([bot_id, update_id, deleted_at])
   @@index([status, updated_at])
 }
 
@@ -271,6 +293,7 @@ model passport_telegram_identity_choices {
   id               BigInt @id @default(autoincrement())
   created_at       BigInt
   updated_at       BigInt
+  deleted_at BigInt @default(0)
   created_duid     BigInt?
   updated_duid     BigInt?
   bot_id           BigInt
@@ -288,9 +311,11 @@ model passport_login_challenges {
   id               BigInt @id @default(autoincrement())
   created_at       BigInt
   updated_at       BigInt
+  deleted_at BigInt @default(0)
   created_duid     BigInt?
   updated_duid     BigInt?
-  challenge_id     String @unique
+  challenge_id     String
+  @@unique([challenge_id, deleted_at])
   user_id          BigInt
   bot_id           BigInt
   telegram_user_id BigInt
@@ -307,9 +332,11 @@ model passport_sso_requests {
   id                BigInt @id @default(autoincrement())
   created_at        BigInt
   updated_at        BigInt
+  deleted_at BigInt @default(0)
   created_duid      BigInt?
   updated_duid      BigInt?
-  request_id        String @unique
+  request_id        String
+  @@unique([request_id, deleted_at])
   target_site_key   String
   target_hostname   String
   status            PassportSsoStatus
@@ -322,9 +349,11 @@ model passport_login_tickets {
   id                BigInt @id @default(autoincrement())
   created_at        BigInt
   updated_at        BigInt
+  deleted_at BigInt @default(0)
   created_duid      BigInt?
   updated_duid      BigInt?
-  token_hash        String @unique
+  token_hash        String
+  @@unique([token_hash, deleted_at])
   user_id           BigInt
   target_site_key   String
   target_hostname   String
@@ -338,9 +367,11 @@ model passport_site_sessions {
   id         BigInt @id @default(autoincrement())
   created_at BigInt
   updated_at BigInt
+  deleted_at BigInt @default(0)
   created_duid BigInt?
   updated_duid BigInt?
-  session_id String @unique
+  session_id String
+  @@unique([session_id, deleted_at])
   user_id    BigInt
   site_key   String
   hostname   String
@@ -354,18 +385,20 @@ model passport_user_roles {
   id         BigInt @id @default(autoincrement())
   created_at BigInt
   updated_at BigInt
+  deleted_at BigInt @default(0)
   created_duid BigInt?
   updated_duid BigInt?
   user_id    BigInt
   role       String
 
-  @@unique([user_id, role])
+  @@unique([user_id, role, deleted_at])
 }
 
 model passport_group_prompts {
   id         BigInt @id @default(autoincrement())
   created_at BigInt
   updated_at BigInt
+  deleted_at BigInt @default(0)
   created_duid BigInt?
   updated_duid BigInt?
   chat_id    BigInt
@@ -380,9 +413,11 @@ model passport_external_email_otps {
   id                    BigInt @id @default(autoincrement())
   created_at            BigInt
   updated_at            BigInt
+  deleted_at BigInt @default(0)
   created_duid          BigInt?
   updated_duid          BigInt?
-  otp_id                String @unique
+  otp_id                String
+  @@unique([otp_id, deleted_at])
   pending_identity_hash String
   email                 String
   code_hash             String
@@ -397,6 +432,7 @@ model passport_external_identities {
   id          BigInt @id @default(autoincrement())
   created_at  BigInt
   updated_at  BigInt
+  deleted_at BigInt @default(0)
   created_duid BigInt?
   updated_duid BigInt?
   user_id     BigInt
@@ -404,7 +440,7 @@ model passport_external_identities {
   subject     String
   profile     String @default("{}")
 
-  @@unique([provider, subject])
+  @@unique([provider, subject, deleted_at])
   @@index([user_id])
 }
 
@@ -412,9 +448,11 @@ model passport_external_login_states {
   id              BigInt @id @default(autoincrement())
   created_at      BigInt
   updated_at      BigInt
+  deleted_at BigInt @default(0)
   created_duid    BigInt?
   updated_duid    BigInt?
-  id_hash         String @unique
+  id_hash         String
+  @@unique([id_hash, deleted_at])
   provider        String
   code_verifier   String
   nonce           String
@@ -432,9 +470,11 @@ model passport_external_pending_identities {
   id             BigInt @id @default(autoincrement())
   created_at   BigInt
   updated_at   BigInt
+  deleted_at BigInt @default(0)
   created_duid BigInt?
   updated_duid BigInt?
-  id_hash      String @unique
+  id_hash      String
+  @@unique([id_hash, deleted_at])
   provider     String
   subject      String
   nickname     String
@@ -447,19 +487,24 @@ model passport_external_pending_qr_states {
   id                     BigInt @id @default(autoincrement())
   created_at            BigInt
   updated_at            BigInt
+  deleted_at BigInt @default(0)
   created_duid          BigInt?
   updated_duid          BigInt?
-  pending_identity_hash String @unique
-  qr_state_hash         String @unique
+  pending_identity_hash String
+  @@unique([pending_identity_hash, deleted_at])
+  qr_state_hash         String
+  @@unique([qr_state_hash, deleted_at])
 }
 
 model passport_external_providers {
   id                      BigInt @id @default(autoincrement())
   created_at              BigInt
   updated_at              BigInt
+  deleted_at BigInt @default(0)
   created_duid            BigInt?
   updated_duid            BigInt?
-  provider                String @unique
+  provider                String
+  @@unique([provider, deleted_at])
   display_name            String
   client_id               String
   client_secret           String
@@ -472,9 +517,11 @@ model passport_oidc_clients {
   id                     BigInt @id @default(autoincrement())
   created_at             BigInt
   updated_at             BigInt
+  deleted_at BigInt @default(0)
   created_duid           BigInt?
   updated_duid           BigInt?
-  client_id              String @unique
+  client_id              String
+  @@unique([client_id, deleted_at])
   name                   String
   secret_hash            String
   redirect_uris          String @default("[]")
@@ -489,9 +536,11 @@ model passport_oidc_authorization_requests {
   id                    BigInt @id @default(autoincrement())
   created_at            BigInt
   updated_at            BigInt
+  deleted_at BigInt @default(0)
   created_duid          BigInt?
   updated_duid          BigInt?
-  request_id            String @unique
+  request_id            String
+  @@unique([request_id, deleted_at])
   client_id             String
   redirect_uri          String
   scope                 String
@@ -506,9 +555,11 @@ model passport_oidc_authorization_codes {
   id                    BigInt @id @default(autoincrement())
   created_at            BigInt
   updated_at            BigInt
+  deleted_at BigInt @default(0)
   created_duid          BigInt?
   updated_duid          BigInt?
-  code_hash             String @unique
+  code_hash             String
+  @@unique([code_hash, deleted_at])
   client_id             String
   user_id               BigInt
   redirect_uri          String
@@ -527,16 +578,19 @@ model passport_oidc_access_tokens {
   id                      BigInt @id @default(autoincrement())
   created_at              BigInt
   updated_at              BigInt
+  deleted_at BigInt @default(0)
   created_duid            BigInt?
   updated_duid            BigInt?
-  token_hash              String @unique
+  token_hash              String
+  @@unique([token_hash, deleted_at])
   client_id               String
   user_id                 BigInt
   scope                   String
   expires_at              BigInt
   revoked_at              BigInt?
   session_id              String @default("")
-  authorization_code_hash String? @unique
+  authorization_code_hash String?
+  @@unique([authorization_code_hash, deleted_at])
 
   @@index([expires_at, revoked_at])
 }
@@ -545,9 +599,11 @@ model passport_oidc_signing_keys {
   id           BigInt @id @default(autoincrement())
   created_at   BigInt
   updated_at   BigInt
+  deleted_at BigInt @default(0)
   created_duid BigInt?
   updated_duid BigInt?
-  kid          String @unique
+  kid          String
+  @@unique([kid, deleted_at])
   private_jwk  String
   public_jwk   String
   status       PassportSigningKeyStatus @default(active)

@@ -26,9 +26,11 @@ model global_sites {
   id               BigInt @id @default(autoincrement())
   created_at       BigInt @default(0)
   updated_at       BigInt @default(0)
+  deleted_at       BigInt @default(0)
   created_duid     BigInt?
   updated_duid     BigInt?
-  site_key         String  @unique
+  site_key         String
+  @@unique([site_key, deleted_at])
   name             String
   base_site_key    String?
   dsn              String  @default("")
@@ -45,9 +47,11 @@ model global_site_hosts {
   id           BigInt @id @default(autoincrement())
   created_at   BigInt
   updated_at   BigInt @default(0)
+  deleted_at   BigInt @default(0)
   created_duid BigInt?
   updated_duid BigInt?
-  hostname     String @unique
+  hostname     String
+  @@unique([hostname, deleted_at])
   site_key     String
   status       GlobalEnabledStatus @default(enabled)
 }
@@ -56,9 +60,11 @@ model global_cloud_credentials {
   id                BigInt @id @default(autoincrement())
   created_at        BigInt
   updated_at        BigInt
+  deleted_at BigInt @default(0)
   created_duid      BigInt?
   updated_duid      BigInt?
-  name              String @unique
+  name              String
+  @@unique([name, deleted_at])
   provider          String
   account_id        String @default("")
   access_key_id     String @default("")
@@ -70,6 +76,7 @@ model global_cloud_object_storage_buckets {
   id                  BigInt @id @default(autoincrement())
   created_at          BigInt
   updated_at          BigInt
+  deleted_at BigInt @default(0)
   created_duid        BigInt?
   updated_duid        BigInt?
   cloud_credential_id BigInt
@@ -81,13 +88,14 @@ model global_cloud_object_storage_buckets {
   extra_config        String @default("{}")
   status              GlobalEnabledStatus @default(enabled)
 
-  @@unique([cloud_credential_id, endpoint, bucket])
+  @@unique([cloud_credential_id, endpoint, bucket, deleted_at])
 }
 
 model global_cloud_object_storage_bindings {
   id         BigInt @id @default(autoincrement())
   created_at BigInt
   updated_at BigInt
+  deleted_at BigInt @default(0)
   created_duid BigInt?
   updated_duid BigInt?
   site_key   String
@@ -95,14 +103,15 @@ model global_cloud_object_storage_bindings {
   key_prefix String @default("")
   status     GlobalEnabledStatus @default(enabled)
 
-  @@unique([id, site_key])
-  @@unique([site_key, bucket_id, key_prefix])
+  @@unique([id, site_key, deleted_at])
+  @@unique([site_key, bucket_id, key_prefix, deleted_at])
 }
 
 model global_cloud_object_storage_binding_purposes {
   id         BigInt @id @default(autoincrement())
   created_at BigInt @default(0)
   updated_at BigInt @default(0)
+  deleted_at BigInt @default(0)
   created_duid BigInt?
   updated_duid BigInt?
   binding_id BigInt
@@ -110,18 +119,22 @@ model global_cloud_object_storage_binding_purposes {
   purpose    String
   is_default Int @default(0)
 
-  @@unique([binding_id, purpose])
+  @@unique([binding_id, purpose, deleted_at])
 }
 
 model global_telegram_bots {
   id               BigInt @id @default(autoincrement())
   created_at       BigInt
   updated_at       BigInt
+  deleted_at BigInt @default(0)
   created_duid     BigInt?
   updated_duid     BigInt?
-  name             String @unique
-  bot_token        String @unique
-  bot_username     String @unique
+  name             String
+  @@unique([name, deleted_at])
+  bot_token        String
+  @@unique([bot_token, deleted_at])
+  bot_username     String
+  @@unique([bot_username, deleted_at])
   secret_token     String
   webhook_hostname String
   status           GlobalEnabledStatus @default(enabled)
@@ -133,6 +146,7 @@ model global_cloud_email_channels {
   id                  BigInt @id @default(autoincrement())
   created_at          BigInt
   updated_at          BigInt
+  deleted_at BigInt @default(0)
   created_duid        BigInt?
   updated_duid        BigInt?
   cloud_credential_id BigInt
@@ -142,16 +156,18 @@ model global_cloud_email_channels {
   reply_to_address    Int    @default(0)
   status              GlobalEnabledStatus @default(enabled)
 
-  @@unique([cloud_credential_id, region, account_name])
+  @@unique([cloud_credential_id, region, account_name, deleted_at])
 }
 
 model global_cloud_email_templates {
   id            BigInt @id @default(autoincrement())
   created_at    BigInt
   updated_at    BigInt
+  deleted_at BigInt @default(0)
   created_duid  BigInt?
   updated_duid  BigInt?
-  template_key  String @unique
+  template_key  String
+  @@unique([template_key, deleted_at])
   template_type String @default("email_verification")
   name          String
   subject       String
@@ -164,6 +180,7 @@ model global_cloud_email_bindings {
   id         BigInt @id @default(autoincrement())
   created_at BigInt
   updated_at BigInt
+  deleted_at BigInt @default(0)
   created_duid BigInt?
   updated_duid BigInt?
   site_key   String
@@ -173,13 +190,14 @@ model global_cloud_email_bindings {
   is_default Int    @default(0)
   status     GlobalEnabledStatus @default(enabled)
 
-  @@unique([site_key, channel_id, template_id, purpose])
+  @@unique([site_key, channel_id, template_id, purpose, deleted_at])
 }
 
 model global_cloud_email_template_publications {
   id                   BigInt @id @default(autoincrement())
   created_at           BigInt
   updated_at           BigInt
+  deleted_at BigInt @default(0)
   created_duid         BigInt?
   updated_duid         BigInt?
   template_id          BigInt
@@ -189,5 +207,5 @@ model global_cloud_email_template_publications {
   content_hash         String @default("")
   status               GlobalPublicationStatus
 
-  @@unique([template_id, cloud_credential_id, region])
+  @@unique([template_id, cloud_credential_id, region, deleted_at])
 }
