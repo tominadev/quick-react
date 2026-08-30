@@ -5,40 +5,40 @@ datasource db {
 
 model base_system_users {
   id            Int    @id @default(autoincrement())
-  username      String @unique
-  password      String
-  roles         String @default("[]")
-  status        String @default("enabled")
   created_at    Int
   updated_at    Int
   created_uid   BigInt @default(0)
   updated_uid   BigInt @default(0)
+  username      String @unique
+  password      String
+  roles         String @default("[]")
+  status        String @default("enabled")
 }
 
 model base_system_sessions {
   id         String @id
-  user_id    Int
-  expires_at Int
   created_at Int
   updated_at Int @default(0)
   created_uid BigInt @default(0)
   updated_uid BigInt @default(0)
+  user_id    Int
+  expires_at Int
 }
 
 model base_system_configs {
   key        String @id
-  value      String
-  updated_at Int
   created_at Int @default(0)
+  updated_at Int
   created_uid BigInt @default(0)
   updated_uid BigInt @default(0)
+  value      String
 }
 
 model base_system_bootstrap {
   key   String @id
-  value String
   created_at Int @default(0)
   updated_at Int @default(0)
   created_uid BigInt @default(0)
   updated_uid BigInt @default(0)
+  value String
 }
