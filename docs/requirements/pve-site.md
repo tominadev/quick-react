@@ -76,7 +76,7 @@ PVE 站点用于统一管理 Proxmox VE 集群节点、地区、实例规格和�
 
 建议字段：
 
-- `instance_flavor_id`：系统自动生成的唯一 ID，新增时不可手动填写
+- `id`：系统自动生成的唯一 ID，新增时不可手动填写
 - `instance_flavor_code`：管理员填写的规格代码，例如 `1c1g`，用于展示和接口引用
 - `name`：规格名称
 - `cpu_cores`：CPU 核数，正整数

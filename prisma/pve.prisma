@@ -36,17 +36,17 @@ model pve_nodes {
 }
 
 model pve_instance_flavors {
-  instance_flavor_id   Int    @id @default(autoincrement())
+  id                   BigInt @id @default(autoincrement())
+  created_at           BigInt
+  updated_at           BigInt
+  created_duid         BigInt?
+  updated_duid         BigInt?
   instance_flavor_code String
   name                 String
   cpu_cores            Int
   memory_gb            Int
   status               String @default("enabled")
   sort_order           Int    @default(0)
-  created_at           Int    @default(0)
-  updated_at           Int    @default(0)
-  created_duid          String?
-  updated_duid          String?
 
   @@unique([cpu_cores, memory_gb])
 }
@@ -56,7 +56,7 @@ model pve_vms {
   kind               String @default("qemu")
   region_id          Int
   node_id            Int
-  instance_flavor_id Int
+  instance_flavor_id BigInt
   name               String @default("")
   status             String @default("allocating")
   pve_status         String @default("")
