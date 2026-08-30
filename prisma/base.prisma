@@ -4,9 +4,9 @@ datasource db {
 }
 
 model base_users {
-  id            Int    @id @default(autoincrement())
-  created_at    Int
-  updated_at    Int
+  id            BigInt @id @default(autoincrement())
+  created_at    BigInt
+  updated_at    BigInt
   created_duid BigInt?
   updated_duid BigInt?
   username      String @unique
@@ -16,31 +16,34 @@ model base_users {
 }
 
 model base_sessions {
-  id         String @id
-  created_at Int
-  updated_at Int @default(0)
+  id         BigInt @id @default(autoincrement())
+  created_at BigInt
+  updated_at BigInt
   created_duid BigInt?
   updated_duid BigInt?
-  user_id    Int
-  expires_at Int
+  token_hash String @unique
+  user_id    BigInt
+  expires_at BigInt
 }
 
 model base_configs {
-  key        String @id
-  created_at Int @default(0)
-  updated_at Int
+  id         BigInt @id @default(autoincrement())
+  created_at BigInt
+  updated_at BigInt
   created_duid BigInt?
   updated_duid BigInt?
+  key        String @unique
   value      String
 }
 
 model base_bootstrap {
-  key   String @id
-  created_at Int @default(0)
-  updated_at Int @default(0)
+  id           BigInt @id @default(autoincrement())
+  created_at   BigInt
+  updated_at   BigInt
   created_duid BigInt?
   updated_duid BigInt?
-  value String
+  key          String @unique
+  value        String
 }
 
 model base_devices {

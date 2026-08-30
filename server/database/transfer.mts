@@ -88,7 +88,7 @@ export const transferPortableDatabase = async (
 					offset: transferred,
 				}));
 				if (!rows.length) throw new Error(`表 ${table} 在迁移过程中发生变化，迁移已中止`);
-				const statements: SqlQuery[] = rows.map((row) => sql({ database: transactionTarget }).insert(table, Object.fromEntries(columns.map((column) => [column, row[column]]))));
+				const statements: SqlQuery[] = rows.map((row) => sql({ database: transactionTarget }).insertExisting(table, Object.fromEntries(columns.map((column) => [column, row[column]]))));
 				if (transactionTarget.batch) await transactionTarget.batch(statements);
 				else for (const statement of statements) await runSql(transactionTarget, statement);
 				transferred += rows.length;

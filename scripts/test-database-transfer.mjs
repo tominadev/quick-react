@@ -73,9 +73,9 @@ try {
 	try {
 		await Promise.all([applyBaseSchema(source), applyBaseSchema(target), applyBaseSchema(rollbackTarget)]);
 		const userId = 9007199254740993n;
-		await runSql(source, sql({ database: source }).insert('base_users', { id: userId, username: 'portable', password: 'hash', roles: '[]', status: 'enabled', created_at: 1n, updated_at: 1n }));
-		await runSql(source, sql({ database: source }).insert('base_sessions', { id: 'session', user_id: userId, expires_at: 2n, created_at: 1n }));
-		await runSql(source, sql({ database: source }).insert('base_configs', { key: 'site_title', value: 'Accounts', updated_at: 1n }));
+		await runSql(source, sql({ database: source }).insert('base_users', { id: userId, username: 'portable', password: 'hash', roles: '[]', status: 'enabled' }));
+		await runSql(source, sql({ database: source }).insert('base_sessions', { token_hash: 'session-token-hash', user_id: userId, expires_at: 2n }));
+		await runSql(source, sql({ database: source }).insert('base_configs', { key: 'site_title', value: 'Accounts' }));
 
 		const progress = await transferPortableDatabase(source, mysqlFacade(target), ['base']);
 		assert.equal(progress.length, 7);
@@ -84,8 +84,8 @@ try {
 		assert.equal((await firstSql(target, sql({ database: target }).select({ table: 'base_bootstrap', columns: { value: 'value' }, where: [{ column: 'key', value: 'initial_admin' }] }))).value, 'open');
 
 		await assert.rejects(() => transferPortableDatabase(source, mysqlFacade(rollbackTarget, { failOn: 'base_sessions' }), ['base']), /injected transfer failure/);
-		assert.equal((await firstSql(rollbackTarget, sql(rollbackTarget).count('base_users'))).count, 0n);
-		assert.equal((await firstSql(rollbackTarget, sql(rollbackTarget).count('base_bootstrap'))).count, 1n);
+		assert.equal((await firstSql(rollbackTarget, sql({ database: rollbackTarget }).count('base_users'))).count, 0n);
+		assert.equal((await firstSql(rollbackTarget, sql({ database: rollbackTarget }).count('base_bootstrap'))).count, 1n);
 	} finally {
 		source.close();
 		target.close();

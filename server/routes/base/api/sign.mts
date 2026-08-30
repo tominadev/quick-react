@@ -1,5 +1,5 @@
 import type { ApiHandler } from '@server/modules/base/api-router.mjs';
-import { clearSessionCookie, createSessionCookie, createStoredPassword, readSessionId, verifyStoredPassword } from '@server/modules/base/auth/index.mjs';
+import { clearSessionCookie, createSessionCookie, createStoredPassword, hashSessionToken, readSessionId, verifyStoredPassword } from '@server/modules/base/auth/index.mjs';
 import type { DatabaseAdapter } from '@server/database/index.mjs';
 import { apiMessage, apiMessageData, apiResponse } from '@server/modules/base/api-response.mjs';
 import type { FormPageConfig } from '@shared/types/form-page.mjs';
@@ -69,16 +69,16 @@ const localSign: ApiHandler = async (c, next) => {
 		const credentials = await parseCredentials(c);
 		const user = await firstSql<{ id: number; username: string; password: string; roles: string }>(database, sql({ database }).select({ table: 'base_users', columns: { id: 'id', username: 'username', password: 'password', roles: 'roles' }, where: [{ column: 'username', value: credentials.username }, { column: 'status', value: 'enabled' }] }));
 		if (!user || !await verifyStoredPassword(credentials.password, user.password)) return apiMessage(c, 401, '用户名或密码错误', { component: 'modal', type: 'error' });
-		const sessionId = crypto.randomUUID();
+		const sessionToken = crypto.randomUUID();
 		const maxAge = credentials.remember ? 30 * 24 * 60 * 60 : 24 * 60 * 60;
 		const now = Date.now();
-		await runSql(database, sql({ database }).insert('base_sessions', { id: sessionId, user_id: user.id, expires_at: now + maxAge * 1000 }));
-		c.header('Set-Cookie', createSessionCookie(sessionId, new URL(c.req.url).protocol === 'https:', maxAge));
+		await runSql(database, sql({ database }).insert('base_sessions', { token_hash: await hashSessionToken(sessionToken), user_id: user.id, expires_at: now + maxAge * 1000 }));
+		c.header('Set-Cookie', createSessionCookie(sessionToken, new URL(c.req.url).protocol === 'https:', maxAge));
 		return apiMessageData(c, 200, '登录成功', { user: { id: user.id, username: user.username }, next: { action: 'reload' } });
 	}
 	if (c.req.method === 'DELETE') {
-		const sessionId = readSessionId(c.req.raw);
-		if (sessionId) await runSql(database, sql({ database }).delete('base_sessions', { id: sessionId }));
+		const sessionToken = readSessionId(c.req.raw);
+		if (sessionToken) await runSql(database, sql({ database }).delete('base_sessions', { token_hash: await hashSessionToken(sessionToken) }));
 		c.header('Set-Cookie', clearSessionCookie(new URL(c.req.url).protocol === 'https:'));
 		if (c.req.query('logout') !== 'local') c.header('Set-Cookie', clearPassportSessionCookie(isSecureRequest(c)), { append: true });
 		return apiMessageData(c, 200, '已退出登录', { next: { action: 'reload' } });
@@ -110,10 +110,11 @@ const handler: ApiHandler = async (c, next) => {
 		return apiResponse(c, 200, { user: currentUser, registrationAvailable: false, formPage });
 	}
 	if (c.req.method === 'DELETE') {
-		const database = c.get('database'), sessionId = readSessionId(c.req.raw);
+		const database = c.get('database'), sessionToken = readSessionId(c.req.raw);
+		const sessionHash = sessionToken ? await hashSessionToken(sessionToken) : undefined;
 		const localOnly = c.req.query('logout') === 'local';
-		const oidcSession = !localOnly && sessionId ? await firstSql<{ sid: string }>(database, sql({ database }).select({
-			table: 'base_oidc_sessions', columns: { sid: 'sid' }, where: [{ column: 'issuer', value: config.issuer }, { column: 'session_id', value: sessionId }],
+		const oidcSession = !localOnly && sessionHash ? await firstSql<{ sid: string }>(database, sql({ database }).select({
+			table: 'base_oidc_sessions', alias: 'o', columns: { sid: 'o.sid' }, joins: [{ table: 'base_sessions', alias: 's', left: 's.id', right: 'o.session_id' }], where: [{ column: 'o.issuer', value: config.issuer }, { column: 's.token_hash', value: sessionHash }],
 		})) : undefined;
 		if (oidcSession) {
 			try {
@@ -125,7 +126,7 @@ const handler: ApiHandler = async (c, next) => {
 				if (!response.ok) throw new Error(`Accounts 注销请求失败（HTTP ${response.status}）`);
 			} catch (error) { return apiMessage(c, 502, error instanceof Error ? error.message : 'Accounts 注销失败'); }
 		}
-		if (sessionId) await runSql(database, sql({ database }).delete('base_sessions', { id: sessionId }));
+		if (sessionHash) await runSql(database, sql({ database }).delete('base_sessions', { token_hash: sessionHash }));
 		c.header('Set-Cookie', clearSessionCookie(isSecureRequest(c)));
 		if (!localOnly) c.header('Set-Cookie', clearPassportSessionCookie(isSecureRequest(c)), { append: true });
 		return apiMessageData(c, 200, '已退出 Accounts 及所有关联站点', { next: { action: 'reload' } });

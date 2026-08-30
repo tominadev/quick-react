@@ -425,7 +425,7 @@ global_sites
 global_site_hosts
 ```
 
-`base.prisma` 定义所有继承站点共用的通行证基础表，模型名直接使用数据库表名，并且只在目标数据库中生成一份：
+`base.prisma` 定义所有继承站点共用的通行证基础表，模型名直接使用数据库表名，并且只在目标数据库中生成一份。基础表统一以自增 `id` 作为主键；业务唯一键（例如配置 `key` 和会话 `token_hash`）使用唯一约束，不再占用主键：
 
 ```text
 base_users
@@ -458,7 +458,7 @@ model global_sites {
 }
 
 model base_users {
-  id Int @id @default(autoincrement())
+  id BigInt @id @default(autoincrement())
 }
 ```
 

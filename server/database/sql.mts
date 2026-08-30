@@ -74,6 +74,15 @@ export abstract class SqlBuilder {
 		};
 	}
 
+	/** 数据库迁移专用：按源库原样写入审计字段，不供业务 API 使用。 */
+	insertExisting(table: string, values: Values): SqlQuery {
+		const entries = definedEntries(values); if (!entries.length) throw new Error('INSERT values cannot be empty');
+		return {
+			query: `INSERT INTO ${quoteIdentifier(table, this.dialect)} (${entries.map(([key]) => quoteIdentifier(key, this.dialect)).join(', ')}) VALUES (${this.placeholders(entries.length).join(', ')})`,
+			values: entries.map(([, value]) => value),
+		};
+	}
+
 	insertFromSelect(table: string, values: Record<string, InsertSelectValue>, from: string, where: SqlCondition[]): SqlQuery {
 		const entries = Object.entries(values); if (!entries.length || !where.length) throw new Error('insertFromSelect values and where cannot be empty');
 		let parameterIndex = 0;

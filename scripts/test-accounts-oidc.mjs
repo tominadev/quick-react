@@ -19,7 +19,8 @@ try {
 		return ['accounts.test', 'site1.test'].includes(url.hostname) ? app.request(url.toString(), init) : originalFetch(input, init);
 	};
 	const database = new DatabaseSync(process.env.DEFAULT_DATABASE_FILE);
-	const now = Date.now(), userId = 1000000000000000000n, sessionId = crypto.randomUUID();
+	const now = Date.now(), userId = 1000000000000000000n, sessionId = crypto.randomUUID(), sessionToken = crypto.randomUUID();
+	const sessionHash = base64Url(await sha256(sessionToken));
 	database.prepare(`INSERT INTO global_site_hosts (hostname, site_key, status, created_at) VALUES ('accounts.test', 'passport', 'enabled', ?)`).run(now);
 	database.prepare(`INSERT INTO global_sites (site_key, name, base_site_key, dsn, database_binding, status, migration_status, is_default, is_system)
 		VALUES ('site1', 'Business Site', 'base', '', '', 'enabled', 'ready', 0, 0)`).run();
@@ -30,9 +31,9 @@ try {
 	const secretHash = Buffer.from(await sha256(clientSecret)).toString('hex'), challenge = base64Url(await sha256(verifier));
 	database.prepare(`INSERT INTO passport_oidc_clients (id, name, secret_hash, redirect_uris, allowed_scopes, require_pkce, status, created_at, updated_at, backchannel_logout_uri)
 		VALUES (?, 'Test Client', ?, '["https://client.test/callback","https://site1.test/api/accounts/oidc/callback"]', 'openid profile email', 1, 'enabled', ?, ?, 'https://site1.test/api/accounts/oidc/backchannel-logout')`).run(clientId, secretHash, now, now);
-	database.prepare(`INSERT INTO base_configs (key, value, updated_at) VALUES ('accounts-oidc-client', ?, ?)`).run(JSON.stringify({ enabled: true, issuer: 'https://accounts.test', clientId, clientSecret }), now);
+	database.prepare(`INSERT INTO base_configs (created_at, updated_at, key, value) VALUES (?, ?, 'accounts-oidc-client', ?)`).run(now, now, JSON.stringify({ enabled: true, issuer: 'https://accounts.test', clientId, clientSecret }));
 	database.prepare(`INSERT INTO base_users (id, username, password, roles, status, created_at, updated_at) VALUES (77, 'local_admin', 'unused', '["admin"]', 'enabled', ?, ?)`).run(now, now);
-	database.prepare(`INSERT INTO base_sessions (id, user_id, expires_at, created_at) VALUES ('local-session', 77, ?, ?)`).run(now + 3600_000, now);
+	database.prepare(`INSERT INTO base_sessions (created_at, updated_at, token_hash, user_id, expires_at) VALUES (?, ?, ?, 77, ?)`).run(now, now, sessionHash, now + 3600_000);
 	database.close();
 	const request = (path, options = {}) => app.request(`https://accounts.test${path}`, { method: options.method, headers: options.headers, body: options.body });
 	const discovery = await (await request('/.well-known/openid-configuration')).json();
@@ -119,11 +120,11 @@ try {
 	assert.deepEqual(businessInitial.pageStatus.actions.map((action) => [action.label, action.action]), [['登录', 'accounts-login'], ['返回首页', 'navigate']]);
 	const businessSign = await (await app.request('https://site1.test/api/sign.php')).json();
 	assert.equal(businessSign.formPage.fields[0].name, 'action');
-	const enabledLocalSession = await (await app.request('https://site1.test/api/sign.php', { headers: { cookie: 'base_session=local-session' } })).json();
+	const enabledLocalSession = await (await app.request('https://site1.test/api/sign.php', { headers: { cookie: `base_session=${sessionToken}` } })).json();
 	assert.equal(enabledLocalSession.user, null);
 	const modeDatabase = new DatabaseSync(process.env.DEFAULT_DATABASE_FILE);
 	modeDatabase.prepare(`UPDATE base_configs SET value = ? WHERE key = 'accounts-oidc-client'`).run(JSON.stringify({ enabled: false, issuer: 'https://accounts.test', clientId, clientSecret }));
-	const disabledLocalSession = await (await app.request('https://site1.test/api/sign.php', { headers: { cookie: 'base_session=local-session' } })).json();
+	const disabledLocalSession = await (await app.request('https://site1.test/api/sign.php', { headers: { cookie: `base_session=${sessionToken}` } })).json();
 	assert.equal(disabledLocalSession.user.username, 'local_admin');
 	assert.equal(disabledLocalSession.formPage.fields[0].name, 'username');
 	modeDatabase.prepare(`UPDATE base_configs SET value = ? WHERE key = 'accounts-oidc-client'`).run(JSON.stringify({ enabled: true, issuer: 'https://accounts.test', clientId, clientSecret }));

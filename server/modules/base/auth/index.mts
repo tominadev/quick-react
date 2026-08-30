@@ -81,6 +81,14 @@ export const verifyPassword = async (password: string, encoded: string) => {
 
 export const sessionCookieName = 'base_session';
 
+/** 会话 Cookie 只保存随机原令牌，数据库只保存不可逆摘要。 */
+export const hashSessionToken = async (token: string) => {
+	const digest = new Uint8Array(await crypto.subtle.digest('SHA-256', encoder.encode(token)));
+	let binary = '';
+	for (const byte of digest) binary += String.fromCharCode(byte);
+	return btoa(binary).replaceAll('+', '-').replaceAll('/', '_').replace(/=+$/, '');
+};
+
 export const readSessionId = (request: Request) => {
 	const cookies = request.headers.get('cookie') ?? '';
 	for (const part of cookies.split(';')) {
@@ -99,7 +107,7 @@ export const clearSessionCookie = (secure: boolean) =>
 export const loadCurrentUser = async (database: DatabaseAdapter, request: Request) => {
 	const sessionId = readSessionId(request);
 	if (!sessionId) return undefined;
-	const row = await firstSql<{ id: number; username: string; roles: string }>(database, sql({ database }).select({ table: 'base_sessions', alias: 's', columns: { id: 'u.id', username: 'u.username', roles: 'u.roles' }, joins: [{ table: 'base_users', alias: 'u', left: 'u.id', right: 's.user_id' }], where: [{ column: 's.id', value: sessionId }, { column: 's.expires_at', operator: '>', value: Date.now() }, { column: 'u.status', value: 'enabled' }] }));
+	const row = await firstSql<{ id: number; username: string; roles: string }>(database, sql({ database }).select({ table: 'base_sessions', alias: 's', columns: { id: 'u.id', username: 'u.username', roles: 'u.roles' }, joins: [{ table: 'base_users', alias: 'u', left: 'u.id', right: 's.user_id' }], where: [{ column: 's.token_hash', value: await hashSessionToken(sessionId) }, { column: 's.expires_at', operator: '>', value: Date.now() }, { column: 'u.status', value: 'enabled' }] }));
 	if (!row) return undefined;
 	let roles: string[] = [];
 	try {
@@ -113,5 +121,6 @@ export const loadCurrentUser = async (database: DatabaseAdapter, request: Reques
 export const sessionUsesAccountsOidc = async (database: DatabaseAdapter, request: Request) => {
 	const sessionId = readSessionId(request);
 	if (!sessionId) return false;
-	return Boolean(await firstSql(database, sql({ database }).select({ table: 'base_oidc_sessions', columns: { session_id: 'session_id' }, where: [{ column: 'session_id', value: sessionId }], limit: 1 })));
+	const session = await firstSql<{ id: number | string | bigint }>(database, sql({ database }).select({ table: 'base_sessions', columns: { id: 'id' }, where: [{ column: 'token_hash', value: await hashSessionToken(sessionId) }], limit: 1 }));
+	return Boolean(session && await firstSql(database, sql({ database }).select({ table: 'base_oidc_sessions', columns: { session_id: 'session_id' }, where: [{ column: 'session_id', value: String(session.id) }], limit: 1 })));
 };

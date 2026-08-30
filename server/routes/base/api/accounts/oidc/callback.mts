@@ -3,7 +3,7 @@ import { apiMessage } from '@server/modules/base/api-response.mjs';
 import { clearAccountsLoginCookie, accountsLoginCookieName, loadAccountsOidcConfig, loadDiscovery, oidcFetch, verifyIdToken } from '@server/modules/passport/accounts/client.mjs';
 import { readCookie } from '@server/modules/passport/accounts/oidc.mjs';
 import { isValidAccountUsername } from '@server/modules/passport/account.mjs';
-import { createSessionCookie } from '@server/modules/base/auth/index.mjs';
+import { createSessionCookie, hashSessionToken } from '@server/modules/base/auth/index.mjs';
 import { firstSql, runSql, sql } from '@server/database/sql.mjs';
 import { isSecureRequest, requestOrigin } from '@server/modules/base/request-origin.mjs';
 
@@ -67,13 +67,21 @@ const handler: ApiHandler = async (c) => {
 		if (account.status !== 'enabled') return apiMessage(c, 403, '本站用户已停用');
 		const maxAge = 24 * 60 * 60;
 		const previousSession = await firstSql<{ session_id: string }>(database, sql({ database }).select({ table: 'base_oidc_sessions', columns: { session_id: 'session_id' }, where: [{ column: 'issuer', value: config.issuer }, { column: 'sid', value: oidcSessionId }] }));
-		const sessionId = previousSession?.session_id ?? crypto.randomUUID();
-		if (previousSession) await runSql(database, sql({ database }).update('base_sessions', { user_id: account.user_id, expires_at: now + maxAge * 1000 }, { id: sessionId }));
-		else await runSql(database, sql({ database }).insert('base_sessions', { id: sessionId, user_id: account.user_id, expires_at: now + maxAge * 1000 }));
-		await runSql(database, sql({ database }).upsert('base_oidc_sessions', ['issuer', 'sid'], { issuer: config.issuer, sid: oidcSessionId, session_id: sessionId }, ['session_id', 'created_at']));
+		const sessionToken = crypto.randomUUID(), sessionHash = await hashSessionToken(sessionToken);
+		let sessionId: string;
+		if (previousSession) {
+			sessionId = previousSession.session_id;
+			await runSql(database, sql({ database }).update('base_sessions', { token_hash: sessionHash, user_id: account.user_id, expires_at: now + maxAge * 1000 }, { id: sessionId }));
+		} else {
+			await runSql(database, sql({ database }).insert('base_sessions', { token_hash: sessionHash, user_id: account.user_id, expires_at: now + maxAge * 1000 }));
+			const created = await firstSql<{ id: number | string | bigint }>(database, sql({ database }).select({ table: 'base_sessions', columns: { id: 'id' }, where: [{ column: 'token_hash', value: sessionHash }], limit: 1 }));
+			if (!created) throw new Error('本站会话创建失败');
+			sessionId = String(created.id);
+		}
+		await runSql(database, sql({ database }).upsert('base_oidc_sessions', ['issuer', 'sid'], { issuer: config.issuer, sid: oidcSessionId, session_id: sessionId }, ['session_id', 'updated_at']));
 		await runSql(database, sql({ database }).delete('base_oidc_login_requests', { id: request.id }));
 		const secure = isSecureRequest(c);
-		c.header('Set-Cookie', clearAccountsLoginCookie(secure)); c.header('Set-Cookie', createSessionCookie(sessionId, secure, maxAge), { append: true });
+		c.header('Set-Cookie', clearAccountsLoginCookie(secure)); c.header('Set-Cookie', createSessionCookie(sessionToken, secure, maxAge), { append: true });
 		// 登录只在弹窗里完成：直接返回关闭窗口的页面，不再中转到额外的回调页面。
 		return c.html(popupClosePage(request.return_path));
 	} catch (error) { return apiMessage(c, 502, error instanceof Error ? error.message : 'Accounts 登录回调失败'); }

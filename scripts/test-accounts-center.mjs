@@ -22,6 +22,8 @@ globalThis.fetch = async (input, init) => {
 const userId = '1000000000000000001';
 const primaryEmailId = '2000000000000000001';
 const sessionId = 'accounts-center-session';
+const localSessionToken = 'local-session';
+const localSessionHash = Buffer.from(await crypto.subtle.digest('SHA-256', new TextEncoder().encode(localSessionToken))).toString('base64url');
 const cookie = `passport_session=${sessionId}`;
 
 try {
@@ -68,9 +70,9 @@ try {
 	const localDatabase = new DatabaseSync(process.env.DEFAULT_DATABASE_FILE);
 	const localNow = Date.now();
 	localDatabase.prepare("INSERT INTO base_users (id, username, password, roles, status, created_at, updated_at) VALUES (9, 'admin', '!local', '[\"admin\"]', 'enabled', ?, ?)").run(localNow, localNow);
-	localDatabase.prepare('INSERT INTO base_sessions (id, user_id, expires_at, created_at) VALUES (?, 9, ?, ?)').run('local-session', localNow + 3600_000, localNow);
+	localDatabase.prepare('INSERT INTO base_sessions (created_at, updated_at, token_hash, user_id, expires_at) VALUES (?, ?, ?, 9, ?)').run(localNow, localNow, localSessionHash, localNow + 3600_000);
 	localDatabase.close();
-	const bothDocument = await (await request('/', { cookie: `${cookie}; base_session=local-session`, headers: { accept: 'text/html' } })).text();
+	const bothDocument = await (await request('/', { cookie: `${cookie}; base_session=${localSessionToken}`, headers: { accept: 'text/html' } })).text();
 	const bothData = JSON.parse(bothDocument.match(/__INITIAL_DATA__=(\{.*?\});<\/script>/s)[1]);
 	assert.equal(bothData.auth.currentUser.username, '账户中心用户', '不能显示站点本地账号名');
 	assert.deepEqual(bothData.auth.actions.map((action) => action.key), ['/panel/me', '/panel/accounts', '/sign', '/accounts/sign']);
