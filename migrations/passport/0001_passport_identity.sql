@@ -105,10 +105,14 @@ CREATE INDEX IF NOT EXISTS passport_email_otp_lookup
 	ON passport_email_otp(user_id, email_id, status, created_at DESC);
 
 CREATE TABLE IF NOT EXISTS passport_user_roles (
+	id INTEGER PRIMARY KEY AUTOINCREMENT,
+	created_at INTEGER NOT NULL,
+	updated_at INTEGER NOT NULL,
+	created_duid INTEGER,
+	updated_duid INTEGER,
 	user_id INTEGER NOT NULL,
 	role TEXT NOT NULL CHECK (length(trim(role)) > 0),
-	created_at INTEGER NOT NULL,
-	PRIMARY KEY (user_id, role),
+	UNIQUE (user_id, role),
 	FOREIGN KEY (user_id) REFERENCES passport_users(user_id) ON DELETE RESTRICT
 );
 

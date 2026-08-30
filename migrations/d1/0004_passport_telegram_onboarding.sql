@@ -34,12 +34,15 @@ CREATE INDEX passport_email_otp_lookup
 	ON passport_email_otp(bot_id, telegram_user_id, status, created_at DESC);
 
 CREATE TABLE IF NOT EXISTS passport_telegram_menus (
+	id INTEGER PRIMARY KEY AUTOINCREMENT,
+	created_at INTEGER NOT NULL,
+	updated_at INTEGER NOT NULL,
+	created_duid INTEGER,
+	updated_duid INTEGER,
 	bot_id INTEGER NOT NULL,
 	telegram_user_id INTEGER NOT NULL,
 	chat_id INTEGER NOT NULL,
 	message_id INTEGER NOT NULL,
 	mode TEXT NOT NULL CHECK (mode IN ('menu', 'email', 'otp')),
-	created_at INTEGER NOT NULL,
-	updated_at INTEGER NOT NULL,
-	PRIMARY KEY (bot_id, telegram_user_id)
+	UNIQUE (bot_id, telegram_user_id)
 );

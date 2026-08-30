@@ -120,25 +120,29 @@ model passport_snowflake_state {
 }
 
 model passport_telegram_menus {
+  id                BigInt @id @default(autoincrement())
+  created_at        BigInt
+  updated_at        BigInt
+  created_duid      BigInt?
+  updated_duid      BigInt?
   bot_id           BigInt
   telegram_user_id BigInt
   chat_id          BigInt
   message_id       BigInt
   mode             String
-  created_at       BigInt
-  updated_at       BigInt
-
-  @@id([bot_id, telegram_user_id])
+  @@unique([bot_id, telegram_user_id])
 }
 
 model passport_telegram_updates {
+  id         BigInt @id @default(autoincrement())
+  created_at BigInt
+  updated_at BigInt
+  created_duid BigInt?
+  updated_duid BigInt?
   bot_id     BigInt
   update_id  BigInt
   status     String
-  created_at BigInt
-  updated_at BigInt
-
-  @@id([bot_id, update_id])
+  @@unique([bot_id, update_id])
   @@index([status, updated_at])
 }
 
@@ -211,11 +215,15 @@ model passport_site_sessions {
 }
 
 model passport_user_roles {
+  id         BigInt @id @default(autoincrement())
+  created_at BigInt
+  updated_at BigInt
+  created_duid BigInt?
+  updated_duid BigInt?
   user_id    BigInt
   role       String
-  created_at BigInt
 
-  @@id([user_id, role])
+  @@unique([user_id, role])
 }
 
 model passport_group_prompts {

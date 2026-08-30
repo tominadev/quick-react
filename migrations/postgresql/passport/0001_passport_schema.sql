@@ -82,10 +82,14 @@ CREATE TABLE IF NOT EXISTS passport_email_otp (
 CREATE INDEX IF NOT EXISTS passport_email_otp_lookup ON passport_email_otp(bot_id, telegram_user_id, status, created_at DESC);
 
 CREATE TABLE IF NOT EXISTS passport_user_roles (
+	id BIGSERIAL PRIMARY KEY,
+	created_at BIGINT NOT NULL,
+	updated_at BIGINT NOT NULL,
+	created_duid BIGINT,
+	updated_duid BIGINT,
 	user_id BIGINT NOT NULL REFERENCES passport_users(user_id) ON DELETE RESTRICT,
 	role VARCHAR(128) NOT NULL,
-	created_at BIGINT NOT NULL,
-	PRIMARY KEY (user_id, role)
+	UNIQUE (user_id, role)
 );
 
 CREATE TABLE IF NOT EXISTS passport_group_prompts (
@@ -106,23 +110,29 @@ CREATE TABLE IF NOT EXISTS passport_snowflake_state (
 );
 
 CREATE TABLE IF NOT EXISTS passport_telegram_menus (
+	id BIGSERIAL PRIMARY KEY,
+	created_at BIGINT NOT NULL,
+	updated_at BIGINT NOT NULL,
+	created_duid BIGINT,
+	updated_duid BIGINT,
 	bot_id BIGINT NOT NULL,
 	telegram_user_id BIGINT NOT NULL,
 	chat_id BIGINT NOT NULL,
 	message_id BIGINT NOT NULL,
 	mode VARCHAR(16) NOT NULL CHECK (mode IN ('menu', 'email', 'otp')),
-	created_at BIGINT NOT NULL,
-	updated_at BIGINT NOT NULL,
-	PRIMARY KEY (bot_id, telegram_user_id)
+	UNIQUE (bot_id, telegram_user_id)
 );
 
 CREATE TABLE IF NOT EXISTS passport_telegram_updates (
+	id BIGSERIAL PRIMARY KEY,
+	created_at BIGINT NOT NULL,
+	updated_at BIGINT NOT NULL,
+	created_duid BIGINT,
+	updated_duid BIGINT,
 	bot_id BIGINT NOT NULL,
 	update_id BIGINT NOT NULL,
 	status VARCHAR(32) NOT NULL CHECK (status IN ('processing', 'completed', 'failed')),
-	created_at BIGINT NOT NULL,
-	updated_at BIGINT NOT NULL,
-	PRIMARY KEY (bot_id, update_id)
+	UNIQUE (bot_id, update_id)
 );
 CREATE INDEX IF NOT EXISTS passport_telegram_updates_status ON passport_telegram_updates(status, updated_at);
 
