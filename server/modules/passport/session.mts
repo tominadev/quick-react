@@ -1,5 +1,6 @@
 import type { DatabaseAdapter } from '@server/database/index.mjs';
 import { firstSql, runSql, sql } from '@server/database/sql.mjs';
+import { sha256 } from '@server/modules/passport/accounts/oidc.mjs';
 
 export const passportSessionCookieName = 'passport_session';
 
@@ -48,25 +49,26 @@ export const ensurePassportDevice = async (database: DatabaseAdapter, userId: st
 export const loadPassportSession = async (database: DatabaseAdapter, request: Request) => {
 	const sessionId = readPassportSessionId(request);
 	if (!sessionId) return undefined;
-	const user = await firstSql<{ user_id: string; nickname: string; device_id?: string | null }>(database, sql({ database }).select({ table: 'passport_sessions', alias: 's', columns: { user_id: { column: 'u.user_id', cast: 'text' }, nickname: 'u.nickname', device_id: { column: 's.device_id', cast: 'text' } }, joins: [{ table: 'passport_users', alias: 'u', left: 'u.user_id', right: 's.user_id' }], where: [{ column: 's.id', value: sessionId }, { column: 's.expires_at', operator: '>', value: Date.now() }, { column: 'u.status', value: 'enabled' }] }));
+	const sessionHash = await sha256(sessionId);
+	const user = await firstSql<{ user_id: string; nickname: string; device_id?: string | null }>(database, sql({ database }).select({ table: 'passport_sessions', alias: 's', columns: { user_id: { column: 'u.user_id', cast: 'text' }, nickname: 'u.nickname', device_id: { column: 's.device_id', cast: 'text' } }, joins: [{ table: 'passport_users', alias: 'u', left: 'u.user_id', right: 's.user_id' }], where: [{ column: 's.token_hash', value: sessionHash }, { column: 's.expires_at', operator: '>', value: Date.now() }, { column: 'u.status', value: 'enabled' }] }));
 	if (!user) return undefined;
 	if (!user.device_id) {
-		await runSql(database, sql({ database }).delete('passport_sessions', { id: sessionId }));
+		await runSql(database, sql({ database }).delete('passport_sessions', { token_hash: sessionHash }));
 		return undefined;
 	}
 	let fingerprint: string;
 	try { fingerprint = readDeviceFingerprint(request); } catch {
-		await runSql(database, sql({ database }).delete('passport_sessions', { id: sessionId }));
+		await runSql(database, sql({ database }).delete('passport_sessions', { token_hash: sessionHash }));
 		return undefined;
 	}
 	const binding = await firstSql<{ status: string }>(database, sql({ database }).select({ table: 'base_device_users', columns: { status: 'status' }, where: [{ column: 'device_id', value: user.device_id }, { column: 'user_id', value: user.user_id }] }));
 	if (!binding || binding.status !== 'active') {
-		await runSql(database, sql({ database }).delete('passport_sessions', { id: sessionId }));
+		await runSql(database, sql({ database }).delete('passport_sessions', { token_hash: sessionHash }));
 		return undefined;
 	}
 	const device = await firstSql<{ fingerprint: string; status: string }>(database, sql({ database }).select({ table: 'base_devices', columns: { fingerprint: 'fingerprint', status: 'status' }, where: [{ column: 'id', value: user.device_id }] }));
 	if (!device || device.status !== 'active' || device.fingerprint !== fingerprint) {
-		await runSql(database, sql({ database }).delete('passport_sessions', { id: sessionId }));
+		await runSql(database, sql({ database }).delete('passport_sessions', { token_hash: sessionHash }));
 		return undefined;
 	}
 	return { id: user.user_id, username: user.nickname, roles: [] };

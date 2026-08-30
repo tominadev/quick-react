@@ -118,30 +118,45 @@ site_members
 
 以下结构用于替代旧 CouchDB 的索引文档。所有数据库中的身份 ID、Telegram ID、Chat ID 和时间字段使用 64 位整数类型：SQLite 使用 `INTEGER`，MySQL 和 PostgreSQL 使用 `BIGINT`。Node 内部使用 `bigint` 或字符串，API JSON 始终使用字符串，禁止转换为 JavaScript `number`。
 
-Passport 身份主体和关联键统一使用 `NOT NULL`；不使用空字符串表达未设置。可选能力优先使用独立关联表，生命周期中的 `consumed_at`、`revoked_at` 等“事件尚未发生”时间允许使用 `NULL`。字符串字段必须在写入前得到有效值，枚举字段必须使用明确的状态值。
+Passport 身份主体和关联键统一使用 `NOT NULL`；不使用空字符串表达未设置。除 Base 设备三张来源表外，所有业务表字段顺序固定为 `id BIGINT` 自增主键、`created_at BIGINT`、`updated_at BIGINT`、可空 `created_duid BIGINT`、可空 `updated_duid BIGINT`。原业务标识（令牌、挑战号、客户端号、provider 等）保留字符串类型并建立唯一约束，不再占用主键。可选能力优先使用独立关联表，生命周期中的 `consumed_at`、`revoked_at` 等“事件尚未发生”时间允许使用 `NULL`。字符串字段必须在写入前得到有效值，枚举字段必须使用明确的状态值。
 
 ```text
 passport_users
-  user_id BIGINT PRIMARY KEY            -- 兼容老项目雪花 ID
-  nickname TEXT NOT NULL
-  status TEXT NOT NULL DEFAULT 'enabled'
+  id BIGINT PRIMARY KEY                  -- 统一自增主键
   created_at BIGINT NOT NULL
   updated_at BIGINT NOT NULL
+  created_duid BIGINT
+  updated_duid BIGINT
+  user_id BIGINT UNIQUE                  -- Accounts 语义用户 ID
+  nickname TEXT NOT NULL
+  status TEXT NOT NULL DEFAULT 'enabled'
 
 passport_user_credentials                -- 用户主动设置密码后才创建
   id BIGINT PRIMARY KEY
+  created_at BIGINT NOT NULL
+  updated_at BIGINT NOT NULL
+  created_duid BIGINT
+  updated_duid BIGINT
   user_id BIGINT NOT NULL
   password TEXT NOT NULL                 -- 与 base_users.password 相同的 JSON 格式
-  created_at BIGINT NOT NULL
 
 passport_sessions
-  id TEXT PRIMARY KEY
+  id BIGINT PRIMARY KEY
+  created_at BIGINT NOT NULL
+  updated_at BIGINT NOT NULL
+  created_duid BIGINT
+  updated_duid BIGINT
+  token_hash TEXT UNIQUE
   user_id BIGINT NOT NULL
   expires_at BIGINT NOT NULL
-  created_at BIGINT NOT NULL
 
 passport_login_challenges
-  id TEXT PRIMARY KEY
+  id BIGINT PRIMARY KEY
+  created_at BIGINT NOT NULL
+  updated_at BIGINT NOT NULL
+  created_duid BIGINT
+  updated_duid BIGINT
+  challenge_id TEXT UNIQUE
   user_id BIGINT NOT NULL
   bot_id BIGINT NOT NULL
   telegram_user_id BIGINT NOT NULL
@@ -149,11 +164,14 @@ passport_login_challenges
   expected_number INTEGER NOT NULL
   status TEXT NOT NULL                 -- pending / approved / denied / expired / consumed
   expires_at BIGINT NOT NULL
-  created_at BIGINT NOT NULL
-  updated_at BIGINT NOT NULL
 
 passport_oidc_clients
-  id TEXT PRIMARY KEY
+  id BIGINT PRIMARY KEY
+  created_at BIGINT NOT NULL
+  updated_at BIGINT NOT NULL
+  created_duid BIGINT
+  updated_duid BIGINT
+  client_id TEXT UNIQUE
   secret_hash TEXT NOT NULL
   redirect_uris TEXT NOT NULL
   backchannel_logout_uri TEXT NOT NULL
@@ -162,7 +180,12 @@ passport_oidc_clients
   status TEXT NOT NULL
 
 passport_oidc_authorization_requests
-  id TEXT PRIMARY KEY
+  id BIGINT PRIMARY KEY
+  created_at BIGINT NOT NULL
+  updated_at BIGINT NOT NULL
+  created_duid BIGINT
+  updated_duid BIGINT
+  request_id TEXT UNIQUE
   client_id TEXT NOT NULL
   redirect_uri TEXT NOT NULL
   state TEXT NOT NULL
@@ -171,7 +194,12 @@ passport_oidc_authorization_requests
   expires_at BIGINT NOT NULL
 
 passport_oidc_authorization_codes
-  code_hash TEXT PRIMARY KEY            -- 不保存原始授权码
+  id BIGINT PRIMARY KEY
+  created_at BIGINT NOT NULL
+  updated_at BIGINT NOT NULL
+  created_duid BIGINT
+  updated_duid BIGINT
+  code_hash TEXT UNIQUE                 -- 不保存原始授权码
   client_id TEXT NOT NULL
   user_id BIGINT NOT NULL
   session_id TEXT NOT NULL
@@ -179,7 +207,12 @@ passport_oidc_authorization_codes
   consumed_at BIGINT
 
 passport_oidc_access_tokens
-  token_hash TEXT PRIMARY KEY           -- 不保存原始访问令牌
+  id BIGINT PRIMARY KEY
+  created_at BIGINT NOT NULL
+  updated_at BIGINT NOT NULL
+  created_duid BIGINT
+  updated_duid BIGINT
+  token_hash TEXT UNIQUE                 -- 不保存原始访问令牌
   client_id TEXT NOT NULL
   user_id BIGINT NOT NULL
   session_id TEXT NOT NULL
@@ -189,32 +222,46 @@ passport_oidc_access_tokens
 
 passport_telegram_accounts
   id BIGINT PRIMARY KEY
+  created_at BIGINT NOT NULL
+  updated_at BIGINT NOT NULL
+  created_duid BIGINT
+  updated_duid BIGINT
   user_id BIGINT NOT NULL
   bot_id BIGINT NOT NULL
   telegram_user_id BIGINT NOT NULL
   chat_id BIGINT NOT NULL
   nickname TEXT NOT NULL
-  created_at BIGINT NOT NULL
-  updated_at BIGINT NOT NULL
 
 passport_external_identities
   id BIGINT PRIMARY KEY
+  created_at BIGINT NOT NULL
+  updated_at BIGINT NOT NULL
+  created_duid BIGINT
+  updated_duid BIGINT
   user_id BIGINT NOT NULL
   provider TEXT NOT NULL                 -- wechat / google；Telegram 使用专用关系表
   subject TEXT NOT NULL                  -- Provider 侧稳定用户 ID
   profile TEXT NOT NULL
-  created_at BIGINT NOT NULL
-  updated_at BIGINT NOT NULL
 
 passport_external_providers
-  id TEXT PRIMARY KEY                   -- google / wechat
+  id BIGINT PRIMARY KEY
+  created_at BIGINT NOT NULL
+  updated_at BIGINT NOT NULL
+  created_duid BIGINT
+  updated_duid BIGINT
+  provider TEXT UNIQUE                   -- google / wechat
   display_name TEXT NOT NULL
   client_id TEXT NOT NULL
   client_secret TEXT NOT NULL
   status TEXT NOT NULL
 
 passport_external_pending_identities
-  id_hash TEXT PRIMARY KEY              -- 微信授权后的浏览器临时流程
+  id BIGINT PRIMARY KEY
+  created_at BIGINT NOT NULL
+  updated_at BIGINT NOT NULL
+  created_duid BIGINT
+  updated_duid BIGINT
+  id_hash TEXT UNIQUE                   -- 微信授权后的浏览器临时流程
   provider TEXT NOT NULL
   subject TEXT NOT NULL
   nickname TEXT NOT NULL
@@ -223,7 +270,12 @@ passport_external_pending_identities
   expires_at BIGINT NOT NULL
 
 passport_external_email_otps
-  id TEXT PRIMARY KEY
+  id BIGINT PRIMARY KEY
+  created_at BIGINT NOT NULL
+  updated_at BIGINT NOT NULL
+  created_duid BIGINT
+  updated_duid BIGINT
+  otp_id TEXT UNIQUE
   pending_identity_hash TEXT NOT NULL
   email TEXT NOT NULL
   code_hash TEXT NOT NULL
@@ -233,20 +285,30 @@ passport_external_email_otps
 
 passport_emails
   id BIGINT PRIMARY KEY
-  email TEXT NOT NULL
-  verified INTEGER NOT NULL DEFAULT 0
   created_at BIGINT NOT NULL
   updated_at BIGINT NOT NULL
+  created_duid BIGINT
+  updated_duid BIGINT
+  email TEXT NOT NULL
+  verified INTEGER NOT NULL DEFAULT 0
 
 passport_user_emails
+  id BIGINT PRIMARY KEY
+  created_at BIGINT NOT NULL
+  updated_at BIGINT NOT NULL
+  created_duid BIGINT
+  updated_duid BIGINT
   user_id BIGINT NOT NULL
   email_id BIGINT NOT NULL
   is_primary INTEGER NOT NULL DEFAULT 0
-  created_at BIGINT NOT NULL
-  PRIMARY KEY (user_id, email_id)
+  UNIQUE (user_id, email_id)
 
 passport_email_otp
   id BIGINT PRIMARY KEY
+  created_at BIGINT NOT NULL
+  updated_at BIGINT NOT NULL
+  created_duid BIGINT
+  updated_duid BIGINT
   bot_id BIGINT NOT NULL
   telegram_user_id BIGINT NOT NULL
   chat_id BIGINT NOT NULL
@@ -255,33 +317,46 @@ passport_email_otp
   attempt_count INTEGER NOT NULL DEFAULT 0
   status TEXT NOT NULL DEFAULT 'pending'    -- pending / used / expired
   expires_at BIGINT NOT NULL
-  created_at BIGINT NOT NULL
 
 passport_snowflake_state
-  worker_id INTEGER PRIMARY KEY
-  last_timestamp BIGINT NOT NULL
+  id BIGINT PRIMARY KEY
+  created_at BIGINT NOT NULL
   updated_at BIGINT NOT NULL
+  created_duid BIGINT
+  updated_duid BIGINT
+  worker_id INTEGER UNIQUE
+  last_timestamp BIGINT NOT NULL
 
 passport_telegram_menus
+  id BIGINT PRIMARY KEY
+  created_at BIGINT NOT NULL
+  updated_at BIGINT NOT NULL
+  created_duid BIGINT
+  updated_duid BIGINT
   bot_id BIGINT NOT NULL
   telegram_user_id BIGINT NOT NULL
   chat_id BIGINT NOT NULL
   message_id BIGINT NOT NULL
   mode TEXT NOT NULL
-  created_at BIGINT NOT NULL
-  updated_at BIGINT NOT NULL
-  PRIMARY KEY (bot_id, telegram_user_id)
+  UNIQUE (bot_id, telegram_user_id)
 
 passport_telegram_updates
+  id BIGINT PRIMARY KEY
+  created_at BIGINT NOT NULL
+  updated_at BIGINT NOT NULL
+  created_duid BIGINT
+  updated_duid BIGINT
   bot_id BIGINT NOT NULL
   update_id BIGINT NOT NULL
   status TEXT NOT NULL                 -- processing / completed / failed
-  created_at BIGINT NOT NULL
-  updated_at BIGINT NOT NULL
-  PRIMARY KEY (bot_id, update_id)
+  UNIQUE (bot_id, update_id)
 
 passport_telegram_identity_choices
   id BIGINT PRIMARY KEY
+  created_at BIGINT NOT NULL
+  updated_at BIGINT NOT NULL
+  created_duid BIGINT
+  updated_duid BIGINT
   bot_id BIGINT NOT NULL
   telegram_user_id BIGINT NOT NULL
   chat_id BIGINT NOT NULL
@@ -289,23 +364,27 @@ passport_telegram_identity_choices
   email TEXT NOT NULL
   status TEXT NOT NULL                 -- pending / confirmed / cancelled / expired
   expires_at BIGINT NOT NULL
-  created_at BIGINT NOT NULL
-  updated_at BIGINT NOT NULL
 
 passport_user_roles                     -- 已废弃：Accounts 只分配身份，不分配权限，代码不再读取该表
+  id BIGINT PRIMARY KEY
+  created_at BIGINT NOT NULL
+  updated_at BIGINT NOT NULL
+  created_duid BIGINT
+  updated_duid BIGINT
   user_id BIGINT NOT NULL
   role TEXT NOT NULL
-  created_at BIGINT NOT NULL
-  PRIMARY KEY (user_id, role)
+  UNIQUE (user_id, role)
 
 passport_group_prompts
   id BIGINT PRIMARY KEY
+  created_at BIGINT NOT NULL
+  updated_at BIGINT NOT NULL
+  created_duid BIGINT
+  updated_duid BIGINT
   chat_id BIGINT NOT NULL
   actor_id BIGINT NOT NULL
   state_json TEXT NOT NULL DEFAULT '{}'
   expires_at BIGINT NOT NULL
-  created_at BIGINT NOT NULL
-  updated_at BIGINT NOT NULL
 ```
 
 任何取出 64 位 ID（`user_id`、`email_id` 等雪花值）的查询都必须按文本读取（SQL 构造器的 `cast: 'text'`），包括只做存在性判断的查询：SQLite 驱动读取超过 `Number.MAX_SAFE_INTEGER` 的整数时会直接抛错，用户会看到“Value is too large to be represented as a JavaScript number”。

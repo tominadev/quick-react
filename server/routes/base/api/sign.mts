@@ -145,7 +145,7 @@ const handler: ApiHandler = async (c, next) => {
 					if (source.origin === requestOrigin(c) && !source.pathname.startsWith('/api/')) returnPath = `${source.pathname}${source.search}`;
 				}
 			} catch { /* 无效 Referer 使用站点首页作为安全回退 */ }
-			await runSql(database, sql({ database }).insert('base_oidc_login_requests', { id, issuer: config.issuer, state, nonce, code_verifier: verifier, return_path: returnPath, expires_at: now + 600_000 }));
+			await runSql(database, sql({ database }).insert('base_oidc_login_requests', { request_id: id, issuer: config.issuer, state, nonce, code_verifier: verifier, return_path: returnPath, expires_at: now + 600_000 }));
 			const callback = `${requestOrigin(c)}/api/accounts/oidc/callback`;
 			const authorize = new URL(discovery.authorization_endpoint); authorize.search = new URLSearchParams({ response_type: 'code', client_id: config.clientId, redirect_uri: callback, scope: 'openid profile email', state, nonce, code_challenge: await sha256Base64Url(verifier), code_challenge_method: 'S256' }).toString();
 			c.header('Set-Cookie', accountsLoginCookie(id, isSecureRequest(c)));

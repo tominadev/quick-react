@@ -2,7 +2,7 @@ import type { Context } from 'hono';
 import type { AppEnv } from '@server/modules/base/types.mjs';
 import { apiMessage, apiResponse } from '@server/modules/base/api-response.mjs';
 import type { DatabaseAdapter } from '@server/database/index.mjs';
-import { signIdToken } from '@server/modules/passport/accounts/oidc.mjs';
+import { sha256, signIdToken } from '@server/modules/passport/accounts/oidc.mjs';
 import { backchannelClients, passportSessionUser } from '@server/modules/passport/accounts/repository.mjs';
 import { runSql, sql } from '@server/database/sql.mjs';
 import { requestOrigin } from '@server/modules/base/request-origin.mjs';
@@ -36,7 +36,7 @@ export const oidcDiscovery = (c: Context<AppEnv>) => {
 export const revokePassportSession = async (database: DatabaseAdapter, sessionId: string) => {
 	const now = Date.now();
 	await runSql(database, sql({ database }).update('passport_oidc_access_tokens', { revoked_at: now }, [{ column: 'session_id', value: sessionId }, { column: 'revoked_at', operator: 'IS NULL' }]));
-	await runSql(database, sql({ database }).delete('passport_sessions', { id: sessionId }));
+	await runSql(database, sql({ database }).delete('passport_sessions', { token_hash: await sha256(sessionId) }));
 };
 
 export const revokeOidcSession = async (database: DatabaseAdapter, sessionId: string, issuer: string, requester: typeof fetch = fetch) => {

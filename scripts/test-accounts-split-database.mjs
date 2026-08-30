@@ -26,6 +26,7 @@ const userId = '1000000000000000007';
 const emailId = '2000000000000000007';
 const sessionId = 'accounts-split-session';
 const cookie = `passport_session=${sessionId}`;
+const fingerprint = 'a'.repeat(64);
 
 try {
 	// 第一次启动建立 global 结构并登记代码站点。
@@ -55,13 +56,16 @@ try {
 	const passportDatabase = new DatabaseSync(passportFile);
 	passportDatabase.prepare("INSERT INTO passport_users (user_id, nickname, status, created_at, updated_at) VALUES (?, '分库用户', 'enabled', ?, ?)").run(userId, now, now);
 	passportDatabase.prepare("INSERT INTO passport_emails (id, email, verified, created_at, updated_at) VALUES (?, 'split@example.com', 1, ?, ?)").run(emailId, now, now);
-	passportDatabase.prepare('INSERT INTO passport_user_emails (user_id, email_id, is_primary, created_at) VALUES (?, ?, 1, ?)').run(userId, emailId, now);
-	passportDatabase.prepare('INSERT INTO passport_sessions (id, user_id, expires_at, created_at) VALUES (?, ?, ?, ?)').run(sessionId, userId, now + 3600_000, now);
+	passportDatabase.prepare('INSERT INTO passport_user_emails (user_id, email_id, is_primary, created_at, updated_at) VALUES (?, ?, 1, ?, ?)').run(userId, emailId, now, now);
+	passportDatabase.prepare("INSERT INTO base_devices (user_id,fingerprint,status,last_seen_at,created_at,updated_at) VALUES (?,?,'active',?,?,?)").run(userId, fingerprint, now, now, now);
+	const deviceId = passportDatabase.prepare('SELECT id FROM base_devices WHERE fingerprint = ?').get(fingerprint).id;
+	passportDatabase.prepare("INSERT INTO base_device_users (device_id,user_id,status,last_seen_at,created_at,updated_at) VALUES (?,?,'active',?,?,?)").run(deviceId, userId, now, now, now);
+	passportDatabase.prepare('INSERT INTO passport_sessions (token_hash, user_id, device_id, expires_at, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?)').run(Buffer.from(await crypto.subtle.digest('SHA-256', new TextEncoder().encode(sessionId))).toString('hex'), userId, deviceId, now + 3600_000, now, now);
 	passportDatabase.close();
 
 	const request = (path, options = {}) => app.request(`http://accounts.split.test${path}`, {
 		method: options.method,
-		headers: { ...(options.cookie ? { cookie: options.cookie } : {}), ...(options.body === undefined ? {} : { 'content-type': 'application/json' }), ...options.headers },
+		headers: { 'x-device-fingerprint': fingerprint, ...(options.cookie ? { cookie: options.cookie } : {}), ...(options.body === undefined ? {} : { 'content-type': 'application/json' }), ...options.headers },
 		body: options.body === undefined ? undefined : JSON.stringify(options.body),
 	});
 
@@ -117,7 +121,7 @@ try {
 	assert.equal(withPassword.formPage.initialValues.step, 'password');
 	const passwordLogin = await request('/api/accounts/sign.php', { method: 'POST', body: { step: 'password', email: 'split@example.com', password: 'split-password-1' } });
 	assert.equal(passwordLogin.status, 200);
-	assert.equal((await passwordLogin.json()).redirectTo, '/');
+	assert.equal((await passwordLogin.json()).redirectTo, '/panel/accounts.html');
 
 	console.log('accounts split database test passed');
 } finally {

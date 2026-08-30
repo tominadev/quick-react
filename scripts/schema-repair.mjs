@@ -14,7 +14,7 @@ const groups = (groupsArg || 'global,base,passport').split(',').map((value) => v
 if (dropExtra && !yes) throw new Error('删除多余字段必须同时传入 --yes；请先运行 schema:check 查看差异');
 
 const applyMigrations = async (database) => {
-	database.exec('CREATE TABLE IF NOT EXISTS global_schema_migrations (migration_key TEXT PRIMARY KEY NOT NULL, applied_at INTEGER NOT NULL)');
+	database.exec('CREATE TABLE IF NOT EXISTS global_schema_migrations (id INTEGER NOT NULL PRIMARY KEY AUTOINCREMENT, created_at INTEGER NOT NULL, updated_at INTEGER NOT NULL, created_duid INTEGER, updated_duid INTEGER, migration_key TEXT NOT NULL UNIQUE, applied_at INTEGER NOT NULL)');
 	for (const group of groups) {
 		const directory = resolve('migrations', group);
 		const files = (await readdir(directory).catch(() => [])).filter((file) => file.endsWith('.sql')).sort();
@@ -22,7 +22,7 @@ const applyMigrations = async (database) => {
 			const key = `${group}/${file}`;
 			if (database.prepare('SELECT 1 FROM global_schema_migrations WHERE migration_key = ?').get(key)) continue;
 			database.exec('BEGIN IMMEDIATE');
-			try { database.exec(await readFile(join(directory, file), 'utf8')); database.prepare('INSERT INTO global_schema_migrations (migration_key, applied_at) VALUES (?, ?)').run(key, Date.now()); database.exec('COMMIT'); }
+			try { const now = Date.now(); database.exec(await readFile(join(directory, file), 'utf8')); database.prepare('INSERT INTO global_schema_migrations (created_at, updated_at, migration_key, applied_at) VALUES (?, ?, ?, ?)').run(now, now, key, now); database.exec('COMMIT'); }
 			catch (error) { database.exec('ROLLBACK'); throw new Error(`${key} 执行失败：${error instanceof Error ? error.message : error}`); }
 		}
 	}

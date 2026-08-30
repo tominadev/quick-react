@@ -12,7 +12,7 @@ export type ExternalProfile = { subject: string; nickname: string; email?: strin
 export type ExternalLoginState = { provider: ExternalProviderId; code_verifier: string; nonce: string; redirect_uri: string; oidc_request_id: string | null; expires_at: number; consumed_at: number | null };
 export type PendingExternalIdentity = { id_hash: string; provider: ExternalProviderId; subject: string; nickname: string; profile: string; status: string; expires_at: number };
 
-const providerColumns = { id: 'id', display_name: 'display_name', client_id: 'client_id', client_secret: 'client_secret', wechat_mode: 'wechat_mode', wechat_redirect_domain: 'wechat_redirect_domain', status: 'status' } as const;
+const providerColumns = { id: 'provider', display_name: 'display_name', client_id: 'client_id', client_secret: 'client_secret', wechat_mode: 'wechat_mode', wechat_redirect_domain: 'wechat_redirect_domain', status: 'status' } as const;
 /** 能直接提供已验证邮箱的身份源：这些方式创建新账号时不需要再收邮箱验证码。 */
 export const providersWithVerifiedEmail = new Set<ExternalProviderId>(['google']);
 
@@ -20,7 +20,7 @@ export const externalProviders = (database: DatabaseAdapter, enabledOnly = false
 	table: 'passport_external_providers', columns: providerColumns,
 	where: enabledOnly ? [{ column: 'status', value: 'enabled' }] : [], orderBy: [{ column: 'created_at' }],
 }));
-export const externalProvider = (database: DatabaseAdapter, id: string) => firstSql<ExternalProvider>(database, sql({ database }).select({ table: 'passport_external_providers', columns: providerColumns, where: [{ column: 'id', value: id }, { column: 'status', value: 'enabled' }] }));
+export const externalProvider = (database: DatabaseAdapter, id: string) => firstSql<ExternalProvider>(database, sql({ database }).select({ table: 'passport_external_providers', columns: providerColumns, where: [{ column: 'provider', value: id }, { column: 'status', value: 'enabled' }] }));
 
 export const externalStateCookieName = 'accounts_external_state';
 export const externalStateCookie = (value: string, secure: boolean) => `${externalStateCookieName}=${encodeURIComponent(value)}; Path=/api/accounts/external/; HttpOnly; SameSite=Lax; Max-Age=1800${secure ? '; Secure' : ''}`;
@@ -225,7 +225,7 @@ export const issueExternalEmailOtp = async (database: DatabaseAdapter, pending: 
 	if (recent.length >= 10) throw new ExternalEmailRateLimitError(Math.max(1, Math.ceil((recent.at(-1)!.created_at + 60 * 60_000 - now) / 1000)));
 	await runSql(database, sql({ database }).update('passport_external_email_otps', { status: 'expired' }, [{ column: 'pending_identity_hash', value: pending.id_hash }, { column: 'status', value: 'pending' }]));
 	const code = generateEmailCode(), id = crypto.randomUUID();
-	await runSql(database, sql({ database }).insert('passport_external_email_otps', { id, pending_identity_hash: pending.id_hash, email, code_hash: await hashPassword(code), attempt_count: 0, status: 'pending', expires_at: now + 600_000 }));
+	await runSql(database, sql({ database }).insert('passport_external_email_otps', { otp_id: id, pending_identity_hash: pending.id_hash, email, code_hash: await hashPassword(code), attempt_count: 0, status: 'pending', expires_at: now + 600_000 }));
 	return { code, email, expiresAt: now + 600_000 };
 };
 
@@ -236,17 +236,17 @@ export type ExternalEmailVerification = { status: 'created'; userId: string } | 
 export const verifyExternalEmailOtp = async (database: DatabaseAdapter, workerId: unknown, pending: PendingExternalIdentity, rawCode: string): Promise<ExternalEmailVerification> => {
 	const code = rawCode.trim();
 	if (!/^\d{6}$/.test(code)) return { status: 'invalid' };
-	const otp = await firstSql<{ id: string; email: string; code_hash: string; attempt_count: number; expires_at: number }>(database, sql({ database }).select({ table: 'passport_external_email_otps', columns: { id: 'id', email: 'email', code_hash: 'code_hash', attempt_count: 'attempt_count', expires_at: 'expires_at' }, where: [{ column: 'pending_identity_hash', value: pending.id_hash }, { column: 'status', value: 'pending' }], orderBy: [{ column: 'created_at', direction: 'DESC' }], limit: 1 }));
+	const otp = await firstSql<{ id: string; email: string; code_hash: string; attempt_count: number; expires_at: number }>(database, sql({ database }).select({ table: 'passport_external_email_otps', columns: { id: 'otp_id', email: 'email', code_hash: 'code_hash', attempt_count: 'attempt_count', expires_at: 'expires_at' }, where: [{ column: 'pending_identity_hash', value: pending.id_hash }, { column: 'status', value: 'pending' }], orderBy: [{ column: 'created_at', direction: 'DESC' }], limit: 1 }));
 	if (!otp) return { status: 'invalid' };
 	const now = Date.now();
 	if (otp.expires_at <= now) {
-		await runSql(database, sql({ database }).update('passport_external_email_otps', { status: 'expired' }, { id: otp.id }));
+		await runSql(database, sql({ database }).update('passport_external_email_otps', { status: 'expired' }, { otp_id: otp.id }));
 		return { status: 'expired' };
 	}
 	if (otp.attempt_count >= 5) return { status: 'locked' };
 	if (!await verifyPassword(code, otp.code_hash)) {
 		const attempts = otp.attempt_count + 1;
-		await runSql(database, sql({ database }).update('passport_external_email_otps', { attempt_count: attempts, status: attempts >= 5 ? 'expired' : 'pending' }, { id: otp.id }));
+		await runSql(database, sql({ database }).update('passport_external_email_otps', { attempt_count: attempts, status: attempts >= 5 ? 'expired' : 'pending' }, { otp_id: otp.id }));
 		return { status: attempts >= 5 ? 'locked' : 'invalid' };
 	}
 	const [identityOwner, emailOwner] = await Promise.all([
@@ -254,18 +254,18 @@ export const verifyExternalEmailOtp = async (database: DatabaseAdapter, workerId
 		firstSql<{ user_id: string; status: string }>(database, sql({ database }).select({ table: 'passport_emails', alias: 'e', columns: { user_id: { column: 'ue.user_id', cast: 'text' }, status: 'u.status' }, joins: [{ table: 'passport_user_emails', alias: 'ue', left: 'ue.email_id', right: 'e.id' }, { table: 'passport_users', alias: 'u', left: 'u.user_id', right: 'ue.user_id' }], where: [{ column: 'e.email', value: otp.email }, { column: 'e.verified', value: 1 }], limit: 1 })),
 	]);
 	if (identityOwner) {
-		await runSql(database, sql({ database }).update('passport_external_email_otps', { status: 'used' }, { id: otp.id }));
+		await runSql(database, sql({ database }).update('passport_external_email_otps', { status: 'used' }, { otp_id: otp.id }));
 		return { status: 'conflict', message: identityOwner.status === 'enabled' ? '此外部身份已经绑定 Accounts 用户，请重新登录' : '此外部身份对应的 Accounts 用户已停用' };
 	}
 	if (emailOwner) {
 		if (emailOwner.status !== 'enabled') {
-			await runSql(database, sql({ database }).update('passport_external_email_otps', { status: 'used' }, { id: otp.id }));
+			await runSql(database, sql({ database }).update('passport_external_email_otps', { status: 'used' }, { otp_id: otp.id }));
 			return { status: 'conflict', message: '该邮箱所属的 Accounts 用户已停用' };
 		}
 		if (!database.batch) throw new Error('Accounts 数据库不支持原子绑定外部身份');
 		await database.batch([
 			sql({ database }).insert('passport_external_identities', { user_id: emailOwner.user_id, provider: pending.provider, subject: pending.subject, profile: pending.profile }),
-			sql({ database }).update('passport_external_email_otps', { status: 'used' }, { id: otp.id }),
+			sql({ database }).update('passport_external_email_otps', { status: 'used' }, { otp_id: otp.id }),
 			sql({ database }).update('passport_external_pending_identities', { status: 'completed' }, { id_hash: pending.id_hash }),
 		]);
 		return { status: 'created', userId: emailOwner.user_id };
@@ -277,7 +277,7 @@ export const verifyExternalEmailOtp = async (database: DatabaseAdapter, workerId
 		sql({ database }).insert('passport_external_identities', { user_id: userId, provider: pending.provider, subject: pending.subject, profile: pending.profile }),
 		sql({ database }).insert('passport_emails', { id: emailId, email: otp.email, verified: 1 }),
 		sql({ database }).insert('passport_user_emails', { user_id: userId, email_id: emailId, is_primary: 1 }),
-		sql({ database }).update('passport_external_email_otps', { status: 'used' }, { id: otp.id }),
+		sql({ database }).update('passport_external_email_otps', { status: 'used' }, { otp_id: otp.id }),
 		sql({ database }).update('passport_external_pending_identities', { status: 'completed' }, { id_hash: pending.id_hash }),
 	]);
 	return { status: 'created', userId };

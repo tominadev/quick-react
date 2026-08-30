@@ -26,11 +26,12 @@ CREATE TABLE "passport_usernames" (
 
 -- CreateTable
 CREATE TABLE "passport_user_email_otps" (
-    "id" TEXT NOT NULL PRIMARY KEY,
+    "id" INTEGER NOT NULL PRIMARY KEY AUTOINCREMENT,
     "created_at" BIGINT NOT NULL,
     "updated_at" BIGINT NOT NULL,
     "created_duid" BIGINT,
     "updated_duid" BIGINT,
+    "otp_id" TEXT NOT NULL,
     "user_id" BIGINT NOT NULL,
     "email" TEXT NOT NULL,
     "code_hash" TEXT NOT NULL,
@@ -52,11 +53,12 @@ CREATE TABLE "passport_user_credentials" (
 
 -- CreateTable
 CREATE TABLE "passport_sessions" (
-    "id" TEXT NOT NULL PRIMARY KEY,
+    "id" INTEGER NOT NULL PRIMARY KEY AUTOINCREMENT,
     "created_at" BIGINT NOT NULL,
     "updated_at" BIGINT NOT NULL,
     "created_duid" BIGINT,
     "updated_duid" BIGINT,
+    "token_hash" TEXT NOT NULL,
     "user_id" BIGINT NOT NULL,
     "expires_at" BIGINT NOT NULL,
     "device_id" BIGINT
@@ -183,11 +185,12 @@ CREATE TABLE "passport_telegram_identity_choices" (
 
 -- CreateTable
 CREATE TABLE "passport_login_challenges" (
-    "id" TEXT NOT NULL PRIMARY KEY,
+    "id" INTEGER NOT NULL PRIMARY KEY AUTOINCREMENT,
     "created_at" BIGINT NOT NULL,
     "updated_at" BIGINT NOT NULL,
     "created_duid" BIGINT,
     "updated_duid" BIGINT,
+    "challenge_id" TEXT NOT NULL,
     "user_id" BIGINT NOT NULL,
     "bot_id" BIGINT NOT NULL,
     "telegram_user_id" BIGINT NOT NULL,
@@ -199,11 +202,12 @@ CREATE TABLE "passport_login_challenges" (
 
 -- CreateTable
 CREATE TABLE "passport_sso_requests" (
-    "id" TEXT NOT NULL PRIMARY KEY,
+    "id" INTEGER NOT NULL PRIMARY KEY AUTOINCREMENT,
     "created_at" BIGINT NOT NULL,
     "updated_at" BIGINT NOT NULL,
     "created_duid" BIGINT,
     "updated_duid" BIGINT,
+    "request_id" TEXT NOT NULL,
     "target_site_key" TEXT NOT NULL,
     "target_hostname" TEXT NOT NULL,
     "status" TEXT NOT NULL,
@@ -212,11 +216,12 @@ CREATE TABLE "passport_sso_requests" (
 
 -- CreateTable
 CREATE TABLE "passport_login_tickets" (
-    "token_hash" TEXT NOT NULL PRIMARY KEY,
+    "id" INTEGER NOT NULL PRIMARY KEY AUTOINCREMENT,
     "created_at" BIGINT NOT NULL,
     "updated_at" BIGINT NOT NULL,
     "created_duid" BIGINT,
     "updated_duid" BIGINT,
+    "token_hash" TEXT NOT NULL,
     "user_id" BIGINT NOT NULL,
     "target_site_key" TEXT NOT NULL,
     "target_hostname" TEXT NOT NULL,
@@ -226,11 +231,12 @@ CREATE TABLE "passport_login_tickets" (
 
 -- CreateTable
 CREATE TABLE "passport_site_sessions" (
-    "id" TEXT NOT NULL PRIMARY KEY,
+    "id" INTEGER NOT NULL PRIMARY KEY AUTOINCREMENT,
     "created_at" BIGINT NOT NULL,
     "updated_at" BIGINT NOT NULL,
     "created_duid" BIGINT,
     "updated_duid" BIGINT,
+    "session_id" TEXT NOT NULL,
     "user_id" BIGINT NOT NULL,
     "site_key" TEXT NOT NULL,
     "hostname" TEXT NOT NULL,
@@ -263,11 +269,12 @@ CREATE TABLE "passport_group_prompts" (
 
 -- CreateTable
 CREATE TABLE "passport_external_email_otps" (
-    "id" TEXT NOT NULL PRIMARY KEY,
+    "id" INTEGER NOT NULL PRIMARY KEY AUTOINCREMENT,
     "created_at" BIGINT NOT NULL,
     "updated_at" BIGINT NOT NULL,
     "created_duid" BIGINT,
     "updated_duid" BIGINT,
+    "otp_id" TEXT NOT NULL,
     "pending_identity_hash" TEXT NOT NULL,
     "email" TEXT NOT NULL,
     "code_hash" TEXT NOT NULL,
@@ -291,11 +298,12 @@ CREATE TABLE "passport_external_identities" (
 
 -- CreateTable
 CREATE TABLE "passport_external_login_states" (
-    "id_hash" TEXT NOT NULL PRIMARY KEY,
+    "id" INTEGER NOT NULL PRIMARY KEY AUTOINCREMENT,
     "created_at" BIGINT NOT NULL,
     "updated_at" BIGINT NOT NULL,
     "created_duid" BIGINT,
     "updated_duid" BIGINT,
+    "id_hash" TEXT NOT NULL,
     "provider" TEXT NOT NULL,
     "code_verifier" TEXT NOT NULL,
     "nonce" TEXT NOT NULL,
@@ -309,11 +317,12 @@ CREATE TABLE "passport_external_login_states" (
 
 -- CreateTable
 CREATE TABLE "passport_external_pending_identities" (
-    "id_hash" TEXT NOT NULL PRIMARY KEY,
+    "id" INTEGER NOT NULL PRIMARY KEY AUTOINCREMENT,
     "created_at" BIGINT NOT NULL,
     "updated_at" BIGINT NOT NULL,
     "created_duid" BIGINT,
     "updated_duid" BIGINT,
+    "id_hash" TEXT NOT NULL,
     "provider" TEXT NOT NULL,
     "subject" TEXT NOT NULL,
     "nickname" TEXT NOT NULL,
@@ -324,21 +333,23 @@ CREATE TABLE "passport_external_pending_identities" (
 
 -- CreateTable
 CREATE TABLE "passport_external_pending_qr_states" (
-    "pending_identity_hash" TEXT NOT NULL PRIMARY KEY,
+    "id" INTEGER NOT NULL PRIMARY KEY AUTOINCREMENT,
     "created_at" BIGINT NOT NULL,
     "updated_at" BIGINT NOT NULL,
     "created_duid" BIGINT,
     "updated_duid" BIGINT,
+    "pending_identity_hash" TEXT NOT NULL,
     "qr_state_hash" TEXT NOT NULL
 );
 
 -- CreateTable
 CREATE TABLE "passport_external_providers" (
-    "id" TEXT NOT NULL PRIMARY KEY,
+    "id" INTEGER NOT NULL PRIMARY KEY AUTOINCREMENT,
     "created_at" BIGINT NOT NULL,
     "updated_at" BIGINT NOT NULL,
     "created_duid" BIGINT,
     "updated_duid" BIGINT,
+    "provider" TEXT NOT NULL,
     "display_name" TEXT NOT NULL,
     "client_id" TEXT NOT NULL,
     "client_secret" TEXT NOT NULL,
@@ -349,11 +360,12 @@ CREATE TABLE "passport_external_providers" (
 
 -- CreateTable
 CREATE TABLE "passport_oidc_clients" (
-    "id" TEXT NOT NULL PRIMARY KEY,
+    "id" INTEGER NOT NULL PRIMARY KEY AUTOINCREMENT,
     "created_at" BIGINT NOT NULL,
     "updated_at" BIGINT NOT NULL,
     "created_duid" BIGINT,
     "updated_duid" BIGINT,
+    "client_id" TEXT NOT NULL,
     "name" TEXT NOT NULL,
     "secret_hash" TEXT NOT NULL,
     "redirect_uris" TEXT NOT NULL DEFAULT '[]',
@@ -366,11 +378,12 @@ CREATE TABLE "passport_oidc_clients" (
 
 -- CreateTable
 CREATE TABLE "passport_oidc_authorization_requests" (
-    "id" TEXT NOT NULL PRIMARY KEY,
+    "id" INTEGER NOT NULL PRIMARY KEY AUTOINCREMENT,
     "created_at" BIGINT NOT NULL,
     "updated_at" BIGINT NOT NULL,
     "created_duid" BIGINT,
     "updated_duid" BIGINT,
+    "request_id" TEXT NOT NULL,
     "client_id" TEXT NOT NULL,
     "redirect_uri" TEXT NOT NULL,
     "scope" TEXT NOT NULL,
@@ -383,11 +396,12 @@ CREATE TABLE "passport_oidc_authorization_requests" (
 
 -- CreateTable
 CREATE TABLE "passport_oidc_authorization_codes" (
-    "code_hash" TEXT NOT NULL PRIMARY KEY,
+    "id" INTEGER NOT NULL PRIMARY KEY AUTOINCREMENT,
     "created_at" BIGINT NOT NULL,
     "updated_at" BIGINT NOT NULL,
     "created_duid" BIGINT,
     "updated_duid" BIGINT,
+    "code_hash" TEXT NOT NULL,
     "client_id" TEXT NOT NULL,
     "user_id" BIGINT NOT NULL,
     "redirect_uri" TEXT NOT NULL,
@@ -402,11 +416,12 @@ CREATE TABLE "passport_oidc_authorization_codes" (
 
 -- CreateTable
 CREATE TABLE "passport_oidc_access_tokens" (
-    "token_hash" TEXT NOT NULL PRIMARY KEY,
+    "id" INTEGER NOT NULL PRIMARY KEY AUTOINCREMENT,
     "created_at" BIGINT NOT NULL,
     "updated_at" BIGINT NOT NULL,
     "created_duid" BIGINT,
     "updated_duid" BIGINT,
+    "token_hash" TEXT NOT NULL,
     "client_id" TEXT NOT NULL,
     "user_id" BIGINT NOT NULL,
     "scope" TEXT NOT NULL,
@@ -418,11 +433,12 @@ CREATE TABLE "passport_oidc_access_tokens" (
 
 -- CreateTable
 CREATE TABLE "passport_oidc_signing_keys" (
-    "kid" TEXT NOT NULL PRIMARY KEY,
+    "id" INTEGER NOT NULL PRIMARY KEY AUTOINCREMENT,
     "created_at" BIGINT NOT NULL,
     "updated_at" BIGINT NOT NULL,
     "created_duid" BIGINT,
     "updated_duid" BIGINT,
+    "kid" TEXT NOT NULL,
     "private_jwk" TEXT NOT NULL,
     "public_jwk" TEXT NOT NULL,
     "status" TEXT NOT NULL DEFAULT 'active'
@@ -438,10 +454,16 @@ CREATE UNIQUE INDEX "passport_usernames_user_id_key" ON "passport_usernames"("us
 CREATE UNIQUE INDEX "passport_usernames_username_key" ON "passport_usernames"("username");
 
 -- CreateIndex
+CREATE UNIQUE INDEX "passport_user_email_otps_otp_id_key" ON "passport_user_email_otps"("otp_id");
+
+-- CreateIndex
 CREATE INDEX "passport_user_email_otps_user_id_status_created_at_idx" ON "passport_user_email_otps"("user_id", "status", "created_at");
 
 -- CreateIndex
 CREATE INDEX "passport_user_credentials_user_id_created_at_id_idx" ON "passport_user_credentials"("user_id", "created_at", "id");
+
+-- CreateIndex
+CREATE UNIQUE INDEX "passport_sessions_token_hash_key" ON "passport_sessions"("token_hash");
 
 -- CreateIndex
 CREATE INDEX "passport_sessions_user_id_idx" ON "passport_sessions"("user_id");
@@ -483,16 +505,28 @@ CREATE UNIQUE INDEX "passport_telegram_updates_bot_id_update_id_key" ON "passpor
 CREATE INDEX "passport_telegram_identity_choices_bot_id_telegram_user_id_status_created_at_idx" ON "passport_telegram_identity_choices"("bot_id", "telegram_user_id", "status", "created_at");
 
 -- CreateIndex
+CREATE UNIQUE INDEX "passport_login_challenges_challenge_id_key" ON "passport_login_challenges"("challenge_id");
+
+-- CreateIndex
 CREATE INDEX "passport_login_challenges_bot_id_telegram_user_id_status_created_at_idx" ON "passport_login_challenges"("bot_id", "telegram_user_id", "status", "created_at");
 
 -- CreateIndex
 CREATE INDEX "passport_login_challenges_status_expires_at_idx" ON "passport_login_challenges"("status", "expires_at");
 
 -- CreateIndex
+CREATE UNIQUE INDEX "passport_sso_requests_request_id_key" ON "passport_sso_requests"("request_id");
+
+-- CreateIndex
 CREATE INDEX "passport_sso_requests_status_expires_at_idx" ON "passport_sso_requests"("status", "expires_at");
 
 -- CreateIndex
+CREATE UNIQUE INDEX "passport_login_tickets_token_hash_key" ON "passport_login_tickets"("token_hash");
+
+-- CreateIndex
 CREATE INDEX "passport_login_tickets_status_expires_at_idx" ON "passport_login_tickets"("status", "expires_at");
+
+-- CreateIndex
+CREATE UNIQUE INDEX "passport_site_sessions_session_id_key" ON "passport_site_sessions"("session_id");
 
 -- CreateIndex
 CREATE INDEX "passport_site_sessions_user_id_idx" ON "passport_site_sessions"("user_id");
@@ -507,6 +541,9 @@ CREATE UNIQUE INDEX "passport_user_roles_user_id_role_key" ON "passport_user_rol
 CREATE INDEX "passport_group_prompts_chat_id_actor_id_updated_at_idx" ON "passport_group_prompts"("chat_id", "actor_id", "updated_at");
 
 -- CreateIndex
+CREATE UNIQUE INDEX "passport_external_email_otps_otp_id_key" ON "passport_external_email_otps"("otp_id");
+
+-- CreateIndex
 CREATE INDEX "passport_external_email_otps_pending_identity_hash_status_created_at_idx" ON "passport_external_email_otps"("pending_identity_hash", "status", "created_at");
 
 -- CreateIndex
@@ -516,16 +553,43 @@ CREATE INDEX "passport_external_identities_user_id_idx" ON "passport_external_id
 CREATE UNIQUE INDEX "passport_external_identities_provider_subject_key" ON "passport_external_identities"("provider", "subject");
 
 -- CreateIndex
+CREATE UNIQUE INDEX "passport_external_login_states_id_hash_key" ON "passport_external_login_states"("id_hash");
+
+-- CreateIndex
 CREATE INDEX "passport_external_login_states_expires_at_consumed_at_idx" ON "passport_external_login_states"("expires_at", "consumed_at");
+
+-- CreateIndex
+CREATE UNIQUE INDEX "passport_external_pending_identities_id_hash_key" ON "passport_external_pending_identities"("id_hash");
+
+-- CreateIndex
+CREATE UNIQUE INDEX "passport_external_pending_qr_states_pending_identity_hash_key" ON "passport_external_pending_qr_states"("pending_identity_hash");
 
 -- CreateIndex
 CREATE UNIQUE INDEX "passport_external_pending_qr_states_qr_state_hash_key" ON "passport_external_pending_qr_states"("qr_state_hash");
 
 -- CreateIndex
+CREATE UNIQUE INDEX "passport_external_providers_provider_key" ON "passport_external_providers"("provider");
+
+-- CreateIndex
+CREATE UNIQUE INDEX "passport_oidc_clients_client_id_key" ON "passport_oidc_clients"("client_id");
+
+-- CreateIndex
+CREATE UNIQUE INDEX "passport_oidc_authorization_requests_request_id_key" ON "passport_oidc_authorization_requests"("request_id");
+
+-- CreateIndex
+CREATE UNIQUE INDEX "passport_oidc_authorization_codes_code_hash_key" ON "passport_oidc_authorization_codes"("code_hash");
+
+-- CreateIndex
 CREATE INDEX "passport_oidc_authorization_codes_expires_at_consumed_at_idx" ON "passport_oidc_authorization_codes"("expires_at", "consumed_at");
+
+-- CreateIndex
+CREATE UNIQUE INDEX "passport_oidc_access_tokens_token_hash_key" ON "passport_oidc_access_tokens"("token_hash");
 
 -- CreateIndex
 CREATE UNIQUE INDEX "passport_oidc_access_tokens_authorization_code_hash_key" ON "passport_oidc_access_tokens"("authorization_code_hash");
 
 -- CreateIndex
 CREATE INDEX "passport_oidc_access_tokens_expires_at_revoked_at_idx" ON "passport_oidc_access_tokens"("expires_at", "revoked_at");
+
+-- CreateIndex
+CREATE UNIQUE INDEX "passport_oidc_signing_keys_kid_key" ON "passport_oidc_signing_keys"("kid");

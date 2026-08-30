@@ -38,15 +38,17 @@ try {
 	const userId = '1000000000000000000';
 	database.prepare(`INSERT INTO passport_users (user_id, nickname, status, created_at, updated_at) VALUES (?, 'PassportUser', 'enabled', ?, ?)`).run(userId, now, now);
 	database.prepare(`INSERT INTO passport_emails (id, email, verified, created_at, updated_at) VALUES (101, 'user@example.com', 1, ?, ?)`).run(now, now);
-	database.prepare(`INSERT INTO passport_user_emails (user_id, email_id, is_primary, created_at) VALUES (?, 101, 1, ?)`).run(userId, now);
+	database.prepare(`INSERT INTO passport_user_emails (user_id, email_id, is_primary, created_at, updated_at) VALUES (?, 101, 1, ?, ?)`).run(userId, now, now);
 	database.prepare(`INSERT INTO passport_telegram_accounts
 		(id, user_id, bot_id, telegram_user_id, chat_id, nickname, created_at, updated_at)
 		VALUES (201, ?, 1, 9001, 9001, 'PassportUser', ?, ?)`).run(userId, now, now);
 	database.close();
+	const fingerprint = 'a'.repeat(64);
 
 	const request = async (path, options = {}) => {
 		const headers = new Headers(options.headers);
 		if (options.cookie) headers.set('cookie', options.cookie);
+		if (!headers.has('x-device-fingerprint')) headers.set('x-device-fingerprint', fingerprint);
 		if (options.body !== undefined) headers.set('content-type', 'application/json');
 		return app.request(`http://${options.host ?? 'passport.test'}${path}`, {
 			method: options.method,
@@ -98,7 +100,7 @@ try {
 	const challengeId = challengeResult.currentValues.challenge_id;
 	assert.match(challengeId, /^[0-9a-f-]{36}$/);
 	const challengeDatabase = new DatabaseSync(process.env.DEFAULT_DATABASE_FILE, { readOnly: true });
-	const challenge = challengeDatabase.prepare(`SELECT expected_number, status FROM passport_login_challenges WHERE id = ?`).get(challengeId);
+	const challenge = challengeDatabase.prepare(`SELECT expected_number, status FROM passport_login_challenges WHERE challenge_id = ?`).get(challengeId);
 	challengeDatabase.close();
 	assert.equal(challenge.status, 'pending');
 	assert.equal(telegramActions.at(-1).method, 'sendMessage');
@@ -138,7 +140,7 @@ try {
 	assert.deepEqual((await accountsLogout.json()).next, { action: 'reload' });
 	const completedDatabase = new DatabaseSync(process.env.DEFAULT_DATABASE_FILE, { readOnly: true });
 	assert.equal(completedDatabase.prepare("SELECT COUNT(*) AS count FROM base_sessions WHERE token_hash = ?").get(localSessionHash).count, 1, '退出 Accounts 不应删除本站会话');
-	assert.equal(completedDatabase.prepare(`SELECT status FROM passport_login_challenges WHERE id = ?`).get(challengeId).status, 'consumed');
+	assert.equal(completedDatabase.prepare(`SELECT status FROM passport_login_challenges WHERE challenge_id = ?`).get(challengeId).status, 'consumed');
 	assert.equal(completedDatabase.prepare(`SELECT COUNT(*) AS count FROM passport_sessions`).get().count, 0);
 	completedDatabase.close();
 	console.log('passport login test passed');

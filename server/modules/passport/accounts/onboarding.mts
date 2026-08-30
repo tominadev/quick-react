@@ -67,7 +67,7 @@ export const onboardingForm = (onboarding: AccountOnboarding) => onboarding.step
 export const refreshOidcRequest = async (c: Context<AppEnv>, database: DatabaseAdapter) => {
 	const requestId = readCookie(c.req.raw, oidcRequestCookieName);
 	if (!requestId) return;
-	await runSql(database, sql({ database }).update('passport_oidc_authorization_requests', { expires_at: Date.now() + 600_000 }, { id: requestId }));
+	await runSql(database, sql({ database }).update('passport_oidc_authorization_requests', { expires_at: Date.now() + 600_000 }, { request_id: requestId }));
 	c.header('Set-Cookie', oidcRequestCookie(requestId, isSecureRequest(c)), { append: true });
 };
 

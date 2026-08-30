@@ -104,13 +104,13 @@ export const issueAccountEmailOtp = async (database: DatabaseAdapter, userId: st
 	if (recent.length >= 10) throw new AccountEmailRateLimitError(Math.max(1, Math.ceil((recent.at(-1)!.created_at + 60 * 60_000 - now) / 1000)));
 	await runSql(database, sql({ database }).update('passport_user_email_otps', { status: 'expired' }, [{ column: 'user_id', value: userId }, { column: 'status', value: 'pending' }]));
 	const code = generateEmailCode(), id = crypto.randomUUID();
-	await runSql(database, sql({ database }).insert('passport_user_email_otps', { id, user_id: userId, email, code_hash: await hashPassword(code), attempt_count: 0, status: 'pending', expires_at: now + 600_000 }));
+	await runSql(database, sql({ database }).insert('passport_user_email_otps', { otp_id: id, user_id: userId, email, code_hash: await hashPassword(code), attempt_count: 0, status: 'pending', expires_at: now + 600_000 }));
 	return { code, email, expiresAt: now + 600_000 };
 };
 
 export const pendingAccountEmailOtp = (database: DatabaseAdapter, userId: string) => firstSql<{ id: string; email: string; expires_at: number; created_at: number }>(database, sql({ database }).select({
 	table: 'passport_user_email_otps',
-	columns: { id: 'id', email: 'email', expires_at: 'expires_at', created_at: 'created_at' },
+	columns: { id: 'otp_id', email: 'email', expires_at: 'expires_at', created_at: 'created_at' },
 	where: [{ column: 'user_id', value: userId }, { column: 'status', value: 'pending' }, { column: 'expires_at', operator: '>', value: Date.now() }],
 	orderBy: [{ column: 'created_at', direction: 'DESC' }],
 	limit: 1,
@@ -123,22 +123,22 @@ export type AccountEmailVerification = { status: 'bound'; email: string } | { st
 export const verifyAccountEmailOtp = async (database: DatabaseAdapter, workerId: unknown, userId: string, rawCode: string): Promise<AccountEmailVerification> => {
 	const code = rawCode.trim();
 	if (!/^\d{6}$/.test(code)) return { status: 'invalid' };
-	const otp = await firstSql<{ id: string; email: string; code_hash: string; attempt_count: number; expires_at: number }>(database, sql({ database }).select({ table: 'passport_user_email_otps', columns: { id: 'id', email: 'email', code_hash: 'code_hash', attempt_count: 'attempt_count', expires_at: 'expires_at' }, where: [{ column: 'user_id', value: userId }, { column: 'status', value: 'pending' }], orderBy: [{ column: 'created_at', direction: 'DESC' }], limit: 1 }));
+	const otp = await firstSql<{ id: string; email: string; code_hash: string; attempt_count: number; expires_at: number }>(database, sql({ database }).select({ table: 'passport_user_email_otps', columns: { id: 'otp_id', email: 'email', code_hash: 'code_hash', attempt_count: 'attempt_count', expires_at: 'expires_at' }, where: [{ column: 'user_id', value: userId }, { column: 'status', value: 'pending' }], orderBy: [{ column: 'created_at', direction: 'DESC' }], limit: 1 }));
 	if (!otp) return { status: 'none' };
 	const now = Date.now();
 	if (otp.expires_at <= now) {
-		await runSql(database, sql({ database }).update('passport_user_email_otps', { status: 'expired' }, { id: otp.id }));
+		await runSql(database, sql({ database }).update('passport_user_email_otps', { status: 'expired' }, { otp_id: otp.id }));
 		return { status: 'expired' };
 	}
 	if (otp.attempt_count >= 5) return { status: 'locked' };
 	if (!await verifyPassword(code, otp.code_hash)) {
 		const attempts = otp.attempt_count + 1;
-		await runSql(database, sql({ database }).update('passport_user_email_otps', { attempt_count: attempts, status: attempts >= 5 ? 'expired' : 'pending' }, { id: otp.id }));
+		await runSql(database, sql({ database }).update('passport_user_email_otps', { attempt_count: attempts, status: attempts >= 5 ? 'expired' : 'pending' }, { otp_id: otp.id }));
 		return { status: attempts >= 5 ? 'locked' : 'invalid' };
 	}
 	const owner = await emailOwner(database, otp.email);
 	if (owner) {
-		await runSql(database, sql({ database }).update('passport_user_email_otps', { status: 'used' }, { id: otp.id }));
+		await runSql(database, sql({ database }).update('passport_user_email_otps', { status: 'used' }, { otp_id: otp.id }));
 		return { status: 'conflict', message: owner.user_id === userId ? '该邮箱已经绑定到当前账号' : '该邮箱已被其他 Accounts 用户绑定' };
 	}
 	const existing = await listAccountEmails(database, userId);
@@ -147,7 +147,7 @@ export const verifyAccountEmailOtp = async (database: DatabaseAdapter, workerId:
 	const statements: DatabaseBatchStatement[] = [
 		sql({ database }).insert('passport_emails', { id: emailId, email: otp.email, verified: 1 }),
 		sql({ database }).insert('passport_user_emails', { user_id: userId, email_id: emailId, is_primary: existing.length ? 0 : 1 }),
-		sql({ database }).update('passport_user_email_otps', { status: 'used' }, { id: otp.id }),
+		sql({ database }).update('passport_user_email_otps', { status: 'used' }, { otp_id: otp.id }),
 	];
 	if (database.batch) await database.batch(statements);
 	else for (const statement of statements) await runSql(database, { query: statement.query, values: statement.values ?? [] });
@@ -208,7 +208,7 @@ export const listAccountIdentities = async (database: DatabaseAdapter, globalDat
 			where: [{ column: 'user_id', value: userId }],
 			orderBy: [{ column: 'created_at' }],
 		})),
-		allSql<{ id: string; display_name: string }>(database, sql({ database }).select({ table: 'passport_external_providers', columns: { id: 'id', display_name: 'display_name' } })),
+		allSql<{ id: string; display_name: string }>(database, sql({ database }).select({ table: 'passport_external_providers', columns: { id: 'provider', display_name: 'display_name' } })),
 		allSql<{ id: string; bot_id: string; telegram_user_id: string; nickname: string; created_at: number }>(database, sql({ database }).select({
 			table: 'passport_telegram_accounts',
 			columns: { id: { column: 'id', cast: 'text' }, bot_id: { column: 'bot_id', cast: 'text' }, telegram_user_id: { column: 'telegram_user_id', cast: 'text' }, nickname: 'nickname', created_at: 'created_at' },

@@ -12,6 +12,7 @@ const originalFetch = globalThis.fetch;
 const uploads = [];
 let listCalls = 0;
 let storedKey = '';
+const fingerprint = 'a'.repeat(64);
 
 globalThis.fetch = async (input, init) => {
 	const url = new URL(String(input));
@@ -38,12 +39,19 @@ globalThis.fetch = async (input, init) => {
 	return originalFetch(input, init);
 };
 
+const redirectTarget = async (response) => {
+	const location = response.headers.get('location');
+	if (location) return location;
+	const html = await response.text();
+	return JSON.parse(html.match(/<script>location\.href=([^;]+);<\/script>/s)[1]);
+};
+
 try {
 	const { app } = await import(`../dist/server.mjs?avatar=${Date.now()}`);
 	const database = new DatabaseSync(process.env.DEFAULT_DATABASE_FILE);
 	const now = Date.now();
 	database.prepare("INSERT INTO global_site_hosts (hostname, site_key, status, created_at) VALUES ('accounts.test','passport','enabled',?)").run(now);
-	database.prepare("INSERT INTO passport_external_providers (id,display_name,client_id,client_secret,status,created_at,updated_at) VALUES ('google','Google','gid','gsecret','enabled',?,?)").run(now, now);
+	database.prepare("INSERT INTO passport_external_providers (provider,display_name,client_id,client_secret,status,created_at,updated_at) VALUES ('google','Google','gid','gsecret','enabled',?,?)").run(now, now);
 	database.prepare(`INSERT INTO global_cloud_credentials (id,name,provider,access_key_id,access_key_secret,status,created_at,updated_at)
 		VALUES (31,'avatar-store','other','key','secret','enabled',?,?)`).run(now, now);
 	database.prepare(`INSERT INTO global_cloud_object_storage_buckets (id,cloud_credential_id,bucket,endpoint,region,path_style,status,created_at,updated_at)
@@ -55,10 +63,14 @@ try {
 
 	// Google 登录：新用户直接建号，并触发头像同步。
 	const start = await app.request('https://accounts.test/api/accounts/external/google');
-	const state = new URL(start.headers.get('location')).searchParams.get('state');
+	assert.equal(start.status, 200);
+	const startHtml = await start.text();
+	const authorizationUrl = JSON.parse(startHtml.match(/<script>location\.href=([^;]+);<\/script>/s)[1]);
+	const state = new URL(authorizationUrl).searchParams.get('state');
 	const stateCookie = start.headers.getSetCookie().map((value) => value.split(';')[0]).find((value) => value.startsWith('accounts_external_state='));
-	const callback = await app.request(`https://accounts.test/api/accounts/external/google?code=code&state=${encodeURIComponent(state)}`, { headers: { cookie: stateCookie } });
-	assert.equal(callback.status, 302);
+	const callback = await app.request(`https://accounts.test/api/accounts/external/google?code=code&state=${encodeURIComponent(state)}`, { headers: { cookie: stateCookie, 'x-device-fingerprint': fingerprint } });
+	assert.equal(callback.status, 200);
+	assert.match(await callback.text(), /正在返回|登录成功/);
 
 	await new Promise((resolve) => setTimeout(resolve, 80));
 	assert.equal(uploads.length, 1, '应该上传一次头像');
@@ -71,9 +83,9 @@ try {
 
 	// 再登录一次：头像已存在就不再下载上传。
 	const again = await app.request('https://accounts.test/api/accounts/external/google');
-	const againState = new URL(again.headers.get('location')).searchParams.get('state');
+	const againState = new URL(await redirectTarget(again)).searchParams.get('state');
 	const againCookie = again.headers.getSetCookie().map((value) => value.split(';')[0]).find((value) => value.startsWith('accounts_external_state='));
-	await app.request(`https://accounts.test/api/accounts/external/google?code=code&state=${encodeURIComponent(againState)}`, { headers: { cookie: againCookie } });
+	await app.request(`https://accounts.test/api/accounts/external/google?code=code&state=${encodeURIComponent(againState)}`, { headers: { cookie: againCookie, 'x-device-fingerprint': fingerprint } });
 	await new Promise((resolve) => setTimeout(resolve, 80));
 	assert.equal(uploads.length, 1, '已有头像不应该重复上传');
 

@@ -53,9 +53,13 @@
 
 ```text
 passport_usernames                      -- 用户设置用户名后才创建
-  user_id BIGINT PRIMARY KEY
-  username TEXT NOT NULL UNIQUE
+  id BIGINT PRIMARY KEY
   created_at BIGINT NOT NULL
+  updated_at BIGINT NOT NULL
+  created_duid BIGINT
+  updated_duid BIGINT
+  user_id BIGINT UNIQUE
+  username TEXT NOT NULL UNIQUE
 ```
 
 - 格式：小写字母开头，只允许小写字母和数字，长度 6–12，正则 `^[a-z][a-z0-9]{5,11}$`。
@@ -167,15 +171,18 @@ passport_usernames                      -- 用户设置用户名后才创建
 
 ```text
 passport_user_email_otps                -- 已登录用户添加邮箱时的验证码
-  id TEXT PRIMARY KEY
+  id BIGINT PRIMARY KEY
+  created_at BIGINT NOT NULL
+  updated_at BIGINT NOT NULL
+  created_duid BIGINT
+  updated_duid BIGINT
+  otp_id TEXT UNIQUE
   user_id BIGINT NOT NULL
   email TEXT NOT NULL
   code_hash TEXT NOT NULL
   attempt_count INTEGER NOT NULL DEFAULT 0
   status TEXT NOT NULL DEFAULT 'pending'   -- pending / used / expired
   expires_at BIGINT NOT NULL
-  created_at BIGINT NOT NULL
-  updated_at BIGINT NOT NULL
 ```
 
 - 限流沿用既有策略：同一用户 60 秒一次、1 小时最多 10 次；验证码错误 5 次锁定。
@@ -197,7 +204,7 @@ passport_user_email_otps                -- 已登录用户添加邮箱时的验�
 
 1. 新表 `passport_usernames`。
 2. 新表 `passport_user_email_otps`。
-3. `base` 侧无结构变更。
+3. `base_oidc_login_requests` 同样遵循统一自增 `id`，原请求标识保存为唯一的 `request_id`。
 4. 迁移需要同时提供四份：`migrations/passport/`（sqlite）、`migrations/postgresql/passport/`、`migrations/mysql/passport/`、`migrations/d1/`（扁平合并序列），并同步 `prisma/passport.prisma`。
 
 ## 不做的事

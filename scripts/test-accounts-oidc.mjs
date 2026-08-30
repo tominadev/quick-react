@@ -21,6 +21,7 @@ try {
 	const database = new DatabaseSync(process.env.DEFAULT_DATABASE_FILE);
 	const now = Date.now(), userId = 1000000000000000000n, fingerprint = 'a'.repeat(64), sessionId = crypto.randomUUID(), sessionToken = crypto.randomUUID();
 	const sessionHash = base64Url(await sha256(sessionToken));
+	const passportSessionHash = Buffer.from(await sha256(sessionId)).toString('hex');
 	database.prepare(`INSERT INTO global_site_hosts (hostname, site_key, status, created_at) VALUES ('accounts.test', 'passport', 'enabled', ?)`).run(now);
 	database.prepare(`INSERT INTO global_sites (site_key, name, base_site_key, dsn, database_binding, status, migration_status, is_default, is_system)
 		VALUES ('site1', 'Business Site', 'base', '', '', 'enabled', 'ready', 0, 0)`).run();
@@ -29,10 +30,10 @@ try {
 	database.prepare(`INSERT INTO base_devices (user_id, fingerprint, user_agent, platform, ip_address, status, last_seen_at, created_at, updated_at) VALUES (?, ?, 'Test Browser', 'test', '127.0.0.1', 'active', ?, ?, ?)`).run(userId, fingerprint, now, now, now);
 	const deviceId = String(database.prepare('SELECT id FROM base_devices WHERE fingerprint = ?').get(fingerprint).id);
 	database.prepare(`INSERT INTO base_device_users (device_id, user_id, status, last_seen_at, created_at, updated_at) VALUES (?, ?, 'active', ?, ?, ?)`).run(deviceId, userId, now, now, now);
-	database.prepare(`INSERT INTO passport_sessions (id, user_id, expires_at, device_id, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?)`).run(sessionId, userId, now + 3600_000, deviceId, now, now);
+	database.prepare(`INSERT INTO passport_sessions (token_hash, user_id, expires_at, device_id, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?)`).run(passportSessionHash, userId, now + 3600_000, deviceId, now, now);
 	const clientId = 'acct_test', clientSecret = 'test-client-secret', verifier = base64Url(crypto.getRandomValues(new Uint8Array(48)));
 	const secretHash = Buffer.from(await sha256(clientSecret)).toString('hex'), challenge = base64Url(await sha256(verifier));
-	database.prepare(`INSERT INTO passport_oidc_clients (id, name, secret_hash, redirect_uris, allowed_scopes, require_pkce, status, created_at, updated_at, backchannel_logout_uri)
+	database.prepare(`INSERT INTO passport_oidc_clients (client_id, name, secret_hash, redirect_uris, allowed_scopes, require_pkce, status, created_at, updated_at, backchannel_logout_uri)
 		VALUES (?, 'Test Client', ?, '["https://client.test/callback","https://site1.test/api/accounts/oidc/callback"]', 'openid profile email', 1, 'enabled', ?, ?, 'https://site1.test/api/accounts/oidc/backchannel-logout')`).run(clientId, secretHash, now, now);
 	database.prepare(`INSERT INTO base_configs (created_at, updated_at, key, value) VALUES (?, ?, 'accounts-oidc-client', ?)`).run(now, now, JSON.stringify({ enabled: true, issuer: 'https://accounts.test', clientId, clientSecret }));
 	database.prepare(`INSERT INTO base_users (id, username, password, roles, status, created_at, updated_at) VALUES (77, 'local_admin', 'unused', '["admin"]', 'enabled', ?, ?)`).run(now, now);
@@ -104,7 +105,7 @@ try {
 	const accountCenter = await request('/api/accounts/sign.php?action=account_center', { method: 'POST', headers: { cookie: `passport_session=${sessionId}`, 'content-type': 'application/json' }, body: '{}' });
 	assert.equal((await accountCenter.json()).next.path, '/panel/accounts.html');
 	const strictDatabase = new DatabaseSync(process.env.DEFAULT_DATABASE_FILE);
-	strictDatabase.prepare('UPDATE passport_oidc_clients SET strict_redirect_uri = 1 WHERE id = ?').run(clientId);
+	strictDatabase.prepare('UPDATE passport_oidc_clients SET strict_redirect_uri = 1 WHERE client_id = ?').run(clientId);
 	const strictStart = await request('/api/sign.php', { method: 'POST', headers: { 'content-type': 'application/json' }, body: '{}' });
 	const strictAuthorize = await app.request((await strictStart.json()).redirectTo, { headers: { cookie: `passport_session=${sessionId}`, 'x-device-fingerprint': fingerprint } });
 	assert.equal(strictAuthorize.status, 400);
@@ -112,7 +113,7 @@ try {
 	assert.match(strictMessage, /redirect_uri 未注册/);
 	assert.match(strictMessage, /实际请求为 https:\/\/accounts\.test\/api\/accounts\/oidc\/callback/);
 	assert.match(strictMessage, /允许地址为 https:\/\/client\.test\/callback/);
-	strictDatabase.prepare('UPDATE passport_oidc_clients SET strict_redirect_uri = 0 WHERE id = ?').run(clientId);
+	strictDatabase.prepare('UPDATE passport_oidc_clients SET strict_redirect_uri = 0 WHERE client_id = ?').run(clientId);
 	strictDatabase.close();
 	const invalidAuthorize = new URL(authorize); invalidAuthorize.searchParams.set('redirect_uri', 'https://invalid.test/callback');
 	const invalidResponse = await request(`${invalidAuthorize.pathname}${invalidAuthorize.search}`, { headers: { cookie: `passport_session=${sessionId}` } });
@@ -172,7 +173,7 @@ try {
 	assert.equal(logoutResult.logoutUrl, undefined);
 	assert.deepEqual(logoutResult.next, { action: 'reload' });
 	const revoked = new DatabaseSync(process.env.DEFAULT_DATABASE_FILE, { readOnly: true });
-	assert.equal(revoked.prepare('SELECT COUNT(*) AS count FROM passport_sessions WHERE id = ?').get(sessionId).count, 0);
+	assert.equal(revoked.prepare('SELECT COUNT(*) AS count FROM passport_sessions WHERE token_hash = ?').get(passportSessionHash).count, 0);
 	revoked.close();
 	const afterGlobalLogout = await (await app.request('https://site1.test/api/sign.php', { headers: { cookie: businessSessionCookie } })).json();
 	assert.equal(afterGlobalLogout.user, null);

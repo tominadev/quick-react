@@ -2,6 +2,7 @@ import type { ApiHandler } from '@server/modules/base/api-router.mjs';
 import { apiMessage, apiResponse } from '@server/modules/base/api-response.mjs';
 import { allSql, firstSql, runSql, sql } from '@server/database/sql.mjs';
 import { readPassportSessionId } from '@server/modules/passport/session.mjs';
+import { sha256 } from '@server/modules/passport/accounts/oidc.mjs';
 
 const columns = [
 	{ dataIndex: 'device', title: '设备' },
@@ -18,7 +19,7 @@ const handler: ApiHandler = async (c, next, params) => {
 	const userId = String(c.get('passportUser')!.id);
 	if (c.req.method === 'GET' && !params.id) {
 		const currentSessionId = readPassportSessionId(c.req.raw);
-		const current = currentSessionId ? await firstSql<{ device_id: string | null }>(database, sql({ database }).select({ table: 'passport_sessions', columns: { device_id: { column: 'device_id', cast: 'text' } }, where: [{ column: 'id', value: currentSessionId }, { column: 'user_id', value: userId }] })) : undefined;
+		const current = currentSessionId ? await firstSql<{ device_id: string | null }>(database, sql({ database }).select({ table: 'passport_sessions', columns: { device_id: { column: 'device_id', cast: 'text' } }, where: [{ column: 'token_hash', value: await sha256(currentSessionId) }, { column: 'user_id', value: userId }] })) : undefined;
 		const devices = await allSql<any>(database, sql({ database }).select({
 			table: 'base_devices', alias: 'd',
 			columns: { id: { column: 'd.id', cast: 'text' }, device: 'd.user_agent', platform: 'd.platform', ip_address: 'd.ip_address', status: 'du.status', created_at: 'du.created_at', last_seen_at: 'du.last_seen_at', current: { column: 'd.id', cast: 'text' } },

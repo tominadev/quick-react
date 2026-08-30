@@ -34,9 +34,9 @@ const handler: ApiHandler = async (c) => {
 	const database = c.get('database'), config = await loadAccountsOidcConfig(c);
 	if (!config.enabled) return apiMessage(c, 404, '本站未启用 Accounts OIDC 登录');
 	const requestId = readCookie(c.req.raw, accountsLoginCookieName), state = c.req.query('state') ?? '', code = c.req.query('code') ?? '';
-	const requestColumns = { id: 'id', issuer: 'issuer', state: 'state', nonce: 'nonce', code_verifier: 'code_verifier', return_path: 'return_path', expires_at: 'expires_at' } as const;
+	const requestColumns = { id: 'request_id', issuer: 'issuer', state: 'state', nonce: 'nonce', code_verifier: 'code_verifier', return_path: 'return_path', expires_at: 'expires_at' } as const;
 	const request = requestId
-		? await firstSql<LoginRequest>(database, sql({ database }).select({ table: 'base_oidc_login_requests', columns: requestColumns, where: [{ column: 'id', value: requestId }] }))
+		? await firstSql<LoginRequest>(database, sql({ database }).select({ table: 'base_oidc_login_requests', columns: requestColumns, where: [{ column: 'request_id', value: requestId }] }))
 		: state ? await firstSql<LoginRequest>(database, sql({ database }).select({ table: 'base_oidc_login_requests', columns: requestColumns, where: [{ column: 'state', value: state }] })) : undefined;
 	if (!request || request.expires_at <= Date.now() || request.issuer !== config.issuer || !state || state !== request.state || !code) return apiMessage(c, 400, 'Accounts 登录回调状态无效或已过期');
 	try {
@@ -79,7 +79,7 @@ const handler: ApiHandler = async (c) => {
 			sessionId = String(created.id);
 		}
 		await runSql(database, sql({ database }).upsert('base_oidc_sessions', ['issuer', 'sid'], { issuer: config.issuer, sid: oidcSessionId, session_id: sessionId }, ['session_id', 'updated_at']));
-		await runSql(database, sql({ database }).delete('base_oidc_login_requests', { id: request.id }));
+		await runSql(database, sql({ database }).delete('base_oidc_login_requests', { request_id: request.id }));
 		const secure = isSecureRequest(c);
 		c.header('Set-Cookie', clearAccountsLoginCookie(secure)); c.header('Set-Cookie', createSessionCookie(sessionToken, secure, maxAge), { append: true });
 		// 登录只在弹窗里完成：直接返回关闭窗口的页面，不再中转到额外的回调页面。

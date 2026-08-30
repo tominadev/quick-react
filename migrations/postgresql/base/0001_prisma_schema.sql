@@ -67,11 +67,12 @@ CREATE TABLE "base_bootstrap" (
 
 -- CreateTable
 CREATE TABLE "base_oidc_login_requests" (
-    "id" TEXT NOT NULL,
+    "id" BIGSERIAL NOT NULL,
     "created_at" BIGINT NOT NULL,
     "updated_at" BIGINT NOT NULL,
     "created_duid" BIGINT,
     "updated_duid" BIGINT,
+    "request_id" TEXT NOT NULL,
     "issuer" TEXT NOT NULL,
     "state" TEXT NOT NULL,
     "nonce" TEXT NOT NULL,
@@ -170,6 +171,9 @@ CREATE UNIQUE INDEX "base_configs_key_key" ON "base_configs"("key");
 
 -- CreateIndex
 CREATE UNIQUE INDEX "base_bootstrap_key_key" ON "base_bootstrap"("key");
+
+-- CreateIndex
+CREATE UNIQUE INDEX "base_oidc_login_requests_request_id_key" ON "base_oidc_login_requests"("request_id");
 
 -- CreateIndex
 CREATE UNIQUE INDEX "base_oidc_login_requests_state_key" ON "base_oidc_login_requests"("state");

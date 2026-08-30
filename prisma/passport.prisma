@@ -80,11 +80,12 @@ model passport_usernames {
 }
 
 model passport_user_email_otps {
-  id            String @id
+  id            BigInt @id @default(autoincrement())
   created_at    BigInt
   updated_at    BigInt
   created_duid  BigInt?
   updated_duid  BigInt?
+  otp_id        String @unique
   user_id       BigInt
   email         String
   code_hash     String
@@ -108,11 +109,12 @@ model passport_user_credentials {
 }
 
 model passport_sessions {
-  id         String @id
+  id         BigInt @id @default(autoincrement())
   created_at BigInt
   updated_at BigInt
   created_duid BigInt?
   updated_duid BigInt?
+  token_hash String @unique
   user_id    BigInt
   expires_at BigInt
   device_id  BigInt?
@@ -248,11 +250,12 @@ model passport_telegram_identity_choices {
 }
 
 model passport_login_challenges {
-  id               String @id
+  id               BigInt @id @default(autoincrement())
   created_at       BigInt
   updated_at       BigInt
   created_duid     BigInt?
   updated_duid     BigInt?
+  challenge_id     String @unique
   user_id          BigInt
   bot_id           BigInt
   telegram_user_id BigInt
@@ -266,11 +269,12 @@ model passport_login_challenges {
 }
 
 model passport_sso_requests {
-  id                String @id
+  id                BigInt @id @default(autoincrement())
   created_at        BigInt
   updated_at        BigInt
   created_duid      BigInt?
   updated_duid      BigInt?
+  request_id        String @unique
   target_site_key   String
   target_hostname   String
   status            PassportSsoStatus
@@ -280,11 +284,12 @@ model passport_sso_requests {
 }
 
 model passport_login_tickets {
-  token_hash        String @id
+  id                BigInt @id @default(autoincrement())
   created_at        BigInt
   updated_at        BigInt
   created_duid      BigInt?
   updated_duid      BigInt?
+  token_hash        String @unique
   user_id           BigInt
   target_site_key   String
   target_hostname   String
@@ -295,11 +300,12 @@ model passport_login_tickets {
 }
 
 model passport_site_sessions {
-  id         String @id
+  id         BigInt @id @default(autoincrement())
   created_at BigInt
   updated_at BigInt
   created_duid BigInt?
   updated_duid BigInt?
+  session_id String @unique
   user_id    BigInt
   site_key   String
   hostname   String
@@ -336,11 +342,12 @@ model passport_group_prompts {
 }
 
 model passport_external_email_otps {
-  id                    String @id
+  id                    BigInt @id @default(autoincrement())
   created_at            BigInt
   updated_at            BigInt
   created_duid          BigInt?
   updated_duid          BigInt?
+  otp_id                String @unique
   pending_identity_hash String
   email                 String
   code_hash             String
@@ -367,11 +374,12 @@ model passport_external_identities {
 }
 
 model passport_external_login_states {
-  id_hash         String @id
+  id              BigInt @id @default(autoincrement())
   created_at      BigInt
   updated_at      BigInt
   created_duid    BigInt?
   updated_duid    BigInt?
+  id_hash         String @unique
   provider        String
   code_verifier   String
   nonce           String
@@ -386,11 +394,12 @@ model passport_external_login_states {
 }
 
 model passport_external_pending_identities {
-  id_hash      String @id
+  id             BigInt @id @default(autoincrement())
   created_at   BigInt
   updated_at   BigInt
   created_duid BigInt?
   updated_duid BigInt?
+  id_hash      String @unique
   provider     String
   subject      String
   nickname     String
@@ -400,20 +409,22 @@ model passport_external_pending_identities {
 }
 
 model passport_external_pending_qr_states {
-  pending_identity_hash String @id
+  id                     BigInt @id @default(autoincrement())
   created_at            BigInt
   updated_at            BigInt
   created_duid          BigInt?
   updated_duid          BigInt?
+  pending_identity_hash String @unique
   qr_state_hash         String @unique
 }
 
 model passport_external_providers {
-  id                      String @id
+  id                      BigInt @id @default(autoincrement())
   created_at              BigInt
   updated_at              BigInt
   created_duid            BigInt?
   updated_duid            BigInt?
+  provider                String @unique
   display_name            String
   client_id               String
   client_secret           String
@@ -423,11 +434,12 @@ model passport_external_providers {
 }
 
 model passport_oidc_clients {
-  id                     String @id
+  id                     BigInt @id @default(autoincrement())
   created_at             BigInt
   updated_at             BigInt
   created_duid           BigInt?
   updated_duid           BigInt?
+  client_id              String @unique
   name                   String
   secret_hash            String
   redirect_uris          String @default("[]")
@@ -439,11 +451,12 @@ model passport_oidc_clients {
 }
 
 model passport_oidc_authorization_requests {
-  id                    String @id
+  id                    BigInt @id @default(autoincrement())
   created_at            BigInt
   updated_at            BigInt
   created_duid          BigInt?
   updated_duid          BigInt?
+  request_id            String @unique
   client_id             String
   redirect_uri          String
   scope                 String
@@ -455,11 +468,12 @@ model passport_oidc_authorization_requests {
 }
 
 model passport_oidc_authorization_codes {
-  code_hash             String @id
+  id                    BigInt @id @default(autoincrement())
   created_at            BigInt
   updated_at            BigInt
   created_duid          BigInt?
   updated_duid          BigInt?
+  code_hash             String @unique
   client_id             String
   user_id               BigInt
   redirect_uri          String
@@ -475,11 +489,12 @@ model passport_oidc_authorization_codes {
 }
 
 model passport_oidc_access_tokens {
-  token_hash              String @id
+  id                      BigInt @id @default(autoincrement())
   created_at              BigInt
   updated_at              BigInt
   created_duid            BigInt?
   updated_duid            BigInt?
+  token_hash              String @unique
   client_id               String
   user_id                 BigInt
   scope                   String
@@ -492,11 +507,12 @@ model passport_oidc_access_tokens {
 }
 
 model passport_oidc_signing_keys {
-  kid          String @id
+  id           BigInt @id @default(autoincrement())
   created_at   BigInt
   updated_at   BigInt
   created_duid BigInt?
   updated_duid BigInt?
+  kid          String @unique
   private_jwk  String
   public_jwk   String
   status       PassportSigningKeyStatus @default(active)

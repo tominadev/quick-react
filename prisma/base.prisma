@@ -57,11 +57,12 @@ model base_bootstrap {
 }
 
 model base_oidc_login_requests {
-  id            String @id
+  id            BigInt @id @default(autoincrement())
   created_at    BigInt
   updated_at    BigInt
   created_duid  BigInt?
   updated_duid  BigInt?
+  request_id    String @unique
   issuer        String
   state         String @unique
   nonce         String

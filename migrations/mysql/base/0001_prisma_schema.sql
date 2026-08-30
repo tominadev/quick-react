@@ -62,11 +62,12 @@ CREATE TABLE `base_bootstrap` (
 
 -- CreateTable
 CREATE TABLE `base_oidc_login_requests` (
-    `id` VARCHAR(191) NOT NULL,
+    `id` BIGINT NOT NULL AUTO_INCREMENT,
     `created_at` BIGINT NOT NULL,
     `updated_at` BIGINT NOT NULL,
     `created_duid` BIGINT NULL,
     `updated_duid` BIGINT NULL,
+    `request_id` VARCHAR(191) NOT NULL,
     `issuer` VARCHAR(191) NOT NULL,
     `state` VARCHAR(191) NOT NULL,
     `nonce` VARCHAR(191) NOT NULL,
@@ -74,6 +75,7 @@ CREATE TABLE `base_oidc_login_requests` (
     `return_path` VARCHAR(191) NOT NULL DEFAULT '/',
     `expires_at` BIGINT NOT NULL,
 
+    UNIQUE INDEX `base_oidc_login_requests_request_id_key`(`request_id`),
     UNIQUE INDEX `base_oidc_login_requests_state_key`(`state`),
     PRIMARY KEY (`id`)
 ) DEFAULT CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci;

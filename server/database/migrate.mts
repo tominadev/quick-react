@@ -6,7 +6,14 @@ import { firstSql, runSql, sql } from './sql.mjs';
 const ensureMigrationTable = async (database: DatabaseAdapter) => {
 	const keyType = database.dialect === 'mysql' ? 'VARCHAR(512)' : 'TEXT';
 	const numberType = database.dialect === 'sqlite' || !database.dialect ? 'INTEGER' : 'BIGINT';
-	await database.exec?.(`CREATE TABLE IF NOT EXISTS global_schema_migrations (migration_key ${keyType} PRIMARY KEY NOT NULL, applied_at ${numberType} NOT NULL, created_at ${numberType} NOT NULL DEFAULT 0, updated_at ${numberType} NOT NULL DEFAULT 0)`);
+	const idDefinition = database.dialect === 'mysql'
+		? 'BIGINT NOT NULL AUTO_INCREMENT PRIMARY KEY'
+		: database.dialect === 'postgresql'
+			? 'BIGSERIAL NOT NULL PRIMARY KEY'
+			: 'INTEGER NOT NULL PRIMARY KEY AUTOINCREMENT';
+	// Migration bookkeeping is infrastructure metadata rather than a site model,
+	// but it follows the same fixed audit-column contract as every data table.
+	await database.exec?.(`CREATE TABLE IF NOT EXISTS global_schema_migrations (id ${idDefinition}, created_at ${numberType} NOT NULL, updated_at ${numberType} NOT NULL, created_duid ${numberType} NULL, updated_duid ${numberType} NULL, migration_key ${keyType} NOT NULL UNIQUE, applied_at ${numberType} NOT NULL)`);
 };
 
 export const migrateDatabase = async (database: DatabaseAdapter, migrationsRoot: string, migrationGroups: string[]) => {

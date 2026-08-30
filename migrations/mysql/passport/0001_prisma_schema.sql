@@ -33,11 +33,12 @@ CREATE TABLE `passport_usernames` (
 
 -- CreateTable
 CREATE TABLE `passport_user_email_otps` (
-    `id` VARCHAR(191) NOT NULL,
+    `id` BIGINT NOT NULL AUTO_INCREMENT,
     `created_at` BIGINT NOT NULL,
     `updated_at` BIGINT NOT NULL,
     `created_duid` BIGINT NULL,
     `updated_duid` BIGINT NULL,
+    `otp_id` VARCHAR(191) NOT NULL,
     `user_id` BIGINT NOT NULL,
     `email` VARCHAR(191) NOT NULL,
     `code_hash` VARCHAR(191) NOT NULL,
@@ -45,6 +46,7 @@ CREATE TABLE `passport_user_email_otps` (
     `status` ENUM('pending', 'expired', 'used') NOT NULL DEFAULT 'pending',
     `expires_at` BIGINT NOT NULL,
 
+    UNIQUE INDEX `passport_user_email_otps_otp_id_key`(`otp_id`),
     INDEX `passport_user_email_otps_user_id_status_created_at_idx`(`user_id`, `status`, `created_at`),
     PRIMARY KEY (`id`)
 ) DEFAULT CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci;
@@ -65,15 +67,17 @@ CREATE TABLE `passport_user_credentials` (
 
 -- CreateTable
 CREATE TABLE `passport_sessions` (
-    `id` VARCHAR(191) NOT NULL,
+    `id` BIGINT NOT NULL AUTO_INCREMENT,
     `created_at` BIGINT NOT NULL,
     `updated_at` BIGINT NOT NULL,
     `created_duid` BIGINT NULL,
     `updated_duid` BIGINT NULL,
+    `token_hash` VARCHAR(191) NOT NULL,
     `user_id` BIGINT NOT NULL,
     `expires_at` BIGINT NOT NULL,
     `device_id` BIGINT NULL,
 
+    UNIQUE INDEX `passport_sessions_token_hash_key`(`token_hash`),
     INDEX `passport_sessions_user_id_idx`(`user_id`),
     INDEX `passport_sessions_expires_at_idx`(`expires_at`),
     PRIMARY KEY (`id`)
@@ -229,11 +233,12 @@ CREATE TABLE `passport_telegram_identity_choices` (
 
 -- CreateTable
 CREATE TABLE `passport_login_challenges` (
-    `id` VARCHAR(191) NOT NULL,
+    `id` BIGINT NOT NULL AUTO_INCREMENT,
     `created_at` BIGINT NOT NULL,
     `updated_at` BIGINT NOT NULL,
     `created_duid` BIGINT NULL,
     `updated_duid` BIGINT NULL,
+    `challenge_id` VARCHAR(191) NOT NULL,
     `user_id` BIGINT NOT NULL,
     `bot_id` BIGINT NOT NULL,
     `telegram_user_id` BIGINT NOT NULL,
@@ -242,6 +247,7 @@ CREATE TABLE `passport_login_challenges` (
     `status` ENUM('pending', 'approved', 'denied', 'consumed', 'expired') NOT NULL,
     `expires_at` BIGINT NOT NULL,
 
+    UNIQUE INDEX `passport_login_challenges_challenge_id_key`(`challenge_id`),
     INDEX `passport_login_challenges_bot_id_telegram_user_id_status_cre_idx`(`bot_id`, `telegram_user_id`, `status`, `created_at`),
     INDEX `passport_login_challenges_status_expires_at_idx`(`status`, `expires_at`),
     PRIMARY KEY (`id`)
@@ -249,49 +255,55 @@ CREATE TABLE `passport_login_challenges` (
 
 -- CreateTable
 CREATE TABLE `passport_sso_requests` (
-    `id` VARCHAR(191) NOT NULL,
+    `id` BIGINT NOT NULL AUTO_INCREMENT,
     `created_at` BIGINT NOT NULL,
     `updated_at` BIGINT NOT NULL,
     `created_duid` BIGINT NULL,
     `updated_duid` BIGINT NULL,
+    `request_id` VARCHAR(191) NOT NULL,
     `target_site_key` VARCHAR(191) NOT NULL,
     `target_hostname` VARCHAR(191) NOT NULL,
     `status` ENUM('pending', 'consumed', 'expired') NOT NULL,
     `expires_at` BIGINT NOT NULL,
 
+    UNIQUE INDEX `passport_sso_requests_request_id_key`(`request_id`),
     INDEX `passport_sso_requests_status_expires_at_idx`(`status`, `expires_at`),
     PRIMARY KEY (`id`)
 ) DEFAULT CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci;
 
 -- CreateTable
 CREATE TABLE `passport_login_tickets` (
-    `token_hash` VARCHAR(191) NOT NULL,
+    `id` BIGINT NOT NULL AUTO_INCREMENT,
     `created_at` BIGINT NOT NULL,
     `updated_at` BIGINT NOT NULL,
     `created_duid` BIGINT NULL,
     `updated_duid` BIGINT NULL,
+    `token_hash` VARCHAR(191) NOT NULL,
     `user_id` BIGINT NOT NULL,
     `target_site_key` VARCHAR(191) NOT NULL,
     `target_hostname` VARCHAR(191) NOT NULL,
     `status` ENUM('pending', 'consumed', 'expired') NOT NULL,
     `expires_at` BIGINT NOT NULL,
 
+    UNIQUE INDEX `passport_login_tickets_token_hash_key`(`token_hash`),
     INDEX `passport_login_tickets_status_expires_at_idx`(`status`, `expires_at`),
-    PRIMARY KEY (`token_hash`)
+    PRIMARY KEY (`id`)
 ) DEFAULT CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci;
 
 -- CreateTable
 CREATE TABLE `passport_site_sessions` (
-    `id` VARCHAR(191) NOT NULL,
+    `id` BIGINT NOT NULL AUTO_INCREMENT,
     `created_at` BIGINT NOT NULL,
     `updated_at` BIGINT NOT NULL,
     `created_duid` BIGINT NULL,
     `updated_duid` BIGINT NULL,
+    `session_id` VARCHAR(191) NOT NULL,
     `user_id` BIGINT NOT NULL,
     `site_key` VARCHAR(191) NOT NULL,
     `hostname` VARCHAR(191) NOT NULL,
     `expires_at` BIGINT NOT NULL,
 
+    UNIQUE INDEX `passport_site_sessions_session_id_key`(`session_id`),
     INDEX `passport_site_sessions_user_id_idx`(`user_id`),
     INDEX `passport_site_sessions_site_key_hostname_expires_at_idx`(`site_key`, `hostname`, `expires_at`),
     PRIMARY KEY (`id`)
@@ -329,11 +341,12 @@ CREATE TABLE `passport_group_prompts` (
 
 -- CreateTable
 CREATE TABLE `passport_external_email_otps` (
-    `id` VARCHAR(191) NOT NULL,
+    `id` BIGINT NOT NULL AUTO_INCREMENT,
     `created_at` BIGINT NOT NULL,
     `updated_at` BIGINT NOT NULL,
     `created_duid` BIGINT NULL,
     `updated_duid` BIGINT NULL,
+    `otp_id` VARCHAR(191) NOT NULL,
     `pending_identity_hash` VARCHAR(191) NOT NULL,
     `email` VARCHAR(191) NOT NULL,
     `code_hash` VARCHAR(191) NOT NULL,
@@ -341,6 +354,7 @@ CREATE TABLE `passport_external_email_otps` (
     `status` ENUM('pending', 'expired', 'used') NOT NULL DEFAULT 'pending',
     `expires_at` BIGINT NOT NULL,
 
+    UNIQUE INDEX `passport_external_email_otps_otp_id_key`(`otp_id`),
     INDEX `passport_external_email_otps_pending_identity_hash_status_cr_idx`(`pending_identity_hash`, `status`, `created_at`),
     PRIMARY KEY (`id`)
 ) DEFAULT CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci;
@@ -364,11 +378,12 @@ CREATE TABLE `passport_external_identities` (
 
 -- CreateTable
 CREATE TABLE `passport_external_login_states` (
-    `id_hash` VARCHAR(191) NOT NULL,
+    `id` BIGINT NOT NULL AUTO_INCREMENT,
     `created_at` BIGINT NOT NULL,
     `updated_at` BIGINT NOT NULL,
     `created_duid` BIGINT NULL,
     `updated_duid` BIGINT NULL,
+    `id_hash` VARCHAR(191) NOT NULL,
     `provider` VARCHAR(191) NOT NULL,
     `code_verifier` VARCHAR(191) NOT NULL,
     `nonce` VARCHAR(191) NOT NULL,
@@ -379,17 +394,19 @@ CREATE TABLE `passport_external_login_states` (
     `qr_user_id` VARCHAR(191) NULL,
     `oidc_request_id` VARCHAR(191) NULL,
 
+    UNIQUE INDEX `passport_external_login_states_id_hash_key`(`id_hash`),
     INDEX `passport_external_login_states_expires_at_consumed_at_idx`(`expires_at`, `consumed_at`),
-    PRIMARY KEY (`id_hash`)
+    PRIMARY KEY (`id`)
 ) DEFAULT CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci;
 
 -- CreateTable
 CREATE TABLE `passport_external_pending_identities` (
-    `id_hash` VARCHAR(191) NOT NULL,
+    `id` BIGINT NOT NULL AUTO_INCREMENT,
     `created_at` BIGINT NOT NULL,
     `updated_at` BIGINT NOT NULL,
     `created_duid` BIGINT NULL,
     `updated_duid` BIGINT NULL,
+    `id_hash` VARCHAR(191) NOT NULL,
     `provider` VARCHAR(191) NOT NULL,
     `subject` VARCHAR(191) NOT NULL,
     `nickname` VARCHAR(191) NOT NULL,
@@ -397,29 +414,33 @@ CREATE TABLE `passport_external_pending_identities` (
     `status` ENUM('pending', 'expired', 'completed') NOT NULL DEFAULT 'pending',
     `expires_at` BIGINT NOT NULL,
 
-    PRIMARY KEY (`id_hash`)
+    UNIQUE INDEX `passport_external_pending_identities_id_hash_key`(`id_hash`),
+    PRIMARY KEY (`id`)
 ) DEFAULT CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci;
 
 -- CreateTable
 CREATE TABLE `passport_external_pending_qr_states` (
-    `pending_identity_hash` VARCHAR(191) NOT NULL,
+    `id` BIGINT NOT NULL AUTO_INCREMENT,
     `created_at` BIGINT NOT NULL,
     `updated_at` BIGINT NOT NULL,
     `created_duid` BIGINT NULL,
     `updated_duid` BIGINT NULL,
+    `pending_identity_hash` VARCHAR(191) NOT NULL,
     `qr_state_hash` VARCHAR(191) NOT NULL,
 
+    UNIQUE INDEX `passport_external_pending_qr_states_pending_identity_hash_key`(`pending_identity_hash`),
     UNIQUE INDEX `passport_external_pending_qr_states_qr_state_hash_key`(`qr_state_hash`),
-    PRIMARY KEY (`pending_identity_hash`)
+    PRIMARY KEY (`id`)
 ) DEFAULT CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci;
 
 -- CreateTable
 CREATE TABLE `passport_external_providers` (
-    `id` VARCHAR(191) NOT NULL,
+    `id` BIGINT NOT NULL AUTO_INCREMENT,
     `created_at` BIGINT NOT NULL,
     `updated_at` BIGINT NOT NULL,
     `created_duid` BIGINT NULL,
     `updated_duid` BIGINT NULL,
+    `provider` VARCHAR(191) NOT NULL,
     `display_name` VARCHAR(191) NOT NULL,
     `client_id` VARCHAR(191) NOT NULL,
     `client_secret` VARCHAR(191) NOT NULL,
@@ -427,16 +448,18 @@ CREATE TABLE `passport_external_providers` (
     `wechat_mode` VARCHAR(191) NOT NULL DEFAULT 'open_platform',
     `wechat_redirect_domain` VARCHAR(191) NOT NULL DEFAULT '',
 
+    UNIQUE INDEX `passport_external_providers_provider_key`(`provider`),
     PRIMARY KEY (`id`)
 ) DEFAULT CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci;
 
 -- CreateTable
 CREATE TABLE `passport_oidc_clients` (
-    `id` VARCHAR(191) NOT NULL,
+    `id` BIGINT NOT NULL AUTO_INCREMENT,
     `created_at` BIGINT NOT NULL,
     `updated_at` BIGINT NOT NULL,
     `created_duid` BIGINT NULL,
     `updated_duid` BIGINT NULL,
+    `client_id` VARCHAR(191) NOT NULL,
     `name` VARCHAR(191) NOT NULL,
     `secret_hash` VARCHAR(191) NOT NULL,
     `redirect_uris` VARCHAR(191) NOT NULL DEFAULT '[]',
@@ -446,16 +469,18 @@ CREATE TABLE `passport_oidc_clients` (
     `backchannel_logout_uri` VARCHAR(191) NOT NULL DEFAULT '',
     `strict_redirect_uri` INTEGER NOT NULL DEFAULT 0,
 
+    UNIQUE INDEX `passport_oidc_clients_client_id_key`(`client_id`),
     PRIMARY KEY (`id`)
 ) DEFAULT CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci;
 
 -- CreateTable
 CREATE TABLE `passport_oidc_authorization_requests` (
-    `id` VARCHAR(191) NOT NULL,
+    `id` BIGINT NOT NULL AUTO_INCREMENT,
     `created_at` BIGINT NOT NULL,
     `updated_at` BIGINT NOT NULL,
     `created_duid` BIGINT NULL,
     `updated_duid` BIGINT NULL,
+    `request_id` VARCHAR(191) NOT NULL,
     `client_id` VARCHAR(191) NOT NULL,
     `redirect_uri` VARCHAR(191) NOT NULL,
     `scope` VARCHAR(191) NOT NULL,
@@ -465,16 +490,18 @@ CREATE TABLE `passport_oidc_authorization_requests` (
     `code_challenge_method` VARCHAR(191) NOT NULL DEFAULT '',
     `expires_at` BIGINT NOT NULL,
 
+    UNIQUE INDEX `passport_oidc_authorization_requests_request_id_key`(`request_id`),
     PRIMARY KEY (`id`)
 ) DEFAULT CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci;
 
 -- CreateTable
 CREATE TABLE `passport_oidc_authorization_codes` (
-    `code_hash` VARCHAR(191) NOT NULL,
+    `id` BIGINT NOT NULL AUTO_INCREMENT,
     `created_at` BIGINT NOT NULL,
     `updated_at` BIGINT NOT NULL,
     `created_duid` BIGINT NULL,
     `updated_duid` BIGINT NULL,
+    `code_hash` VARCHAR(191) NOT NULL,
     `client_id` VARCHAR(191) NOT NULL,
     `user_id` BIGINT NOT NULL,
     `redirect_uri` VARCHAR(191) NOT NULL,
@@ -486,17 +513,19 @@ CREATE TABLE `passport_oidc_authorization_codes` (
     `consumed_at` BIGINT NULL,
     `session_id` VARCHAR(191) NOT NULL DEFAULT '',
 
+    UNIQUE INDEX `passport_oidc_authorization_codes_code_hash_key`(`code_hash`),
     INDEX `passport_oidc_authorization_codes_expires_at_consumed_at_idx`(`expires_at`, `consumed_at`),
-    PRIMARY KEY (`code_hash`)
+    PRIMARY KEY (`id`)
 ) DEFAULT CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci;
 
 -- CreateTable
 CREATE TABLE `passport_oidc_access_tokens` (
-    `token_hash` VARCHAR(191) NOT NULL,
+    `id` BIGINT NOT NULL AUTO_INCREMENT,
     `created_at` BIGINT NOT NULL,
     `updated_at` BIGINT NOT NULL,
     `created_duid` BIGINT NULL,
     `updated_duid` BIGINT NULL,
+    `token_hash` VARCHAR(191) NOT NULL,
     `client_id` VARCHAR(191) NOT NULL,
     `user_id` BIGINT NOT NULL,
     `scope` VARCHAR(191) NOT NULL,
@@ -505,21 +534,24 @@ CREATE TABLE `passport_oidc_access_tokens` (
     `session_id` VARCHAR(191) NOT NULL DEFAULT '',
     `authorization_code_hash` VARCHAR(191) NULL,
 
+    UNIQUE INDEX `passport_oidc_access_tokens_token_hash_key`(`token_hash`),
     UNIQUE INDEX `passport_oidc_access_tokens_authorization_code_hash_key`(`authorization_code_hash`),
     INDEX `passport_oidc_access_tokens_expires_at_revoked_at_idx`(`expires_at`, `revoked_at`),
-    PRIMARY KEY (`token_hash`)
+    PRIMARY KEY (`id`)
 ) DEFAULT CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci;
 
 -- CreateTable
 CREATE TABLE `passport_oidc_signing_keys` (
-    `kid` VARCHAR(191) NOT NULL,
+    `id` BIGINT NOT NULL AUTO_INCREMENT,
     `created_at` BIGINT NOT NULL,
     `updated_at` BIGINT NOT NULL,
     `created_duid` BIGINT NULL,
     `updated_duid` BIGINT NULL,
+    `kid` VARCHAR(191) NOT NULL,
     `private_jwk` VARCHAR(191) NOT NULL,
     `public_jwk` VARCHAR(191) NOT NULL,
     `status` ENUM('active', 'retired') NOT NULL DEFAULT 'active',
 
-    PRIMARY KEY (`kid`)
+    UNIQUE INDEX `passport_oidc_signing_keys_kid_key`(`kid`),
+    PRIMARY KEY (`id`)
 ) DEFAULT CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci;
