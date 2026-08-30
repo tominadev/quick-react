@@ -206,6 +206,9 @@ try {
 	const accountsSettings = await (await request('site1.test', '/api/panel/admin/system/settings/accounts-oidc.php', { cookie })).json();
 	assert.equal(accountsSettings.formPage.fields[0].name, 'enabled');
 	assert.deepEqual(accountsSettings.formPage.actions, [{ key: 'test', label: '测试配置' }]);
+	const techStackSave = await request('localhost', '/api/panel/admin/system/settings/tech-stack.php', { method: 'PUT', cookie, body: { nginx: false } });
+	assert.equal(techStackSave.status, 200);
+	assert.equal((await techStackSave.json()).feedback.redirectAfter, 2);
 	const issuerSourceField = accountsSettings.formPage.fields.find((field) => field.name === 'issuerSource');
 	const issuerField = accountsSettings.formPage.fields.find((field) => field.name === 'issuer');
 	assert.ok(issuerSourceField.options.some((option) => option.value === 'https://passport.test' && option.fieldValues.issuer === 'https://passport.test'));

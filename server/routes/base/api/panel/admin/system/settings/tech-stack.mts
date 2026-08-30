@@ -27,7 +27,7 @@ const handler: ApiHandler = async (c, next) => {
 		const config = normalizeTechStackConfig(next);
 		await store.put('tech-stack', config);
 		c.set('techStackConfig', config);
-		return apiMessageData(c, 200, '保存成功，页面将在 {redirectAfter} 秒后刷新', { currentValues: config }, { component: 'modal', type: 'info', title: '保存结果', refreshNowLabel: '立即刷新', cancelRefreshLabel: '取消' });
+		return apiMessageData(c, 200, '保存成功，页面将在 {redirectAfter} 秒后刷新', { currentValues: config }, { component: 'modal', type: 'info', title: '保存结果', refreshNowLabel: '立即刷新', cancelRefreshLabel: '取消', redirectAfter: 2 });
 	}
 	return next();
 };
