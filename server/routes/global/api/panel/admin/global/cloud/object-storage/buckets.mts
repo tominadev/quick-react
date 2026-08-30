@@ -92,7 +92,7 @@ const handler: ApiHandler = async (c, next, params) => {
 		if (extra === null) return apiMessage(c, 400, '扩展配置必须是有效 JSON');
 		try {
 			const now = Date.now();
-			await runSql(database, sql(database).insert('global_cloud_object_storage_buckets', { cloud_credential_id: credentialId, endpoint, region: text(body.region), bucket, path_style: booleanValue(body.path_style) ? 1 : 0, public_base_url: text(body.public_base_url), extra_config: extra, status: body.status === statusValues.disabled ? statusValues.disabled : statusValues.enabled, created_at: now, updated_at: now }));
+			await runSql(database, sql(database).insert('global_cloud_object_storage_buckets', { cloud_credential_id: credentialId, endpoint, region: text(body.region), bucket, path_style: booleanValue(body.path_style) ? 1 : 0, public_base_url: text(body.public_base_url), extra_config: extra, status: body.status === statusValues.disabled ? statusValues.disabled : statusValues.enabled }));
 		} catch { return apiMessage(c, 409, '该凭据、Endpoint 和 Bucket 已经存在'); }
 		return apiMessageData(c, 201, 'Bucket 创建成功', {});
 	}
@@ -128,7 +128,7 @@ const handler: ApiHandler = async (c, next, params) => {
 		const extra = changed.has('extra_config') ? parseExtra(body.extra_config) : String(current.extra_config);
 		if (extra === null) return apiMessage(c, 400, '扩展配置必须是有效 JSON');
 		try {
-			await runSql(database, sql(database).update('global_cloud_object_storage_buckets', { cloud_credential_id: credentialId, endpoint, region: changed.has('region') ? text(body.region) : current.region, bucket, path_style: changed.has('path_style') ? (booleanValue(body.path_style) ? 1 : 0) : current.path_style, public_base_url: changed.has('public_base_url') ? text(body.public_base_url) : current.public_base_url, extra_config: extra, status: changed.has('status') && body.status === statusValues.disabled ? statusValues.disabled : changed.has('status') ? statusValues.enabled : current.status, updated_at: Date.now() }, { id: Number(params.id) }));
+			await runSql(database, sql(database).update('global_cloud_object_storage_buckets', { cloud_credential_id: credentialId, endpoint, region: changed.has('region') ? text(body.region) : current.region, bucket, path_style: changed.has('path_style') ? (booleanValue(body.path_style) ? 1 : 0) : current.path_style, public_base_url: changed.has('public_base_url') ? text(body.public_base_url) : current.public_base_url, extra_config: extra, status: changed.has('status') && body.status === statusValues.disabled ? statusValues.disabled : changed.has('status') ? statusValues.enabled : current.status }, { id: Number(params.id) }));
 		} catch { return apiMessage(c, 409, '该凭据、Endpoint 和 Bucket 已经存在'); }
 		return apiMessage(c, 200, '保存成功');
 	}

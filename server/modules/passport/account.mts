@@ -46,7 +46,7 @@ export const setAccountUsername = async (database: DatabaseAdapter, userId: stri
 	try {
 		// 占位或历史用户名允许改写，正式用户名只能新增一次。
 		if (current.state === 'invalid') await runSql(database, sql(database).update('passport_usernames', { username }, { user_id: userId }));
-		else await runSql(database, sql(database).insert('passport_usernames', { user_id: userId, username, created_at: Date.now() }));
+		else await runSql(database, sql(database).insert('passport_usernames', { user_id: userId, username }));
 	} catch {
 		throw new Error('该用户名已被占用，请更换后重试');
 	}
@@ -59,7 +59,7 @@ export const hasAccountPassword = async (database: DatabaseAdapter, userId: stri
 
 export const updateAccountNickname = async (database: DatabaseAdapter, userId: string, rawNickname: string) => {
 	const nickname = normalizeAccountNickname(rawNickname);
-	await runSql(database, sql(database).update('passport_users', { nickname, updated_at: Date.now() }, { user_id: userId }));
+	await runSql(database, sql(database).update('passport_users', { nickname }, { user_id: userId }));
 	return nickname;
 };
 
@@ -102,9 +102,9 @@ export const issueAccountEmailOtp = async (database: DatabaseAdapter, userId: st
 	const recent = await allSql<{ created_at: number }>(database, sql(database).select({ table: 'passport_user_email_otps', columns: { created_at: 'created_at' }, where: [{ column: 'user_id', value: userId }, { column: 'created_at', operator: '>', value: now - 60 * 60_000 }], orderBy: [{ column: 'created_at', direction: 'DESC' }] }));
 	if (recent[0] && now - recent[0].created_at < 60_000) throw new AccountEmailRateLimitError(Math.ceil((60_000 - (now - recent[0].created_at)) / 1000));
 	if (recent.length >= 10) throw new AccountEmailRateLimitError(Math.max(1, Math.ceil((recent.at(-1)!.created_at + 60 * 60_000 - now) / 1000)));
-	await runSql(database, sql(database).update('passport_user_email_otps', { status: 'expired', updated_at: now }, [{ column: 'user_id', value: userId }, { column: 'status', value: 'pending' }]));
+	await runSql(database, sql(database).update('passport_user_email_otps', { status: 'expired' }, [{ column: 'user_id', value: userId }, { column: 'status', value: 'pending' }]));
 	const code = generateEmailCode(), id = crypto.randomUUID();
-	await runSql(database, sql(database).insert('passport_user_email_otps', { id, user_id: userId, email, code_hash: await hashPassword(code), attempt_count: 0, status: 'pending', expires_at: now + 600_000, created_at: now, updated_at: now }));
+	await runSql(database, sql(database).insert('passport_user_email_otps', { id, user_id: userId, email, code_hash: await hashPassword(code), attempt_count: 0, status: 'pending', expires_at: now + 600_000 }));
 	return { code, email, expiresAt: now + 600_000 };
 };
 
@@ -116,7 +116,7 @@ export const pendingAccountEmailOtp = (database: DatabaseAdapter, userId: string
 	limit: 1,
 }));
 
-export const discardAccountEmailOtp = (database: DatabaseAdapter, userId: string) => runSql(database, sql(database).update('passport_user_email_otps', { status: 'expired', updated_at: Date.now() }, [{ column: 'user_id', value: userId }, { column: 'status', value: 'pending' }]));
+export const discardAccountEmailOtp = (database: DatabaseAdapter, userId: string) => runSql(database, sql(database).update('passport_user_email_otps', { status: 'expired' }, [{ column: 'user_id', value: userId }, { column: 'status', value: 'pending' }]));
 
 export type AccountEmailVerification = { status: 'bound'; email: string } | { status: 'invalid' | 'expired' | 'locked' | 'none' } | { status: 'conflict'; message: string };
 
@@ -127,27 +127,27 @@ export const verifyAccountEmailOtp = async (database: DatabaseAdapter, workerId:
 	if (!otp) return { status: 'none' };
 	const now = Date.now();
 	if (otp.expires_at <= now) {
-		await runSql(database, sql(database).update('passport_user_email_otps', { status: 'expired', updated_at: now }, { id: otp.id }));
+		await runSql(database, sql(database).update('passport_user_email_otps', { status: 'expired' }, { id: otp.id }));
 		return { status: 'expired' };
 	}
 	if (otp.attempt_count >= 5) return { status: 'locked' };
 	if (!await verifyPassword(code, otp.code_hash)) {
 		const attempts = otp.attempt_count + 1;
-		await runSql(database, sql(database).update('passport_user_email_otps', { attempt_count: attempts, status: attempts >= 5 ? 'expired' : 'pending', updated_at: now }, { id: otp.id }));
+		await runSql(database, sql(database).update('passport_user_email_otps', { attempt_count: attempts, status: attempts >= 5 ? 'expired' : 'pending' }, { id: otp.id }));
 		return { status: attempts >= 5 ? 'locked' : 'invalid' };
 	}
 	const owner = await emailOwner(database, otp.email);
 	if (owner) {
-		await runSql(database, sql(database).update('passport_user_email_otps', { status: 'used', updated_at: now }, { id: otp.id }));
+		await runSql(database, sql(database).update('passport_user_email_otps', { status: 'used' }, { id: otp.id }));
 		return { status: 'conflict', message: owner.user_id === userId ? '该邮箱已经绑定到当前账号' : '该邮箱已被其他 Accounts 用户绑定' };
 	}
 	const existing = await listAccountEmails(database, userId);
 	const generator = getPassportSnowflakeGenerator(database, workerId);
 	const emailId = (await generator.next()).toString();
 	const statements: DatabaseBatchStatement[] = [
-		sql(database).insert('passport_emails', { id: emailId, email: otp.email, verified: 1, created_at: now, updated_at: now }),
-		sql(database).insert('passport_user_emails', { user_id: userId, email_id: emailId, is_primary: existing.length ? 0 : 1, created_at: now }),
-		sql(database).update('passport_user_email_otps', { status: 'used', updated_at: now }, { id: otp.id }),
+		sql(database).insert('passport_emails', { id: emailId, email: otp.email, verified: 1 }),
+		sql(database).insert('passport_user_emails', { user_id: userId, email_id: emailId, is_primary: existing.length ? 0 : 1 }),
+		sql(database).update('passport_user_email_otps', { status: 'used' }, { id: otp.id }),
 	];
 	if (database.batch) await database.batch(statements);
 	else for (const statement of statements) await runSql(database, { query: statement.query, values: statement.values ?? [] });

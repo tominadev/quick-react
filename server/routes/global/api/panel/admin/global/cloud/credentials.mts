@@ -52,7 +52,7 @@ const handler: ApiHandler = async (c, next, params) => {
 		if (!isCredentialContextValid(provider, accountId)) return apiMessage(c, 400, 'Cloudflare Account ID 必须是 32 位十六进制字符串');
 		try {
 			const now = Date.now();
-			await runSql(database, sql(database).insert('global_cloud_credentials', { name, provider, account_id: accountId, access_key_id: accessKeyId, access_key_secret: accessKeySecret, status: body.status === statusValues.disabled ? statusValues.disabled : statusValues.enabled, created_at: now, updated_at: now }));
+			await runSql(database, sql(database).insert('global_cloud_credentials', { name, provider, account_id: accountId, access_key_id: accessKeyId, access_key_secret: accessKeySecret, status: body.status === statusValues.disabled ? statusValues.disabled : statusValues.enabled }));
 		} catch { return apiMessage(c, 409, '凭据名称已经存在'); }
 		return apiMessageData(c, 201, '云凭据创建成功', {});
 	}
@@ -104,7 +104,7 @@ const handler: ApiHandler = async (c, next, params) => {
 		}
 		const secret = changed.has('access_key_secret') && text(body.access_key_secret) ? text(body.access_key_secret) : String(current.access_key_secret ?? '');
 		try {
-			await runSql(database, sql(database).update('global_cloud_credentials', { name, provider, account_id: accountId, access_key_id: accessKeyId, access_key_secret: secret, status: changed.has('status') && body.status === statusValues.disabled ? statusValues.disabled : changed.has('status') ? statusValues.enabled : current.status, updated_at: Date.now() }, { id: Number(params.id) }));
+			await runSql(database, sql(database).update('global_cloud_credentials', { name, provider, account_id: accountId, access_key_id: accessKeyId, access_key_secret: secret, status: changed.has('status') && body.status === statusValues.disabled ? statusValues.disabled : changed.has('status') ? statusValues.enabled : current.status }, { id: Number(params.id) }));
 		} catch { return apiMessage(c, 409, '凭据名称已经存在'); }
 		return apiMessage(c, 200, '保存成功');
 	}

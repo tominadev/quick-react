@@ -104,7 +104,7 @@ const handler: ApiHandler = async (c, next, params) => {
 		catch (error) { return apiMessage(c, 502, error instanceof Error ? error.message : 'Bot Token 校验失败'); }
 		try {
 			const now = Date.now();
-			await runSql(database, sql(database).insert('global_telegram_bots', { name, bot_token: token, bot_username: identity.username, secret_token: secretToken, webhook_hostname: hostname, status, created_at: now, updated_at: now }));
+			await runSql(database, sql(database).insert('global_telegram_bots', { name, bot_token: token, bot_username: identity.username, secret_token: secretToken, webhook_hostname: hostname, status }));
 		} catch { return apiMessage(c, 409, '机器人名称、Token 或 Username 已存在'); }
 		const created = await firstSql<{ id: number }>(database, sql(database).select({ table: 'global_telegram_bots', columns: { id: 'id' }, where: [{ column: 'bot_token', value: token }] }));
 		if (!created) return apiMessage(c, 500, '机器人创建后无法读取');
@@ -163,7 +163,7 @@ const handler: ApiHandler = async (c, next, params) => {
 			else if (current.status === statusValues.enabled || token !== current.bot_token) await deleteTelegramWebhook(current.bot_token);
 			if (token !== current.bot_token && current.status === statusValues.enabled) await deleteTelegramWebhook(current.bot_token).catch(() => undefined);
 		} catch (error) { return apiMessage(c, 502, error instanceof Error ? error.message : 'Webhook 更新失败'); }
-		await runSql(database, sql(database).update('global_telegram_bots', { name, bot_token: token, bot_username: username, secret_token: secretToken, webhook_hostname: hostname, status, updated_at: Date.now() }, { id }));
+		await runSql(database, sql(database).update('global_telegram_bots', { name, bot_token: token, bot_username: username, secret_token: secretToken, webhook_hostname: hostname, status }, { id }));
 		return apiMessage(c, 200, status === statusValues.enabled ? '机器人已保存并更新 Webhook' : '机器人已停用并删除 Webhook');
 	}
 	if (c.req.method === 'DELETE') {

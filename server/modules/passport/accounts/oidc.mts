@@ -42,7 +42,7 @@ export const ensureSigningKey = async (database: DatabaseAdapter) => {
 	const kid = crypto.randomUUID();
 	publicJwk.kid = kid; publicJwk.use = 'sig'; publicJwk.alg = 'RS256';
 	privateJwk.kid = kid; privateJwk.use = 'sig'; privateJwk.alg = 'RS256';
-	await runSql(database, sql(database).insert('passport_oidc_signing_keys', { kid, private_jwk: JSON.stringify(privateJwk), public_jwk: JSON.stringify(publicJwk), status: 'active', created_at: Date.now() }));
+	await runSql(database, sql(database).insert('passport_oidc_signing_keys', { kid, private_jwk: JSON.stringify(privateJwk), public_jwk: JSON.stringify(publicJwk), status: 'active' }));
 	row = { kid, private_jwk: JSON.stringify(privateJwk), public_jwk: JSON.stringify(publicJwk) };
 	return row;
 };

@@ -26,7 +26,7 @@ const syncLocalUsername = async (database: Parameters<typeof runSql>[0], userId:
 	if (!current || current.username === username || !generatedUsername(current.username)) return;
 	const taken = await firstSql(database, sql(database).select({ table: 'base_system_users', columns: { id: 'id' }, where: [{ column: 'username', value: username }] }));
 	if (taken) return;
-	await runSql(database, sql(database).update('base_system_users', { username, updated_at: Date.now() }, { id: userId }));
+	await runSql(database, sql(database).update('base_system_users', { username }, { id: userId }));
 };
 
 const handler: ApiHandler = async (c) => {
@@ -54,14 +54,14 @@ const handler: ApiHandler = async (c) => {
 		if (!account) {
 			// 先用占位用户名建号，再按 Accounts 用户名改写，避免撞上本站已有的同名账号。
 			const username = placeholderUsername(subject);
-			await runSql(database, sql(database).ignoreInsert('base_system_users', ['username'], { username, password: '!oidc', roles: '[]', status: 'enabled', created_at: now, updated_at: now }));
+			await runSql(database, sql(database).ignoreInsert('base_system_users', ['username'], { username, password: '!oidc', roles: '[]', status: 'enabled' }));
 			const user = await firstSql<{ id: number; status: string; password: string }>(database, sql(database).select({ table: 'base_system_users', columns: { id: 'id', status: 'status', password: 'password' }, where: [{ column: 'username', value: username }] }));
 			if (!user) throw new Error('无法创建本站 Accounts 用户');
 			if (user.password !== '!oidc') throw new Error('本站已存在同名用户，无法绑定 Accounts 身份');
-			await runSql(database, sql(database).insert('base_oidc_accounts', { issuer: config.issuer, subject, user_id: user.id, profile: JSON.stringify(claims), created_at: now, updated_at: now }));
+			await runSql(database, sql(database).insert('base_oidc_accounts', { issuer: config.issuer, subject, user_id: user.id, profile: JSON.stringify(claims) }));
 			account = { user_id: user.id, status: user.status };
 		} else {
-			await runSql(database, sql(database).update('base_oidc_accounts', { profile: JSON.stringify(claims), updated_at: now }, { issuer: config.issuer, subject }));
+			await runSql(database, sql(database).update('base_oidc_accounts', { profile: JSON.stringify(claims) }, { issuer: config.issuer, subject }));
 		}
 		if (isValidAccountUsername(preferred)) await syncLocalUsername(database, account.user_id, preferred);
 		if (account.status !== 'enabled') return apiMessage(c, 403, '本站用户已停用');
@@ -69,8 +69,8 @@ const handler: ApiHandler = async (c) => {
 		const previousSession = await firstSql<{ session_id: string }>(database, sql(database).select({ table: 'base_oidc_sessions', columns: { session_id: 'session_id' }, where: [{ column: 'issuer', value: config.issuer }, { column: 'sid', value: oidcSessionId }] }));
 		const sessionId = previousSession?.session_id ?? crypto.randomUUID();
 		if (previousSession) await runSql(database, sql(database).update('base_system_sessions', { user_id: account.user_id, expires_at: now + maxAge * 1000 }, { id: sessionId }));
-		else await runSql(database, sql(database).insert('base_system_sessions', { id: sessionId, user_id: account.user_id, expires_at: now + maxAge * 1000, created_at: now }));
-		await runSql(database, sql(database).upsert('base_oidc_sessions', ['issuer', 'sid'], { issuer: config.issuer, sid: oidcSessionId, session_id: sessionId, created_at: now }, ['session_id', 'created_at']));
+		else await runSql(database, sql(database).insert('base_system_sessions', { id: sessionId, user_id: account.user_id, expires_at: now + maxAge * 1000 }));
+		await runSql(database, sql(database).upsert('base_oidc_sessions', ['issuer', 'sid'], { issuer: config.issuer, sid: oidcSessionId, session_id: sessionId }, ['session_id', 'created_at']));
 		await runSql(database, sql(database).delete('base_oidc_login_requests', { id: request.id }));
 		const secure = isSecureRequest(c);
 		c.header('Set-Cookie', clearAccountsLoginCookie(secure)); c.header('Set-Cookie', createSessionCookie(sessionId, secure, maxAge), { append: true });

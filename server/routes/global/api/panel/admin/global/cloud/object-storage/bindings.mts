@@ -89,7 +89,7 @@ const handler: ApiHandler = async (c, next, params) => {
 		const createdAt = Date.now();
 		let createdBindingId: number | undefined;
 		try {
-			await runSql(database, sql(database).insert('global_cloud_object_storage_bindings', { site_key: siteKey, bucket_id: bucketId, key_prefix: keyPrefix, status, created_at: createdAt, updated_at: createdAt }));
+			await runSql(database, sql(database).insert('global_cloud_object_storage_bindings', { site_key: siteKey, bucket_id: bucketId, key_prefix: keyPrefix, status }));
 			const binding = await firstSql<{ id: number }>(database, sql(database).select({ table: 'global_cloud_object_storage_bindings', columns: { id: 'id' }, where: [{ column: 'site_key', value: siteKey }, { column: 'bucket_id', value: bucketId }, { column: 'key_prefix', value: keyPrefix }] }));
 			if (!binding) throw new Error('绑定创建后无法读取');
 			createdBindingId = binding.id;
@@ -131,7 +131,7 @@ const handler: ApiHandler = async (c, next, params) => {
 		if (duplicate) return apiMessage(c, 409, '相同站点、Bucket 和对象前缀的绑定已存在');
 		try {
 			await runSql(database, sql(database).delete('global_cloud_object_storage_binding_purposes', { binding_id: Number(params.id) }));
-			await runSql(database, sql(database).update('global_cloud_object_storage_bindings', { site_key: siteKey, bucket_id: bucketId, key_prefix: keyPrefix, status, updated_at: Date.now() }, { id: Number(params.id) }));
+			await runSql(database, sql(database).update('global_cloud_object_storage_bindings', { site_key: siteKey, bucket_id: bucketId, key_prefix: keyPrefix, status }, { id: Number(params.id) }));
 			await savePurposes(database, Number(params.id), siteKey, selected, status === statusValues.enabled ? defaults : []);
 		} catch (error) { return apiMessage(c, 400, error instanceof Error ? error.message : '保存绑定失败'); }
 		return apiMessage(c, 200, '保存成功');

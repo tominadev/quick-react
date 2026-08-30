@@ -47,7 +47,7 @@ const handler: ApiHandler = async (c, next, params) => {
 		if (unknownRoles.length) return apiMessage(c, 400, `不支持的角色：${unknownRoles.join('、')}`);
 		const now = Date.now();
 		try {
-			await runSql(database, sql(database).insert('base_system_users', { username, password: await createStoredPassword(password), roles: serializeRoles(roles), status: String(body.status ?? 'enabled'), created_at: now, updated_at: now }));
+			await runSql(database, sql(database).insert('base_system_users', { username, password: await createStoredPassword(password), roles: serializeRoles(roles), status: String(body.status ?? 'enabled') }));
 			const created = await firstSql<{ id: number | string }>(database, sql(database).select({ table: 'base_system_users', columns: { id: 'id' }, where: [{ column: 'username', value: username }] }));
 			return apiMessageData(c, 201, '用户已创建', { id: created?.id, username });
 		} catch {

@@ -35,12 +35,12 @@ const parseUpdate = (value: unknown): PassportTelegramUpdate | undefined => {
 const claimUpdate = async (database: DatabaseAdapter, botId: string, updateId: number) => {
 	const now = Date.now();
 	try {
-		await runSql(database, sql(database).insert('passport_telegram_updates', { bot_id: botId, update_id: updateId, status: 'processing', created_at: now, updated_at: now }));
+		await runSql(database, sql(database).insert('passport_telegram_updates', { bot_id: botId, update_id: updateId, status: 'processing' }));
 		return true;
 	} catch {
 		const existing = await firstSql<{ status: string }>(database, sql(database).select({ table: 'passport_telegram_updates', columns: { status: 'status' }, where: [{ column: 'bot_id', value: botId }, { column: 'update_id', value: updateId }] }));
 		if (!existing || existing.status !== 'failed') return false;
-		await runSql(database, sql(database).update('passport_telegram_updates', { status: 'processing', updated_at: now }, [{ column: 'bot_id', value: botId }, { column: 'update_id', value: updateId }, { column: 'status', value: 'failed' }]));
+		await runSql(database, sql(database).update('passport_telegram_updates', { status: 'processing' }, [{ column: 'bot_id', value: botId }, { column: 'update_id', value: updateId }, { column: 'status', value: 'failed' }]));
 		return true;
 	}
 };
@@ -67,10 +67,10 @@ const handler: ApiHandler = async (c) => {
 			id: String(bot.id),
 			botToken: bot.bot_token,
 		}, update);
-		await runSql(database, sql(database).update('passport_telegram_updates', { status: 'completed', updated_at: Date.now() }, { bot_id: botId, update_id: update.update_id }));
+		await runSql(database, sql(database).update('passport_telegram_updates', { status: 'completed' }, { bot_id: botId, update_id: update.update_id }));
 		return jsonStatus(c, 200, 'ok');
 	} catch (error) {
-		await runSql(database, sql(database).update('passport_telegram_updates', { status: 'failed', updated_at: Date.now() }, { bot_id: botId, update_id: update.update_id })).catch(() => undefined);
+		await runSql(database, sql(database).update('passport_telegram_updates', { status: 'failed' }, { bot_id: botId, update_id: update.update_id })).catch(() => undefined);
 		console.error('Passport Telegram webhook update failed', error instanceof Error ? error.message : 'unknown error');
 		return jsonStatus(c, 500, 'error');
 	}

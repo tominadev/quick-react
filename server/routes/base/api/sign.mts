@@ -58,7 +58,7 @@ const localSign: ApiHandler = async (c, next) => {
 		const claimed = await runSql(database, sql(database).update('base_system_bootstrap', { value: 'claimed' }, [{ column: 'key', value: 'initial_admin' }, { column: 'value', value: 'open' }]));
 		if (Number(claimed.meta?.changes ?? 0) !== 1) return apiMessage(c, 409, '初始管理员已经存在');
 		try {
-			await runSql(database, sql(database).insert('base_system_users', { username: credentials.username, password: storedPassword, roles: '["admin"]', status: 'enabled', created_at: now, updated_at: now }));
+			await runSql(database, sql(database).insert('base_system_users', { username: credentials.username, password: storedPassword, roles: '["admin"]', status: 'enabled' }));
 		} catch (error) {
 			await runSql(database, sql(database).update('base_system_bootstrap', { value: 'open' }, [{ column: 'key', value: 'initial_admin' }, { column: 'value', value: 'claimed' }]));
 			throw error;
@@ -72,7 +72,7 @@ const localSign: ApiHandler = async (c, next) => {
 		const sessionId = crypto.randomUUID();
 		const maxAge = credentials.remember ? 30 * 24 * 60 * 60 : 24 * 60 * 60;
 		const now = Date.now();
-		await runSql(database, sql(database).insert('base_system_sessions', { id: sessionId, user_id: user.id, expires_at: now + maxAge * 1000, created_at: now }));
+		await runSql(database, sql(database).insert('base_system_sessions', { id: sessionId, user_id: user.id, expires_at: now + maxAge * 1000 }));
 		c.header('Set-Cookie', createSessionCookie(sessionId, new URL(c.req.url).protocol === 'https:', maxAge));
 		return apiMessageData(c, 200, '登录成功', { user: { id: user.id, username: user.username }, next: { action: 'reload' } });
 	}
@@ -144,7 +144,7 @@ const handler: ApiHandler = async (c, next) => {
 					if (source.origin === requestOrigin(c) && !source.pathname.startsWith('/api/')) returnPath = `${source.pathname}${source.search}`;
 				}
 			} catch { /* 无效 Referer 使用站点首页作为安全回退 */ }
-			await runSql(database, sql(database).insert('base_oidc_login_requests', { id, issuer: config.issuer, state, nonce, code_verifier: verifier, return_path: returnPath, expires_at: now + 600_000, created_at: now }));
+			await runSql(database, sql(database).insert('base_oidc_login_requests', { id, issuer: config.issuer, state, nonce, code_verifier: verifier, return_path: returnPath, expires_at: now + 600_000 }));
 			const callback = `${requestOrigin(c)}/api/accounts/oidc/callback`;
 			const authorize = new URL(discovery.authorization_endpoint); authorize.search = new URLSearchParams({ response_type: 'code', client_id: config.clientId, redirect_uri: callback, scope: 'openid profile email', state, nonce, code_challenge: await sha256Base64Url(verifier), code_challenge_method: 'S256' }).toString();
 			c.header('Set-Cookie', accountsLoginCookie(id, isSecureRequest(c)));

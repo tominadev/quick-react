@@ -51,7 +51,7 @@ const handler: ApiHandler = async (c) => {
 	const pending = current ? (await accountOnboarding(database, String(current.id))).step === 'username' : false;
 	if (!current || pending) {
 		const id = requestId || crypto.randomUUID(), now = Date.now();
-		if (!requestId) await runSql(database, sql(database).insert('passport_oidc_authorization_requests', { id, client_id: values.client_id, redirect_uri: values.redirect_uri, scope: scopes.join(' '), state: values.state, nonce: values.nonce, code_challenge: values.code_challenge, code_challenge_method: values.code_challenge_method, expires_at: now + 600_000, created_at: now }));
+		if (!requestId) await runSql(database, sql(database).insert('passport_oidc_authorization_requests', { id, client_id: values.client_id, redirect_uri: values.redirect_uri, scope: scopes.join(' '), state: values.state, nonce: values.nonce, code_challenge: values.code_challenge, code_challenge_method: values.code_challenge_method, expires_at: now + 600_000 }));
 		else await runSql(database, sql(database).update('passport_oidc_authorization_requests', { expires_at: now + 600_000 }, { id }));
 		c.header('Set-Cookie', oidcRequestCookie(id, isSecureRequest(c)));
 		const signUrl = new URL(`/accounts/sign${c.get('techStackConfig').pageSuffix}`, c.req.url);
@@ -59,7 +59,7 @@ const handler: ApiHandler = async (c) => {
 		return c.redirect(signUrl.toString(), 302);
 	}
 	const code = randomToken(32), now = Date.now(), sessionId = readPassportSessionId(c.req.raw) ?? '';
-	await runSql(database, sql(database).insert('passport_oidc_authorization_codes', { code_hash: await sha256(code), client_id: values.client_id, user_id: String(current.id), redirect_uri: values.redirect_uri, scope: scopes.join(' '), nonce: values.nonce, code_challenge: values.code_challenge, code_challenge_method: values.code_challenge_method, expires_at: now + 60_000, created_at: now, session_id: sessionId }));
+	await runSql(database, sql(database).insert('passport_oidc_authorization_codes', { code_hash: await sha256(code), client_id: values.client_id, user_id: String(current.id), redirect_uri: values.redirect_uri, scope: scopes.join(' '), nonce: values.nonce, code_challenge: values.code_challenge, code_challenge_method: values.code_challenge_method, expires_at: now + 60_000, session_id: sessionId }));
 	if (requestId) await runSql(database, sql(database).delete('passport_oidc_authorization_requests', { id: requestId }));
 	const redirect = new URL(values.redirect_uri); redirect.searchParams.set('code', code); if (values.state) redirect.searchParams.set('state', values.state);
 	return c.redirect(redirect.toString(), 302);

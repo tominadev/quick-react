@@ -31,11 +31,11 @@ export const ensurePassportDevice = async (database: DatabaseAdapter, userId: st
 	if (existing) {
 		await runSql(database, sql(database).update('passport_devices', { last_seen_at: now, user_agent: request.headers.get('user-agent') ?? '', platform: request.headers.get('sec-ch-ua-platform') ?? '', ip_address: request.headers.get('x-real-ip') ?? request.headers.get('x-forwarded-for')?.split(',')[0]?.trim() ?? '' }, { id: existing.id }));
 	} else {
-		await runSql(database, sql(database).insert('passport_devices', { id, user_id: userId, fingerprint, user_agent: request.headers.get('user-agent') ?? '', platform: request.headers.get('sec-ch-ua-platform') ?? '', ip_address: request.headers.get('x-real-ip') ?? request.headers.get('x-forwarded-for')?.split(',')[0]?.trim() ?? '', status: 'active', created_at: now, last_seen_at: now }));
+		await runSql(database, sql(database).insert('passport_devices', { id, user_id: userId, fingerprint, user_agent: request.headers.get('user-agent') ?? '', platform: request.headers.get('sec-ch-ua-platform') ?? '', ip_address: request.headers.get('x-real-ip') ?? request.headers.get('x-forwarded-for')?.split(',')[0]?.trim() ?? '', status: 'active', last_seen_at: now }));
 	}
 	const binding = await firstSql<{ device_id: string; status: string }>(database, sql(database).select({ table: 'passport_device_users', columns: { device_id: 'device_id', status: 'status' }, where: [{ column: 'device_id', value: id }, { column: 'user_id', value: userId }] }));
 	if (binding) await runSql(database, sql(database).update('passport_device_users', { status: 'active', revoked_at: null, last_seen_at: now }, { device_id: id, user_id: userId }));
-	else await runSql(database, sql(database).insert('passport_device_users', { device_id: id, user_id: userId, status: 'active', created_at: now, last_seen_at: now }));
+	else await runSql(database, sql(database).insert('passport_device_users', { device_id: id, user_id: userId, status: 'active', last_seen_at: now }));
 	return id;
 };
 

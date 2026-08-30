@@ -21,7 +21,7 @@ export const createDatabaseConfigStore = (database: DatabaseAdapter): ConfigStor
 		}
 	},
 	put: async (key, value) => {
-		await runSql(database, sql(database).upsert('base_system_configs', ['key'], { key, value: JSON.stringify(value), updated_at: Date.now() }, ['value', 'updated_at']));
+		await runSql(database, sql(database).upsert('base_system_configs', ['key'], { key, value: JSON.stringify(value) }, ['value', 'updated_at']));
 	},
 });
 

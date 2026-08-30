@@ -54,7 +54,7 @@ const handler: ApiHandler = async (c, next, params) => {
 		if (!hostname) return apiMessage(c, 400, 'Host 不合法');
 		const site = await firstSql(database, sql(database).select({ table: 'global_sites', columns: { site_key: 'site_key' }, where: [{ column: 'site_key', value: siteKey }, { column: 'status', value: 'enabled' }, { column: 'migration_status', value: 'ready' }] }));
 		if (!site) return apiMessage(c, 400, '站点不存在或尚未就绪');
-		await runSql(database, sql(database).insert('global_site_hosts', { hostname, site_key: siteKey, status: 'enabled', created_at: Date.now() }));
+		await runSql(database, sql(database).insert('global_site_hosts', { hostname, site_key: siteKey, status: 'enabled' }));
 		await c.get('siteRouter').refresh();
 		return apiMessage(c, 201, '新增成功');
 	}

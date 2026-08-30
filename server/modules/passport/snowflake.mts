@@ -23,7 +23,7 @@ class PassportSnowflakeGenerator {
 	private async reserveTimestamp() {
 		const now = Math.max(Date.now(), Number(PASSPORT_SNOWFLAKE_EPOCH));
 		const reserve = async (database: DatabaseAdapter) => {
-			await runSql(database, sql(database).ignoreInsert('passport_snowflake_state', ['worker_id'], { worker_id: this.workerId, last_timestamp: now - 1, updated_at: now }));
+			await runSql(database, sql(database).ignoreInsert('passport_snowflake_state', ['worker_id'], { worker_id: this.workerId, last_timestamp: now - 1 }));
 			await runSql(database, sql(database).advanceNumber('passport_snowflake_state', 'last_timestamp', now, now, { worker_id: this.workerId }));
 			return firstSql<{ last_timestamp: number }>(database, sql(database).select({ table: 'passport_snowflake_state', columns: { last_timestamp: 'last_timestamp' }, where: [{ column: 'worker_id', value: this.workerId }] }));
 		};

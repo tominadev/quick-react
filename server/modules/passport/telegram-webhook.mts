@@ -64,12 +64,12 @@ const loadMenu = (database: DatabaseAdapter, identity: TelegramIdentity) => firs
 const saveMenu = async (database: DatabaseAdapter, identity: TelegramIdentity, messageId: string, mode: MenuMode) => {
 	const now = Date.now();
 	const existing = await loadMenu(database, identity);
-	if (existing) await runSql(database, sql(database).update('passport_telegram_menus', { chat_id: identity.chatId, message_id: messageId, mode, updated_at: now }, { bot_id: identity.botId, telegram_user_id: identity.telegramUserId }));
+	if (existing) await runSql(database, sql(database).update('passport_telegram_menus', { chat_id: identity.chatId, message_id: messageId, mode }, { bot_id: identity.botId, telegram_user_id: identity.telegramUserId }));
 	else {
 		try {
-			await runSql(database, sql(database).insert('passport_telegram_menus', { bot_id: identity.botId, telegram_user_id: identity.telegramUserId, chat_id: identity.chatId, message_id: messageId, mode, created_at: now, updated_at: now }));
+			await runSql(database, sql(database).insert('passport_telegram_menus', { bot_id: identity.botId, telegram_user_id: identity.telegramUserId, chat_id: identity.chatId, message_id: messageId, mode }));
 		} catch {
-			await runSql(database, sql(database).update('passport_telegram_menus', { chat_id: identity.chatId, message_id: messageId, mode, updated_at: now }, { bot_id: identity.botId, telegram_user_id: identity.telegramUserId }));
+			await runSql(database, sql(database).update('passport_telegram_menus', { chat_id: identity.chatId, message_id: messageId, mode }, { bot_id: identity.botId, telegram_user_id: identity.telegramUserId }));
 		}
 	}
 };
@@ -177,12 +177,12 @@ const handleCallback = async (database: DatabaseAdapter, globalDatabase: Databas
 	if (loginMatch) {
 		const challenge = await firstSql<{ expected_number: number; status: string; expires_at: number }>(database, sql(database).select({ table: 'passport_login_challenges', columns: { expected_number: 'expected_number', status: 'status', expires_at: 'expires_at' }, where: [{ column: 'id', value: loginMatch[2] }, { column: 'bot_id', value: identity.botId }, { column: 'telegram_user_id', value: identity.telegramUserId }] }));
 		if (!challenge || challenge.status !== 'pending' || challenge.expires_at <= Date.now()) {
-			if (challenge?.status === 'pending') await runSql(database, sql(database).update('passport_login_challenges', { status: 'expired', updated_at: Date.now() }, { id: loginMatch[2], status: 'pending' }));
+			if (challenge?.status === 'pending') await runSql(database, sql(database).update('passport_login_challenges', { status: 'expired' }, { id: loginMatch[2], status: 'pending' }));
 			if (callbackId) await answerTelegramCallback(bot.botToken, callbackId, '登录确认已失效').catch(() => undefined);
 			return;
 		}
 		if (loginMatch[1] === 'deny') {
-			await runSql(database, sql(database).update('passport_login_challenges', { status: 'denied', updated_at: Date.now() }, { id: loginMatch[2], status: 'pending' }));
+			await runSql(database, sql(database).update('passport_login_challenges', { status: 'denied' }, { id: loginMatch[2], status: 'pending' }));
 			if (callbackId) await answerTelegramCallback(bot.botToken, callbackId, '已拒绝登录').catch(() => undefined);
 			await editTelegramMessage(bot.botToken, String(identity.chatId), messageId, '本次网页登录已拒绝');
 			return;
@@ -191,7 +191,7 @@ const handleCallback = async (database: DatabaseAdapter, globalDatabase: Databas
 			if (callbackId) await answerTelegramCallback(bot.botToken, callbackId, '数字不匹配，请选择网页显示的数字').catch(() => undefined);
 			return;
 		}
-		await runSql(database, sql(database).update('passport_login_challenges', { status: 'approved', updated_at: Date.now() }, { id: loginMatch[2], status: 'pending' }));
+		await runSql(database, sql(database).update('passport_login_challenges', { status: 'approved' }, { id: loginMatch[2], status: 'pending' }));
 		if (callbackId) await answerTelegramCallback(bot.botToken, callbackId, '登录已批准').catch(() => undefined);
 		await editTelegramMessage(bot.botToken, String(identity.chatId), messageId, '网页登录已批准，请返回网页完成登录');
 		return;

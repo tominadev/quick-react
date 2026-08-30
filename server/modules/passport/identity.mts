@@ -60,7 +60,7 @@ export const issueTelegramEmailOtp = async (database: DatabaseAdapter, identity:
 	if (lastCreatedAt && now - lastCreatedAt < 60_000) throw new TelegramOtpRateLimitError(Math.ceil((60_000 - (now - lastCreatedAt)) / 1000));
 	if (recent.length >= 10) throw new TelegramOtpRateLimitError(Math.max(1, Math.ceil((Number(firstCreatedAt ?? now) + 60 * 60_000 - now) / 1000)));
 	await runSql(database, sql(database).update('passport_email_otp', { status: 'expired' }, [{ column: 'bot_id', value: botId }, { column: 'telegram_user_id', value: telegramUserId }, { column: 'status', value: 'pending' }]));
-	await runSql(database, sql(database).insert('passport_email_otp', { bot_id: botId, telegram_user_id: telegramUserId, chat_id: chatId, email, code_hash: await hashPassword(code), attempt_count: 0, status: 'pending', expires_at: now + lifetimeMs, created_at: now }));
+	await runSql(database, sql(database).insert('passport_email_otp', { bot_id: botId, telegram_user_id: telegramUserId, chat_id: chatId, email, code_hash: await hashPassword(code), attempt_count: 0, status: 'pending', expires_at: now + lifetimeMs }));
 	return { code, email, expiresAt: now + lifetimeMs };
 };
 
@@ -135,22 +135,22 @@ export const verifyTelegramEmailOtp = async (
 	if (external) {
 		userId = external.user_id;
 		resultStatus = email ? 'existing' : 'linked';
-		statements.push(builder.update('passport_telegram_accounts', { chat_id: chatId, nickname, updated_at: now }, { bot_id: botId, telegram_user_id: telegramUserId }));
+		statements.push(builder.update('passport_telegram_accounts', { chat_id: chatId, nickname }, { bot_id: botId, telegram_user_id: telegramUserId }));
 	} else {
 		userId = (await generator.next()).toString();
 		const accountId = (await generator.next()).toString();
 		resultStatus = 'created';
 		statements.push(
-			builder.insert('passport_users', { user_id: userId, nickname, status: 'enabled', created_at: now, updated_at: now }),
-			builder.insert('passport_telegram_accounts', { id: accountId, user_id: userId, bot_id: botId, telegram_user_id: telegramUserId, chat_id: chatId, nickname, created_at: now, updated_at: now }),
+			builder.insert('passport_users', { user_id: userId, nickname, status: 'enabled' }),
+			builder.insert('passport_telegram_accounts', { id: accountId, user_id: userId, bot_id: botId, telegram_user_id: telegramUserId, chat_id: chatId, nickname }),
 		);
 	}
 	if (!email) {
 		const emailId = (await generator.next()).toString();
 		const hasUserEmail = Boolean(await firstSql(database, builder.select({ table: 'passport_user_emails', columns: { email_id: { column: 'email_id', cast: 'text' } }, where: [{ column: 'user_id', value: userId }], limit: 1 })));
 		statements.push(
-			builder.insert('passport_emails', { id: emailId, email: otp.email, verified: 1, created_at: now, updated_at: now }),
-			builder.insert('passport_user_emails', { user_id: userId, email_id: emailId, is_primary: hasUserEmail ? 0 : 1, created_at: now }),
+			builder.insert('passport_emails', { id: emailId, email: otp.email, verified: 1 }),
+			builder.insert('passport_user_emails', { user_id: userId, email_id: emailId, is_primary: hasUserEmail ? 0 : 1 }),
 		);
 	}
 	statements.push(builder.update('passport_email_otp', { status: 'used' }, { id: otp.id, status: 'pending' }));
@@ -170,8 +170,8 @@ export const createTelegramIdentityChoice = async (
 	const targetUserId = decimalId(targetUserIdValue, true), email = normalizePassportEmail(rawEmail), now = Date.now();
 	const owner = await emailOwner(database, email);
 	if (!owner || owner.user_id !== targetUserId || owner.status !== 'enabled') throw new Error('目标账户或邮箱状态已变化');
-	await runSql(database, sql(database).update('passport_telegram_identity_choices', { status: 'cancelled', updated_at: now }, { bot_id: botId, telegram_user_id: telegramUserId, status: 'pending' }));
-	await runSql(database, sql(database).insert('passport_telegram_identity_choices', { bot_id: botId, telegram_user_id: telegramUserId, chat_id: chatId, target_user_id: targetUserId, email, status: 'pending', expires_at: now + lifetimeMs, created_at: now, updated_at: now }));
+	await runSql(database, sql(database).update('passport_telegram_identity_choices', { status: 'cancelled' }, { bot_id: botId, telegram_user_id: telegramUserId, status: 'pending' }));
+	await runSql(database, sql(database).insert('passport_telegram_identity_choices', { bot_id: botId, telegram_user_id: telegramUserId, chat_id: chatId, target_user_id: targetUserId, email, status: 'pending', expires_at: now + lifetimeMs }));
 	const choice = await firstSql<{ id: number }>(database, sql(database).select({ table: 'passport_telegram_identity_choices', columns: { id: 'id' }, where: [{ column: 'bot_id', value: botId }, { column: 'telegram_user_id', value: telegramUserId }, { column: 'status', value: 'pending' }], orderBy: [{ column: 'created_at', direction: 'DESC' }, { column: 'id', direction: 'DESC' }], limit: 1 }));
 	if (!choice) throw new Error('账户选择创建后无法读取');
 	return { id: String(choice.id), targetUserId, email, expiresAt: now + lifetimeMs };
@@ -188,7 +188,7 @@ export const confirmTelegramIdentityChoice = async (
 	const choice = await firstSql<{ target_user_id: string; email: string; expires_at: number; status: string }>(database, sql(database).select({ table: 'passport_telegram_identity_choices', alias: 'c', columns: { target_user_id: { column: 'c.target_user_id', cast: 'text' }, email: 'c.email', expires_at: 'c.expires_at', status: 'u.status' }, joins: [{ table: 'passport_users', alias: 'u', left: 'u.user_id', right: 'c.target_user_id' }], where: [{ column: 'c.id', value: choiceId }, { column: 'c.bot_id', value: botId }, { column: 'c.telegram_user_id', value: telegramUserId }, { column: 'c.status', value: 'pending' }] }));
 	if (!choice) return { status: 'invalid' as const };
 	if (choice.expires_at <= Date.now()) {
-		await runSql(database, sql(database).update('passport_telegram_identity_choices', { status: 'expired', updated_at: Date.now() }, { id: choiceId, status: 'pending' }));
+		await runSql(database, sql(database).update('passport_telegram_identity_choices', { status: 'expired' }, { id: choiceId, status: 'pending' }));
 		return { status: 'expired' as const };
 	}
 	if (choice.status !== 'enabled') return { status: 'disabled' as const };
@@ -196,22 +196,22 @@ export const confirmTelegramIdentityChoice = async (
 	if (!owner || owner.user_id !== choice.target_user_id) return { status: 'conflict' as const };
 	if (external) {
 		if (external.user_id !== choice.target_user_id) return { status: 'conflict' as const };
-		await runSql(database, sql(database).update('passport_telegram_identity_choices', { status: 'confirmed', updated_at: Date.now() }, { id: choiceId, status: 'pending' }));
+		await runSql(database, sql(database).update('passport_telegram_identity_choices', { status: 'confirmed' }, { id: choiceId, status: 'pending' }));
 		return { status: 'existing' as const, userId: external.user_id };
 	}
 	const now = Date.now(), accountId = (await getPassportSnowflakeGenerator(database, configuredWorkerId).next()).toString();
 	if (!database.batch) throw new Error('Passport database does not support atomic batch writes');
 	const builder = sql(database);
 	await database.batch([
-		builder.insert('passport_telegram_accounts', { id: accountId, user_id: choice.target_user_id, bot_id: botId, telegram_user_id: telegramUserId, chat_id: chatId, nickname: normalizePassportNickname(identity.nickname, telegramUserId), created_at: now, updated_at: now }),
-		builder.update('passport_telegram_identity_choices', { status: 'confirmed', updated_at: now }, { id: choiceId, status: 'pending' }),
+		builder.insert('passport_telegram_accounts', { id: accountId, user_id: choice.target_user_id, bot_id: botId, telegram_user_id: telegramUserId, chat_id: chatId, nickname: normalizePassportNickname(identity.nickname, telegramUserId) }),
+		builder.update('passport_telegram_identity_choices', { status: 'confirmed' }, { id: choiceId, status: 'pending' }),
 	]);
 	return { status: 'linked' as const, userId: choice.target_user_id };
 };
 
 export const cancelTelegramIdentityChoice = async (database: DatabaseAdapter, identity: TelegramIdentity, choiceIdValue: string | number | bigint) => {
 	const botId = decimalId(identity.botId, true), telegramUserId = decimalId(identity.telegramUserId, true), choiceId = decimalId(choiceIdValue, true);
-	await runSql(database, sql(database).update('passport_telegram_identity_choices', { status: 'cancelled', updated_at: Date.now() }, { id: choiceId, bot_id: botId, telegram_user_id: telegramUserId, status: 'pending' }));
+	await runSql(database, sql(database).update('passport_telegram_identity_choices', { status: 'cancelled' }, { id: choiceId, bot_id: botId, telegram_user_id: telegramUserId, status: 'pending' }));
 };
 
 export const setPassportPassword = async (database: DatabaseAdapter, userIdValue: string | number | bigint, password: string) => {
@@ -219,7 +219,7 @@ export const setPassportPassword = async (database: DatabaseAdapter, userIdValue
 	assertPassword(password);
 	const user = await firstSql(database, sql(database).select({ table: 'passport_users', columns: { user_id: { column: 'user_id', cast: 'text' } }, where: [{ column: 'user_id', value: userId }, { column: 'status', value: 'enabled' }] }));
 	if (!user) throw new Error('用户不存在或已停用');
-	await runSql(database, sql(database).insert('passport_user_credentials', { user_id: userId, password: await createStoredPassword(password), created_at: Date.now() }));
+	await runSql(database, sql(database).insert('passport_user_credentials', { user_id: userId, password: await createStoredPassword(password) }));
 };
 
 export const verifyPassportPasswordHistory = async (database: DatabaseAdapter, userIdValue: string | number | bigint, password: string) => {

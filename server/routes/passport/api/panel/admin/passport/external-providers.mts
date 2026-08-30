@@ -46,7 +46,7 @@ const handler: ApiHandler = async (c, next, params) => {
 		const exists = await firstSql(database, sql(database).select({ table: 'passport_external_providers', columns: { id: 'id' }, where: [{ column: 'id', value: id }] }));
 		if (exists) return apiMessage(c, 409, `${id === 'google' ? 'Google' : '微信'}身份源已经存在，请直接编辑`);
 		const now = Date.now();
-		await runSql(database, sql(database).insert('passport_external_providers', { id, display_name: displayName, client_id: clientId, client_secret: clientSecret, wechat_mode: wechatMode, wechat_redirect_domain: id === 'wechat' ? redirectDomain : '', status: body.status === 'disabled' ? 'disabled' : 'enabled', created_at: now, updated_at: now }));
+		await runSql(database, sql(database).insert('passport_external_providers', { id, display_name: displayName, client_id: clientId, client_secret: clientSecret, wechat_mode: wechatMode, wechat_redirect_domain: id === 'wechat' ? redirectDomain : '', status: body.status === 'disabled' ? 'disabled' : 'enabled' }));
 		return apiMessage(c, 201, '外部身份源已创建');
 	}
 	const id = providerId(params.id);
@@ -63,7 +63,7 @@ const handler: ApiHandler = async (c, next, params) => {
 		const displayName = requiredText(body.display_name), clientId = requiredText(body.client_id), clientSecret = requiredText(body.client_secret), wechatMode: WechatMode = body.wechat_mode === 'official_account' ? 'official_account' : 'open_platform', redirectDomain = requiredText(body.wechat_redirect_domain).replace(/^https?:\/\//, '').replace(/\/.*$/, '');
 		if (!displayName || !clientId) return apiMessage(c, 400, '显示名称和客户端 ID 不能为空');
 		if (id === 'wechat' && redirectDomain && !/^(?=.{1,253}$)([a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?\.)+[a-z]{2,}$/i.test(redirectDomain)) return apiMessage(c, 400, '微信授权回调域名格式不正确，请只填写域名');
-		const updated = await runSql(database, sql(database).update('passport_external_providers', { display_name: displayName, client_id: clientId, client_secret: clientSecret || undefined, wechat_mode: wechatMode, wechat_redirect_domain: id === 'wechat' ? redirectDomain : '', status: body.status === 'disabled' ? 'disabled' : 'enabled', updated_at: Date.now() }, { id }));
+		const updated = await runSql(database, sql(database).update('passport_external_providers', { display_name: displayName, client_id: clientId, client_secret: clientSecret || undefined, wechat_mode: wechatMode, wechat_redirect_domain: id === 'wechat' ? redirectDomain : '', status: body.status === 'disabled' ? 'disabled' : 'enabled' }, { id }));
 		return Number(updated.meta?.changes ?? 0) ? apiMessage(c, 200, '外部身份源已保存') : apiMessage(c, 404, '外部身份源不存在');
 	}
 	if (c.req.method === 'DELETE') {
