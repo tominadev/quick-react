@@ -34,9 +34,8 @@ export const pveCrud = (config: Config): ApiHandler => async (c, next, params) =
 		if (missing.length) return apiMessage(c, 400, `请填写必填字段：${missing.join('、')}`);
 		const values: Record<string, unknown> = {};
 		for (const field of config.writable) values[field] = body[field];
-		const now = Date.now();
-		if (!params.id) { values.created_at = now; values.updated_at = now; await runSql(database, sql(database).insert(config.table, values)); return apiMessage(c, 201, '创建成功'); }
-		values.updated_at = now; await runSql(database, sql(database).update(config.table, values, { [config.key]: params.id })); return apiMessage(c, 200, '保存成功');
+		if (!params.id) { await runSql(database, sql(database).insert(config.table, values)); return apiMessage(c, 201, '创建成功'); }
+		await runSql(database, sql(database).update(config.table, values, { [config.key]: params.id })); return apiMessage(c, 200, '保存成功');
 	}
 	return next();
 };

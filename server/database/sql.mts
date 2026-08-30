@@ -63,7 +63,10 @@ export abstract class SqlBuilder {
 	}
 
 	insert(table: string, values: Values): SqlQuery {
-		const entries = definedEntries(values); if (!entries.length) throw new Error('INSERT values cannot be empty');
+		if (Object.prototype.hasOwnProperty.call(values, 'created_at') || Object.prototype.hasOwnProperty.call(values, 'updated_at')) throw new Error('created_at 和 updated_at 由 SQL 公共层统一维护，业务代码不得传入');
+		const timestamp = Date.now();
+		const timestamped: Values = { created_at: timestamp, updated_at: timestamp, ...values };
+		const entries = definedEntries(timestamped); if (!entries.length) throw new Error('INSERT values cannot be empty');
 		return {
 			query: `INSERT INTO ${quoteIdentifier(table, this.dialect)} (${entries.map(([key]) => quoteIdentifier(key, this.dialect)).join(', ')}) VALUES (${this.placeholders(entries.length).join(', ')})`,
 			values: entries.map(([, value]) => value),
@@ -87,7 +90,8 @@ export abstract class SqlBuilder {
 	}
 
 	update(table: string, values: Values, where: Values | SqlCondition[]): SqlQuery {
-		const entries = definedEntries(values), conditions: SqlCondition[] = Array.isArray(where) ? where : definedEntries(where).map(([column, value]) => ({ column, value }));
+		if (Object.prototype.hasOwnProperty.call(values, 'created_at') || Object.prototype.hasOwnProperty.call(values, 'updated_at')) throw new Error('created_at 和 updated_at 由 SQL 公共层统一维护，业务代码不得传入');
+		const entries = definedEntries({ updated_at: Date.now(), ...values }), conditions: SqlCondition[] = Array.isArray(where) ? where : definedEntries(where).map(([column, value]) => ({ column, value }));
 		if (!entries.length || !conditions.length) throw new Error('UPDATE values and where cannot be empty');
 		let parameterIndex = entries.length;
 		return {
