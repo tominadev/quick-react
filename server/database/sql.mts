@@ -83,6 +83,15 @@ export abstract class SqlBuilder {
 		};
 	}
 
+	/** 数据库迁移专用：按源库原样写入审计字段，并在业务唯一键冲突时跳过。 */
+	ignoreInsertExisting(table: string, conflictKeys: string[], values: Values): SqlQuery {
+		const inserted = this.insertExisting(table, values);
+		if (!conflictKeys.length) throw new Error('INSERT conflict keys cannot be empty');
+		return this.dialect === 'mysql'
+			? { ...inserted, query: inserted.query.replace(/^INSERT /, 'INSERT IGNORE ') }
+			: { ...inserted, query: `${inserted.query} ON CONFLICT (${conflictKeys.map((key) => quoteIdentifier(key, this.dialect)).join(', ')}) DO NOTHING` };
+	}
+
 	insertFromSelect(table: string, values: Record<string, InsertSelectValue>, from: string, where: SqlCondition[]): SqlQuery {
 		const entries = Object.entries(values); if (!entries.length || !where.length) throw new Error('insertFromSelect values and where cannot be empty');
 		let parameterIndex = 0;

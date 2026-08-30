@@ -45,7 +45,6 @@ const handler: ApiHandler = async (c, next, params) => {
 		const roles = parseRoles(body.roles);
 		const unknownRoles = unknownAssignableRoles(roles);
 		if (unknownRoles.length) return apiMessage(c, 400, `不支持的角色：${unknownRoles.join('、')}`);
-		const now = Date.now();
 		try {
 			await runSql(database, sql({ database }).insert('base_users', { username, password: await createStoredPassword(password), roles: serializeRoles(roles), status: String(body.status ?? 'enabled') }));
 			const created = await firstSql<{ id: number | string }>(database, sql({ database }).select({ table: 'base_users', columns: { id: 'id' }, where: [{ column: 'username', value: username }] }));
@@ -76,7 +75,6 @@ const handler: ApiHandler = async (c, next, params) => {
 			values.password = await createStoredPassword(password);
 		}
 		if (!Object.keys(values).length) return apiMessage(c, 400, '没有可修改的字段');
-		values.updated_at = Date.now();
 		try {
 			await runSql(database, sql({ database }).update('base_users', values, { id: params.id }));
 			return apiMessage(c, 200, '用户已保存');

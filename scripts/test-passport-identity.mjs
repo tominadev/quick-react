@@ -29,9 +29,7 @@ try {
 	const passport = await import(`${pathToFileURL(modulePath).href}?test=${Date.now()}`);
 	const databaseFile = join(temporaryDirectory, 'passport.sqlite');
 	let database = passport.createSqliteAdapter(databaseFile);
-	for (const migration of ['0001_passport_identity.sql', '0002_telegram_onboarding.sql', '0003_telegram_webhook_updates.sql', '0004_telegram_identity_choices.sql']) {
-		await database.exec(await readFile(join(projectDirectory, 'migrations/passport', migration), 'utf8'));
-	}
+	await database.exec(await readFile(join(projectDirectory, 'migrations/passport/0001_prisma_schema.sql'), 'utf8'));
 
 	const generator = passport.getPassportSnowflakeGenerator(database, 7);
 	const generated = await Promise.all(Array.from({ length: 5000 }, () => generator.next()));
@@ -42,8 +40,8 @@ try {
 	database = passport.createSqliteAdapter(databaseFile);
 	const afterRestart = await passport.getPassportSnowflakeGenerator(database, 7).next();
 	assert.ok(afterRestart > maximumBeforeRestart);
-	await database.prepare(`INSERT INTO passport_snowflake_state (worker_id, last_timestamp, updated_at)
-		VALUES (?1, ?2, ?3)`).bind(8, Date.now() + 60_000, Date.now()).run();
+	await database.prepare(`INSERT INTO passport_snowflake_state (created_at, updated_at, worker_id, last_timestamp)
+		VALUES (?1, ?2, ?3, ?4)`).bind(Date.now(), Date.now(), 8, Date.now() + 60_000).run();
 	const rollbackSafe = await passport.getPassportSnowflakeGenerator(database, 8).next();
 	assert.ok(Number((rollbackSafe >> 22n) + passport.PASSPORT_SNOWFLAKE_EPOCH) > Date.now());
 

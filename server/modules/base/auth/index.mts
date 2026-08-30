@@ -1,5 +1,6 @@
 import type { DatabaseAdapter } from '@server/database/index.mjs';
 import { firstSql, sql } from '@server/database/sql.mjs';
+import { parseRoles } from '@shared/types/role.mjs';
 
 const encoder = new TextEncoder();
 const iterations = 210_000;
@@ -109,12 +110,7 @@ export const loadCurrentUser = async (database: DatabaseAdapter, request: Reques
 	if (!sessionId) return undefined;
 	const row = await firstSql<{ id: number; username: string; roles: string }>(database, sql({ database }).select({ table: 'base_sessions', alias: 's', columns: { id: 'u.id', username: 'u.username', roles: 'u.roles' }, joins: [{ table: 'base_users', alias: 'u', left: 'u.id', right: 's.user_id' }], where: [{ column: 's.token_hash', value: await hashSessionToken(sessionId) }, { column: 's.expires_at', operator: '>', value: Date.now() }, { column: 'u.status', value: 'enabled' }] }));
 	if (!row) return undefined;
-	let roles: string[] = [];
-	try {
-		const parsed = JSON.parse(row.roles);
-		if (Array.isArray(parsed)) roles = parsed.filter((role): role is string => typeof role === 'string');
-	} catch { /* Invalid persisted roles are treated as empty. */ }
-	return { id: row.id, username: row.username, roles };
+	return { id: row.id, username: row.username, roles: parseRoles(row.roles) };
 };
 
 /** 当前本站会话是否由 Accounts OIDC 登录创建。 */

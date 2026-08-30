@@ -1,24 +1,33 @@
 datasource db {
-  provider = "sqlite"
+  provider = "postgresql"
   url      = env("DATABASE_URL")
 }
 
+enum PveEnabledStatus {
+  enabled
+  disabled
+}
+
 model pve_regions {
-  id           Int    @id @default(autoincrement())
+  id           BigInt @id @default(autoincrement())
+  created_at   BigInt @default(0)
+  updated_at   BigInt @default(0)
+  created_duid BigInt?
+  updated_duid BigInt?
   code         String @unique
   name         String
   display_name String
-  status       String @default("enabled")
+  status       PveEnabledStatus @default(enabled)
   sort_order   Int    @default(0)
-  created_at   Int    @default(0)
-  updated_at   Int    @default(0)
-  created_duid  String?
-  updated_duid  String?
 }
 
 model pve_nodes {
-  id               Int    @id @default(autoincrement())
-  region_id        Int
+  id               BigInt @id @default(autoincrement())
+  created_at       BigInt @default(0)
+  updated_at       BigInt @default(0)
+  created_duid     BigInt?
+  updated_duid     BigInt?
+  region_id        BigInt
   name             String
   host             String
   port             Int    @default(8006)
@@ -26,13 +35,9 @@ model pve_nodes {
   api_user         String
   api_token_id     String
   api_token_secret String
-  status           String @default("enabled")
+  status           PveEnabledStatus @default(enabled)
   last_checked_at  Int?
   last_error       String @default("")
-  created_at       Int    @default(0)
-  updated_at       Int    @default(0)
-  created_duid      String?
-  updated_duid      String?
 }
 
 model pve_instance_flavors {
@@ -45,42 +50,42 @@ model pve_instance_flavors {
   name                 String
   cpu_cores            Int
   memory_gb            Int
-  status               String @default("enabled")
+  status               PveEnabledStatus @default(enabled)
   sort_order           Int    @default(0)
 
   @@unique([cpu_cores, memory_gb])
 }
 
 model pve_vms {
-  id                 Int    @id @default(autoincrement())
+  id                 BigInt @id @default(autoincrement())
+  created_at         BigInt @default(0)
+  updated_at         BigInt @default(0)
+  created_duid       BigInt?
+  updated_duid       BigInt?
   kind               String @default("qemu")
-  region_id          Int
-  node_id            Int
+  region_id          BigInt
+  node_id            BigInt
   instance_flavor_id BigInt
   name               String @default("")
   status             String @default("allocating")
   pve_status         String @default("")
-  pve_config         String @default("{}")
+  pve_config         Json   @default("{}")
   error_message      String @default("")
-  created_at         Int    @default(0)
-  updated_at         Int    @default(0)
-  deleted_at         Int?
-  created_duid        String?
-  updated_duid        String?
+  deleted_at         BigInt?
 }
 
 model pve_vm_tasks {
-  id               Int    @id @default(autoincrement())
-  vm_id            Int
+  id               BigInt @id @default(autoincrement())
+  created_at       BigInt @default(0)
+  updated_at       BigInt @default(0)
+  created_duid     BigInt?
+  updated_duid     BigInt?
+  vm_id            BigInt
   action           String
   idempotency_key  String @unique
   status           String @default("pending")
-  request_payload  String @default("{}")
-  response_payload String @default("{}")
+  request_payload  Json   @default("{}")
+  response_payload Json   @default("{}")
   retry_count      Int    @default(0)
   error_message    String @default("")
-  created_at       Int    @default(0)
-  updated_at       Int    @default(0)
-  created_duid      String?
-  updated_duid      String?
 }

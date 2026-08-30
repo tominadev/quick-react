@@ -18,10 +18,10 @@ const handler: ApiHandler = async (c, next, params) => {
 	const userId = String(c.get('passportUser')!.id);
 	if (c.req.method === 'GET' && !params.id) {
 		const currentSessionId = readPassportSessionId(c.req.raw);
-		const current = currentSessionId ? await firstSql<{ device_id: string | null }>(database, sql({ database }).select({ table: 'passport_sessions', columns: { device_id: 'device_id' }, where: [{ column: 'id', value: currentSessionId }, { column: 'user_id', value: userId }] })) : undefined;
+		const current = currentSessionId ? await firstSql<{ device_id: string | null }>(database, sql({ database }).select({ table: 'passport_sessions', columns: { device_id: { column: 'device_id', cast: 'text' } }, where: [{ column: 'id', value: currentSessionId }, { column: 'user_id', value: userId }] })) : undefined;
 		const devices = await allSql<any>(database, sql({ database }).select({
 			table: 'base_devices', alias: 'd',
-			columns: { id: 'd.id', device: 'd.user_agent', platform: 'd.platform', ip_address: 'd.ip_address', status: 'du.status', created_at: 'du.created_at', last_seen_at: 'du.last_seen_at', current: 'd.id' },
+			columns: { id: { column: 'd.id', cast: 'text' }, device: 'd.user_agent', platform: 'd.platform', ip_address: 'd.ip_address', status: 'du.status', created_at: 'du.created_at', last_seen_at: 'du.last_seen_at', current: { column: 'd.id', cast: 'text' } },
 			joins: [{ table: 'base_device_users', alias: 'du', left: 'd.id', right: 'du.device_id' }],
 			where: [{ column: 'du.user_id', value: userId }], orderBy: [{ column: 'du.last_seen_at', direction: 'DESC' }],
 		}));

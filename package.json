@@ -42,6 +42,7 @@
 		"test:table-switch-browser": "node scripts/test-table-switch-browser.mjs",
 		"import:legacy-passport": "node scripts/import-legacy-passport.mjs",
 		"migrate:sqlite": "node scripts/migrate-sqlite.mjs",
+		"prisma:migrations": "node scripts/generate-prisma-migrations.mjs",
 		"schema:check": "node scripts/schema-repair.mjs --check",
 		"schema:repair": "node scripts/schema-repair.mjs",
 		"test": "node esbuild.cjs"
@@ -69,6 +70,7 @@
 		"antd": "^6.6.0",
 		"esbuild": "^0.28.2",
 		"jsdom": "^30.0.1",
+		"prisma": "^6.19.3",
 		"react": "^19.2.8",
 		"react-dom": "^19.2.8",
 		"react-router-dom": "^7.18.2"

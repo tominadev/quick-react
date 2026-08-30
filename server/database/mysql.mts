@@ -5,7 +5,11 @@ import { compileSqlPlaceholders } from './placeholders.mjs';
 type MysqlExecutor = Pick<Pool | PoolConnection, 'execute'>;
 
 const rowsFrom = (result: unknown) => Array.isArray(result) ? result as Record<string, unknown>[] : [];
-const mysqlValues = (values: unknown[]) => values.map((value) => typeof value === 'bigint' ? value.toString() : value) as never;
+const mysqlValues = (values: unknown[]) => values.map((value) => {
+	if (typeof value === 'bigint') return value.toString();
+	if (Array.isArray(value)) return JSON.stringify(value);
+	return value;
+}) as never;
 const runResult = (result: unknown): DatabaseRunResult => {
 	const header = result as Partial<ResultSetHeader>;
 	return { success: true, meta: { changes: Number(header.affectedRows ?? 0), lastRowId: header.insertId === undefined ? undefined : String(header.insertId) } };

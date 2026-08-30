@@ -16,7 +16,7 @@ const handler: ApiHandler = async (c, next, params) => {
 	const database = c.get('passportDatabase');
 	if (!database) return apiMessage(c, 503, 'Accounts 数据库不可用');
 	if (c.req.method === 'GET' && !params.id) {
-		const rows = await allSql<Record<string, unknown>>(database, sql({ database }).select({ table: 'base_devices', columns: { id: 'id', user_id: { column: 'user_id', cast: 'text' }, device: 'user_agent', platform: 'platform', ip_address: 'ip_address', last_seen_at: 'last_seen_at', status: 'status' }, orderBy: [{ column: 'last_seen_at', direction: 'DESC' }] }));
+		const rows = await allSql<Record<string, unknown>>(database, sql({ database }).select({ table: 'base_devices', columns: { id: { column: 'id', cast: 'text' }, user_id: { column: 'user_id', cast: 'text' }, device: 'user_agent', platform: 'platform', ip_address: 'ip_address', last_seen_at: 'last_seen_at', status: 'status' }, orderBy: [{ column: 'last_seen_at', direction: 'DESC' }] }));
 		return apiResponse(c, 200, { table: { option: { rowKey: 'id', actions: { row: [{ key: 'delete', label: '注销设备', confirm: '注销后该设备的所有 Passport 会话将立即失效，确认注销？' }] } }, columns, dataSource: rows.map((row) => ({ ...row, device: String(row.device || '未知浏览器'), status: row.status === 'active' ? '正常' : '已注销' })), totalRecords: rows.length } });
 	}
 	if (c.req.method === 'DELETE') {

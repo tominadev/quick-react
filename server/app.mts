@@ -16,7 +16,7 @@ import { createMysqlAdapter } from './database/mysql.mjs';
 import { createPostgresqlAdapter } from './database/postgresql.mjs';
 import type { DatabaseAdapter } from './database/index.mjs';
 import { allSql, runSql, sql } from './database/sql.mjs';
-import { initializeCodeSites, migrateDatabase, migrateDefaultDatabase } from './database/migrate.mjs';
+import { initializeCodeSites, migrateDatabase, migrateDefaultDatabase, seedBaseDatabase } from './database/migrate.mjs';
 import { createDatabaseConfigStore } from './modules/base/config-store.mjs';
 import { configureSystemConfig, loadSystemConfig } from './modules/base/system-config.mjs';
 import { configureTechStack, loadTechStackConfig } from './modules/base/tech-stack.mjs';
@@ -73,6 +73,7 @@ const migrateSite = async (siteKey: string) => {
 	try {
 		const target = site.dsn ? resolveSiteDsn(site.dsn) : defaultDatabase;
 		await migrateDatabase(target, resolve(projectDirectory, 'migrations'), chain);
+		await seedBaseDatabase(target);
 		await runSql(defaultDatabase, sql({ database: defaultDatabase }).update('global_sites', { migration_status: 'ready' }, { site_key: siteKey }));
 	} catch (error) {
 		await runSql(defaultDatabase, sql({ database: defaultDatabase }).update('global_sites', { migration_status: 'failed' }, { site_key: siteKey }));

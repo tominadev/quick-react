@@ -45,7 +45,8 @@ export const parseRoles = (value: unknown): string[] => {
 	return [...new Set(source.filter((role): role is string => typeof role === 'string' && role.trim() !== '').map((role) => role.trim()))];
 };
 
-export const serializeRoles = (roles: string[]) => JSON.stringify(roles);
+/** 返回数据库适配器可直接绑定的数组；PostgreSQL 使用 String[]，其他方言由适配器序列化为 JSON 文本。 */
+export const serializeRoles = (roles: string[]) => roles;
 
 /** 返回白名单之外的角色，用于接口层拒绝非法输入。 */
 export const unknownAssignableRoles = (roles: string[]) => roles.filter((role) => !assignableRoleValues.has(role));

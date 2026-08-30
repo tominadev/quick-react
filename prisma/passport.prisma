@@ -1,50 +1,121 @@
 datasource db {
-  provider = "sqlite"
+  provider = "postgresql"
   url      = env("DATABASE_URL")
 }
 
+enum PassportAccountStatus {
+  enabled
+  disabled
+}
+
+enum PassportOtpStatus {
+  pending
+  expired
+  used
+}
+
+enum PassportTelegramUpdateStatus {
+  processing
+  completed
+  failed
+}
+
+enum PassportTelegramChoiceStatus {
+  pending
+  confirmed
+  cancelled
+  expired
+}
+
+enum PassportLoginChallengeStatus {
+  pending
+  approved
+  denied
+  consumed
+  expired
+}
+
+enum PassportSsoStatus {
+  pending
+  consumed
+  expired
+}
+
+enum PassportExternalPendingStatus {
+  pending
+  expired
+  completed
+}
+
+enum PassportQrStatus {
+  pending
+  authorized
+  consumed
+}
+
+enum PassportSigningKeyStatus {
+  active
+  retired
+}
+
 model passport_users {
-  user_id    BigInt @id
-  nickname   String
-  status     String @default("enabled")
-  created_at BigInt
-  updated_at BigInt
+  id          BigInt @id @default(autoincrement())
+  created_at  BigInt
+  updated_at  BigInt
+  created_duid BigInt?
+  updated_duid BigInt?
+  user_id     BigInt @unique
+  nickname    String
+  status      PassportAccountStatus @default(enabled)
 }
 
 model passport_usernames {
-  user_id    BigInt @id
-  username   String @unique
-  created_at BigInt
+  id          BigInt @id @default(autoincrement())
+  created_at  BigInt
+  updated_at  BigInt
+  created_duid BigInt?
+  updated_duid BigInt?
+  user_id     BigInt @unique
+  username    String @unique
 }
 
 model passport_user_email_otps {
   id            String @id
+  created_at    BigInt
+  updated_at    BigInt
+  created_duid  BigInt?
+  updated_duid  BigInt?
   user_id       BigInt
   email         String
   code_hash     String
   attempt_count Int    @default(0)
-  status        String @default("pending")
+  status        PassportOtpStatus @default(pending)
   expires_at    BigInt
-  created_at    BigInt
-  updated_at    BigInt
 
   @@index([user_id, status, created_at])
 }
 
 model passport_user_credentials {
   id         BigInt @id @default(autoincrement())
+  created_at BigInt
+  updated_at BigInt
+  created_duid BigInt?
+  updated_duid BigInt?
   user_id    BigInt
   password   String
-  created_at BigInt
 
   @@index([user_id, created_at, id])
 }
 
 model passport_sessions {
   id         String @id
+  created_at BigInt
+  updated_at BigInt
+  created_duid BigInt?
+  updated_duid BigInt?
   user_id    BigInt
   expires_at BigInt
-  created_at BigInt
+  device_id  BigInt?
 
   @@index([user_id])
   @@index([expires_at])
@@ -52,34 +123,40 @@ model passport_sessions {
 
 model passport_telegram_accounts {
   id               BigInt @id @default(autoincrement())
+  created_at       BigInt
+  updated_at       BigInt
+  created_duid     BigInt?
+  updated_duid     BigInt?
   user_id          BigInt
   bot_id           BigInt
   telegram_user_id BigInt
   chat_id          BigInt
   nickname         String
-  created_at       BigInt
-  updated_at       BigInt
 
   @@unique([bot_id, telegram_user_id])
 }
 
 model passport_oauth_accounts {
   id               BigInt @id @default(autoincrement())
+  created_at       BigInt
+  updated_at       BigInt
+  created_duid     BigInt?
+  updated_duid     BigInt?
   user_id          BigInt
   provider         String
   provider_user_id String
-  created_at       BigInt
-  updated_at       BigInt
 
   @@unique([provider, provider_user_id])
 }
 
 model passport_emails {
   id         BigInt @id @default(autoincrement())
-  email      String
-  verified   Int    @default(0)
   created_at BigInt
   updated_at BigInt
+  created_duid BigInt?
+  updated_duid BigInt?
+  email      String
+  verified   Int    @default(0)
 
   @@unique([email])
 }
@@ -100,23 +177,30 @@ model passport_user_emails {
 
 model passport_email_otp {
   id               BigInt @id @default(autoincrement())
+  created_at       BigInt
+  updated_at       BigInt
+  created_duid     BigInt?
+  updated_duid     BigInt?
   bot_id           BigInt
   telegram_user_id BigInt
   chat_id          BigInt
   email            String
   code_hash        String
   attempt_count    Int    @default(0)
-  status           String @default("pending")
+  status           PassportOtpStatus @default(pending)
   expires_at       BigInt
-  created_at       BigInt
 
   @@index([bot_id, telegram_user_id, status, created_at])
 }
 
 model passport_snowflake_state {
-  worker_id      Int    @id
-  last_timestamp BigInt
+  id             BigInt @id @default(autoincrement())
+  created_at     BigInt
   updated_at     BigInt
+  created_duid   BigInt?
+  updated_duid   BigInt?
+  worker_id      Int    @unique
+  last_timestamp BigInt
 }
 
 model passport_telegram_menus {
@@ -141,37 +225,41 @@ model passport_telegram_updates {
   updated_duid BigInt?
   bot_id     BigInt
   update_id  BigInt
-  status     String
+  status     PassportTelegramUpdateStatus
   @@unique([bot_id, update_id])
   @@index([status, updated_at])
 }
 
 model passport_telegram_identity_choices {
   id               BigInt @id @default(autoincrement())
+  created_at       BigInt
+  updated_at       BigInt
+  created_duid     BigInt?
+  updated_duid     BigInt?
   bot_id           BigInt
   telegram_user_id BigInt
   chat_id          BigInt
   target_user_id   BigInt
   email            String
-  status           String
+  status           PassportTelegramChoiceStatus
   expires_at       BigInt
-  created_at       BigInt
-  updated_at       BigInt
 
   @@index([bot_id, telegram_user_id, status, created_at])
 }
 
 model passport_login_challenges {
   id               String @id
+  created_at       BigInt
+  updated_at       BigInt
+  created_duid     BigInt?
+  updated_duid     BigInt?
   user_id          BigInt
   bot_id           BigInt
   telegram_user_id BigInt
   chat_id          BigInt
   expected_number  Int
-  status           String
+  status           PassportLoginChallengeStatus
   expires_at       BigInt
-  created_at       BigInt
-  updated_at       BigInt
 
   @@index([bot_id, telegram_user_id, status, created_at])
   @@index([status, expires_at])
@@ -179,36 +267,43 @@ model passport_login_challenges {
 
 model passport_sso_requests {
   id                String @id
-  target_site_key   String
-  target_hostname   String
-  status            String
-  expires_at        BigInt
   created_at        BigInt
   updated_at        BigInt
+  created_duid      BigInt?
+  updated_duid      BigInt?
+  target_site_key   String
+  target_hostname   String
+  status            PassportSsoStatus
+  expires_at        BigInt
 
   @@index([status, expires_at])
 }
 
 model passport_login_tickets {
   token_hash        String @id
+  created_at        BigInt
+  updated_at        BigInt
+  created_duid      BigInt?
+  updated_duid      BigInt?
   user_id           BigInt
   target_site_key   String
   target_hostname   String
-  status            String
+  status            PassportSsoStatus
   expires_at        BigInt
-  created_at        BigInt
-  updated_at        BigInt
 
   @@index([status, expires_at])
 }
 
 model passport_site_sessions {
   id         String @id
+  created_at BigInt
+  updated_at BigInt
+  created_duid BigInt?
+  updated_duid BigInt?
   user_id    BigInt
   site_key   String
   hostname   String
   expires_at BigInt
-  created_at BigInt
 
   @@index([user_id])
   @@index([site_key, hostname, expires_at])
@@ -228,12 +323,181 @@ model passport_user_roles {
 
 model passport_group_prompts {
   id         BigInt @id @default(autoincrement())
+  created_at BigInt
+  updated_at BigInt
+  created_duid BigInt?
+  updated_duid BigInt?
   chat_id    BigInt
   actor_id   BigInt
   state_json String @default("{}")
   expires_at BigInt
-  created_at BigInt
-  updated_at BigInt
 
   @@index([chat_id, actor_id, updated_at])
+}
+
+model passport_external_email_otps {
+  id                    String @id
+  created_at            BigInt
+  updated_at            BigInt
+  created_duid          BigInt?
+  updated_duid          BigInt?
+  pending_identity_hash String
+  email                 String
+  code_hash             String
+  attempt_count         Int    @default(0)
+  status                PassportOtpStatus @default(pending)
+  expires_at            BigInt
+
+  @@index([pending_identity_hash, status, created_at])
+}
+
+model passport_external_identities {
+  id          BigInt @id @default(autoincrement())
+  created_at  BigInt
+  updated_at  BigInt
+  created_duid BigInt?
+  updated_duid BigInt?
+  user_id     BigInt
+  provider    String
+  subject     String
+  profile     String @default("{}")
+
+  @@unique([provider, subject])
+  @@index([user_id])
+}
+
+model passport_external_login_states {
+  id_hash         String @id
+  created_at      BigInt
+  updated_at      BigInt
+  created_duid    BigInt?
+  updated_duid    BigInt?
+  provider        String
+  code_verifier   String
+  nonce           String
+  redirect_uri    String
+  expires_at      BigInt
+  consumed_at     BigInt?
+  qr_status       PassportQrStatus @default(pending)
+  qr_user_id      String?
+  oidc_request_id String?
+
+  @@index([expires_at, consumed_at])
+}
+
+model passport_external_pending_identities {
+  id_hash      String @id
+  created_at   BigInt
+  updated_at   BigInt
+  created_duid BigInt?
+  updated_duid BigInt?
+  provider     String
+  subject      String
+  nickname     String
+  profile      String
+  status       PassportExternalPendingStatus @default(pending)
+  expires_at   BigInt
+}
+
+model passport_external_pending_qr_states {
+  pending_identity_hash String @id
+  created_at            BigInt
+  updated_at            BigInt
+  created_duid          BigInt?
+  updated_duid          BigInt?
+  qr_state_hash         String @unique
+}
+
+model passport_external_providers {
+  id                      String @id
+  created_at              BigInt
+  updated_at              BigInt
+  created_duid            BigInt?
+  updated_duid            BigInt?
+  display_name            String
+  client_id               String
+  client_secret           String
+  status                  PassportAccountStatus @default(enabled)
+  wechat_mode             String @default("open_platform")
+  wechat_redirect_domain  String @default("")
+}
+
+model passport_oidc_clients {
+  id                     String @id
+  created_at             BigInt
+  updated_at             BigInt
+  created_duid           BigInt?
+  updated_duid           BigInt?
+  name                   String
+  secret_hash            String
+  redirect_uris          String @default("[]")
+  allowed_scopes         String @default("openid profile email")
+  require_pkce           Int    @default(1)
+  status                 PassportAccountStatus @default(enabled)
+  backchannel_logout_uri String @default("")
+  strict_redirect_uri    Int    @default(0)
+}
+
+model passport_oidc_authorization_requests {
+  id                    String @id
+  created_at            BigInt
+  updated_at            BigInt
+  created_duid          BigInt?
+  updated_duid          BigInt?
+  client_id             String
+  redirect_uri          String
+  scope                 String
+  state                 String @default("")
+  nonce                 String @default("")
+  code_challenge        String @default("")
+  code_challenge_method String @default("")
+  expires_at            BigInt
+}
+
+model passport_oidc_authorization_codes {
+  code_hash             String @id
+  created_at            BigInt
+  updated_at            BigInt
+  created_duid          BigInt?
+  updated_duid          BigInt?
+  client_id             String
+  user_id               BigInt
+  redirect_uri          String
+  scope                 String
+  nonce                 String @default("")
+  code_challenge        String @default("")
+  code_challenge_method String @default("")
+  expires_at            BigInt
+  consumed_at           BigInt?
+  session_id            String @default("")
+
+  @@index([expires_at, consumed_at])
+}
+
+model passport_oidc_access_tokens {
+  token_hash              String @id
+  created_at              BigInt
+  updated_at              BigInt
+  created_duid            BigInt?
+  updated_duid            BigInt?
+  client_id               String
+  user_id                 BigInt
+  scope                   String
+  expires_at              BigInt
+  revoked_at              BigInt?
+  session_id              String @default("")
+  authorization_code_hash String? @unique
+
+  @@index([expires_at, revoked_at])
+}
+
+model passport_oidc_signing_keys {
+  kid          String @id
+  created_at   BigInt
+  updated_at   BigInt
+  created_duid BigInt?
+  updated_duid BigInt?
+  private_jwk  String
+  public_jwk   String
+  status       PassportSigningKeyStatus @default(active)
 }

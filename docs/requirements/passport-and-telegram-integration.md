@@ -17,7 +17,7 @@ passport
   /api/tgwebhook           Telegram Update 入口及业务处理
 
 业务站点
-  base_oidc_accounts       Accounts issuer + subject 的最小映射
+  base_oidc_users          Accounts issuer + subject 的最小映射
   base_sessions     本站 Host-only Session
   <site>_*                 站点业务数据及本站角色
 ```
@@ -112,7 +112,7 @@ site_members
   updated_at
 ```
 
-`local_user_id` 通过 `base_oidc_accounts(issuer, subject)` 解析。站点可以拥有自己的业务角色和 Session，但不能创建第二套密码账号，也不能通过数据库直连读取 Passport 身份表。
+`local_user_id` 通过 `base_oidc_users(issuer, subject)` 解析。站点可以拥有自己的业务角色和 Session，但不能创建第二套密码账号，也不能通过数据库直连读取 Passport 身份表。
 
 ### 3.4 规范化表结构
 

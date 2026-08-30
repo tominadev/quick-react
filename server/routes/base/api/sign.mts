@@ -58,7 +58,7 @@ const localSign: ApiHandler = async (c, next) => {
 		const claimed = await runSql(database, sql({ database }).update('base_bootstrap', { value: 'claimed' }, [{ column: 'key', value: 'initial_admin' }, { column: 'value', value: 'open' }]));
 		if (Number(claimed.meta?.changes ?? 0) !== 1) return apiMessage(c, 409, '初始管理员已经存在');
 		try {
-			await runSql(database, sql({ database }).insert('base_users', { username: credentials.username, password: storedPassword, roles: '["admin"]', status: 'enabled' }));
+			await runSql(database, sql({ database }).insert('base_users', { username: credentials.username, password: storedPassword, roles: ['admin'], status: 'enabled' }));
 		} catch (error) {
 			await runSql(database, sql({ database }).update('base_bootstrap', { value: 'open' }, [{ column: 'key', value: 'initial_admin' }, { column: 'value', value: 'claimed' }]));
 			throw error;

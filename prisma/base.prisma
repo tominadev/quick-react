@@ -1,6 +1,16 @@
 datasource db {
-  provider = "sqlite"
+  provider = "postgresql"
   url      = env("DATABASE_URL")
+}
+
+enum BaseUserStatus {
+  enabled
+  disabled
+}
+
+enum BaseDeviceStatus {
+  active
+  revoked
 }
 
 model base_users {
@@ -11,8 +21,8 @@ model base_users {
   updated_duid BigInt?
   username      String @unique
   password      String
-  roles         String @default("[]")
-  status        String @default("enabled")
+  roles         String[] @default([])
+  status        BaseUserStatus @default(enabled)
 }
 
 model base_sessions {
@@ -46,8 +56,49 @@ model base_bootstrap {
   value        String
 }
 
+model base_oidc_login_requests {
+  id            String @id
+  created_at    BigInt
+  updated_at    BigInt
+  created_duid  BigInt?
+  updated_duid  BigInt?
+  issuer        String
+  state         String @unique
+  nonce         String
+  code_verifier String
+  return_path   String @default("/")
+  expires_at    BigInt
+}
+
+model base_oidc_users {
+  id            BigInt @id @default(autoincrement())
+  created_at    BigInt
+  updated_at    BigInt
+  created_duid  BigInt?
+  updated_duid  BigInt?
+  issuer        String
+  subject       String
+  user_id       BigInt
+  profile       String @default("{}")
+
+  @@unique([issuer, subject])
+}
+
+model base_oidc_sessions {
+  id            BigInt @id @default(autoincrement())
+  created_at    BigInt
+  updated_at    BigInt
+  created_duid  BigInt?
+  updated_duid  BigInt?
+  issuer        String
+  sid           String
+  session_id    BigInt @unique
+
+  @@unique([issuer, sid])
+}
+
 model base_devices {
-  id           String @id
+  id           BigInt @id @default(autoincrement())
   created_at   BigInt
   updated_at   BigInt
   user_id      BigInt
@@ -55,7 +106,7 @@ model base_devices {
   user_agent   String @default("")
   platform     String @default("")
   ip_address   String @default("")
-  status       String @default("active")
+  status       BaseDeviceStatus @default(active)
   last_seen_at BigInt
   revoked_at   BigInt?
 }
@@ -64,9 +115,9 @@ model base_device_users {
   id           BigInt @id @default(autoincrement())
   created_at   BigInt
   updated_at   BigInt
-  device_id    String
+  device_id    BigInt
   user_id      BigInt
-  status       String @default("active")
+  status       BaseDeviceStatus @default(active)
   last_seen_at BigInt
   revoked_at   BigInt?
 
@@ -77,7 +128,7 @@ model base_device_snapshots {
   id            BigInt @id @default(autoincrement())
   created_at    BigInt
   updated_at    BigInt
-  device_id     String
+  device_id     BigInt
   fingerprint   String
   ip_address    String @default("")
   user_agent    String @default("")

@@ -2,6 +2,12 @@ import pg from 'pg';
 import type { DatabaseAdapter, DatabaseRunResult, DatabaseStatement } from './index.mjs';
 import { compileSqlPlaceholders } from './placeholders.mjs';
 
+// Keep JSON/JSONB values in the same serialized form used by SQLite/D1 and the
+// existing API layer. PostgreSQL still stores them as JSONB; only the driver
+// result parser is normalized so callers do not need dialect branches.
+pg.types.setTypeParser(114, (value) => value);
+pg.types.setTypeParser(3802, (value) => value);
+
 type PostgresqlExecutor = Pick<pg.Pool | pg.PoolClient, 'query'>;
 
 class PostgresqlStatement implements DatabaseStatement {

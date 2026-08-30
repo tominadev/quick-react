@@ -453,7 +453,7 @@ site1.prisma   -> 所有 Model 以 site1_ 开头，表名就是模型名
 
 ```prisma
 model global_sites {
-  id       Int    @id @default(autoincrement())
+  id       BigInt @id @default(autoincrement())
   site_key String @unique
 }
 
@@ -479,6 +479,8 @@ Repository          运行时查询
 
 Prisma 仅作为开发期工具使用，生成或检查 migration；运行时使用原生 SQL、预处理语句和 D1/SQLite 适配器。
 
+迁移源只维护一份 `prisma/*.prisma`，其 datasource 以 PostgreSQL 为规范基线，字段类型和约束优先遵循 PostgreSQL 标准。执行 `npm run prisma:migrations` 时，生成器会从这份规范源创建临时方言 schema，再分别输出 PostgreSQL、MySQL 和 SQLite/D1 的迁移文件。JSON 字段在 PostgreSQL 生成 `JSONB`，在 MySQL 生成 `JSON`；PostgreSQL 的标量列表（例如 `roles String[]`）生成 `TEXT[]`，应用层直接绑定字符串数组。固定值域字段使用 Prisma `enum`（例如启用状态、迁移状态和登录流程状态），PostgreSQL 生成原生 `ENUM`，MySQL 保留原生 `ENUM`；SQLite/D1 不支持枚举，生成器会在临时副本中移除枚举声明并将字段降级为 `String`（即 `TEXT`），默认值同步转换为文本。由于本地 Node 运行时和 Cloudflare D1 使用 SQLite，生成 SQLite SQL 前还会将 `Json` 和 `String[]` 分别转换为 `String`，列表默认值转换为 JSON 文本默认值；MySQL 同样把标量列表降级为文本列。SQLite/D1 还会把 `BigInt @default(autoincrement())` 的主键转换为 `Int`，以生成 `INTEGER PRIMARY KEY AUTOINCREMENT`。规范 Prisma 文件始终保留 PostgreSQL 类型和 `BigInt`，临时文件生成后立即删除。生成的 `migrations/` 文件禁止手工编辑，必须修改 Prisma schema 后重新生成。
+
 这样可以保留模型定义，同时避免 Prisma Client 增大 Worker bundle 或引入 Node 专属依赖。
 
 ## 角色与权限范围
@@ -493,7 +495,7 @@ Prisma 仅作为开发期工具使用，生成或检查 migration；运行时使
 }
 ```
 
-用户身份和额外角色均保存在 `base_users` 中，例如 `roles` JSON 字段保存 `['admin']`。角色不按站点区分：在同一数据库内，用户的额外角色对所有继承站点生效。角色名称由后端代码约定，导航生成时根据当前用户的角色过滤菜单。
+用户身份和额外角色均保存在 `base_users` 中，规范 PostgreSQL 结构使用 `roles String[]`；SQLite/D1 和 MySQL 结构由迁移生成器降级为 JSON 文本列，SQL 适配器负责序列化数组，业务层不按数据库分支。角色不按站点区分：在同一数据库内，用户的额外角色对所有继承站点生效。角色名称由后端代码约定，导航生成时根据当前用户的角色过滤菜单。
 
 角色分为三类：
 
@@ -582,7 +584,7 @@ database/default.sqlite
 
 Node 可以在启动时对默认共享数据库执行未应用的 migration；Cloudflare D1 使用 Wrangler 的 `d1_migrations` 记录已应用 migration，在部署阶段执行，不在每个请求中执行。Worker 不能因后台动态创建站点而自行执行 D1 migration：动态建站必须由受控的 Node 迁移任务或 CI/CD 部署流程完成。自定义 DSN 站点需要由 Node 迁移任务对其目标数据库单独执行对应 migration。
 
-Prisma 生成的 SQL 需要检查 D1 兼容性，必要时手动调整后再部署。
+Prisma 生成的 SQL 由同一脚本同时输出 Node 方言目录和 D1 平面目录；D1 只使用 SQLite 产物，不能手工修改生成文件。
 
 ## 11. 实施顺序
 

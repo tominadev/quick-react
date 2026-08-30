@@ -70,7 +70,7 @@ const definitionKeywords = ['PRIMARY', 'UNIQUE', 'CONSTRAINT', 'FOREIGN', 'KEY',
 /** 方言迁移按文件顺序累积：先建表，再应用后续迁移补的列，和真实全新安装一致。 */
 const targetSchema = (source) => {
 	const result = {};
-	for (const match of source.matchAll(/CREATE TABLE IF NOT EXISTS\s+([A-Za-z_][A-Za-z0-9_]*)\s*\(/g)) {
+	for (const match of source.matchAll(/CREATE TABLE(?:\s+IF NOT EXISTS)?\s+[\`"]?([A-Za-z_][A-Za-z0-9_]*)[\`"]?\s*\(/gi)) {
 		const body = tableBody(source, match.index + match[0].length - 1);
 		const columns = [];
 		for (const definition of splitDefinitions(body)) {

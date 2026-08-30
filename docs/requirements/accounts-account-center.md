@@ -39,7 +39,7 @@
   | `admin` | 管理员 | 是 | 管理后台准入角色 |
 
 - 展示统一为"中文名(英文键)"；未登记的历史角色原样显示并标注"未知角色"。
-- 用户管理的角色字段是多选下拉，选项只来自 `assignable` 的角色；存储格式仍是 `base_users.roles` 的 JSON 文本，由接口层负责数组与文本互转并拒绝白名单外的角色。
+- 用户管理的角色字段是多选下拉，选项只来自 `assignable` 的角色；规范 PostgreSQL 结构使用 `base_users.roles String[]`，SQLite/D1 和 MySQL 由迁移生成器降级为 JSON 文本列，数据库适配器负责数组与文本互转，并拒绝白名单外的角色。固定值域的 `status` 字段在 PostgreSQL/MySQL 使用 Prisma `enum`，SQLite/D1 生成文本列。
 
 ### 验收标准
 
@@ -209,7 +209,7 @@ passport_user_email_otps                -- 已登录用户添加邮箱时的验�
 
 ## 实现说明（2026-08-27）
 
-- 角色对照表在 `shared/types/role.mts`，用户管理的角色列改为多选；`base_users.roles` 仍存 JSON 文本，由接口层转换。
+- 角色对照表在 `shared/types/role.mts`，用户管理的角色列改为多选；`base_users.roles` 以 PostgreSQL `String[]` 为规范，SQLite/D1 和 MySQL 使用生成器降级的 JSON 文本，适配器统一完成绑定转换。
 - 用户名存放在独立表 `passport_usernames`，密码沿用 `passport_user_credentials`，都遵循"可选能力用独立关联表"的约定。
 - 补全流程在 `server/modules/passport/accounts/onboarding.mjs`，登录成功后由 `/api/accounts/sign` 继续返回 `formPage`；第三方 OAuth 回调改为先跳回登录页补全。进入补全步骤时会给 OIDC 授权请求和 cookie 续期。
 - 通用 `FormPage` 的自定义 action 现在也会应用响应里的 `formPage`/`currentValues`/`redirectTo`；只要响应里带 `formPage` 就不再安排跳转，修掉了多步表单被反馈倒计时带走的问题。
@@ -257,7 +257,7 @@ Accounts 站点上可能同时存在两种会话：站点本地账号（`base_us
 
 | 站点 | Accounts 登录后建立的会话 | 是否创建 `base_users` |
 | --- | --- | --- |
-| 业务站点（OIDC 客户端） | `base_sessions`（本站会话） | 是。回调时按 `base_oidc_accounts(issuer, subject)` 映射或创建本地账号 |
+| 业务站点（OIDC 客户端） | `base_sessions`（本站会话） | 是。回调时按 `base_oidc_users(issuer, subject)` 映射或创建本地账号 |
 | Accounts 站点（passport） | `passport_sessions` | 否。`base_users` 在这里只是站点管理员账号 |
 
 因此 Accounts 站点上可能同时存在两种会话，头部以 Accounts 昵称为准。共库部署时三个站点看到同一张 `base_users` 表，但会话 Cookie 是 host-only 的，不会跨域名带过去。

@@ -11,11 +11,15 @@ try {
 	const file = join(directory, 'sql.mjs'); await writeFile(file, result.outputFiles[0].contents);
 	const { SqliteSqlBuilder, MysqlSqlBuilder, PostgresqlSqlBuilder, addColumn, renameColumn, compileSqlPlaceholders, createSqliteAdapter, synchronizePostgresqlIdentity } = await import(pathToFileURL(file));
 	const sqlite = new SqliteSqlBuilder(), mysql = new MysqlSqlBuilder(), postgres = new PostgresqlSqlBuilder();
-	assert.deepEqual(sqlite.insert('users', { name: 'Alice', status: 'enabled' }), { query: 'INSERT INTO "users" ("name", "status") VALUES (?, ?)', values: ['Alice', 'enabled'] });
+	const sqliteInsert = sqlite.insert('users', { name: 'Alice', status: 'enabled' });
+	assert.match(sqliteInsert.query, /^INSERT INTO "users" \("created_at", "updated_at", "name", "status"\) VALUES \(\?, \?, \?, \?\)$/);
+	assert.deepEqual(sqliteInsert.values.slice(2), ['Alice', 'enabled']);
 	assert.match(sqlite.upsert('sessions', ['issuer', 'sid'], { issuer: 'i', sid: 's', session_id: 'x' }, ['session_id']).query, /ON CONFLICT \("issuer", "sid"\) DO UPDATE/);
 	assert.match(mysql.upsert('sessions', ['issuer', 'sid'], { issuer: 'i', sid: 's', session_id: 'x' }, ['session_id']).query, /ON DUPLICATE KEY UPDATE `session_id` = VALUES\(`session_id`\)/);
 	assert.match(mysql.ignoreInsert('users', ['name'], { name: 'Alice' }).query, /^INSERT IGNORE/);
-	assert.deepEqual(postgres.insert('users', { name: 'Alice', status: 'enabled' }), { query: 'INSERT INTO "users" ("name", "status") VALUES ($1, $2)', values: ['Alice', 'enabled'] });
+	const postgresInsert = postgres.insert('users', { name: 'Alice', status: 'enabled' });
+	assert.match(postgresInsert.query, /^INSERT INTO "users" \("created_at", "updated_at", "name", "status"\) VALUES \(\$1, \$2, \$3, \$4\)$/);
+	assert.deepEqual(postgresInsert.values.slice(2), ['Alice', 'enabled']);
 	assert.deepEqual(postgres.count('users', [{ column: 'status', value: 'enabled' }]), { query: 'SELECT COUNT(*) AS "count" FROM "users" WHERE "status" = $1', values: ['enabled'] });
 	assert.deepEqual(mysql.select({ table: 'users', includeAll: true, limit: 10, offset: 20 }), { query: 'SELECT * FROM `users` LIMIT ? OFFSET ?', values: [10, 20] });
 	assert.equal(sqlite.select({ table: 'users', includeAll: true, sqliteRowIdAlias: '__rowid__' }).query, 'SELECT rowid AS "__rowid__", * FROM "users"');

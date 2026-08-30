@@ -7,6 +7,7 @@ type SqliteValue = null | number | bigint | string | Uint8Array;
 
 const sqliteValues = (values: unknown[]) => values.map((value) => {
 	if (typeof value === 'boolean') return value ? 1 : 0;
+	if (Array.isArray(value)) return JSON.stringify(value);
 	if (value === null || typeof value === 'number' || typeof value === 'bigint' || typeof value === 'string' || value instanceof Uint8Array) return value;
 	throw new TypeError(`Unsupported SQLite parameter type: ${typeof value}`);
 }) as SqliteValue[];

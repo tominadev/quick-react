@@ -11,7 +11,8 @@ export const portableTableGroups = {
 	],
 	base: [
 		'base_users', 'base_sessions', 'base_configs', 'base_bootstrap',
-		'base_oidc_login_requests', 'base_oidc_accounts', 'base_oidc_sessions',
+		'base_oidc_login_requests', 'base_oidc_users', 'base_oidc_sessions',
+		'base_devices', 'base_device_users', 'base_device_snapshots',
 	],
 	passport: [
 		'passport_users', 'passport_usernames', 'passport_user_credentials', 'passport_sessions', 'passport_telegram_accounts',

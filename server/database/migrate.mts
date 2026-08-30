@@ -1,35 +1,17 @@
 import { readdir, readFile } from 'node:fs/promises';
 import { join } from 'node:path';
 import type { DatabaseAdapter } from './index.mjs';
-import { firstSql, runSql, sql, quoteIdentifier } from './sql.mjs';
-import { listColumns, listTables } from './schema.mjs';
+import { firstSql, runSql, sql } from './sql.mjs';
 
 const ensureMigrationTable = async (database: DatabaseAdapter) => {
 	const keyType = database.dialect === 'mysql' ? 'VARCHAR(512)' : 'TEXT';
 	const numberType = database.dialect === 'sqlite' || !database.dialect ? 'INTEGER' : 'BIGINT';
 	await database.exec?.(`CREATE TABLE IF NOT EXISTS global_schema_migrations (migration_key ${keyType} PRIMARY KEY NOT NULL, applied_at ${numberType} NOT NULL, created_at ${numberType} NOT NULL DEFAULT 0, updated_at ${numberType} NOT NULL DEFAULT 0)`);
-	// Older installations only have migration_key/applied_at. Add the centrally managed timestamp columns before recording migrations.
-	for (const column of ['created_at', 'updated_at']) {
-		try { await database.exec?.(`ALTER TABLE global_schema_migrations ADD COLUMN ${column} ${numberType} NOT NULL DEFAULT 0`); } catch { /* column already exists */ }
-	}
-};
-
-const ensureAuditColumns = async (database: DatabaseAdapter) => {
-	const numberType = database.dialect === 'sqlite' || !database.dialect ? 'INTEGER' : 'BIGINT';
-	const uidType = numberType;
-	for (const { name: table } of await listTables(database)) {
-		const existing = new Set((await listColumns(database, table)).map((column) => column.name));
-		for (const [column, definition] of [['created_at', `${numberType} NOT NULL DEFAULT 0`], ['updated_at', `${numberType} NOT NULL DEFAULT 0`], ['created_duid', `${uidType} NULL`], ['updated_duid', `${uidType} NULL`]] as const) {
-			if (existing.has(column)) continue;
-			await database.exec?.(`ALTER TABLE ${quoteIdentifier(table, database.dialect ?? 'sqlite')} ADD COLUMN ${quoteIdentifier(column, database.dialect ?? 'sqlite')} ${definition}`);
-		}
-	}
 };
 
 export const migrateDatabase = async (database: DatabaseAdapter, migrationsRoot: string, migrationGroups: string[]) => {
 	if (!database.exec) throw new Error('Database adapter does not support migrations');
 	await ensureMigrationTable(database);
-	await ensureAuditColumns(database);
 	const dialectRoot = database.dialect && database.dialect !== 'sqlite' ? join(migrationsRoot, database.dialect) : migrationsRoot;
 	for (const group of migrationGroups) {
 		const directory = join(dialectRoot, group);
@@ -53,8 +35,22 @@ export const migrateDatabase = async (database: DatabaseAdapter, migrationsRoot:
 	}
 };
 
-export const migrateDefaultDatabase = (database: DatabaseAdapter, migrationsRoot: string) =>
-	migrateDatabase(database, migrationsRoot, ['global', 'base']);
+const seedBaseDatabase = async (database: DatabaseAdapter) => {
+	await runSql(database, sql({ database }).ignoreInsert('base_bootstrap', ['key'], { key: 'initial_admin', value: 'open' }));
+};
+
+export const migrateDefaultDatabase = async (database: DatabaseAdapter, migrationsRoot: string) => {
+	await migrateDatabase(database, migrationsRoot, ['global', 'base']);
+	// Prisma generates schema only. Keep the two required bootstrap rows as
+	// runtime seed data so a freshly generated database remains usable.
+	await runSql(database, sql({ database }).ignoreInsert('global_sites', ['site_key'], {
+		site_key: 'global', name: '全局控制面', base_site_key: 'base', dsn: '', database_binding: '',
+		status: 'enabled', migration_status: 'ready', is_default: 1, is_system: 1,
+	}));
+	await seedBaseDatabase(database);
+};
+
+export { seedBaseDatabase };
 
 const siteKeyPattern = /^[a-z][a-z0-9_]*$/;
 
