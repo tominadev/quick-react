@@ -12,8 +12,8 @@ model pve_regions {
   sort_order   Int    @default(0)
   created_at   Int    @default(0)
   updated_at   Int    @default(0)
-  created_uid  String?
-  updated_uid  String?
+  created_duid  String?
+  updated_duid  String?
 }
 
 model pve_nodes {
@@ -31,8 +31,8 @@ model pve_nodes {
   last_error       String @default("")
   created_at       Int    @default(0)
   updated_at       Int    @default(0)
-  created_uid      String?
-  updated_uid      String?
+  created_duid      String?
+  updated_duid      String?
 }
 
 model pve_instance_flavors {
@@ -45,8 +45,8 @@ model pve_instance_flavors {
   sort_order           Int    @default(0)
   created_at           Int    @default(0)
   updated_at           Int    @default(0)
-  created_uid          String?
-  updated_uid          String?
+  created_duid          String?
+  updated_duid          String?
 
   @@unique([cpu_cores, memory_gb])
 }
@@ -65,8 +65,8 @@ model pve_vms {
   created_at         Int    @default(0)
   updated_at         Int    @default(0)
   deleted_at         Int?
-  created_uid        String?
-  updated_uid        String?
+  created_duid        String?
+  updated_duid        String?
 }
 
 model pve_vm_tasks {
@@ -81,6 +81,6 @@ model pve_vm_tasks {
   error_message    String @default("")
   created_at       Int    @default(0)
   updated_at       Int    @default(0)
-  created_uid      String?
-  updated_uid      String?
+  created_duid      String?
+  updated_duid      String?
 }

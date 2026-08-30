@@ -19,7 +19,7 @@ const ensureAuditColumns = async (database: DatabaseAdapter) => {
 	const uidType = numberType;
 	for (const { name: table } of await listTables(database)) {
 		const existing = new Set((await listColumns(database, table)).map((column) => column.name));
-		for (const [column, definition] of [['created_at', `${numberType} NOT NULL DEFAULT 0`], ['updated_at', `${numberType} NOT NULL DEFAULT 0`], ['created_uid', `${uidType} NULL`], ['updated_uid', `${uidType} NULL`]] as const) {
+		for (const [column, definition] of [['created_at', `${numberType} NOT NULL DEFAULT 0`], ['updated_at', `${numberType} NOT NULL DEFAULT 0`], ['created_duid', `${uidType} NULL`], ['updated_duid', `${uidType} NULL`]] as const) {
 			if (existing.has(column)) continue;
 			await database.exec?.(`ALTER TABLE ${quoteIdentifier(table, database.dialect ?? 'sqlite')} ADD COLUMN ${quoteIdentifier(column, database.dialect ?? 'sqlite')} ${definition}`);
 		}

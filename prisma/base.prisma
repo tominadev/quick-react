@@ -7,8 +7,8 @@ model base_system_users {
   id            Int    @id @default(autoincrement())
   created_at    Int
   updated_at    Int
-  created_uid   BigInt @default(0)
-  updated_uid   BigInt @default(0)
+  created_duid   BigInt @default(0)
+  updated_duid   BigInt @default(0)
   username      String @unique
   password      String
   roles         String @default("[]")
@@ -19,8 +19,8 @@ model base_system_sessions {
   id         String @id
   created_at Int
   updated_at Int @default(0)
-  created_uid BigInt @default(0)
-  updated_uid BigInt @default(0)
+  created_duid BigInt @default(0)
+  updated_duid BigInt @default(0)
   user_id    Int
   expires_at Int
 }
@@ -29,8 +29,8 @@ model base_system_configs {
   key        String @id
   created_at Int @default(0)
   updated_at Int
-  created_uid BigInt @default(0)
-  updated_uid BigInt @default(0)
+  created_duid BigInt @default(0)
+  updated_duid BigInt @default(0)
   value      String
 }
 
@@ -38,7 +38,7 @@ model base_system_bootstrap {
   key   String @id
   created_at Int @default(0)
   updated_at Int @default(0)
-  created_uid BigInt @default(0)
-  updated_uid BigInt @default(0)
+  created_duid BigInt @default(0)
+  updated_duid BigInt @default(0)
   value String
 }
