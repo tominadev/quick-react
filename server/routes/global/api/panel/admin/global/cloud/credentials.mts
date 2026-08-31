@@ -7,6 +7,9 @@ import { getChangedFields } from '@server/modules/base/changed-fields.mjs';
 import type { DatabaseAdapter } from '@server/database/index.mjs';
 import { allSql, firstSql, runSql, sql } from '@server/database/sql.mjs';
 import { enabledDisabledOptions, statusValues } from '@shared/types/status.mjs';
+import type { TableCrudDefinition } from '@server/modules/base/table-crud.mjs';
+
+export const tableCrud: TableCrudDefinition = { table: 'global_cloud_credentials', rowKey: 'id' };
 
 const columns = [
 	{ dataIndex: 'id', title: 'ID', dataType: 'int' as const },
@@ -34,7 +37,7 @@ const deleteCredential = async (database: DatabaseAdapter, id: number) => {
 	if (!credential) return '云凭据不存在';
 	if (credential.status !== statusValues.disabled) return '云凭据必须先停用才能删除';
 	if (await credentialInUse(database, id)) return '云凭据仍被 Bucket、邮件通道或云端模板使用，不能删除';
-	await runSql(database, sql({ database }).delete('global_cloud_credentials', { id }));
+	await runSql(database, sql({ database }).softDelete('global_cloud_credentials', { id }));
 };
 
 const handler: ApiHandler = async (c, next, params) => {
@@ -62,7 +65,7 @@ const handler: ApiHandler = async (c, next, params) => {
 			const error = await deleteCredential(database, Number(id));
 			if (error) return apiMessage(c, 409, error);
 		}
-		return apiMessage(c, 200, '删除成功');
+		return apiMessage(c, 200, '删除成功，可在回收站找回或彻底删除');
 	}
 	if (params.id && c.req.method === 'GET') {
 		const row = await firstSql<Record<string, unknown>>(database, sql({ database }).select({ table: 'global_cloud_credentials', columns: { id: 'id', name: 'name', provider: 'provider', account_id: 'account_id', access_key_id: 'access_key_id', status: 'status', created_at: 'created_at', updated_at: 'updated_at' }, where: [{ column: 'id', value: Number(params.id) }] }));
@@ -110,7 +113,7 @@ const handler: ApiHandler = async (c, next, params) => {
 	}
 	if (params.id && c.req.method === 'DELETE') {
 		const error = await deleteCredential(database, Number(params.id));
-		return error ? apiMessage(c, 409, error) : apiMessage(c, 200, '删除成功');
+		return error ? apiMessage(c, 409, error) : apiMessage(c, 200, '删除成功，可在回收站找回或彻底删除');
 	}
 	return next();
 };

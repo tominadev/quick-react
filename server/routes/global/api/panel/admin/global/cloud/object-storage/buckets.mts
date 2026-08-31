@@ -8,6 +8,9 @@ import { listAliyunOssBuckets } from '@server/modules/global/cloud/providers/ali
 import { listTencentCosBuckets } from '@server/modules/global/cloud/providers/tencent-cos.mjs';
 import { getChangedFields } from '@server/modules/base/changed-fields.mjs';
 import { enabledDisabledOptions, statusValues } from '@shared/types/status.mjs';
+import type { TableCrudDefinition } from '@server/modules/base/table-crud.mjs';
+
+export const tableCrud: TableCrudDefinition = { table: 'global_cloud_object_storage_buckets', rowKey: 'id' };
 import { allSql, firstSql, runSql, sql } from '@server/database/sql.mjs';
 
 const baseColumns = [
@@ -99,10 +102,10 @@ const handler: ApiHandler = async (c, next, params) => {
 	if (!params.id && c.req.method === 'DELETE') {
 		const ids = await c.req.json<unknown>().catch(() => []);
 		for (const id of Array.isArray(ids) ? ids : []) {
-			try { await runSql(database, sql({ database }).delete('global_cloud_object_storage_buckets', { id: Number(id) })); }
+			try { await runSql(database, sql({ database }).softDelete('global_cloud_object_storage_buckets', { id: Number(id) })); }
 			catch { return apiMessage(c, 409, 'Bucket 已绑定到站点，不能删除'); }
 		}
-		return apiMessage(c, 200, '删除成功');
+		return apiMessage(c, 200, '删除成功，可在回收站找回或彻底删除');
 	}
 	if (params.id && c.req.method === 'GET') {
 		const row = await firstSql<Record<string, unknown>>(database, sql({ database }).select({ table: 'global_cloud_object_storage_buckets', where: [{ column: 'id', value: Number(params.id) }] }));
@@ -133,9 +136,9 @@ const handler: ApiHandler = async (c, next, params) => {
 		return apiMessage(c, 200, '保存成功');
 	}
 	if (params.id && c.req.method === 'DELETE') {
-		try { await runSql(database, sql({ database }).delete('global_cloud_object_storage_buckets', { id: Number(params.id) })); }
+		try { await runSql(database, sql({ database }).softDelete('global_cloud_object_storage_buckets', { id: Number(params.id) })); }
 		catch { return apiMessage(c, 409, 'Bucket 已绑定到站点，不能删除'); }
-		return apiMessage(c, 200, '删除成功');
+		return apiMessage(c, 200, '删除成功，可在回收站找回或彻底删除');
 	}
 	return next();
 };

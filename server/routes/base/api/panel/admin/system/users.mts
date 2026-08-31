@@ -6,6 +6,7 @@ import { allSql, firstSql, runSql, sql } from '@server/database/sql.mjs';
 import { enabledDisabledOptions, statusValues } from '@shared/types/status.mjs';
 import { assignableRoleOptions, parseRoles, serializeRoles, unknownAssignableRoles } from '@shared/types/role.mjs';
 import { passwordError } from '@server/modules/base/auth/password-policy.mjs';
+import type { TableCrudDefinition } from '@server/modules/base/table-crud.mjs';
 
 const columns = [
 	{ dataIndex: 'id', title: 'ID', dataType: 'int' as const },
@@ -16,6 +17,8 @@ const columns = [
 	{ dataIndex: 'created_at', title: '创建时间', dataType: 'js_timestamp' as const, dayjsFormat: 'YYYY-MM-DD HH:mm:ss' },
 	{ dataIndex: 'updated_at', title: '更新时间', dataType: 'js_timestamp' as const, dayjsFormat: 'YYYY-MM-DD HH:mm:ss' },
 ];
+
+export const tableCrud: TableCrudDefinition = { table: 'base_users', rowKey: 'id' };
 
 const publicUser = (row: Record<string, unknown>) => ({
 	id: row.id,
@@ -81,8 +84,8 @@ const handler: ApiHandler = async (c, next, params) => {
 		} catch { return apiMessage(c, 409, '用户名已存在'); }
 	}
 	if (params.id && c.req.method === 'DELETE') {
-		await runSql(database, sql({ database }).delete('base_users', { id: params.id }));
-		return apiMessage(c, 200, '用户已删除');
+		await runSql(database, sql({ database }).softDelete('base_users', { id: params.id }));
+		return apiMessage(c, 200, '删除成功，可在回收站找回或彻底删除');
 	}
 	return next();
 };

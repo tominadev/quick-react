@@ -8,6 +8,9 @@ import type { CloudEmailScope, CloudEmailTemplate } from '@server/modules/global
 import type { DatabaseAdapter } from '@server/database/index.mjs';
 import { getChangedFields } from '@server/modules/base/changed-fields.mjs';
 import { enabledDisabledOptions, statusValues } from '@shared/types/status.mjs';
+import type { TableCrudDefinition } from '@server/modules/base/table-crud.mjs';
+
+export const tableCrud: TableCrudDefinition = { table: 'global_cloud_email_templates', rowKey: 'id' };
 import { cloudProviderOptions, getCloudEmailRegionLabel, getCloudEmailRegionOptions, getCloudEmailRegions, providerSupportsEmailPush } from '@server/modules/global/cloud/catalog.mjs';
 import { allSql, firstSql, runSql, sql } from '@server/database/sql.mjs';
 
@@ -129,7 +132,7 @@ const deleteTemplate = async (database: DatabaseAdapter, id: number) => {
 		firstSql(database, sql({ database }).select({ table: 'global_cloud_email_template_publications', columns: { template_id: 'template_id' }, where: [{ column: 'template_id', value: id }], limit: 1 })),
 	])).some(Boolean);
 	if (association) return '邮件模板仍有站点绑定或云端发布记录，不能删除';
-	await runSql(database, sql({ database }).delete('global_cloud_email_templates', { id }));
+	await runSql(database, sql({ database }).softDelete('global_cloud_email_templates', { id }));
 };
 
 const handler: ApiHandler = async (c, next, params) => {
@@ -181,7 +184,7 @@ const handler: ApiHandler = async (c, next, params) => {
 			const error = await deleteTemplate(database, Number(value));
 			if (error) return apiMessage(c, 409, error);
 		}
-		return apiMessage(c, 200, '删除成功');
+		return apiMessage(c, 200, '删除成功，可在回收站找回或彻底删除');
 	}
 	if (params.id && c.req.method === 'GET') {
 		const row = await firstSql<Record<string, unknown>>(database, sql({ database }).select({ table: 'global_cloud_email_templates', columns: templateColumns, where: [{ column: 'id', value: Number(params.id) }] }));
@@ -248,7 +251,7 @@ const handler: ApiHandler = async (c, next, params) => {
 	}
 	if (params.id && c.req.method === 'DELETE') {
 		const error = await deleteTemplate(database, Number(params.id));
-		return error ? apiMessage(c, 409, error) : apiMessage(c, 200, '删除成功');
+		return error ? apiMessage(c, 409, error) : apiMessage(c, 200, '删除成功，可在回收站找回或彻底删除');
 	}
 	return next();
 };

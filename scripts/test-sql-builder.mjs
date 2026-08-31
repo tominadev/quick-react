@@ -39,6 +39,7 @@ try {
 	assert.equal(sqlite.select({ table: 'users', includeAll: true, deleted: 'all' }).query, 'SELECT * FROM "users"');
 	assert.match(sqlite.softDelete('users', { id: 1 }).query, /^UPDATE "users" SET "updated_at" = \?, "deleted_at" = \? WHERE "id" = \?$/);
 	assert.match(sqlite.restore('users', { id: 1 }).query, /^UPDATE "users" SET "updated_at" = \?, "deleted_at" = \? WHERE "id" = \?$/);
+	assert.deepEqual(sqlite.delete('users', [{ column: 'id', value: 1 }, { column: 'deleted_at', operator: '!=', value: 0 }]), { query: 'DELETE FROM "users" WHERE "id" = ? AND "deleted_at" != ?', values: [1, 0] });
 	assert.throws(() => postgres.select({ table: 'users', sqliteRowIdAlias: '__rowid__' }), /only available for SQLite/);
 	assert.deepEqual(addColumn({ dialect: 'mysql' }, 'users', 'display_name', 'VARCHAR(255)', true, "O'Reilly"), { query: "ALTER TABLE `users` ADD COLUMN `display_name` VARCHAR(255) NOT NULL DEFAULT 'O''Reilly'", values: [] });
 	assert.deepEqual(addColumn({ dialect: 'postgresql' }, 'users', 'score', 'numeric', false, 0), { query: 'ALTER TABLE "users" ADD COLUMN "score" NUMERIC DEFAULT 0', values: [] });

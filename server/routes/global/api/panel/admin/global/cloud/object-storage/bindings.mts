@@ -3,6 +3,9 @@ import { apiMessage, apiMessageData, apiResponse } from '@server/modules/base/ap
 import type { DatabaseAdapter } from '@server/database/index.mjs';
 import { getCloudStorageProduct } from '@server/modules/global/cloud/catalog.mjs';
 import { enabledDisabledOptions, statusValues } from '@shared/types/status.mjs';
+import type { TableCrudDefinition } from '@server/modules/base/table-crud.mjs';
+
+export const tableCrud: TableCrudDefinition = { table: 'global_cloud_object_storage_bindings', rowKey: 'id' };
 import { getChangedFields } from '@server/modules/base/changed-fields.mjs';
 import { allSql, firstSql, runSql, sql } from '@server/database/sql.mjs';
 
@@ -102,8 +105,8 @@ const handler: ApiHandler = async (c, next, params) => {
 	}
 	if (!params.id && c.req.method === 'DELETE') {
 		const ids = await c.req.json<unknown>().catch(() => []);
-		for (const id of Array.isArray(ids) ? ids : []) await runSql(database, sql({ database }).delete('global_cloud_object_storage_bindings', { id: Number(id) }));
-		return apiMessage(c, 200, '删除成功');
+		for (const id of Array.isArray(ids) ? ids : []) await runSql(database, sql({ database }).softDelete('global_cloud_object_storage_bindings', { id: Number(id) }));
+		return apiMessage(c, 200, '删除成功，可在回收站找回或彻底删除');
 	}
 	if (params.id && c.req.method === 'GET') {
 		const [row, purposeRows] = await Promise.all([
@@ -137,8 +140,8 @@ const handler: ApiHandler = async (c, next, params) => {
 		return apiMessage(c, 200, '保存成功');
 	}
 	if (params.id && c.req.method === 'DELETE') {
-		await runSql(database, sql({ database }).delete('global_cloud_object_storage_bindings', { id: Number(params.id) }));
-		return apiMessage(c, 200, '删除成功');
+		await runSql(database, sql({ database }).softDelete('global_cloud_object_storage_bindings', { id: Number(params.id) }));
+		return apiMessage(c, 200, '删除成功，可在回收站找回或彻底删除');
 	}
 	return next();
 };

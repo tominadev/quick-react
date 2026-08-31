@@ -35,6 +35,8 @@ export type TableAction = {
 	};
 	/** 在当前列表内打开后端驱动的表单弹窗。 */
 	modalPath?: string;
+	/** 弹窗内容类型；未指定时默认为表单。 */
+	modalComponent?: 'form' | 'table';
 };
 export type TableQueryField = {
 	dataIndex: string;

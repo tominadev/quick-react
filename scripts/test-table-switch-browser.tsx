@@ -29,7 +29,7 @@ const TableCRUD = (await import('../src/utils/antd/table_crud/index.js')).defaul
 const queryFields = [{ dataIndex: 'table', label: '数据表', component: 'select', defaultValue: 'table_a', reloadSchema: true, options: [{ value: 'table_a', text: 'table_a' }, { value: 'table_b', text: 'table_b' }] }];
 // 第一张表：有行操作和工具栏批量删除。
 const tableA = {
-	option: { rowKey: 'id', queryFields, actions: { query: [{ key: 'search', label: '搜索' }], toolbar: [{ key: 'delete', label: '删除' }], row: [{ key: 'edit', label: '编辑' }] } },
+	option: { rowKey: 'id', queryFields, actions: { query: [{ key: 'search', label: '搜索' }], toolbar: [{ key: 'delete', label: '删除' }, { key: 'recycle-bin', label: '回收站', modalPath: '/panel/admin/data/rows', modalComponent: 'table' }], row: [{ key: 'edit', label: '编辑' }] } },
 	columns: [{ dataIndex: 'name', title: '名称', component: 'textbox' }],
 	dataSource: [{ id: 'acct_string_id', name: 'A 行' }],
 	totalRecords: 1,
@@ -47,6 +47,7 @@ const commonApi = {
 	apiFetch: async (url: string) => {
 		requests.push(String(url));
 		if (String(url).includes('/acct_string_id')) return new Response(JSON.stringify({ id: 'acct_string_id', name: 'A 行' }), { headers: { 'content-type': 'application/json' } });
+		if (String(url).includes('deleted=deleted')) return new Response(JSON.stringify({ table: { ...tableA, dataSource: [{ id: 'deleted_id', name: '已删除行' }] } }), { headers: { 'content-type': 'application/json' } });
 		const table = String(url).includes('table=table_b') ? tableB : tableA;
 		if (String(url).includes('table_schema=0')) return new Response(JSON.stringify({ table: { dataSource: table.dataSource, totalRecords: table.totalRecords } }), { headers: { 'content-type': 'application/json' } });
 		return new Response(JSON.stringify({ table }), { headers: { 'content-type': 'application/json' } });
@@ -74,6 +75,15 @@ render(React.createElement(MemoryRouter, null, React.createElement(TableCRUD, { 
 await waitFor(() => assert.ok(screen.getByText('A 行')));
 assert.ok(screen.getByText('编辑'), '第一张表有行操作');
 assert.ok(screen.getByRole('button', { name: /删除/ }), '第一张表有工具栏删除');
+
+// 回收站复用当前资源接口；隐藏的 deleted 参数在初始化加载和查询条件同步时都不能丢失，且只允许发起一次请求。
+const requestCountBeforeRecycle = requests.length;
+await user.click(screen.getByRole('button', { name: /回收站/ }));
+await waitFor(() => assert.ok(screen.getByText('已删除行')));
+const recycleRequests = requests.slice(requestCountBeforeRecycle).filter((url) => url.includes('/panel/admin/data/rows'));
+assert.equal(recycleRequests.length, 1, '打开回收站只应请求一次当前资源接口');
+assert.ok(recycleRequests[0]?.includes('table=table_a') && recycleRequests[0]?.includes('deleted=deleted'), '回收站请求必须保留当前表和 deleted 参数');
+await user.click(screen.getByRole('button', { name: 'Close' }));
 
 // 操作列必须使用同一次后端响应中的字符串 rowKey，不能捕获首次渲染的默认 key。
 await user.click(screen.getByText('编辑'));

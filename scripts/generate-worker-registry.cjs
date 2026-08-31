@@ -53,10 +53,13 @@ for (const site of siteKeys) {
 	}
 }
 const imports = [
-	...entries.map((sourcePath) => `import ${moduleName(sourcePath)} from '${importPath(sourcePath)}';`),
+	...entries.map((sourcePath) => `import * as ${moduleName(sourcePath)} from '${importPath(sourcePath)}';`),
 	...navigationEntries.map(({ sourcePath }) => `import ${moduleName(sourcePath)} from '${importPath(sourcePath)}';`),
 ].join('\n');
-const modules = entries.map((sourcePath) => `\t'${outputPathFor(sourcePath)}': { default: ${moduleName(sourcePath)} },`).join('\n');
+const tableCrudExport = (sourcePath) => fs.readFileSync(sourcePath, 'utf8').includes('export const tableCrud')
+	? `${moduleName(sourcePath)}.tableCrud`
+	: `${moduleName(sourcePath)}.default?.tableCrud`;
+const modules = entries.map((sourcePath) => `\t'${outputPathFor(sourcePath)}': { default: ${moduleName(sourcePath)}.default, tableCrud: ${tableCrudExport(sourcePath)} },`).join('\n');
 const routeLines = routes.map((route) => `\t${JSON.stringify(route)},`).join('\n');
 const navigations = navigationEntries.map(({ site, sourcePath }) => `\t'${site}': ${moduleName(sourcePath)},`).join('\n');
 

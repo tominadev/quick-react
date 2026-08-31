@@ -8,6 +8,7 @@ import type { UserIdentity } from '@shared/types/user.mjs';
 import type { TableColumn, TableRow } from '@shared/types/table.mjs';
 import type { AccountsLoginMode } from '@server/modules/passport/accounts/client.mjs';
 import type { ApiContext } from '@shared/types/api-response.mjs';
+import type { TableCrudDefinition } from './table-crud.mjs';
 
 export type RuntimeBindings = Record<string, unknown> & {
 	DEFAULT_DB?: unknown;
@@ -31,6 +32,8 @@ export type AppEnv = {
 		systemConfig: SystemConfig;
 		siteSettings: SiteSettings;
 		techStackConfig: TechStackConfig;
+		/** 当前 API 资源的公共 TableCRUD 回收能力配置。 */
+		tableCrud?: TableCrudDefinition;
 		clientIp?: string;
 		transportIp?: string;
 		accountsIdentity: boolean;

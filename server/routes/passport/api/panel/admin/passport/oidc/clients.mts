@@ -4,6 +4,9 @@ import { parseRedirectUris, randomToken, sha256 } from '@server/modules/passport
 import { enabledDisabledOptions, statusValues } from '@shared/types/status.mjs';
 import { allSql, runSql, sql } from '@server/database/sql.mjs';
 import { oidcClient, oidcClients } from '@server/modules/passport/accounts/repository.mjs';
+import type { TableCrudDefinition } from '@server/modules/base/table-crud.mjs';
+
+export const tableCrud: TableCrudDefinition = { table: 'passport_oidc_clients', rowKey: 'client_id', database: 'passportDatabase' };
 
 const defaultBackchannelLogoutPath = '/api/accounts/oidc/backchannel-logout';
 
@@ -105,8 +108,8 @@ const handler: ApiHandler = async (c, next, params) => {
 		return Number(updated.meta?.changes ?? 0) ? apiMessageData(c, 200, `密钥已重置，仅显示一次：${secret}`, { client_secret: secret }) : apiMessage(c, 404, 'OIDC 客户端不存在');
 	}
 	if (params.id && c.req.method === 'DELETE') {
-		await runSql(database, sql({ database }).delete('passport_oidc_clients', { client_id: params.id }));
-		return apiMessage(c, 200, '删除成功');
+		await runSql(database, sql({ database }).softDelete('passport_oidc_clients', { client_id: params.id }));
+		return apiMessage(c, 200, '删除成功，可在回收站找回或彻底删除');
 	}
 	return next();
 };

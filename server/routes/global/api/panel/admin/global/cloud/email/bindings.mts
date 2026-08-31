@@ -5,6 +5,9 @@ import { cloudEmailPurposeOptions } from '@server/modules/global/cloud/email-pur
 import type { DatabaseAdapter } from '@server/database/index.mjs';
 import { getChangedFields } from '@server/modules/base/changed-fields.mjs';
 import { enabledDisabledOptions, statusValues } from '@shared/types/status.mjs';
+import type { TableCrudDefinition } from '@server/modules/base/table-crud.mjs';
+
+export const tableCrud: TableCrudDefinition = { table: 'global_cloud_email_bindings', rowKey: 'id' };
 import { allSql, firstSql, runSql, sql } from '@server/database/sql.mjs';
 
 const columns = [
@@ -58,7 +61,7 @@ const deleteBinding = async (database: DatabaseAdapter, id: number) => {
 	const row = await firstSql<{ id: number; status: string }>(database, sql({ database }).select({ table: 'global_cloud_email_bindings', columns: { id: 'id', status: 'status' }, where: [{ column: 'id', value: id }] }));
 	if (!row) return '邮件绑定不存在';
 	if (row.status !== statusValues.disabled) return '邮件绑定必须先停用才能删除';
-	await runSql(database, sql({ database }).delete('global_cloud_email_bindings', { id }));
+	await runSql(database, sql({ database }).softDelete('global_cloud_email_bindings', { id }));
 };
 
 const handler: ApiHandler = async (c, next, params) => {
@@ -103,7 +106,7 @@ const handler: ApiHandler = async (c, next, params) => {
 			const error = await deleteBinding(database, Number(value));
 			if (error) return apiMessage(c, 409, error);
 		}
-		return apiMessage(c, 200, '删除成功');
+		return apiMessage(c, 200, '删除成功，可在回收站找回或彻底删除');
 	}
 	if (params.id && c.req.method === 'GET') {
 		const row = await firstSql<Record<string, unknown>>(database, sql({ database }).select({ table: 'global_cloud_email_bindings', where: [{ column: 'id', value: Number(params.id) }] }));
@@ -140,7 +143,7 @@ const handler: ApiHandler = async (c, next, params) => {
 	}
 	if (params.id && c.req.method === 'DELETE') {
 		const error = await deleteBinding(database, Number(params.id));
-		return error ? apiMessage(c, 409, error) : apiMessage(c, 200, '删除成功');
+		return error ? apiMessage(c, 409, error) : apiMessage(c, 200, '删除成功，可在回收站找回或彻底删除');
 	}
 	return next();
 };

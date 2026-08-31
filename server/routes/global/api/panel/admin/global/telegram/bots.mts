@@ -4,6 +4,9 @@ import { getChangedFields } from '@server/modules/base/changed-fields.mjs';
 import type { DatabaseAdapter } from '@server/database/index.mjs';
 import { deleteTelegramWebhook, getTelegramBotIdentity, getTelegramWebhookInfo, setTelegramWebhook } from '@server/modules/global/telegram/api.mjs';
 import { enabledDisabledOptions, statusValues } from '@shared/types/status.mjs';
+import type { TableCrudDefinition } from '@server/modules/base/table-crud.mjs';
+
+export const tableCrud: TableCrudDefinition = { table: 'global_telegram_bots', rowKey: 'id' };
 import { allSql, firstSql, runSql, sql } from '@server/database/sql.mjs';
 import { accountsIdentityApi } from '@server/modules/base/navigation.mjs';
 
@@ -91,7 +94,7 @@ const removeBot = async (c: Parameters<ApiHandler>[0], id: number) => {
 	if (!passportDatabase) return apiMessage(c, 503, 'Passport 数据库不可用，无法确认关联数据');
 	const associated = await botAssociated(passportDatabase, id);
 	if (associated) return apiMessage(c, 409, '机器人存在 Passport 账号关联，只能保持停用，不能删除');
-	await runSql(database, sql({ database }).delete('global_telegram_bots', { id }));
+	await runSql(database, sql({ database }).softDelete('global_telegram_bots', { id }));
 	return undefined;
 };
 
@@ -135,7 +138,7 @@ const handler: ApiHandler = async (c, next, params) => {
 			const response = await removeBot(c, Number(value));
 			if (response) return response;
 		}
-		return apiMessage(c, 200, '删除成功');
+		return apiMessage(c, 200, '删除成功，可在回收站找回或彻底删除');
 	}
 	const id = Number(params.id);
 	if (!Number.isSafeInteger(id) || id <= 0) return apiMessage(c, 400, '机器人 ID 不合法');
@@ -180,7 +183,7 @@ const handler: ApiHandler = async (c, next, params) => {
 	}
 	if (c.req.method === 'DELETE') {
 		const response = await removeBot(c, id);
-		return response ?? apiMessage(c, 200, '删除成功');
+		return response ?? apiMessage(c, 200, '删除成功，可在回收站找回或彻底删除');
 	}
 	return next();
 };

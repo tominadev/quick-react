@@ -67,7 +67,7 @@ const handler: ApiHandler = async (c, next, params) => {
 	}
 	const result = await readTable(c.get('database'), 'columns', c.req.query('table'), c.req.query('pageNum'), c.req.query('pageSize'));
 	const { tables, editable: _, ...table } = result;
-	return apiResponse(c, 200, { table: { ...table, option: { rowKey: 'key', actions: databaseTableActions(true), queryFields: databaseQueryFields(database, site.databaseTarget.kind === 'binding', tables) }, columns: [
+	return apiResponse(c, 200, { table: { ...table, option: { rowKey: 'key', actions: databaseTableActions(true, { softDelete: false }), queryFields: databaseQueryFields(database, site.databaseTarget.kind === 'binding', tables) }, columns: [
 		{ dataIndex: 'name', title: '字段名', component: 'textbox' },
 		{ dataIndex: 'type', title: '类型', component: 'select', options: databaseTypeOptions(database) },
 		{ dataIndex: 'notnull', title: '必填', component: 'switch' },

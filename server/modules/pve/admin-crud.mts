@@ -2,6 +2,7 @@ import type { ApiHandler } from '@server/modules/base/api-router.mjs';
 import { apiMessage, apiResponse } from '@server/modules/base/api-response.mjs';
 import { allSql, firstSql, runSql, sql } from '@server/database/sql.mjs';
 import { requiredColumns } from '@server/database/schema.mjs';
+import type { TableCrudDefinition } from '@server/modules/base/table-crud.mjs';
 
 type Config = { table: string; key: string; columns: Record<string, unknown>[]; writable: string[]; prepareColumns?: (database: Parameters<typeof allSql>[0]) => Promise<Record<string, unknown>[]> };
 const normalizeStatus = (row: Record<string, unknown>) => {
@@ -12,7 +13,8 @@ const normalizeStatus = (row: Record<string, unknown>) => {
 	return { ...row, status: `未知（${String(value)}）` };
 };
 
-export const pveCrud = (config: Config): ApiHandler => async (c, next, params) => {
+export const pveCrud = (config: Config): ApiHandler & { tableCrud: TableCrudDefinition } => {
+	const handler: ApiHandler = async (c, next, params) => {
 	const database = c.get('database');
 	if (c.req.method === 'GET' && !params.id) {
 		const rawRows = await allSql<Record<string, unknown>>(database, sql({ database }).select({ table: config.table, orderBy: [{ column: config.key }] }));
@@ -38,4 +40,6 @@ export const pveCrud = (config: Config): ApiHandler => async (c, next, params) =
 		await runSql(database, sql({ database }).update(config.table, values, { [config.key]: params.id })); return apiMessage(c, 200, '保存成功');
 	}
 	return next();
+};
+	return Object.assign(handler, { tableCrud: { table: config.table, rowKey: config.key } satisfies TableCrudDefinition });
 };

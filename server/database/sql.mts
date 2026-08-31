@@ -3,7 +3,7 @@ import { isSystemField, SYSTEM_FIELD_NAMES } from '@shared/system-fields.mjs';
 
 export type SqlDialect = 'sqlite' | 'mysql' | 'postgresql';
 export type SqlActorContext = DatabaseActorUid | DatabaseActorResolver;
-export type SqlContext = { database: DatabaseAdapter; actorUid?: DatabaseActorUid; actorUidForTable?: DatabaseActorResolver };
+export type SqlContext = { database: DatabaseAdapter; actorUid?: DatabaseActorUid; actorUidForTable?: DatabaseActorResolver; deletedScope?: DeletedScope };
 export type SqlQuery = { query: string; values: unknown[] };
 type SqlValue = unknown;
 type Values = Record<string, SqlValue | undefined>;
@@ -38,7 +38,7 @@ export type SqlColumn = string | { column: string; cast?: 'text' };
 export type SqlSelectOptions = { table: string; alias?: string; distinct?: boolean; columns?: Record<string, SqlColumn>; includeAll?: boolean; sqliteRowIdAlias?: string; joins?: SqlJoin[]; where?: SqlCondition[]; orderBy?: Array<{ column: string; direction?: 'ASC' | 'DESC' }>; limit?: number; offset?: number; deleted?: DeletedScope };
 
 export abstract class SqlBuilder {
-	constructor(readonly dialect: SqlDialect, readonly actorContext: SqlActorContext = null) {}
+	constructor(readonly dialect: SqlDialect, readonly actorContext: SqlActorContext = null, readonly defaultDeletedScope: DeletedScope = 'active') {}
 	protected actorUidFor(table: string): DatabaseActorUid | null {
 		const value = typeof this.actorContext === 'function' ? this.actorContext(table) : this.actorContext;
 		return value ?? null;
@@ -61,10 +61,11 @@ export abstract class SqlBuilder {
 		const columns = selectedColumns.join(', ');
 		let query = `SELECT${options.distinct ? ' DISTINCT' : ''} ${columns} FROM ${quoteIdentifier(options.table, this.dialect)}${options.alias ? ` AS ${quoteIdentifier(options.alias, this.dialect)}` : ''}`;
 		for (const join of options.joins ?? []) query += ` ${join.type ?? 'INNER'} JOIN ${quoteIdentifier(join.table, this.dialect)}${join.alias ? ` AS ${quoteIdentifier(join.alias, this.dialect)}` : ''} ON ${quoteIdentifier(join.left, this.dialect)} = ${quoteIdentifier(join.right, this.dialect)}`;
-		const deletedScope = options.deleted ?? 'active';
+		const deletedScope = options.deleted ?? this.defaultDeletedScope;
 		const deletedConditions: SqlCondition[] = deletedScope === 'all' ? [] : [
-			{ column: `${options.alias ?? options.table}.deleted_at`, operator: deletedScope === 'deleted' ? '!=' : '=', value: 0 },
-			...(options.joins ?? []).map((join) => ({ column: `${join.alias ?? join.table}.deleted_at`, operator: deletedScope === 'deleted' ? '!=' as const : '=' as const, value: 0 })),
+			{ column: `${options.alias ?? options.table}.deleted_at`, operator: deletedScope === 'deleted' ? '!=' as const : '=' as const, value: 0 },
+			// 回收站查看主表的已删除记录；关联表保持正常可见，避免主表记录因仍 active 的关系数据而消失。
+			...(deletedScope === 'deleted' ? [] : (options.joins ?? []).map((join) => ({ column: `${join.alias ?? join.table}.deleted_at`, operator: '=' as const, value: 0 }))),
 		];
 		const conditions = [...deletedConditions, ...(options.where ?? [])], boundConditions = conditions.filter((condition) => !['IS NULL', 'IS NOT NULL'].includes(condition.operator ?? ''));
 		let parameterIndex = 0;
@@ -165,9 +166,21 @@ export abstract class SqlBuilder {
 	}
 
 	/** 物理删除，仅供清理任务和明确的不可恢复操作使用。 */
-	delete(table: string, where: Values): SqlQuery {
-		const conditions = definedEntries(where); if (!conditions.length) throw new Error('DELETE where cannot be empty');
-		return { query: `DELETE FROM ${quoteIdentifier(table, this.dialect)} WHERE ${conditions.map(([key], index) => `${quoteIdentifier(key, this.dialect)} = ${this.placeholder(index + 1)}`).join(' AND ')}`, values: conditions.map(([, value]) => value) };
+	delete(table: string, where: Values | SqlCondition[]): SqlQuery {
+		const conditions: SqlCondition[] = Array.isArray(where)
+			? where
+			: definedEntries(where).map(([column, value]) => ({ column, value }));
+		if (!conditions.length) throw new Error('DELETE where cannot be empty');
+		let parameterIndex = 0;
+		return {
+			query: `DELETE FROM ${quoteIdentifier(table, this.dialect)} WHERE ${conditions.map((condition) => {
+				const operator = condition.operator ?? '=';
+				return ['IS NULL', 'IS NOT NULL'].includes(operator)
+					? `${quoteIdentifier(condition.column, this.dialect)} ${operator}`
+					: `${quoteIdentifier(condition.column, this.dialect)} ${operator} ${this.placeholder(++parameterIndex)}`;
+			}).join(' AND ')}`,
+			values: conditions.filter((condition) => !['IS NULL', 'IS NOT NULL'].includes(condition.operator ?? '')).map((condition) => condition.value),
+		};
 	}
 
 	advanceNumber(table: string, column: string, floor: number, updatedAt: number, where: Values): SqlQuery {
@@ -204,15 +217,16 @@ export abstract class SqlBuilder {
 	castText(expression: string) { const quoted = quoteIdentifier(expression, this.dialect); return this.dialect === 'mysql' ? `CAST(${quoted} AS CHAR)` : `CAST(${quoted} AS TEXT)`; }
 }
 
-export class SqliteSqlBuilder extends SqlBuilder { constructor(actorContext: SqlActorContext = null) { super('sqlite', actorContext); } protected placeholder() { return '?'; } }
-export class MysqlSqlBuilder extends SqlBuilder { constructor(actorContext: SqlActorContext = null) { super('mysql', actorContext); } protected placeholder() { return '?'; } }
-export class PostgresqlSqlBuilder extends SqlBuilder { constructor(actorContext: SqlActorContext = null) { super('postgresql', actorContext); } protected placeholder(index: number) { return `$${index}`; } }
+export class SqliteSqlBuilder extends SqlBuilder { constructor(actorContext: SqlActorContext = null, deletedScope: DeletedScope = 'active') { super('sqlite', actorContext, deletedScope); } protected placeholder() { return '?'; } }
+export class MysqlSqlBuilder extends SqlBuilder { constructor(actorContext: SqlActorContext = null, deletedScope: DeletedScope = 'active') { super('mysql', actorContext, deletedScope); } protected placeholder() { return '?'; } }
+export class PostgresqlSqlBuilder extends SqlBuilder { constructor(actorContext: SqlActorContext = null, deletedScope: DeletedScope = 'active') { super('postgresql', actorContext, deletedScope); } protected placeholder(index: number) { return `$${index}`; } }
 
 export const sql = (context: SqlContext) => {
 	const dialect = dialectOf(context.database);
 	const actorContext: SqlActorContext = context.actorUidForTable
 		?? (Object.prototype.hasOwnProperty.call(context, 'actorUid') ? context.actorUid ?? null : context.database.actorUidForTable ?? context.database.actorUid ?? null);
-	return dialect === 'mysql' ? new MysqlSqlBuilder(actorContext) : dialect === 'postgresql' ? new PostgresqlSqlBuilder(actorContext) : new SqliteSqlBuilder(actorContext);
+	const deletedScope = context.deletedScope ?? context.database.deletedScope ?? 'active';
+	return dialect === 'mysql' ? new MysqlSqlBuilder(actorContext, deletedScope) : dialect === 'postgresql' ? new PostgresqlSqlBuilder(actorContext, deletedScope) : new SqliteSqlBuilder(actorContext, deletedScope);
 };
 export const runSql = (database: DatabaseAdapter, statement: SqlQuery): Promise<DatabaseRunResult> => database.prepare(statement.query).bind(...statement.values).run();
 export const firstSql = <T,>(database: DatabaseAdapter, statement: SqlQuery) => database.prepare(statement.query).bind(...statement.values).first<T>();

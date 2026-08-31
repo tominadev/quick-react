@@ -24,6 +24,8 @@ export type DatabaseActorResolver = (table: string) => DatabaseActorUid | undefi
 
 export type DatabaseAdapter = {
 	dialect?: 'sqlite' | 'mysql' | 'postgresql';
+	/** Request-scoped default visibility for soft-deleted records. */
+	deletedScope?: 'active' | 'deleted' | 'all';
 	/** Request-scoped audit actor used by the SQL builder. */
 	actorUid?: DatabaseActorUid;
 	/** Optional table-aware actor, needed when Base and Passport share a DB. */
@@ -33,6 +35,15 @@ export type DatabaseAdapter = {
 	exec?: (query: string) => Promise<void>;
 	transaction?: <T>(callback: (database: DatabaseAdapter) => Promise<T>) => Promise<T>;
 	close?: () => void | Promise<void>;
+};
+
+/** Bind a soft-delete visibility scope to the request-scoped adapter. */
+export const withDatabaseDeletedScope = (database: DatabaseAdapter, deletedScope: NonNullable<DatabaseAdapter['deletedScope']>): DatabaseAdapter => {
+	const scoped: DatabaseAdapter = { ...database, deletedScope };
+	if (database.transaction) {
+		scoped.transaction = (callback) => database.transaction!((transactionDatabase) => callback(withDatabaseDeletedScope(transactionDatabase, deletedScope)));
+	}
+	return scoped;
 };
 
 export type DatabaseActors = {
@@ -59,7 +70,10 @@ export const withDatabaseActors = (database: DatabaseAdapter, actors: DatabaseAc
 	};
 	if (database.transaction) {
 		bound.transaction = (callback) =>
-			database.transaction!((transactionDatabase) => callback(withDatabaseActors(transactionDatabase, actors)));
+			database.transaction!((transactionDatabase) => {
+			const scopedTransaction = withDatabaseActors(transactionDatabase, actors);
+			return callback(database.deletedScope ? { ...scopedTransaction, deletedScope: database.deletedScope } : scopedTransaction);
+		});
 	}
 	return bound;
 };

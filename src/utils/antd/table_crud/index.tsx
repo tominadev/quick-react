@@ -24,6 +24,13 @@ type TableCrudType = {
 	initialResponse?: ResJSON;
 };
 
+type TableCrudProps = TableCrudType & {
+	/** 打开嵌套表格时由父表传入的初始查询条件。 */
+	initialQueryValues?: Record<string, string>;
+	/** 回收站 TableCRUD 不再显示自身的回收站入口，避免无限嵌套。 */
+	showRecycleBin?: boolean;
+};
+
 type UploadState = {
 	fileName: string;
 	loaded: number;
@@ -47,11 +54,14 @@ const rowConfirmText = (template: string, record: DataType) => template.replace(
 });
 
 
-export default ({ commonApi, resourcePath, initialResponse }: TableCrudType) => {
+const TableCRUD = ({ commonApi, resourcePath, initialResponse, initialQueryValues, showRecycleBin = true }: TableCrudProps) => {
 	const initialData = (window as Window & {
 		__INITIAL_DATA__?: { apiSuffix?: string };
 	}).__INITIAL_DATA__;
 	const apiPath = `/api${resourcePath}${initialData?.apiSuffix ?? ''}`;
+	const initialQueryDefaults = initialQueryValues ?? {};
+	const initialQueryValuesKey = JSON.stringify(initialQueryDefaults);
+	const resetKey = `${apiPath}\u0000${initialQueryValuesKey}`;
 	const [drawer, contextHolderDrawer] = useDrawer(commonApi);
 
 	const [selectedRowKeys, setSelectedRowKeys] = useState<React.Key[]>([]);
@@ -75,7 +85,7 @@ export default ({ commonApi, resourcePath, initialResponse }: TableCrudType) => 
 	// 代码分类：API数据加载
 	const [loading, setLoading] = useState(!initialResponse);
 	const [uploadState, setUploadState] = useState<UploadState>();
-	const [modalAction, setModalAction] = useState<{ path: string; title: string }>();
+	const [modalAction, setModalAction] = useState<{ path: string; title: string; component?: 'form' | 'table' }>();
 	const uploadAbortController = useRef<AbortController | undefined>(undefined);
 	const [pagination, setPagination] = useState<TablePaginationConfig>({
 		current: 1,
@@ -91,11 +101,14 @@ export default ({ commonApi, resourcePath, initialResponse }: TableCrudType) => 
 	const tableOptionRef = useRef<ResJsonTableOption>({ rowKey: 'key' });
 	const [queryFields, setQueryFields] = useState<TableQueryField[]>([]);
 	const [queryActions, setQueryActions] = useState<TableAction[]>([]);
-	const [queryValues, setQueryValues] = useState<Record<string, string>>({});
-	const [appliedQueryValues, setAppliedQueryValues] = useState<Record<string, string>>({});
+	const [queryValues, setQueryValues] = useState<Record<string, string>>(initialQueryDefaults);
+	const [appliedQueryValues, setAppliedQueryValues] = useState<Record<string, string>>(initialQueryDefaults);
 	const [searchRequestKey, setSearchRequestKey] = useState(0);
 	const initializedQueryDefaultsFor = useRef('');
 	const requestSequence = useRef(0);
+	// 路径或初始查询条件变化时，重置状态与请求必须作为一个事务完成；
+	// 跳过重置所在提交周期，避免先用旧状态发出一次错误请求。
+	const pendingResetKey = useRef<string | undefined>(undefined);
 	const initialResponseConsumed = useRef(false);
 	// 应用后端返回的默认查询值会触发一次状态更新；仅跳过这次由初始化产生的 effect，
 	// 不能用一个无条件的布尔值，否则用户在这段时间首次点击搜索时会被误判为初始化请求。
@@ -225,15 +238,22 @@ export default ({ commonApi, resourcePath, initialResponse }: TableCrudType) => 
 					setQueryActions(tableOption.actions?.query ?? []);
 					if (fields) {
 						setQueryFields(fields);
-						setQueryValues((previous) => Object.fromEntries(fields.map((field) => [
-							field.dataIndex,
-							previous[field.dataIndex] ?? field.defaultValue ?? '',
-						])));
+						const fieldNames = new Set(fields.map((field) => field.dataIndex));
+						setQueryValues((previous) => ({
+							...Object.fromEntries(Object.entries(initialQueryDefaults).filter(([name]) => !fieldNames.has(name))),
+							...Object.fromEntries(fields.map((field) => [
+								field.dataIndex,
+								previous[field.dataIndex] ?? initialQueryDefaults[field.dataIndex] ?? field.defaultValue ?? '',
+							])),
+						}));
 						if (initializedQueryDefaultsFor.current !== apiPath) {
 							initializedQueryDefaultsFor.current = apiPath;
-							const defaults = Object.fromEntries(fields
-								.filter((field) => field.defaultValue !== undefined && field.defaultValue !== '')
-								.map((field) => [field.dataIndex, field.defaultValue as string]));
+							const defaults = {
+								...Object.fromEntries(fields
+								.filter((field) => initialQueryDefaults[field.dataIndex] !== undefined || (field.defaultValue !== undefined && field.defaultValue !== ''))
+								.map((field) => [field.dataIndex, initialQueryDefaults[field.dataIndex] ?? (field.defaultValue as string)])),
+								...initialQueryDefaults,
+							};
 							if (Object.keys(defaults).length) {
 								skipFetchForSearchRequest.current = searchRequestKey;
 								setAppliedQueryValues(defaults);
@@ -241,8 +261,8 @@ export default ({ commonApi, resourcePath, initialResponse }: TableCrudType) => 
 						}
 					} else {
 						setQueryFields([]);
-						setQueryValues({});
-						setAppliedQueryValues({});
+						setQueryValues(initialQueryDefaults);
+						setAppliedQueryValues(initialQueryDefaults);
 					}
 				}
 				if (hasTableColumns) {
@@ -333,6 +353,7 @@ export default ({ commonApi, resourcePath, initialResponse }: TableCrudType) => 
 	}
 
 	useEffect(() => {
+		pendingResetKey.current = resetKey;
 		setDataSource([]);
 		setTableColumns(undefined);
 		setResJsonColumns([]);
@@ -340,8 +361,8 @@ export default ({ commonApi, resourcePath, initialResponse }: TableCrudType) => 
 		tableOptionRef.current = { rowKey: 'key' };
 		setQueryFields([]);
 		setQueryActions([]);
-		setQueryValues({});
-		setAppliedQueryValues({});
+		setQueryValues(initialQueryDefaults);
+		setAppliedQueryValues(initialQueryDefaults);
 		setPagination((previous) => ({ ...previous, current: 1, total: 0 }));
 		cursorsByPage.current = { 1: undefined };
 		initializedQueryDefaultsFor.current = '';
@@ -349,9 +370,14 @@ export default ({ commonApi, resourcePath, initialResponse }: TableCrudType) => 
 		tableSchemaLoaded.current = false;
 		initialResponseConsumed.current = false;
 		skipFetchForSearchRequest.current = undefined;
+		setSearchRequestKey((previous) => previous + 1);
 		requestSequence.current += 1;
-	}, [apiPath]);
+	}, [resetKey]);
 	useEffect(() => {
+		if (pendingResetKey.current === resetKey) {
+			pendingResetKey.current = undefined;
+			return;
+		}
 		if (initialResponse && !initialResponseConsumed.current) {
 			initialResponseConsumed.current = true;
 			void fetchData(initialResponse);
@@ -498,11 +524,26 @@ export default ({ commonApi, resourcePath, initialResponse }: TableCrudType) => 
 		} else if (result.redirectTo) window.location.assign(result.redirectTo);
 		else await fetchData();
 	};
+	const onToolbarSelectionAction = async (action: TableAction) => {
+		if (action.disabled || !selectedRowKeys.length) return;
+		if (action.confirm && !await commonApi.modalConfirm([action.confirm])) return;
+		const query = new URLSearchParams(appliedQueryValues);
+		query.set('action', action.key);
+		await commonApi.apiFetch(`${apiPath}?${query.toString()}`, {
+			method: 'POST',
+			headers: { 'Content-Type': 'application/json' },
+			body: JSON.stringify(selectedRowKeys),
+		});
+		setSelectedRowKeys([]);
+		await fetchData();
+	};
 	const onSimpleRowAction = async (action: TableAction, record: DataType) => {
 		const rowId = String(record[tableOptionRef.current.rowKey] ?? '');
 		if (!rowId || action.disabled) return;
 		if (action.confirm && !await commonApi.modalConfirm([rowConfirmText(action.confirm, record)])) return;
-		await commonApi.apiFetch(`${apiPath}/${encodeURIComponent(rowId)}?action=${encodeURIComponent(action.key)}`, { method: 'POST' });
+		const query = new URLSearchParams(appliedQueryValues);
+		query.set('action', action.key);
+		await commonApi.apiFetch(`${apiPath}/${encodeURIComponent(rowId)}?${query.toString()}`, { method: 'POST' });
 		await fetchData();
 	};
 	const onRowFormAction = async (action: TableAction, record: DataType) => {
@@ -551,6 +592,8 @@ export default ({ commonApi, resourcePath, initialResponse }: TableCrudType) => 
 	const toolbarActionHandlers: Record<string, (action: TableAction) => React.ReactNode> = {
 		create: (action) => <Button key={action.key} type="primary" onClick={() => onAddNew(action)} icon={<PlusOutlined />} disabled={loading || action.disabled}>{action.label}</Button>,
 		delete: (action) => <Button key={action.key} danger type="primary" disabled={selectedRowKeys.length === 0 || action.disabled} onClick={() => onDelete(action)} icon={<DeleteOutlined />}>{action.label}</Button>,
+		restore: (action) => <Button key={action.key} type="primary" disabled={selectedRowKeys.length === 0 || loading || action.disabled} onClick={() => void onToolbarSelectionAction(action)}>{action.label}</Button>,
+		purge: (action) => <Button key={action.key} danger disabled={selectedRowKeys.length === 0 || loading || action.disabled} onClick={() => void onToolbarSelectionAction(action)}>{action.label}</Button>,
 		upload: (action) => <Button key={action.key} type="primary" icon={<UploadOutlined />} disabled={loading || action.disabled || uploadState?.phase === 'signing' || uploadState?.phase === 'uploading'} onClick={() => {
 			const input = document.createElement('input');
 			input.type = 'file';
@@ -592,7 +635,12 @@ export default ({ commonApi, resourcePath, initialResponse }: TableCrudType) => 
 			input.click();
 		}}>{action.label}</Button>,
 	};
-	const renderModalAction = (action: TableAction) => <Button key={action.key} disabled={loading || action.disabled} onClick={() => action.modalPath && setModalAction({ path: action.modalPath, title: action.label })}>{action.label}</Button>;
+	const renderModalAction = (action: TableAction) => <Button
+		key={action.key}
+		style={action.key === 'recycle-bin' ? { marginLeft: 'auto' } : undefined}
+		disabled={loading || action.disabled}
+		onClick={() => action.modalPath && setModalAction({ path: action.modalPath, title: action.label, component: action.modalComponent })}
+	>{action.label}</Button>;
 	const queryActionHandlers: Record<string, (action: TableAction) => React.ReactNode> = {
 		// 普通搜索只更新当前表的数据；只有后端标记结构依赖的查询值变化时才清空结构。
 		search: (action) => <Button key={action.key} onClick={() => {
@@ -631,12 +679,19 @@ export default ({ commonApi, resourcePath, initialResponse }: TableCrudType) => 
 			{queryActions.map((action) => queryActionHandlers[action.key]?.(action) ?? null)}
 		</Flex>
 		<Flex wrap gap="small">
-			{(resJsonTableOption.actions?.toolbar ?? []).map((action) => action.modalPath ? renderModalAction(action) : toolbarActionHandlers[action.key]?.(action)
+			{(resJsonTableOption.actions?.toolbar ?? []).filter((action) => showRecycleBin || action.key !== 'recycle-bin').map((action) => action.modalPath ? renderModalAction(action) : toolbarActionHandlers[action.key]?.(action)
 				?? (action.form ? <Button key={action.key} disabled={loading || action.disabled} onClick={() => onToolbarFormAction(action)}>{action.label}</Button>
 					: <Button key={action.key} disabled={loading || action.disabled} onClick={() => onToolbarSimpleAction(action)}>{action.label}</Button>))}
 		</Flex>
-		<Modal open={Boolean(modalAction)} title={modalAction?.title} footer={null} destroyOnHidden width={560} onCancel={() => setModalAction(undefined)}>
-			{modalAction ? <FormPage embedded commonApi={commonApi} apiPath={`/api${modalAction.path}${initialData?.apiSuffix ?? ''}`} title={modalAction.title} submitMethod="POST" onCompleted={() => { setModalAction(undefined); void fetchData(); }} /> : null}
+		<Modal open={Boolean(modalAction)} title={modalAction?.title} footer={null} destroyOnHidden width={modalAction?.component === 'table' ? '90vw' : 560} onCancel={() => setModalAction(undefined)}>
+			{modalAction?.component === 'table'
+				? <TableCRUD
+					commonApi={commonApi}
+					resourcePath={modalAction.path}
+					initialQueryValues={{ ...appliedQueryValues, deleted: 'deleted' }}
+					showRecycleBin={false}
+				/>
+				: modalAction ? <FormPage embedded commonApi={commonApi} apiPath={`/api${modalAction.path}${initialData?.apiSuffix ?? ''}`} title={modalAction.title} submitMethod="POST" onCompleted={() => { setModalAction(undefined); void fetchData(); }} /> : null}
 		</Modal>
 		{uploadState && <Flex gap="middle" align="center" style={{ padding: '12px 16px', border: '1px solid #f0f0f0', borderRadius: 8 }}>
 			<Flex vertical style={{ flex: 1, minWidth: 0 }}>
@@ -664,3 +719,5 @@ export default ({ commonApi, resourcePath, initialResponse }: TableCrudType) => 
 		/>
 	</Flex>);
 };
+
+export default TableCRUD;

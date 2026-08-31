@@ -1,16 +1,18 @@
 import type { Context, Next } from 'hono';
 import type { AppEnv } from './types.mjs';
 import { apiMessage } from './api-response.mjs';
+import { handleTableCrudAction, tableCrudDatabase, type TableCrudDefinition } from './table-crud.mjs';
+import { withDatabaseDeletedScope } from '@server/database/index.mjs';
 
 export type ApiNext = () => Promise<Response>;
 
-export type ApiHandler = (
+export type ApiHandler = ((
 	c: Context<AppEnv>,
 	next: ApiNext,
 	params: Record<string, string>,
-) => Response | Promise<Response | undefined> | undefined;
+) => Response | Promise<Response | undefined> | undefined) & { tableCrud?: TableCrudDefinition };
 
-export type ApiModule = { default?: ApiHandler };
+export type ApiModule = { default?: ApiHandler; tableCrud?: TableCrudDefinition };
 export type SiteApiRoute = { site: string; path: string };
 
 type RouteMatcher = {
@@ -99,11 +101,25 @@ export const createApiGateway = (
 				}
 			}
 		}
+		const loadedModules = await Promise.all(files.map(async (file) => ({ file, module: await options.loadModule(file) })));
+		const tableCrudEntry = [...loadedModules].reverse().find(({ module }) => module.tableCrud);
+		if (tableCrudEntry) {
+			c.set('tableCrud', tableCrudEntry.module.tableCrud!);
+			const deletedScope = c.req.query('deleted') === 'deleted' ? 'deleted' as const : 'active' as const;
+			if (deletedScope !== 'active') {
+				const database = tableCrudDatabase(c, tableCrudEntry.module.tableCrud!);
+				if (database) c.set(tableCrudEntry.module.tableCrud!.database ?? 'database', withDatabaseDeletedScope(database, deletedScope));
+			}
+		}
+		const tableCrudIndex = tableCrudEntry ? loadedModules.findIndex(({ file }) => file === tableCrudEntry.file) : -1;
 
 		const execute = async (index: number): Promise<Response> => {
-			const file = files[index];
-			const module = await options.loadModule(file);
-			if (typeof module.default !== 'function') throw new Error(`API module must export a handler: ${file}`);
+			const { module } = loadedModules[index];
+			if (typeof module.default !== 'function') throw new Error(`API module must export a handler: ${loadedModules[index].file}`);
+			if (index === tableCrudIndex && c.req.query('deleted') === 'deleted') {
+				const recycleResponse = await handleTableCrudAction(c, tableCrudEntry!.module.tableCrud!, matched.params.id);
+				if (recycleResponse) return recycleResponse;
+			}
 			const next = async () => index + 1 < files.length
 				? execute(index + 1)
 				: apiMessage(c, 500, 'API route did not return a response');

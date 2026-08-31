@@ -2,6 +2,9 @@ import type { ApiHandler } from '@server/modules/base/api-router.mjs';
 import { apiMessage, apiResponse } from '@server/modules/base/api-response.mjs';
 import { normalizeHostname } from '@server/modules/base/site-router.mjs';
 import { enabledDisabledOptions, statusValues } from '@shared/types/status.mjs';
+import type { TableCrudDefinition } from '@server/modules/base/table-crud.mjs';
+
+export const tableCrud: TableCrudDefinition = { table: 'global_site_hosts', rowKey: 'id' };
 import { getChangedFields } from '@server/modules/base/changed-fields.mjs';
 import { accountsIdentityApi } from '@server/modules/base/navigation.mjs';
 import { allSql, firstSql, runSql, sql } from '@server/database/sql.mjs';
@@ -34,7 +37,7 @@ const removeHost = async (c: Parameters<ApiHandler>[0], id: number) => {
 	if (host.status !== statusValues.disabled) return apiMessage(c, 409, '域名必须先停用才能删除');
 	const bot = await firstSql(database, sql({ database }).select({ table: 'global_telegram_bots', columns: { id: 'id' }, where: [{ column: 'webhook_hostname', value: host.hostname }], limit: 1 }));
 	if (bot) return apiMessage(c, 409, '域名正在被 Telegram 机器人使用，不能删除');
-	await runSql(database, sql({ database }).delete('global_site_hosts', { id }));
+	await runSql(database, sql({ database }).softDelete('global_site_hosts', { id }));
 	return undefined;
 };
 
@@ -65,7 +68,7 @@ const handler: ApiHandler = async (c, next, params) => {
 			if (response) return response;
 		}
 		await c.get('siteRouter').refresh();
-		return apiMessage(c, 200, '删除成功');
+		return apiMessage(c, 200, '删除成功，可在回收站找回或彻底删除');
 	}
 	if (params.id && c.req.method === 'GET') {
 		const row = await firstSql<Record<string, unknown>>(database, sql({ database }).select({ table: 'global_site_hosts', columns: { id: 'id', hostname: 'hostname', site_key: 'site_key', status: 'status', created_at: 'created_at' }, where: [{ column: 'id', value: Number(params.id) }] }));
@@ -100,7 +103,7 @@ const handler: ApiHandler = async (c, next, params) => {
 		const response = await removeHost(c, Number(params.id));
 		if (response) return response;
 		await c.get('siteRouter').refresh();
-		return apiMessage(c, 200, '删除成功');
+		return apiMessage(c, 200, '删除成功，可在回收站找回或彻底删除');
 	}
 	return next();
 };

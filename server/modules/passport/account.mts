@@ -174,8 +174,8 @@ export const unbindAccountEmail = async (database: DatabaseAdapter, userId: stri
 	if (!target) throw new Error('邮箱不存在或不属于当前账号');
 	if (emails.length <= 1) throw new Error('至少需要保留一个邮箱，不能解绑最后一个邮箱');
 	if (target.is_primary) throw new Error('主邮箱不能解绑，请先把其它邮箱设为主邮箱');
-	await runSql(database, sql({ database }).delete('passport_user_emails', { user_id: userId, email_id: emailId }));
-	await runSql(database, sql({ database }).delete('passport_emails', { id: emailId }));
+	await runSql(database, sql({ database }).softDelete('passport_user_emails', { user_id: userId, email_id: emailId }));
+	await runSql(database, sql({ database }).softDelete('passport_emails', { id: emailId }));
 	return target.email;
 };
 
@@ -256,7 +256,7 @@ export const unbindAccountIdentity = async (database: DatabaseAdapter, globalDat
 	if (identities.length <= 1 && !await hasAccountPassword(database, userId)) {
 		throw new Error('这是账号最后一个登录方式，请先设置密码或绑定其它身份后再解绑');
 	}
-	await runSql(database, sql({ database }).delete('passport_external_identities', { id: identityKey.slice('external:'.length), user_id: userId }));
+	await runSql(database, sql({ database }).softDelete('passport_external_identities', { id: identityKey.slice('external:'.length), user_id: userId }));
 	return target.provider_label;
 };
 

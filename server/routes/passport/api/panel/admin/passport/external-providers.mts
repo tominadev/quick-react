@@ -3,6 +3,9 @@ import { apiMessage, apiResponse } from '@server/modules/base/api-response.mjs';
 import { allSql, firstSql, runSql, sql } from '@server/database/sql.mjs';
 import { enabledDisabledOptions, statusValues } from '@shared/types/status.mjs';
 import { requestOrigin } from '@server/modules/base/request-origin.mjs';
+import type { TableCrudDefinition } from '@server/modules/base/table-crud.mjs';
+
+export const tableCrud: TableCrudDefinition = { table: 'passport_external_providers', rowKey: 'provider', database: 'passportDatabase' };
 
 type ProviderId = 'google' | 'wechat';
 type WechatMode = 'open_platform' | 'official_account';
@@ -75,7 +78,7 @@ const handler: ApiHandler = async (c, next, params) => {
 			firstSql(database, sql({ database }).select({ table: 'passport_external_login_states', columns: { provider: 'provider' }, where: [{ column: 'provider', value: id }], limit: 1 })),
 		]);
 		if (identity || authorization) return apiMessage(c, 409, '该身份源已有用户身份或授权历史，只能保持停用，不能删除');
-		await runSql(database, sql({ database }).delete('passport_external_providers', { provider: id }));
+		await runSql(database, sql({ database }).softDelete('passport_external_providers', { provider: id }));
 		return apiMessage(c, 200, '外部身份源已删除');
 	}
 	return next();

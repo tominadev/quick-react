@@ -1,6 +1,6 @@
 import type { DatabaseAdapter } from '@server/database/index.mjs';
 import { databaseLabel, listColumns, listTables } from '@server/database/schema.mjs';
-import { allSql, firstSql, sql } from '@server/database/sql.mjs';
+import { allSql, firstSql, sql, type DeletedScope } from '@server/database/sql.mjs';
 import type { TableActions, TableColumn, TableData, TableResponse, TableSelectOption } from '@shared/types/table.mjs';
 import { isSystemField } from '@shared/system-fields.mjs';
 
@@ -12,17 +12,21 @@ export const databaseQueryFields = (database: DatabaseAdapter, binding: boolean,
 	{ dataIndex: 'database', label: '数据库', component: 'select' as const, defaultValue: 'current', options: databaseOptions(databaseLabel(database, binding)), reloadSchema: true },
 	{ dataIndex: 'table', label: '数据表', component: 'select' as const, placeholder: '选择数据表', options: tables, defaultValue: tables[0]?.value, reloadSchema: true },
 ];
-export const databaseTableActions = (editable: boolean): TableActions => ({
-	toolbar: editable ? [
-		{ key: 'create', label: '新增' },
-		{ key: 'delete', label: '删除', confirm: '确定删除所选记录吗？' },
-	] : [],
-	query: [{ key: 'search', label: '搜索' }],
-	row: editable ? [
-		{ key: 'edit', label: '编辑' },
-		{ key: 'delete', label: '删除', confirm: '确定删除这条记录吗？' },
-	] : [],
-});
+export const databaseTableActions = (editable: boolean, options: { softDelete?: boolean } = {}): TableActions => {
+	const softDelete = options.softDelete ?? true;
+	const deleteConfirm = softDelete ? '删除后可在回收站找回或彻底删除，确定继续吗？' : '删除字段后无法恢复，确定继续吗？';
+	return {
+		toolbar: editable ? [
+			{ key: 'create', label: '新增' },
+			{ key: 'delete', label: '删除', confirm: deleteConfirm },
+		] : [],
+		query: [{ key: 'search', label: '搜索' }],
+		row: editable ? [
+			{ key: 'edit', label: '编辑' },
+			{ key: 'delete', label: '删除', confirm: deleteConfirm },
+		] : [],
+	};
+};
 export type DatabaseTableResponse = TableResponse & { tables: TableSelectOption[]; editable: boolean };
 const tableColumn = (column: Awaited<ReturnType<typeof getColumns>>[number]): TableColumn => ({
 	dataIndex: column.name,
@@ -32,8 +36,8 @@ const tableColumn = (column: Awaited<ReturnType<typeof getColumns>>[number]): Ta
 	...(isSystemField(column.name) ? { form: { create: false, edit: false } } : {}),
 });
 export const databaseSelectColumns = (columns: Awaited<ReturnType<typeof getColumns>>) => Object.fromEntries(columns.map((column) => [column.name, /INT/i.test(column.type) ? { column: column.name, cast: 'text' as const } : column.name]));
-export const readTable = async (database: DatabaseAdapter, mode: 'columns' | 'rows', tableName: string | undefined, pageNumValue?: string, pageSizeValue?: string): Promise<DatabaseTableResponse> => {
-	const tables = await getTables(database);
+export const readTable = async (database: DatabaseAdapter, mode: 'columns' | 'rows', tableName: string | undefined, pageNumValue?: string, pageSizeValue?: string, options: { deleted?: DeletedScope; tables?: TableSelectOption[] } = {}): Promise<DatabaseTableResponse> => {
+	const tables = options.tables ?? await getTables(database);
 	const selectedTableName = tableName || tables[0]?.value;
 	if (!selectedTableName || !tables.some((item) => item.value === selectedTableName)) return { tables, editable: false, dataSource: [], totalRecords: 0, option: { rowKey: 'key' } };
 	const info = await getColumns(database, selectedTableName);
@@ -45,11 +49,12 @@ export const readTable = async (database: DatabaseAdapter, mode: 'columns' | 'ro
 	const sqliteRowId = !primaryKey && (database.dialect ?? 'sqlite') === 'sqlite';
 	const rowKey = primaryKey ?? (sqliteRowId ? '__rowid__' : '');
 	const pageNum = page(pageNumValue, 1), pageSize = page(pageSizeValue, 10);
-	const total = await firstSql<{ count: number | string }>(database, sql({ database }).count(selectedTableName));
+	const deleted = options.deleted ?? database.deletedScope ?? 'active';
+	const total = await firstSql<{ count: number | string }>(database, sql({ database }).count(selectedTableName, [], deleted));
 	// Database administration pages must preserve 64-bit IDs. Casting integer
 	// columns to text prevents SQLite from coercing snowflake IDs to unsafe JS numbers.
 	const selectedColumns = databaseSelectColumns(info);
-	const rows = await allSql<TableData>(database, sql({ database }).select({ table: selectedTableName, columns: selectedColumns, sqliteRowIdAlias: sqliteRowId ? '__rowid__' : undefined, limit: pageSize, offset: (pageNum - 1) * pageSize }));
+	const rows = await allSql<TableData>(database, sql({ database }).select({ table: selectedTableName, columns: selectedColumns, sqliteRowIdAlias: sqliteRowId ? '__rowid__' : undefined, limit: pageSize, offset: (pageNum - 1) * pageSize, deleted }));
 	const dataSource = rows.map((row, index) => ({ ...row, key: rowKey ? String(row[rowKey]) : `readonly-${(pageNum - 1) * pageSize + index + 1}` }));
 	const dataColumns = info.map(tableColumn);
 	const idIndex = dataColumns.findIndex((column) => column.dataIndex === 'id');

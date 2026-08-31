@@ -3,6 +3,9 @@ import { apiMessage, apiResponse } from '@server/modules/base/api-response.mjs';
 import { readStoredPassword } from '@server/modules/base/auth/index.mjs';
 import { allSql, sql } from '@server/database/sql.mjs';
 import { setPassportPassword } from '@server/modules/passport/identity.mjs';
+import type { TableCrudDefinition } from '@server/modules/base/table-crud.mjs';
+
+export const tableCrud: TableCrudDefinition = { table: 'passport_users', rowKey: 'user_id', database: 'passportDatabase' };
 
 const columns = [
 	{ dataIndex: 'user_id', title: 'ID', dataType: 'text' as const },

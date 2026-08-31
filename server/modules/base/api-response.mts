@@ -10,6 +10,61 @@ const isSuccessStatus = (status: number) => status >= 200 && status < 300;
 const requestsAuthContext = (c: Context<AppEnv>) => (c.req.query('include') ?? '').split(',').map((value) => value.trim()).includes('auth');
 const requestsTableDataOnly = (c: Context<AppEnv>) => ['0', 'false'].includes((c.req.query('table_schema') ?? '').trim().toLowerCase());
 
+/** 所有 TableCRUD 统一提供回收站入口；具体回收、恢复和彻底删除动作仍由原接口驱动。 */
+const withTableUtilities = (c: Context<AppEnv>, payload: Record<string, unknown>) => {
+	if (!c.get('tableCrud')) return payload;
+	const table = payload.table;
+	if (!table || typeof table !== 'object' || Array.isArray(table)) return payload;
+	const source = table as Record<string, unknown>;
+	const option = source.option;
+	if (!option || typeof option !== 'object' || Array.isArray(option)) return payload;
+	const optionSource = option as Record<string, unknown>;
+	const actions = optionSource.actions && typeof optionSource.actions === 'object' && !Array.isArray(optionSource.actions)
+		? optionSource.actions as Record<string, unknown>
+		: {};
+	const deleted = c.req.query('deleted') === 'deleted';
+	if (deleted) {
+		return {
+			...payload,
+			table: {
+				...source,
+				option: {
+					...optionSource,
+					actions: {
+						...actions,
+						toolbar: [
+							{ key: 'restore', label: '恢复选中记录', confirm: '确认恢复选中的记录吗？' },
+							{ key: 'purge', label: '彻底删除选中记录', confirm: '彻底删除后无法恢复，确认继续吗？' },
+						],
+						row: [
+							{ key: 'restore', label: '恢复', confirm: '确认恢复这条记录吗？' },
+							{ key: 'purge', label: '彻底删除', confirm: '彻底删除后无法恢复，确认继续吗？' },
+						],
+					},
+				},
+			},
+		};
+	}
+	const toolbar = Array.isArray(actions.toolbar) ? actions.toolbar : [];
+	if (toolbar.some((action) => action && typeof action === 'object' && (action as Record<string, unknown>).key === 'recycle-bin')) return payload;
+	const apiPath = c.req.path.startsWith('/api') ? c.req.path.slice('/api'.length) : c.req.path;
+	const apiSuffix = c.get('techStackConfig').apiSuffix;
+	const modalPath = apiSuffix && apiPath.endsWith(apiSuffix) ? apiPath.slice(0, -apiSuffix.length) : apiPath;
+	return {
+		...payload,
+		table: {
+			...source,
+			option: {
+				...optionSource,
+				actions: {
+					...actions,
+					toolbar: [...toolbar, { key: 'recycle-bin', label: '回收站', modalPath, modalComponent: 'table' }],
+				},
+			},
+		},
+	};
+};
+
 const stripTableSchema = (payload: Record<string, unknown>) => {
 	const table = payload.table;
 	if (!table || typeof table !== 'object' || Array.isArray(table)) return payload;
@@ -50,7 +105,8 @@ export const apiResponse = async <T extends ApiSuccessData>(
 	const next = payload.next;
 	const refreshesAuth = Boolean(next && typeof next === 'object' && !Array.isArray(next) && (next as { refreshAuth?: unknown }).refreshAuth === true);
 	const includesAuth = requestsAuthContext(c);
-	let responseData: Record<string, unknown> = requestsTableDataOnly(c) ? stripTableSchema(payload) : payload;
+	const utilityPayload = withTableUtilities(c, payload);
+	let responseData: Record<string, unknown> = requestsTableDataOnly(c) ? stripTableSchema(utilityPayload) : utilityPayload;
 	const contextProvider = c.get('apiContext');
 	if ((includesAuth || refreshesAuth) && contextProvider) {
 		responseData = { ...responseData, context: await contextProvider(c.req.query('path')) };

@@ -4,10 +4,21 @@ import { firstSql, runSql, sql } from '@server/database/sql.mjs';
 import { assertTable, databaseQueryFields, databaseSelectColumns, databaseTableActions, getColumns, readTable, tableRowKey } from '@server/routes/base/data/database-table.mjs';
 import { getChangedFields } from '@server/modules/base/changed-fields.mjs';
 import { isSystemField } from '@shared/system-fields.mjs';
+import type { TableCrudDefinition } from '@server/modules/base/table-crud.mjs';
 
 const body = async (c: Parameters<ApiHandler>[0]) => c.req.json<Record<string, unknown>>().catch(() => ({}));
 const editableFields = (values: Record<string, unknown>, names: Set<string>) => Object.entries(values).filter(([name]) => names.has(name));
 const protectedFields = (values: Record<string, unknown>) => Object.keys(values).filter(isSystemField);
+
+export const tableCrud: TableCrudDefinition = {
+	table: (c) => c.req.query('table'),
+	rowKey: async (c) => {
+		const tableName = c.req.query('table');
+		if (!tableName) return undefined;
+		try { return tableRowKey(c.get('database'), await getColumns(c.get('database'), tableName)); }
+		catch { return undefined; }
+	},
+};
 
 const handler: ApiHandler = async (c, next, params) => {
 	const database = c.get('database');
@@ -55,8 +66,8 @@ const handler: ApiHandler = async (c, next, params) => {
 	if (c.req.method === 'DELETE') {
 		const ids = await c.req.json<unknown>().catch(() => []);
 		if (!Array.isArray(ids)) return apiMessage(c, 400, '删除参数无效');
-		for (const id of ids) await runSql(database, sql({ database }).delete(tableName, { [rowKey]: String(id) }));
-		return apiMessage(c, 200, '删除成功');
+		for (const id of ids) await runSql(database, sql({ database }).softDelete(tableName, { [rowKey]: String(id) }));
+		return apiMessage(c, 200, '删除成功，可在回收站找回或彻底删除');
 	}
 	return next();
 };
