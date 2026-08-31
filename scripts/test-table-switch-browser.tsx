@@ -47,9 +47,9 @@ const commonApi = {
 	apiFetch: async (url: string) => {
 		requests.push(String(url));
 		if (String(url).includes('/acct_string_id')) return new Response(JSON.stringify({ id: 'acct_string_id', name: 'A 行' }), { headers: { 'content-type': 'application/json' } });
-		if (String(url).includes('deleted=deleted')) return new Response(JSON.stringify({ table: { ...tableA, dataSource: [{ id: 'deleted_id', name: '已删除行' }] } }), { headers: { 'content-type': 'application/json' } });
+		if (String(url).includes('include=deleted')) return new Response(JSON.stringify({ table: { ...tableA, dataSource: [{ id: 'deleted_id', name: '已删除行' }] } }), { headers: { 'content-type': 'application/json' } });
 		const table = String(url).includes('table=table_b') ? tableB : tableA;
-		if (String(url).includes('table_schema=0')) return new Response(JSON.stringify({ table: { dataSource: table.dataSource, totalRecords: table.totalRecords } }), { headers: { 'content-type': 'application/json' } });
+		if (String(url).includes('include=data')) return new Response(JSON.stringify({ table: { dataSource: table.dataSource, totalRecords: table.totalRecords } }), { headers: { 'content-type': 'application/json' } });
 		return new Response(JSON.stringify({ table }), { headers: { 'content-type': 'application/json' } });
 	},
 	modalConfirm: async () => true,
@@ -67,7 +67,7 @@ await waitFor(() => assert.ok(screen.getByText('A 行')));
 const requestCountBeforeSearch = requests.length;
 await user.click(screen.getByRole('button', { name: /搜索/ }));
 await waitFor(() => assert.ok(requests.length > requestCountBeforeSearch, '首次点击搜索必须发起 HTTP 请求'));
-assert.ok(requests.at(-1)?.includes('table_schema=0'), '首次搜索应复用已加载的表结构');
+assert.ok(requests.at(-1)?.includes('include=data'), '首次搜索应复用已加载的表结构');
 
 cleanup();
 requests.length = 0;
@@ -82,7 +82,7 @@ await user.click(screen.getByRole('button', { name: /回收站/ }));
 await waitFor(() => assert.ok(screen.getByText('已删除行')));
 const recycleRequests = requests.slice(requestCountBeforeRecycle).filter((url) => url.includes('/panel/admin/data/rows'));
 assert.equal(recycleRequests.length, 1, '打开回收站只应请求一次当前资源接口');
-assert.ok(recycleRequests[0]?.includes('table=table_a') && recycleRequests[0]?.includes('deleted=deleted'), '回收站请求必须保留当前表和 deleted 参数');
+	assert.ok(recycleRequests[0]?.includes('table=table_a') && recycleRequests[0]?.includes('include=deleted'), '回收站请求必须保留当前表和 include=deleted 参数');
 await user.click(screen.getByRole('button', { name: 'Close' }));
 
 // 操作列必须使用同一次后端响应中的字符串 rowKey，不能捕获首次渲染的默认 key。

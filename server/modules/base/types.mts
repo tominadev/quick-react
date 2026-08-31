@@ -41,7 +41,7 @@ export type AppEnv = {
 		currentUser?: UserIdentity;
 		passportUser?: UserIdentity;
 		effectiveRoles: string[];
-		/** Base 响应层按 include=auth 请求当前认证、导航和页面状态。 */
+		/** Base 响应层按 include=auth 请求当前认证、导航和页面状态；表格结构和数据用 include=schema,data 请求。 */
 		apiContext?: (path?: string) => Promise<ApiContext>;
 	};
 };

@@ -99,12 +99,14 @@ try {
 	assert.equal(migratedDatabase.prepare("SELECT name FROM sqlite_master WHERE type = 'table' AND name = 'passport_users'").get()?.name, 'passport_users');
 	migratedDatabase.close();
 	const request = async (host, path, options = {}) => {
+		const requestUrl = new URL(path, 'http://test');
+		if (!options.method && requestUrl.pathname.startsWith('/api/panel/') && !requestUrl.searchParams.has('include')) requestUrl.searchParams.set('include', 'schema,data');
 		const headers = new Headers(options.headers);
 		if (options.cookie) headers.set('cookie', options.cookie);
 		if (!headers.has('x-device-key')) headers.set('x-device-key', deviceKey);
 		if (!headers.has('x-device-fingerprint')) headers.set('x-device-fingerprint', fingerprintData);
 		if (options.body !== undefined) headers.set('content-type', 'application/json');
-		return app.request(`http://${host}${path}`, {
+		return app.request(`http://${host}${requestUrl.pathname}${requestUrl.search}`, {
 			method: options.method,
 			headers,
 			body: options.body === undefined ? undefined : JSON.stringify(options.body),

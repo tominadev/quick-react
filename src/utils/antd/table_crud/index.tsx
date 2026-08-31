@@ -216,10 +216,21 @@ const TableCRUD = ({ commonApi, resourcePath, initialResponse, initialQueryValue
 					pageNum: pagination.current?.toString() || '0',
 					pageSize: pagination.pageSize?.toString() || '0',
 				};
-				if (tableSchemaLoaded.current) query.table_schema = '0';
 				const currentCursor = cursorsByPage.current[currentPage];
 				if (currentCursor) query.cursor = currentCursor;
 				Object.assign(query, appliedQueryValues);
+				// `include` 是公共响应协议参数，优先级高于业务查询字段。
+				// 首次请求加载结构，之后只请求数据；回收站状态始终保留。
+				const includes = new Set((query.include ?? '').split(',').map((value) => value.trim()).filter(Boolean));
+				if (tableSchemaLoaded.current) {
+					includes.delete('schema');
+					includes.add('data');
+				} else {
+					includes.add('schema');
+					includes.add('data');
+				}
+				if (includes.size) query.include = [...includes].join(',');
+				else delete query.include;
 				const queryString = new URLSearchParams(query).toString();
 				const response: Response = await commonApi.apiFetch(`${apiPath}?${queryString}`);
 				resJSON = await response.json() as ResJSON;
@@ -688,7 +699,7 @@ const TableCRUD = ({ commonApi, resourcePath, initialResponse, initialQueryValue
 				? <TableCRUD
 					commonApi={commonApi}
 					resourcePath={modalAction.path}
-					initialQueryValues={{ ...appliedQueryValues, deleted: 'deleted' }}
+					initialQueryValues={{ ...appliedQueryValues, include: 'deleted' }}
 					showRecycleBin={false}
 				/>
 				: modalAction ? <FormPage embedded commonApi={commonApi} apiPath={`/api${modalAction.path}${initialData?.apiSuffix ?? ''}`} title={modalAction.title} submitMethod="POST" onCompleted={() => { setModalAction(undefined); void fetchData(); }} /> : null}

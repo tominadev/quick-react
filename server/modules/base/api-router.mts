@@ -3,6 +3,7 @@ import type { AppEnv } from './types.mjs';
 import { apiMessage } from './api-response.mjs';
 import { handleTableCrudAction, tableCrudDatabase, type TableCrudDefinition } from './table-crud.mjs';
 import { withDatabaseDeletedScope } from '@server/database/index.mjs';
+import { deletedScopeFromQuery } from './query-options.mjs';
 
 export type ApiNext = () => Promise<Response>;
 
@@ -105,7 +106,7 @@ export const createApiGateway = (
 		const tableCrudEntry = [...loadedModules].reverse().find(({ module }) => module.tableCrud);
 		if (tableCrudEntry) {
 			c.set('tableCrud', tableCrudEntry.module.tableCrud!);
-			const deletedScope = c.req.query('deleted') === 'deleted' ? 'deleted' as const : 'active' as const;
+			const deletedScope = deletedScopeFromQuery(c);
 			if (deletedScope !== 'active') {
 				const database = tableCrudDatabase(c, tableCrudEntry.module.tableCrud!);
 				if (database) c.set(tableCrudEntry.module.tableCrud!.database ?? 'database', withDatabaseDeletedScope(database, deletedScope));
@@ -116,7 +117,7 @@ export const createApiGateway = (
 		const execute = async (index: number): Promise<Response> => {
 			const { module } = loadedModules[index];
 			if (typeof module.default !== 'function') throw new Error(`API module must export a handler: ${loadedModules[index].file}`);
-			if (index === tableCrudIndex && c.req.query('deleted') === 'deleted') {
+			if (index === tableCrudIndex && deletedScopeFromQuery(c) === 'deleted') {
 				const recycleResponse = await handleTableCrudAction(c, tableCrudEntry!.module.tableCrud!, matched.params.id);
 				if (recycleResponse) return recycleResponse;
 			}

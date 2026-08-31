@@ -36,7 +36,7 @@ export type PageStatus = {
 
 export type InitialData = {
 	debug?: boolean;
-	/** server：服务端注入会话上下文；api：仅输出公共页面壳，由带 include=auth 的 API 响应启动。 */
+	/** server：服务端注入会话上下文；api：仅输出公共页面壳，由带 include=auth 的 API 响应启动。表格页面同时请求 include=schema,data。 */
 	bootstrapMode?: 'server' | 'api';
 	/** API 启动模式下当前页面的首个数据接口；响应同时携带 context 和页面业务数据。 */
 	bootstrapApiPath?: string;

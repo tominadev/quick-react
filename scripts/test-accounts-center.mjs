@@ -51,11 +51,15 @@ try {
 	database.prepare('INSERT INTO passport_sessions (token_hash, user_id, device_id, expires_at, created_at, updated_at) VALUES (?, ?, 41, ?, ?, ?)').run(Buffer.from(await crypto.subtle.digest('SHA-256', new TextEncoder().encode(sessionId))).toString('hex'), userId, now + 3600_000, now, now);
 	database.close();
 
-	const request = (path, options = {}) => app.request(`http://accounts.test${path}`, {
+	const request = (path, options = {}) => {
+		const requestUrl = new URL(path, 'http://test');
+		if (!options.method && requestUrl.pathname.startsWith('/api/panel/') && !requestUrl.searchParams.has('include')) requestUrl.searchParams.set('include', 'schema,data');
+		return app.request(`http://accounts.test${requestUrl.pathname}${requestUrl.search}`, {
 		method: options.method,
 		headers: { 'x-device-key': deviceKey, 'x-device-fingerprint': fingerprintData, ...(options.cookie ? { cookie: options.cookie } : {}), ...(options.body === undefined ? {} : { 'content-type': 'application/json' }), ...options.headers },
 		body: options.body === undefined ? undefined : JSON.stringify(options.body),
-	});
+		});
+	};
 
 	// 没有 Accounts 会话时账户中心接口和导航都不可用。
 	assert.equal((await request('/api/panel/accounts/profile.php')).status, 401);

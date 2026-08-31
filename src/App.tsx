@@ -85,7 +85,11 @@ export const App = ({ commonApi }: AppType) => {
 		const pathname = new URL(path, window.location.origin).pathname;
 		const apiPath = initialData.bootstrapApiPath ?? `/api/home${initialData.apiSuffix}`;
 		const endpoint = new URL(apiPath, window.location.origin);
-		endpoint.searchParams.set('include', 'auth');
+		const includes = new Set((endpoint.searchParams.get('include') ?? '').split(',').map((value) => value.trim()).filter(Boolean));
+		includes.add('auth');
+		includes.add('schema');
+		includes.add('data');
+		endpoint.searchParams.set('include', [...includes].join(','));
 		endpoint.searchParams.set('path', pathname);
 		const response = await commonApi.apiFetch(`${endpoint.pathname}${endpoint.search}`);
 		const result = await response.json() as BootstrapResponse;

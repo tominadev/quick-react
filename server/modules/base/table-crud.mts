@@ -4,6 +4,7 @@ import type { DatabaseAdapter } from '@server/database/index.mjs';
 import { listColumns, listTables } from '@server/database/schema.mjs';
 import { firstSql, runSql, sql, type SqlCondition } from '@server/database/sql.mjs';
 import { apiMessage } from './api-response.mjs';
+import { deletedScopeFromQuery } from './query-options.mjs';
 
 export type TableCrudDatabase = 'database' | 'passportDatabase' | 'globalDatabase';
 export type TableCrudValue = string | ((c: Context<AppEnv>) => string | undefined | Promise<string | undefined>);
@@ -27,7 +28,7 @@ const readIds = async (c: Context<AppEnv>, routeId?: string) => {
 /** 处理所有 TableCRUD 共用的恢复/彻底删除动作；请求路径仍是原表格接口。 */
 export const handleTableCrudAction = async (c: Context<AppEnv>, definition: TableCrudDefinition, routeId?: string): Promise<Response | undefined> => {
 	if (c.req.method !== 'POST') return undefined;
-	if (c.req.query('deleted') !== 'deleted') return undefined;
+	if (deletedScopeFromQuery(c) !== 'deleted') return undefined;
 	const action = c.req.query('action');
 	if (action !== 'restore' && action !== 'purge') return undefined;
 	const database = tableCrudDatabase(c, definition);

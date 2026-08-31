@@ -67,7 +67,7 @@ export type TableSelectOption = {
 	parentValue?: string;
 	fieldValues?: Record<string, string | number | boolean>;
 };
-/** `table_schema=0` 请求只返回下面的数据分页字段，option/columns 由客户端复用。 */
+/** 表格请求必须用 include 明确选择资源；`include=data` 只返回数据，`include=schema,data` 返回完整响应。 */
 export type TableResponse = {
 	option?: TableOption;
 	columns?: TableColumn[];

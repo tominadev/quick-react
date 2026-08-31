@@ -4,11 +4,11 @@ import type { AppEnv } from './types.mjs';
 import type { ApiFeedback, ApiFeedbackOptions, ApiSuccessData } from '@shared/types/api-response.mjs';
 import { createDeviceKeyTransportCookie } from './device-fingerprint.mjs';
 import { isSecureRequest } from './request-origin.mjs';
+import { deletedScopeFromQuery, queryIncludes } from './query-options.mjs';
 export type { ApiFeedback, ApiFeedbackOptions, ApiSuccessData } from '@shared/types/api-response.mjs';
 
 const isSuccessStatus = (status: number) => status >= 200 && status < 300;
-const requestsAuthContext = (c: Context<AppEnv>) => (c.req.query('include') ?? '').split(',').map((value) => value.trim()).includes('auth');
-const requestsTableDataOnly = (c: Context<AppEnv>) => ['0', 'false'].includes((c.req.query('table_schema') ?? '').trim().toLowerCase());
+const requestsAuthContext = (c: Context<AppEnv>) => queryIncludes(c, 'include', 'auth');
 
 /** 所有 TableCRUD 统一提供回收站入口；具体回收、恢复和彻底删除动作仍由原接口驱动。 */
 const withTableUtilities = (c: Context<AppEnv>, payload: Record<string, unknown>) => {
@@ -22,7 +22,7 @@ const withTableUtilities = (c: Context<AppEnv>, payload: Record<string, unknown>
 	const actions = optionSource.actions && typeof optionSource.actions === 'object' && !Array.isArray(optionSource.actions)
 		? optionSource.actions as Record<string, unknown>
 		: {};
-	const deleted = c.req.query('deleted') === 'deleted';
+	const deleted = deletedScopeFromQuery(c) === 'deleted';
 	if (deleted) {
 		return {
 			...payload,
@@ -65,14 +65,24 @@ const withTableUtilities = (c: Context<AppEnv>, payload: Record<string, unknown>
 	};
 };
 
-const stripTableSchema = (payload: Record<string, unknown>) => {
+const selectTableResponse = (payload: Record<string, unknown>, c: Context<AppEnv>) => {
 	const table = payload.table;
 	if (!table || typeof table !== 'object' || Array.isArray(table)) return payload;
+	const includeValue = c.req.query('include')?.trim();
+	if (!includeValue) return { ...payload, table: {} };
+	const includeSchema = queryIncludes(c, 'include', 'schema');
+	const includeData = queryIncludes(c, 'include', 'data');
+	if (includeSchema && includeData) return payload;
 	const source = table as Record<string, unknown>;
-	const dataOnly = Object.fromEntries(['dataSource', 'totalRecords', 'nextCursor', 'hasMore']
+	const keys = includeSchema
+		? ['option', 'columns']
+		: includeData
+			? ['dataSource', 'totalRecords', 'nextCursor', 'hasMore']
+			: [];
+	const selected = Object.fromEntries(keys
 		.filter((key) => key in source)
 		.map((key) => [key, source[key]]));
-	return { ...payload, table: dataOnly };
+	return { ...payload, table: selected };
 };
 
 const defaultMessage = (status: number) => {
@@ -106,7 +116,7 @@ export const apiResponse = async <T extends ApiSuccessData>(
 	const refreshesAuth = Boolean(next && typeof next === 'object' && !Array.isArray(next) && (next as { refreshAuth?: unknown }).refreshAuth === true);
 	const includesAuth = requestsAuthContext(c);
 	const utilityPayload = withTableUtilities(c, payload);
-	let responseData: Record<string, unknown> = requestsTableDataOnly(c) ? stripTableSchema(utilityPayload) : utilityPayload;
+	let responseData: Record<string, unknown> = selectTableResponse(utilityPayload, c);
 	const contextProvider = c.get('apiContext');
 	if ((includesAuth || refreshesAuth) && contextProvider) {
 		responseData = { ...responseData, context: await contextProvider(c.req.query('path')) };

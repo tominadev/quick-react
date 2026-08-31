@@ -12,12 +12,14 @@ try {
 	const deviceKey = '00000000-0000-4000-8000-000000000001';
 	const fingerprintData = JSON.stringify({ canvas_cyrb53: '4b5a6c7d8e9f', audio_cyrb53: '1a2b3c4d5e6f' });
 	const request = async (path, options = {}) => {
+		const requestUrl = new URL(path, 'http://test');
+		if (!options.method && requestUrl.pathname.startsWith('/api/panel/') && !requestUrl.searchParams.has('include')) requestUrl.searchParams.set('include', 'schema,data');
 		const headers = new Headers(options.headers);
 		if (!headers.has('x-device-key')) headers.set('x-device-key', deviceKey);
 		if (!headers.has('x-device-fingerprint')) headers.set('x-device-fingerprint', fingerprintData);
 		if (options.cookie) headers.set('cookie', options.cookie);
 		if (options.body !== undefined) headers.set('content-type', 'application/json');
-		return app.request(`http://localhost${path}`, {
+		return app.request(`http://localhost${requestUrl.pathname}${requestUrl.search}`, {
 			method: options.method,
 			headers,
 			body: options.body === undefined ? undefined : JSON.stringify(options.body),

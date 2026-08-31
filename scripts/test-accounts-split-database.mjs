@@ -64,11 +64,15 @@ try {
 	passportDatabase.prepare('INSERT INTO passport_sessions (token_hash, user_id, device_id, expires_at, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?)').run(Buffer.from(await crypto.subtle.digest('SHA-256', new TextEncoder().encode(sessionId))).toString('hex'), userId, deviceId, now + 3600_000, now, now);
 	passportDatabase.close();
 
-	const request = (path, options = {}) => app.request(`http://accounts.split.test${path}`, {
+	const request = (path, options = {}) => {
+		const requestUrl = new URL(path, 'http://test');
+		if (!options.method && requestUrl.pathname.startsWith('/api/panel/') && !requestUrl.searchParams.has('include')) requestUrl.searchParams.set('include', 'schema,data');
+		return app.request(`http://accounts.split.test${requestUrl.pathname}${requestUrl.search}`, {
 		method: options.method,
 		headers: { 'x-device-key': deviceKey, 'x-device-fingerprint': fingerprintData, ...(options.cookie ? { cookie: options.cookie } : {}), ...(options.body === undefined ? {} : { 'content-type': 'application/json' }), ...options.headers },
 		body: options.body === undefined ? undefined : JSON.stringify(options.body),
-	});
+		});
+	};
 
 	// 登录页读的是 passport 库里的邮箱：已注册但没设置过密码时不给密码框，直接引导第三方登录。
 	const known = await (await request('/api/accounts/sign.php', { method: 'POST', body: { step: 'email', email: 'split@example.com' } })).json();

@@ -24,7 +24,7 @@ export type ApiNextAction =
 	/** `refreshAuth` 表示先应用响应中附带的认证上下文，再由浏览器路由切换路径。 */
 	| { action: 'navigate'; path: string; refreshAuth?: boolean };
 
-/** 后端响应层按 include=auth 返回的当前页面上下文。 */
+/** 后端响应层按 include=auth 返回的当前页面上下文，表格资源按 include=schema,data 精确选择。 */
 export type ApiContext = {
 	auth?: AuthState;
 	siteNavigation?: NavigationItem[];

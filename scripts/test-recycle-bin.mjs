@@ -12,12 +12,14 @@ try {
 	const deviceKey = '00000000-0000-4000-8000-000000000099';
 	const fingerprintData = JSON.stringify({ canvas_cyrb53: '4b5a6c7d8e9f', audio_cyrb53: '1a2b3c4d5e6f' });
 	const request = async (path, options = {}) => {
+		const requestUrl = new URL(path, 'http://test');
+		if (!options.method && requestUrl.pathname.startsWith('/api/panel/') && !requestUrl.searchParams.has('include')) requestUrl.searchParams.set('include', 'schema,data');
 		const headers = new Headers(options.headers);
 		headers.set('x-device-key', deviceKey);
 		headers.set('x-device-fingerprint', fingerprintData);
 		if (options.cookie) headers.set('cookie', options.cookie);
 		if (options.body !== undefined) headers.set('content-type', 'application/json');
-		return app.request(`http://localhost${path}`, {
+		return app.request(`http://localhost${requestUrl.pathname}${requestUrl.search}`, {
 			method: options.method,
 			headers,
 			body: options.body === undefined ? undefined : JSON.stringify(options.body),
@@ -40,7 +42,7 @@ try {
 	const activeAfter = await (await request(rowsPath, { cookie })).json();
 	assert.equal(activeAfter.table.dataSource.some((row) => row.id === fixture.id), false, '软删除记录不应出现在普通列表');
 
-	const recyclePath = `${rowsPath}&deleted=deleted`;
+	const recyclePath = `${rowsPath}&include=deleted,schema,data`;
 	const deleted = await (await request(recyclePath, { cookie })).json();
 	assert.ok(deleted.table.dataSource.some((row) => row.id === fixture.id), '软删除记录应出现在回收站');
 	assert.equal((await request(`${recyclePath}&action=restore`, { method: 'POST', cookie, body: [fixture.id] })).status, 200);
