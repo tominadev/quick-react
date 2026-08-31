@@ -11,6 +11,7 @@ import {
 	MenuUnfoldOutlined,
 } from '@ant-design/icons';
 import { Breadcrumb, Layout, Menu, theme } from 'antd';
+import { normalizePagePath } from '@shared/navigation-tree.mjs';
 const { Header, Content, Footer, Sider } = Layout;
 
 // 定义菜单项
@@ -27,11 +28,12 @@ const iconComponents = {
 	mail: <MailOutlined />,
 	appstore: <AppstoreOutlined />,
 };
-const toMenuItems = (menu: InitialMenuItem[]): MenuItem[] => menu.filter((item) => !item.hidden).map((item) => ({
+const toMenuItems = (menu: InitialMenuItem[], onTitleClick?: (key: string) => void): MenuItem[] => menu.filter((item) => !item.hidden).map((item) => ({
 	label: item.label,
 	key: item.key,
 	icon: iconComponents[item.icon as keyof typeof iconComponents],
-	children: item.children ? toMenuItems(item.children) : undefined,
+	children: item.children ? toMenuItems(item.children, onTitleClick) : undefined,
+	...(item.children && onTitleClick && item.dashboardPath ? { onTitleClick: () => onTitleClick(item.dashboardPath!) } : {}),
 }));
 const pageUrl = (path: string) => path === '/' ? path : `${path}${pageSuffix}`;
 
@@ -64,25 +66,23 @@ type AppType = {
 };
 
 function AppRouter({ commonApi, children, navigation = [], dashboardPath, title }: AppType) {
-	const items: MenuItem[] = toMenuItems(navigation);
 	const dashboardApiPath = dashboardPath ? `/api${dashboardPath}${apiSuffix}` : '';
 	const location = useLocation(); // 获取当前 URL 路径
 	const getMenuPath = (pathname: string) => {
-		const path = pageSuffix && pathname.endsWith(pageSuffix) ? pathname.slice(0, -pageSuffix.length) : pathname;
+		const path = normalizePagePath(pathname, pageSuffix);
 		return findMenuItem(navigation, path) ? path : dashboardPath ?? path;
 	};
 	const [current, setCurrent] = useState(() => getMenuPath(location.pathname)); // 同步选中状态
 	const [openKeys, setOpenKeys] = useState<string[]>(() => findParentKeys(navigation, getMenuPath(location.pathname)));
 	const navigate = useNavigate();
+	const items: MenuItem[] = toMenuItems(navigation, (path) => navigate(pageUrl(path)));
 
 	const [collapsed, setCollapsed] = useState(false);
 	const {
 		token: { colorBgContainer },
 	} = theme.useToken();
 	useEffect(() => {
-		const nextLogicalPath = pageSuffix && location.pathname.endsWith(pageSuffix)
-			? location.pathname.slice(0, -pageSuffix.length)
-			: location.pathname;
+		const nextLogicalPath = normalizePagePath(location.pathname, pageSuffix);
 		const menuPath = getMenuPath(nextLogicalPath);
 		setCurrent(menuPath); // URL 变化时同步菜单高亮
 		setOpenKeys(findParentKeys(navigation, menuPath));

@@ -35,7 +35,11 @@
 - 操作完成后的刷新、跳转、弹窗、关闭窗口及目标路径必须由后端通过统一响应协议明确下发；前端业务组件不得根据接口路径、站点类型、登录模式、返回数据或当前页面自行推断下一步。前端只能在统一协议执行器中把稳定 action 映射为通用界面行为。
 - 共享行为优先下沉到 `base` 或能力模块；不得仅因站点键是 `passport`、`global` 或某个业务站点而复制、裁剪接口或字段。只有站点确实提供独立业务能力时才保留覆盖，并优先通过 `siteProvidesApi`、角色或后端能力配置判定，而不是比较站点名称。
 - `passport`、`global`、`pve` 及其他业务站点的后台管理必须遵循同一套 `panel/admin` 导航、权限、页面和 API 约定；站点只提供自己的业务子菜单和能力，不得为某个站点创建特殊登录、CRUD 或后台交互逻辑。
-- 站点管理菜单统一挂在 `/panel/admin/<site>` 下（例如 `/panel/admin/pve`），不得把业务管理功能作为顶级菜单；公共后台行为由 `base` 统一提供。
+- 站点管理菜单统一挂在 `/panel/admin/<site>` 下（例如 `/panel/admin/base`、`/panel/admin/pve`），不得把业务管理功能作为顶级菜单；公共后台行为由 `base` 统一提供。Base 的菜单、页面、API、代码路由目录和数据表前缀必须对应：`/panel/admin/base/...`、`/api/panel/admin/base/...`、`server/routes/base/api/panel/admin/base/...`、`base_*`。
+- `/panel/admin` 是可直接点击且保留注册的管理后台根入口；导航协议必须下发当前站点继承链中由业务代码站点提供的默认 Dashboard 路径，菜单标题或入口页面点击后直接进入该页面，根入口本身不请求 Dashboard API，也不把 Base Dashboard 作为默认页面。页面目录入口 `/panel/admin/` 逻辑上对应 `/panel/admin/index.html`；无尾斜杠的目录请求仅规范化到带尾斜杠的目录 URL，响应使用 `Cache-Control: no-store`，避免 CDN 缓存 302；带尾斜杠、目录 `index`、无后缀和配置后缀是同一页面的访问别名并直接返回页面内容。
+- 管理后台的左侧菜单以 `/panel/admin` 根节点的 children 作为模块入口（例如基础管理、全局管理和业务站点管理），当前模块的子菜单继续嵌套在对应模块下；不得只把当前 Dashboard 所属模块的子树裁剪成唯一侧栏。
+- 后台行为由站点的父级代码站点和继承链决定；未显式配置父站点时默认继承 `base`。子站点只覆盖自己的能力，不复制或改写父站点的页面、API 和数据归属路径。
+- `base` 提供公共后台能力和基础管理 Dashboard；每个业务代码站点仍必须使用自身的菜单、页面和 API 路径提供自己的 Dashboard，并显式声明默认入口，不能被 Base Dashboard 覆盖。
 - API 和页面路径保持对应关系，例如 `/panel/me` 对应 `/api/panel/me`。
 - 后端返回能由 `key`、`route` 或配置生成的数据时，不重复返回 `href`、`url`、`visible` 等冗余字段。
 - 查询条件只在用户点击后端提供的查询 action 后应用（这里的"用户"指网站用户）；编辑中的查询值不得自动触发列表请求。

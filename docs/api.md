@@ -77,22 +77,30 @@ GET /api/health
 {"ok":true}
 ```
 
-## 管理后台 Dashboard
+## 站点管理后台 Dashboard
 
 ```text
-GET /api/panel/admin/dashboard
+GET /api/panel/admin/global/dashboard
+GET /api/panel/admin/passport/dashboard
+GET /api/panel/admin/pve/dashboard
+GET /api/panel/admin/aliyun/dashboard
+GET /api/panel/admin/base/dashboard
 ```
 
-返回管理后台统计数据、最近记录及最近记录的列配置，数据由后端当前数据源实时计算。Dashboard 前端不再固定列结构。
+Base 和每个业务代码站点都提供自己的 Dashboard，返回对应数据源的统计数据、最近记录及最近记录的列配置，数据由后端当前数据源实时计算。业务站点通过导航显式声明自己的默认 Dashboard，避免 Base Dashboard 覆盖业务入口；Dashboard 前端不固定列结构。
 
-接口文件按请求路径放置在 `server/routes/<site_key>/api/` 目录中，并由网关按站点继承链从根到叶子逐级执行。叶子接口同时支持无后缀和配置的 API 后缀，例如 `/api/panel/admin/data/rows` 与 `/api/panel/admin/data/rows.php` 等价。当前接口包括：
+接口文件按请求路径放置在 `server/routes/<site_key>/api/` 目录中，并由网关按站点继承链从根到叶子逐级执行。叶子接口同时支持无后缀和配置的 API 后缀，例如 `/api/panel/admin/base/data/rows` 与 `/api/panel/admin/base/data/rows.php` 等价。当前接口包括：
 
 ```text
-/api/panel/admin/dashboard
-/api/panel/admin/data/columns
-/api/panel/admin/data/rows
-/api/panel/admin/settings/tech-stack
-/api/panel/admin/settings/system-config
+/api/panel/admin/global/dashboard
+/api/panel/admin/passport/dashboard
+/api/panel/admin/pve/dashboard
+/api/panel/admin/aliyun/dashboard
+/api/panel/admin/base/dashboard
+/api/panel/admin/base/data/columns
+/api/panel/admin/base/data/rows
+/api/panel/admin/base/settings/tech-stack
+/api/panel/admin/base/settings/system-config
 /api/page-status
 /api/sign
 ```

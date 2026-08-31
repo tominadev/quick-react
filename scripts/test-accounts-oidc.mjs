@@ -124,7 +124,7 @@ try {
 	assert.equal(invalidResponse.status, 400);
 	assert.equal(invalidMessage.match(/https:\/\/site1\.test\/api\/accounts\/oidc\/callback/g)?.length, 1, '手工地址与自动地址重合时只显示一次');
 	// 启用 Accounts 登录的业务站点：需要登录的页面直接弹窗，不再跳登录页，也不给本地注册入口。
-	const businessDocument = await (await app.request('https://site1.test/panel/admin.html', { headers: { accept: 'text/html' } })).text();
+	const businessDocument = await (await app.request('https://site1.test/panel/admin/base/users.html', { headers: { accept: 'text/html' } })).text();
 	const businessInitial = JSON.parse(businessDocument.match(/__INITIAL_DATA__=(\{.*?\});<\/script>/s)[1]);
 	assert.deepEqual(businessInitial.auth.actions.map((action) => [action.key, action.action]), [['/sign', 'accounts-login']]);
 	assert.equal(businessInitial.pageStatus.status, 401);
@@ -164,7 +164,7 @@ try {
 	assert.equal(claims.preferred_username, 'oidcuser1');
 	assert.equal(signedInBusiness.user.username, 'oidcuser1');
 	assert.deepEqual(signedInBusiness.formPage.passportLogin, { enabled: true });
-	const signedInAuth = await (await app.request('https://site1.test/api/home.php?include=auth&path=%2Fpanel%2Fadmin.html', { headers: { cookie: businessSessionCookie, 'x-device-key': deviceKey, 'x-device-fingerprint': fingerprintData } })).json();
+	const signedInAuth = await (await app.request('https://site1.test/api/home.php?include=auth&path=%2Fpanel%2Fadmin%2Fbase%2Fusers', { headers: { cookie: businessSessionCookie, 'x-device-key': deviceKey, 'x-device-fingerprint': fingerprintData } })).json();
 	assert.ok(signedInAuth.context);
 	assert.equal(signedInAuth.context.auth.currentUser.username, 'oidcuser1');
 	assert.ok(Array.isArray(signedInAuth.context.siteNavigation));
@@ -174,12 +174,12 @@ try {
 	businessUsers.close();
 	const completed = new DatabaseSync(process.env.DEFAULT_DATABASE_FILE, { readOnly: true });
 	assert.equal(completed.prepare('SELECT COUNT(*) AS count FROM base_oidc_users').get().count, 1); completed.close();
-	const logoutStart = await app.request('https://site1.test/api/sign.php', { method: 'DELETE', headers: { cookie: businessSessionCookie, referer: 'https://site1.test/panel/admin.html', 'x-device-key': deviceKey, 'x-device-fingerprint': fingerprintData } });
+	const logoutStart = await app.request('https://site1.test/api/sign.php', { method: 'DELETE', headers: { cookie: businessSessionCookie, referer: 'https://site1.test/panel/admin/base/users.html', 'x-device-key': deviceKey, 'x-device-fingerprint': fingerprintData } });
 	const logoutResult = await logoutStart.json();
 	assert.equal(logoutStart.status, 200);
 	assert.equal(logoutResult.redirectTo, undefined);
 	assert.equal(logoutResult.logoutUrl, undefined);
-	assert.deepEqual(logoutResult.next, { action: 'navigate', path: '/panel/admin.html', refreshAuth: true });
+	assert.deepEqual(logoutResult.next, { action: 'navigate', path: '/panel/admin/base/users.html', refreshAuth: true });
 	const revoked = new DatabaseSync(process.env.DEFAULT_DATABASE_FILE, { readOnly: true });
 	assert.equal(revoked.prepare('SELECT COUNT(*) AS count FROM passport_sessions WHERE token_hash = ?').get(passportSessionHash).count, 0);
 	revoked.close();

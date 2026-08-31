@@ -39,7 +39,7 @@ try {
 	assert.match(missing.body, /页面不存在/);
 
 	// 未登录访问需要登录的路径。
-	const anonymousPanel = await document('/panel/admin.html');
+	const anonymousPanel = await document('/panel/admin/global/dashboard.html');
 	assert.equal(anonymousPanel.response.status, 401);
 	assert.equal(anonymousPanel.pageStatus.title, '请先登录');
 	assert.deepEqual(anonymousPanel.pageStatus.actions.map((action) => action.key), ['/sign', '/']);
@@ -62,7 +62,7 @@ try {
 	assert.equal(new URL(withoutSuffix.response.headers.get('location')).search, '?from=test');
 
 	// JSON 接口给出同样的提示，供前端路由兜底使用。
-	const anonymousStatus = await (await request('/api/page-status.php?path=/panel/admin')).json();
+	const anonymousStatus = await (await request('/api/page-status.php?path=/panel/admin/global/dashboard')).json();
 	assert.equal(anonymousStatus.pageStatus.status, 401);
 	const unknownStatus = await (await request('/api/page-status.php?path=/no-such-page')).json();
 	assert.equal(unknownStatus.pageStatus.status, 404);
@@ -76,11 +76,11 @@ try {
 	assert.ok(adminCookie);
 
 	// 管理员可以正常打开管理后台。
-	const adminPanel = await document('/panel/admin.html', { cookie: adminCookie });
+	const adminPanel = await document('/panel/admin/global/dashboard.html', { cookie: adminCookie });
 	assert.equal(adminPanel.response.status, 200);
 	assert.equal(adminPanel.pageStatus, undefined);
 
-	assert.equal((await request('/api/panel/admin/system/users.php', {
+	assert.equal((await request('/api/panel/admin/base/users.php', {
 		method: 'POST', cookie: adminCookie, body: { username: 'page_user', password: 'test-password-123', roles: [], status: 'enabled' },
 	})).status, 201);
 	const userLogin = await request('/api/sign.php', { method: 'POST', body: { username: 'page_user', password: 'test-password-123' } });
@@ -88,11 +88,11 @@ try {
 	assert.ok(userCookie);
 
 	// 已登录但角色不足。
-	const forbidden = await document('/panel/admin.html', { cookie: userCookie });
+	const forbidden = await document('/panel/admin/global/dashboard.html', { cookie: userCookie });
 	assert.equal(forbidden.response.status, 403);
 	assert.equal(forbidden.pageStatus.title, '无权访问');
 	assert.match(forbidden.pageStatus.description, /page_user/);
-	const forbiddenStatus = await (await request('/api/page-status.php?path=/panel/admin', { cookie: userCookie })).json();
+	const forbiddenStatus = await (await request('/api/page-status.php?path=/panel/admin/global/dashboard', { cookie: userCookie })).json();
 	assert.equal(forbiddenStatus.pageStatus.status, 403);
 
 	// 已登录用户访问不存在的路径仍然是 404。

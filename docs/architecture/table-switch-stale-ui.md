@@ -13,7 +13,7 @@
 
 ## 根因
 
-数据管理的表格页面路径始终是同一个，例如 `/panel/admin/data/rows`。切换数据表时，只改变 `table` 查询参数，并不会改变 React 路由路径。因此 React 会按照正常的协调（reconciliation）规则继续复用 `TableCRUD` 组件。
+数据管理的表格页面路径始终是同一个，例如 `/panel/admin/base/data/rows`。切换数据表时，只改变 `table` 查询参数，并不会改变 React 路由路径。因此 React 会按照正常的协调（reconciliation）规则继续复用 `TableCRUD` 组件。
 
 组件复用本身是正确行为，问题在于旧实现没有把“表名”视为表格实例的身份：
 

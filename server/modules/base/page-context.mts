@@ -1,7 +1,7 @@
 import type { Context } from 'hono';
 import type { AppEnv } from './types.mjs';
 import type { AuthPage, AuthState, HeaderAction, PageStatus } from '@shared/types/initial-data.mjs';
-import { findNavigationItem, stripPageSuffix } from '@shared/navigation-tree.mjs';
+import { findNavigationItem, normalizePagePath, stripPageSuffix } from '@shared/navigation-tree.mjs';
 import { getFullSiteNavigation, getPageDefinitions, getSiteNavigation } from './navigation.mjs';
 import { firstSql, sql } from '../../database/sql.mjs';
 
@@ -80,7 +80,7 @@ export const resolvePageStatus = async (
 	paths: ReturnType<typeof resolvePagePaths> = resolvePagePaths(c, auth),
 ): Promise<PageStatus | undefined> => {
 	const pageSuffix = c.get('techStackConfig').pageSuffix;
-	const logicalPath = stripPageSuffix(requestPath, pageSuffix);
+	const logicalPath = normalizePagePath(requestPath, pageSuffix);
 	const { allowed, known } = paths;
 	if (allowed.has(logicalPath)) return undefined;
 	const home = { key: '/', label: '返回首页', action: 'navigate' as const };

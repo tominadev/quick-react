@@ -10,10 +10,10 @@ import type { HomePageData } from '@shared/types/home.mjs';
 import type { FormPageResponse } from '@shared/types/form-page.mjs';
 import type { TableResponse } from '@shared/types/table.mjs';
 import type { AccountCenterLink, UserIdentity } from '@shared/types/user.mjs';
-import { collectPageDefinitions, matchNavigationKey, stripPageSuffix, type NavigationPageDefinition } from '@shared/navigation-tree.mjs';
+import { collectPageDefinitions, matchNavigationKey, normalizePagePath, stripPageSuffix, type NavigationPageDefinition } from '@shared/navigation-tree.mjs';
 import { useState, useEffect, useMemo, useRef } from 'react';
 import { useNavigate, useLocation } from 'react-router-dom';
-import { BrowserRouter as Router, Routes, Route } from 'react-router-dom';
+import { BrowserRouter as Router, Navigate, Routes, Route } from 'react-router-dom';
 import { Layout, Menu, Result, Space } from 'antd';
 import { AppstoreOutlined, MailOutlined } from '@ant-design/icons';
 import DescribeInstances from './components/aliyun/DescribeInstances.js';
@@ -34,6 +34,15 @@ type MenuItem = Required<MenuProps>['items'][number];
 const serverData = (window as Window & { __INITIAL_DATA__?: InitialData }).__INITIAL_DATA__;
 const initialData = serverData ?? { apiSuffix: '', pageSuffix: '', siteName: 'Quick React', siteNavigation: [] };
 const pageUrl = (path: string) => path === '/' ? path : `${path}${initialData.pageSuffix}`;
+const pageRouteAliases = (page: PageDefinition) => {
+	const canonical = pageUrl(page.path);
+	const aliases = [canonical];
+	if (page.path !== '/') {
+		aliases.push(page.path, `${page.path}/`, `${canonical}/`);
+		if (page.component === 'panelRoot') aliases.push(`${page.path}/index${initialData.pageSuffix}`);
+	}
+	return [...new Set(aliases)];
+};
 
 type PageDefinition = NavigationPageDefinition;
 type BootstrapResponse = FormPageResponse & {
@@ -55,8 +64,10 @@ const toMenuItems = (menu: NavigationItem[], onTitleClick?: (key: string) => voi
 	label: item.label,
 	key: item.key,
 	icon: iconComponents[item.icon as keyof typeof iconComponents],
-	children: item.children && item.dropdown !== false ? toMenuItems(item.children, onTitleClick) : undefined,
-	...(item.children && onTitleClick ? { onTitleClick: () => onTitleClick(item.key) } : {}),
+	// 管理后台根入口是一个可点击的目录页面；顶部菜单不展开它的后台子菜单，
+	// 进入后由 panelRoot 页面切换到后端下发的默认 Dashboard。
+	children: item.children && item.component !== 'panelRoot' ? toMenuItems(item.children, onTitleClick) : undefined,
+	...(item.children && item.component !== 'panelRoot' && onTitleClick && item.dashboardPath ? { onTitleClick: () => onTitleClick(item.dashboardPath!) } : {}),
 }));
 
 
@@ -103,7 +114,7 @@ export const App = ({ commonApi }: AppType) => {
 	);
 	const pages = useMemo(() => collectPageDefinitions(navigation), [navigation]);
 	const authPages: PageDefinition[] = useMemo(() => (auth?.pages ?? []).map((page) => ({
-		path: page.path,
+		path: normalizePagePath(page.path, initialData.pageSuffix),
 		component: 'sign',
 		title: page.title,
 		description: page.description ?? '',
@@ -141,6 +152,7 @@ export const App = ({ commonApi }: AppType) => {
 			const apiPath = `/api${page.dashboardPath ?? ''}${initialData.apiSuffix}`;
 			return <Panel commonApi={commonApi} navigation={page.navigation} dashboardPath={page.dashboardPath} title={page.title}><Dashboard commonApi={commonApi} apiPath={apiPath} initialData={bootstrapResponseFor(apiPath)?.dashboard} /></Panel>;
 		},
+		panelRoot: (page) => <Navigate to={page.dashboardPath ? pageUrl(page.dashboardPath) : '/'} replace />,
 		dashboard: (page) => {
 			const apiPath = `/api${page.path}${initialData.apiSuffix}`;
 			return <Panel commonApi={commonApi} navigation={page.navigation} dashboardPath={page.dashboardPath} title={page.title}><Dashboard commonApi={commonApi} apiPath={apiPath} initialData={bootstrapResponseFor(apiPath)?.dashboard} /></Panel>;
@@ -167,8 +179,7 @@ export const App = ({ commonApi }: AppType) => {
 	const routes = [...pages, ...authPages].flatMap((page) => {
 		const render = pageRenderers[page.component];
 		if (!render) return [];
-		const routePath = page.component === 'sign' ? page.path : pageUrl(page.path);
-		return [{ path: routePath, element: render(page) }];
+		return pageRouteAliases(page).map((routePath) => ({ path: routePath, element: render(page) }));
 	});
 	routes.push({ path: pageUrl('/accounts/external/callback'), element: <ExternalCallback commonApi={commonApi} /> });
 	// 兜底路由：路径不存在、未登录或无权访问时展示后端下发的提示。
@@ -183,7 +194,7 @@ export const App = ({ commonApi }: AppType) => {
 		document.body.style.margin = '0';
 		document.body.style.height = '100%';
 		document.documentElement.style.height = '100%';
-		const logicalPath = stripPageSuffix(location.pathname, initialData.pageSuffix);
+		const logicalPath = normalizePagePath(location.pathname, initialData.pageSuffix);
 		// 只高亮真正匹配当前路径的顶层菜单；没有匹配项时不高亮。
 		setCurrent(matchNavigationKey(items.map((item) => item && typeof item.key === 'string' ? item.key : ''), logicalPath));
 		const page = [...pages, ...authPages].find((item) => item.path === logicalPath);

@@ -32,7 +32,7 @@ Base 的 `base_session` 使用滑动过期策略：有效请求会把数据库 `
 
 ## 页面访问状态
 
-`server/modules/base/page-context.mts` 在渲染文档前判断请求路径能否打开，并把结果写入 `initialData.pageStatus`：路径不存在返回 `404`，需要登录返回 `401`，角色不足返回 `403`；文档响应使用同一状态码，提示标题、说明和按钮全部由后端下发。合法路径缺少页面后缀时先 `302` 跳转到带后缀的规范地址。
+`server/modules/base/page-context.mts` 在渲染文档前判断请求路径能否打开，并把结果写入 `initialData.pageStatus`：路径不存在返回 `404`，需要登录返回 `401`，角色不足返回 `403`；文档响应使用同一状态码，提示标题、说明和按钮全部由后端下发。页面后缀、尾斜杠和目录 `index` 由服务端解析为同一逻辑页面；目录无尾斜杠请求按常见 Web 服务器约定规范化到带尾斜杠地址，302 响应明确使用 `Cache-Control: no-store`，避免 CDN 缓存，带尾斜杠和 `index` 页面本身直接返回 `200`；例如 `/panel/admin/` 逻辑上对应 `/panel/admin/index.html`。
 
 前端在路由表末尾注册兜底路由 `src/components/common/StatusPage.tsx`，优先使用 `initialData.pageStatus`；前端路由跳转到未注册路径时改为请求 `/api/page-status` 获取同一份提示，避免出现空白页面。
 
@@ -40,9 +40,17 @@ Base 的 `base_session` 使用滑动过期策略：有效请求会把数据库 `
 
 普通后台页面由后端提供导航、组件标识、表格列和数据接口；前端只负责通用布局、表格和表单渲染。新增常规 CRUD 页面时，在 `server/routes/<site_key>/navigation.mts` 增加导航，并在同一站点的 `api/` 下增加接口文件，无需手工修改路由表。
 
-公共请求和反馈层位于 `src/utils/common/`：`api.tsx` 负责请求加载状态、错误拦截和 `feedback` 展示，`feedback.ts` 负责跳转延迟计算；`src/utils/common/response-action.ts` 只执行后端下发的统一完成动作。认证切换使用 `navigate + refreshAuth`：登录、退出等响应由 Base 响应层自动附带认证上下文，应用用浏览器路由更新当前页面，不重新加载 `bundle.js`；需要主动读取上下文时，任意 API 追加 `include=auth`（可同时传 `path`）即可，响应中的 `context` 包含认证、导航和页面状态，不再维护独立的 `/api/auth` 接口。普通 `navigate` 仍按协议执行完整页面导航，`reload` 可带秒级 `delay` 以便先展示成功反馈；`src/components/common/Countdown.tsx` 提供登录和配置表单共用的倒计时组件。站点设置中的 `apiBootstrapEnabled` 默认关闭：关闭时服务端把认证和导航上下文注入 HTML，开启时只输出不含用户状态的公共页面壳；应用会根据当前页面选择首个数据 API（例如 `/panel/admin/dashboard.html` 请求 `/api/panel/admin/dashboard.php?include=auth,schema,data`），该响应同时提供页面数据、认证、导航和页面状态，并由对应的通用组件直接复用，避免先请求首页接口再请求当前页面接口。TableCRUD 请求必须显式携带资源：首次加载结构和数据时追加 `include=schema,data`，后续分页、搜索和刷新请求改用 `include=data`，公共响应层按 include 精确返回资源；`include=schema` 只返回结构，不带 include 不返回表资源。回收站使用 `include=deleted,schema,data` 首次加载和 `include=deleted,data` 后续加载，正常请求可用 `exclude=deleted` 明确表示排除删除记录。列、操作和查询配置由前端复用，切换表时重新加载完整结构。页面壳可交给 CDN 缓存。服务端响应输出统一由 `server/modules/base/api-response.mts` 负责，业务 API 不直接调用 `c.json()`。
+公共请求和反馈层位于 `src/utils/common/`：`api.tsx` 负责请求加载状态、错误拦截和 `feedback` 展示，`feedback.ts` 负责跳转延迟计算；`src/utils/common/response-action.ts` 只执行后端下发的统一完成动作。认证切换使用 `navigate + refreshAuth`：登录、退出等响应由 Base 响应层自动附带认证上下文，应用用浏览器路由更新当前页面，不重新加载 `bundle.js`；需要主动读取上下文时，任意 API 追加 `include=auth`（可同时传 `path`）即可，响应中的 `context` 包含认证、导航和页面状态，不再维护独立的 `/api/auth` 接口。普通 `navigate` 仍按协议执行完整页面导航，`reload` 可带秒级 `delay` 以便先展示成功反馈；`src/components/common/Countdown.tsx` 提供登录和配置表单共用的倒计时组件。站点设置中的 `apiBootstrapEnabled` 默认关闭：关闭时服务端把认证和导航上下文注入 HTML，开启时只输出不含用户状态的公共页面壳；应用会根据当前页面选择首个数据 API（例如 `/panel/admin/global/dashboard.html` 请求 `/api/panel/admin/global/dashboard.php?include=auth,schema,data`），该响应同时提供页面数据、认证、导航和页面状态，并由对应的通用组件直接复用，避免先请求首页接口再请求当前页面接口。TableCRUD 请求必须显式携带资源：首次加载结构和数据时追加 `include=schema,data`，后续分页、搜索和刷新请求改用 `include=data`，公共响应层按 include 精确返回资源；`include=schema` 只返回结构，不带 include 不返回表资源。回收站使用 `include=deleted,schema,data` 首次加载和 `include=deleted,data` 后续加载，正常请求可用 `exclude=deleted` 明确表示排除删除记录。列、操作和查询配置由前端复用，切换表时重新加载完整结构。页面壳可交给 CDN 缓存。服务端响应输出统一由 `server/modules/base/api-response.mts` 负责，业务 API 不直接调用 `c.json()`。
 
-API 使用物理目录作为分层中间件链。构建阶段扫描 `server/routes/*/api`，生成 Worker 可静态打包的站点路由和模块注册表；运行时不扫描文件系统。每一层优先使用当前站点实现，缺少时沿继承链回退到 `base`。动态 ID 作为参数传给已匹配的叶子处理文件，例如 `/api/panel/admin/data/rows/row-1` 仍由 `rows.mts` 处理。
+API 使用物理目录作为分层中间件链。构建阶段扫描 `server/routes/*/api`，生成 Worker 可静态打包的站点路由和模块注册表；运行时不扫描文件系统。每一层优先使用当前站点实现，缺少时沿继承链回退到 `base`。动态 ID 作为参数传给已匹配的叶子处理文件，例如 `/api/panel/admin/base/data/rows/row-1` 仍由 `rows.mts` 处理。
+
+### 菜单、页面、API 与数据归属路径
+
+同一个能力的菜单路径、页面路径、API 路径、代码路由目录和数据库表前缀必须保持一一对应。管理后台根节点 `/panel/admin` 注册为仅负责入口切换的页面，目录入口 `/panel/admin/` 逻辑上对应 `/panel/admin/index.html`；无尾斜杠目录请求只做带 `no-store` 的 302 规范化，带尾斜杠、无后缀、配置后缀和目录 `index` 均由服务端直接返回同一页面内容。导航协议下发当前站点的默认 Dashboard 路径，菜单标题和入口页面都由通用前端直接导航到该路径；根页面本身不请求 Dashboard API。基础层后台统一使用 `base` 段：菜单节点为 `/panel/admin/base`，页面使用 `/panel/admin/base/...`，API 使用 `/api/panel/admin/base/...`，实现位于 `server/routes/base/api/panel/admin/base/...`，数据表使用 `base_*` 前缀。Base 同时提供 `/panel/admin/base/dashboard` 基础管理 Dashboard；每个业务代码站点也必须在自身路径下提供 Dashboard，并显式声明自己的默认入口，避免被 Base Dashboard 覆盖。站点能力使用自身代码站点段，例如 `global`、`passport`、`pve` 和 `aliyun`；不得让基础能力继续使用 `system`、`data` 等脱离归属的顶层路径。
+
+后台页面的侧栏以管理根节点 `/panel/admin` 的 children 作为模块入口，显示基础管理、全局管理及当前继承链中的业务管理；模块自己的 children 继续作为该模块的嵌套菜单。这样切换任意后台页面时都保留统一的模块级导航，不因当前页面属于某个 Dashboard 而丢失其它管理模块。
+
+后台行为由当前站点的父级代码站点和继承链决定；未显式配置父站点时默认继承 `base`。子站点只覆盖需要改变的能力，其余页面、API 和数据表继续由父站点提供，不复制父站点实现，也不改变父站点的数据归属。
 
 ## 服务端模块目录
 
@@ -70,8 +78,9 @@ API 目录本身就是分层中间件链，每一级目录都可以在进入子�
   -> routes/<site>/api.mts
   -> api/panel.mts
   -> api/panel/admin.mts
-  -> api/panel/admin/data.mts
-  -> api/panel/admin/data/rows.mts
+  -> api/panel/admin/base.mts
+  -> api/panel/admin/base/data.mts
+  -> api/panel/admin/base/data/rows.mts
 ```
 
 目录处理器可以直接返回响应，熔断后续执行；也可以调用 `next()` 继续进入下一级：

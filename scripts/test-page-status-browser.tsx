@@ -42,7 +42,7 @@ const commonApi = {
 			},
 		}), { headers: { 'content-type': 'application/json' } });
 		return new Response(JSON.stringify({
-			pageStatus: { path: '/panel/admin.html', status: 403, title: '无权访问', description: '当前账号没有访问权限', actions: [{ key: '/', label: '返回首页', action: 'navigate' }] },
+		pageStatus: { path: '/panel/admin/global/dashboard.html', status: 403, title: '无权访问', description: '当前账号没有访问权限', actions: [{ key: '/', label: '返回首页', action: 'navigate' }] },
 		}), { headers: { 'content-type': 'application/json' } });
 	},
 };
@@ -64,19 +64,19 @@ assert.deepEqual(requests, [], '已有服务端提示时不应请求页面状态
 cleanup();
 
 // 前端路由跳转到未注册路径时向后端查询提示。
-renderStatusPage('/panel/admin.html', {
+	renderStatusPage('/panel/admin/global/dashboard.html', {
 	path: '/other.html', status: 404, title: '页面不存在', description: '没有找到路径 /other.html',
 	actions: [{ key: '/', label: '返回首页', action: 'navigate' }],
 });
 await waitFor(() => assert.ok(screen.getByText('无权访问')));
-assert.deepEqual(requests, ['/api/page-status.php?path=%2Fpanel%2Fadmin.html']);
+	assert.deepEqual(requests, ['/api/page-status.php?path=%2Fpanel%2Fadmin%2Fglobal%2Fdashboard.html']);
 assert.ok(screen.getByText('当前账号没有访问权限'));
 cleanup();
 
 // 本地登录 action 在当前页面打开后端表单，不再跳转 /sign.html。
 requests.length = 0;
-renderStatusPage('/panel/admin.html', {
-	path: '/panel/admin.html', status: 401, title: '请先登录', description: '登录后才能继续',
+renderStatusPage('/panel/admin/global/dashboard.html', {
+	path: '/panel/admin/global/dashboard.html', status: 401, title: '请先登录', description: '登录后才能继续',
 	actions: [{ key: '/sign', label: '登录', action: 'local-login', icon: 'login' }],
 });
 screen.getByRole('button', { name: /登录/ }).click();
@@ -104,11 +104,11 @@ const StableApiLogin = () => {
 		contextHolder,
 		React.createElement(StatusPage, {
 			commonApi: api, apiSuffix: '.php', pageSuffix: '.html',
-			pageStatus: { path: '/panel/admin.html', status: 401, title: '请先登录', description: '登录后才能继续', actions: [{ key: '/sign', label: '登录', action: 'local-login', icon: 'login' }] },
+			pageStatus: { path: '/panel/admin/global/dashboard.html', status: 401, title: '请先登录', description: '登录后才能继续', actions: [{ key: '/sign', label: '登录', action: 'local-login', icon: 'login' }] },
 		}),
 	);
 };
-render(React.createElement(MemoryRouter, { initialEntries: ['/panel/admin.html'] }, React.createElement(StableApiLogin)));
+render(React.createElement(MemoryRouter, { initialEntries: ['/panel/admin/global/dashboard.html'] }, React.createElement(StableApiLogin)));
 screen.getByRole('button', { name: /登录/ }).click();
 await waitFor(() => assert.ok(screen.getByText('稳定引用登录表单')));
 await new Promise((resolve) => setTimeout(resolve, 60));

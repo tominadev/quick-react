@@ -66,10 +66,19 @@ export const initializeCodeSites = async (
 	database: DatabaseAdapter,
 	codeSites: readonly string[],
 	siteNames: Record<string, string> = {},
+	legacySiteNames: Record<string, string> = {},
 ) => {
 	for (const siteKey of codeSites) {
 		if (!siteKeyPattern.test(siteKey) || siteKey === 'base') continue;
 		const name = siteNames[siteKey] || siteKey;
-		await runSql(database, sql({ database }).ignoreInsert('global_sites', ['key'], { key: siteKey, name, base_site_key: 'base', dsn: '', database_binding: '', status: 'enabled', migration_status: 'ready', is_default: 0, is_system: 0 }));
+		const existing = await firstSql<{ name: string }>(database, sql({ database }).select({ table: 'global_sites', columns: { name: 'name' }, where: [{ column: 'key', value: siteKey }] }));
+		if (!existing) {
+			await runSql(database, sql({ database }).insert('global_sites', { key: siteKey, name, base_site_key: 'base', dsn: '', database_binding: '', status: 'enabled', migration_status: 'ready', is_default: 0, is_system: 0 }));
+			continue;
+		}
+		// 仅修正过去由首个导航项误填的默认名称，不覆盖主人手工设置的站点名称。
+		if (legacySiteNames[siteKey] && existing.name === legacySiteNames[siteKey] && existing.name !== name) {
+			await runSql(database, sql({ database }).update('global_sites', { name }, { key: siteKey }));
+		}
 	}
 };

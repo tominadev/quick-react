@@ -17,6 +17,19 @@ export const stripPageSuffix = (path: string, pageSuffix: string) => (
 	pageSuffix && path.endsWith(pageSuffix) ? path.slice(0, -pageSuffix.length) : path
 );
 
+/** 页面逻辑路径统一不带尾斜杠，根路径除外。 */
+export const stripTrailingSlash = (path: string) => path.length > 1 ? path.replace(/\/+$/, '') : path;
+
+/** 目录页面使用 index 作为物理入口，但导航仍以目录逻辑路径注册。 */
+export const normalizePagePath = (path: string, pageSuffix = '') => {
+	const withoutSuffix = stripPageSuffix(path, pageSuffix);
+	const withoutTrailingSlash = stripTrailingSlash(withoutSuffix);
+	if (withoutTrailingSlash === '/index') return '/';
+	return withoutTrailingSlash.endsWith('/index')
+		? withoutTrailingSlash.slice(0, -'/index'.length) || '/'
+		: withoutTrailingSlash;
+};
+
 /**
  * 顶层菜单高亮：取与当前路径匹配的最长 key，`/` 只匹配自身；
  * 没有任何菜单匹配时返回空串，调用方据此清空高亮。
@@ -76,14 +89,37 @@ export const findNavigationItem = (items: NavigationItem[], key: string): Naviga
 	return undefined;
 };
 
+/** 菜单组可以把任意层级下的第一个 Dashboard 作为默认入口。 */
+const findDashboardPath = (items: NavigationItem[] = []): string | undefined => {
+	for (const item of items) {
+		if (item.component === 'dashboard') return String(item.key);
+		const nested = findDashboardPath(item.children);
+		if (nested) return nested;
+	}
+	return undefined;
+};
+
+/** 为导航组补齐默认 Dashboard 路径，供通用菜单直接导航。 */
+export const resolveDashboardPaths = (items: NavigationItem[]): NavigationItem[] => items.map((item) => {
+	const children = item.children ? resolveDashboardPaths(item.children) : undefined;
+	const dashboardPath = item.dashboardPath ?? findDashboardPath(children);
+	return {
+		...item,
+		...(children ? { children } : {}),
+		...(dashboardPath ? { dashboardPath } : {}),
+	};
+});
+
 export const collectPageDefinitions = (
 	items: NavigationItem[],
 	navigation: NavigationItem[] = items,
 	dashboardPath?: string,
 ): NavigationPageDefinition[] => items.flatMap((item) => {
-	const pageNavigation = item.navigationGroup || item.component === 'panel' ? item.children ?? [] : navigation;
+	// 后台页面共享管理根节点的 children（基础管理、业务站点管理等），
+	// 这样侧栏既能切换模块，也能展开当前模块自己的子菜单。
+	const pageNavigation = item.component === 'panel' || item.component === 'panelRoot' ? item.children ?? [] : navigation;
 	const pageDashboardPath = item.dashboardPath
-		?? (item.component === 'panel' ? item.children?.find((child) => child.component === 'dashboard')?.key : dashboardPath);
+		?? (item.component === 'panel' || item.component === 'panelRoot' ? findDashboardPath(item.children) : dashboardPath);
 	const pages = typeof item.component === 'string' && typeof item.title === 'string'
 		? [{ path: String(item.key), component: item.component, title: item.title, description: String(item.description ?? ''), navigation: pageNavigation, dashboardPath: pageDashboardPath }]
 		: [];

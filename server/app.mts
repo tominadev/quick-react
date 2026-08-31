@@ -80,9 +80,13 @@ const migrateSite = async (siteKey: string) => {
 		throw error;
 	}
 };
-await initializeCodeSites(defaultDatabase, workerCodeSites, Object.fromEntries(
-	Object.entries(workerSiteNavigations).map(([siteKey, navigation]) => [siteKey, navigation[0]?.label || siteKey]),
-));
+const codeSiteNames = Object.fromEntries(Object.entries(workerSiteNavigations).map(([siteKey, navigation]) => {
+	const management = navigation.find((item) => item.key === 'panel/admin' || item.key === '/panel/admin');
+	const siteNode = management?.children?.find((item) => item.navigationGroup === siteKey || item.key === siteKey);
+	return [siteKey, siteNode?.label || siteKey];
+}));
+const legacyCodeSiteNames = Object.fromEntries(Object.entries(workerSiteNavigations).map(([siteKey, navigation]) => [siteKey, navigation[0]?.label || siteKey]));
+await initializeCodeSites(defaultDatabase, workerCodeSites, codeSiteNames, legacyCodeSiteNames);
 	const codeSiteRows = await allSql<{ site_key: string; database_binding: string }>(defaultDatabase, sql({ database: defaultDatabase }).select({ table: 'global_sites', columns: { site_key: 'key', database_binding: 'database_binding' }, where: [{ column: 'is_system', value: 0 }] }));
 for (const site of codeSiteRows) {
 	if (!workerCodeSites.includes(site.site_key as typeof workerCodeSites[number]) || site.database_binding) continue;

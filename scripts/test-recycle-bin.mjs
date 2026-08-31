@@ -31,7 +31,7 @@ try {
 	const cookie = login.headers.get('set-cookie')?.split(';')[0];
 	assert.ok(cookie, '登录后应返回会话 Cookie');
 
-	const rowsPath = '/api/panel/admin/data/rows.php?table=base_configs';
+	const rowsPath = '/api/panel/admin/base/data/rows.php?table=base_configs';
 	assert.equal((await request('/api/panel/admin/recycle-bin.php', { cookie })).status, 404, '不应注册独立回收站接口');
 	assert.equal((await request(rowsPath, { method: 'POST', cookie, body: { key: 'recycle_fixture', value: 'test' } })).status, 201);
 	const activeBefore = await (await request(rowsPath, { cookie })).json();

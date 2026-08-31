@@ -24,7 +24,7 @@ import { renderPrivacyHtml } from './templates/base/page/privacy.mjs';
 import { renderTermsHtml } from './templates/base/page/terms.mjs';
 import { renderWechatQrPage } from './templates/passport/accounts/external/wechat.mjs';
 import { parseRoles } from '@shared/types/role.mjs';
-import { stripPageSuffix } from '@shared/navigation-tree.mjs';
+import { normalizePagePath, stripPageSuffix } from '@shared/navigation-tree.mjs';
 import type { AppEnv, RuntimeBindings } from './modules/base/types.mjs';
 import { workerApiModules, workerApiRoutes } from './.generated/worker-api-registry.mjs';
 
@@ -210,11 +210,16 @@ const renderDocument = async (c: Context<WorkerEnv>) => {
 	const auth = await buildAuthState(c);
 	const requestPath = c.req.path;
 	const pagePaths = resolvePagePaths(c, auth);
-	// 缺少页面后缀的合法路径统一跳转到带后缀的规范地址，避免被当成不存在的路径。
-	if (siteConfig.pageSuffix && requestPath !== '/' && !requestPath.endsWith(siteConfig.pageSuffix) && pagePaths.known.has(requestPath)) {
+	// 页面后缀、尾斜杠和目录 index 都在服务端统一解析为同一个逻辑页面，
+	// 页面内容本身直接返回，不用 3xx 重定向影响 CDN 缓存。
+	const logicalRequestPath = normalizePagePath(requestPath, siteConfig.pageSuffix);
+	const page = getPageDefinitions(getFullSiteNavigation(site.codeSiteChain)).find((item) => item.path === logicalRequestPath);
+	// 目录访问遵循常见 Web 服务器约定：无尾斜杠的目录先规范化到目录 URL，
+	// 并明确禁止缓存这个规范化响应；带尾斜杠和 index 页面都直接返回 200。
+	if (page?.component === 'panelRoot' && requestPath === logicalRequestPath && requestPath !== '/') {
 		const target = new URL(c.req.url);
-		target.pathname = `${requestPath}${siteConfig.pageSuffix}`;
-		return c.redirect(target.toString(), 302);
+		c.header('Cache-Control', 'no-store');
+		return c.redirect(`${requestPath}/${target.search}`, 302);
 	}
 	const menuItems = apiBootstrap ? [] : getSiteNavigation(site.codeSiteChain, c.get('effectiveRoles'));
 	const pageStatus = apiBootstrap ? undefined : await resolvePageStatus(c, requestPath, auth, pagePaths);
@@ -222,13 +227,12 @@ const renderDocument = async (c: Context<WorkerEnv>) => {
 		? { title: site.name, description: `${site.name}提供网站页面与接口服务。` }
 		: pageStatus
 			? { title: pageStatus.title, description: pageStatus.description }
-			: getPageMetadata(requestPath, menuItems, siteConfig.pageSuffix);
+			: getPageMetadata(logicalRequestPath, menuItems, siteConfig.pageSuffix);
 	const title = metadata.title === 'Quick React' ? site.name : `${metadata.title} | ${site.name}`;
 	const publicOrigin = systemConfig.publicOrigin || undefined;
 	const canonical = publicOrigin && !pageStatus ? new URL(requestPath, publicOrigin).toString() : undefined;
 	const bootstrapApiPath = apiBootstrap ? (() => {
-		const logicalPath = stripPageSuffix(requestPath, siteConfig.pageSuffix);
-		const page = getPageDefinitions(getFullSiteNavigation(site.codeSiteChain)).find((item) => item.path === logicalPath);
+		const logicalPath = logicalRequestPath;
 		const authPage = auth.pages.find((item) => stripPageSuffix(item.path, siteConfig.pageSuffix) === logicalPath);
 		if (authPage) {
 			const endpoint = new URL(authPage.apiPath, c.req.url);

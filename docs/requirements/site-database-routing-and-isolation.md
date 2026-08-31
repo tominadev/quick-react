@@ -125,28 +125,29 @@ global 覆盖实现
 2. 在共享数据库中执行该站点前缀对应的 migration。
 3. 应用该站点的默认导航和配置。
 
-因此新站点创建后会自动拥有 `base` 的健康检查、用户、会话、系统配置和默认管理接口。
+因此新站点创建后会自动拥有 `base` 的健康检查、用户、会话、系统配置和默认管理接口。后台行为由父级代码站点决定；未填写父站点时默认继承 `base`，子站点只增加或覆盖自己的能力。
+`base` 提供公共后台能力和基础管理 Dashboard（`/panel/admin/base/dashboard`、`/api/panel/admin/base/dashboard`）；业务代码站点仍必须在自身的菜单、页面、API 和数据路径下提供自己的 Dashboard，并显式声明默认入口。
 
 ### 站点 API 覆盖
 
 业务站点可以只提供需要修改的 API 文件，其余接口自动回退到 `base`：
 
 ```text
-server/routes/base/api/panel/admin/data.mts          # 基础实现
-server/routes/site1/api/panel/admin/data.mts         # site1 覆盖实现
+server/routes/base/api/panel/admin/base/data.mts     # 基础实现
+server/routes/site1/api/panel/admin/base/data.mts    # site1 覆盖实现
 ```
 
 访问 `site1` 时：
 
 ```text
-/api/panel/admin/data       -> site1/api/panel/admin/data.mts
-/api/panel/admin/settings   -> base 对应实现
+/api/panel/admin/base/data       -> site1/api/panel/admin/base/data.mts
+/api/panel/admin/base/settings   -> base 对应实现
 ```
 
 目录中间件链也逐层回退。假设 `site1` 只有 `data.mts`：
 
 ```text
-site1/api/panel/admin/data.mts
+site1/api/panel/admin/base/data.mts
 base/api.mts
 base/api/panel.mts
 base/api/panel/admin.mts
@@ -206,13 +207,13 @@ Host
 站点目录不暴露到 URL。文件路径：
 
 ```text
-server/routes/base/api/panel/admin/settings/system-config.mts
+server/routes/base/api/panel/admin/base/settings/system-config.mts
 ```
 
 对应的请求路径仍然是（`apiSuffix` 默认配置为 `.php` 时）：
 
 ```text
-/api/panel/admin/settings/system-config.php
+/api/panel/admin/base/settings/system-config.php
 ```
 
 构建阶段 API 注册器需要扫描 `server/routes/*/api`，生成包含代码级站点标识的路由：
@@ -220,7 +221,7 @@ server/routes/base/api/panel/admin/settings/system-config.mts
 ```ts
 {
   site: 'global',
-  path: '/api/panel/admin/settings/system-config',
+  path: '/api/panel/admin/base/settings/system-config',
   files: [...]
 }
 ```

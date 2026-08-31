@@ -28,7 +28,7 @@ const deviceKey = '00000000-0000-4000-8000-000000000001';
 	assert.deepEqual(home.auth.actions.map((action) => [action.key, action.action]), [['/sign', 'local-login'], ['/sign-up', 'navigate']]);
 
 	// 需要登录的页面提示同样弹出本站账号密码表单。
-	const blocked = await initialData('/panel/admin.html');
+	const blocked = await initialData('/panel/admin/global/dashboard.html');
 	assert.equal(blocked.pageStatus.status, 401);
 	assert.deepEqual(blocked.pageStatus.actions.map((action) => action.action), ['local-login', 'navigate']);
 
@@ -60,7 +60,7 @@ const deviceKey = '00000000-0000-4000-8000-000000000001';
 	siteDatabase.prepare("INSERT INTO global_sites (key, name, base_site_key, dsn, database_binding, status, migration_status, is_default, is_system) VALUES ('business', 'Business', 'base', '', '', 'enabled', 'ready', 0, 0)").run();
 	siteDatabase.close();
 	assert.equal((await request('/api/panel/admin/global/site/hosts.php', { method: 'POST', headers: { cookie }, body: { hostname: 'business.test', site_key: 'business' } })).status, 201);
-	const settingsPath = '/api/panel/admin/system/settings/accounts-oidc.php';
+	const settingsPath = '/api/panel/admin/base/settings/accounts-oidc.php';
 	const expectedSettingsFields = ['enabled', 'issuerSource', 'issuer', 'clientId', 'clientSecret'];
 	const globalSettings = await (await request(settingsPath, { headers: { cookie } })).json();
 	const siteHeaders = { cookie, 'x-device-key': deviceKey, 'x-device-fingerprint': fingerprintData };
@@ -70,10 +70,10 @@ const deviceKey = '00000000-0000-4000-8000-000000000001';
 	assert.deepEqual(passportSettings.formPage.fields.map((field) => field.name), expectedSettingsFields);
 	assert.deepEqual(businessSettings.formPage.fields.map((field) => field.name), expectedSettingsFields);
 	assert.deepEqual(passportSettings.formPage.actions.map((action) => action.key), ['test']);
-	const passportPanel = await (await app.request('http://accounts.test/panel/admin.html', { headers: { ...siteHeaders, accept: 'text/html' } })).text();
+	const passportPanel = await (await app.request('http://accounts.test/panel/admin/passport/dashboard.html', { headers: { ...siteHeaders, accept: 'text/html' } })).text();
 	const passportInitial = JSON.parse(passportPanel.match(/__INITIAL_DATA__=(\{.*?\});<\/script>/s)[1]);
 	const navigationKeys = (items) => items.flatMap((item) => [String(item.key), ...navigationKeys(item.children ?? [])]);
-	assert.ok(navigationKeys(passportInitial.siteNavigation).includes('/panel/admin/system/settings/accounts-oidc'));
+	assert.ok(navigationKeys(passportInitial.siteNavigation).includes('/panel/admin/base/settings/accounts-oidc'));
 
 	console.log('accounts login disabled test passed');
 } finally {

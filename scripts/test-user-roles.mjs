@@ -30,7 +30,7 @@ try {
 	const login = await request('/api/sign.php', { method: 'POST', body: { username: 'role_admin', password: 'test-password-123' } });
 	const cookie = login.headers.get('set-cookie')?.split(';')[0];
 	assert.ok(cookie);
-	const usersPath = '/api/panel/admin/system/users.php';
+	const usersPath = '/api/panel/admin/base/users.php';
 
 	// 角色列是多选下拉，选项来自代码里的角色对照表。
 	const list = await (await request(usersPath, { cookie })).json();

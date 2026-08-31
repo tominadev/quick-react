@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict';
 import { JSDOM } from 'jsdom';
 
-const dom = new JSDOM('<!doctype html><html><body></body></html>', { url: 'https://site.test/panel/admin/data/rows.html' });
+const dom = new JSDOM('<!doctype html><html><body></body></html>', { url: 'https://site.test/panel/admin/base/data/rows.html' });
 Object.assign(globalThis, {
 	window: dom.window,
 	document: dom.window.document,
@@ -29,7 +29,7 @@ const TableCRUD = (await import('../src/utils/antd/table_crud/index.js')).defaul
 const queryFields = [{ dataIndex: 'table', label: '数据表', component: 'select', defaultValue: 'table_a', reloadSchema: true, options: [{ value: 'table_a', text: 'table_a' }, { value: 'table_b', text: 'table_b' }] }];
 // 第一张表：有行操作和工具栏批量删除。
 const tableA = {
-	option: { rowKey: 'id', queryFields, actions: { query: [{ key: 'search', label: '搜索' }], toolbar: [{ key: 'delete', label: '删除' }, { key: 'recycle-bin', label: '回收站', modalPath: '/panel/admin/data/rows', modalComponent: 'table' }], row: [{ key: 'edit', label: '编辑' }] } },
+	option: { rowKey: 'id', queryFields, actions: { query: [{ key: 'search', label: '搜索' }], toolbar: [{ key: 'delete', label: '删除' }, { key: 'recycle-bin', label: '回收站', modalPath: '/panel/admin/base/data/rows', modalComponent: 'table' }], row: [{ key: 'edit', label: '编辑' }] } },
 	columns: [{ dataIndex: 'name', title: '名称', component: 'textbox' }],
 	dataSource: [{ id: 'acct_string_id', name: 'A 行' }],
 	totalRecords: 1,
@@ -60,7 +60,7 @@ const user = userEvent.setup({ document: dom.window.document });
 // 第一次点击搜索仍必须发起数据请求，不能被初始化 effect 的跳过逻辑吞掉。
 render(React.createElement(MemoryRouter, null, React.createElement(TableCRUD, {
 	commonApi,
-	resourcePath: '/panel/admin/data/rows',
+	resourcePath: '/panel/admin/base/data/rows',
 	initialResponse: { table: tableA },
 })));
 await waitFor(() => assert.ok(screen.getByText('A 行')));
@@ -71,7 +71,7 @@ assert.ok(requests.at(-1)?.includes('include=data'), '首次搜索应复用已�
 
 cleanup();
 requests.length = 0;
-render(React.createElement(MemoryRouter, null, React.createElement(TableCRUD, { commonApi, resourcePath: '/panel/admin/data/rows' })));
+render(React.createElement(MemoryRouter, null, React.createElement(TableCRUD, { commonApi, resourcePath: '/panel/admin/base/data/rows' })));
 await waitFor(() => assert.ok(screen.getByText('A 行')));
 assert.ok(screen.getByText('编辑'), '第一张表有行操作');
 assert.ok(screen.getByRole('button', { name: /删除/ }), '第一张表有工具栏删除');
@@ -80,7 +80,7 @@ assert.ok(screen.getByRole('button', { name: /删除/ }), '第一张表有工具
 const requestCountBeforeRecycle = requests.length;
 await user.click(screen.getByRole('button', { name: /回收站/ }));
 await waitFor(() => assert.ok(screen.getByText('已删除行')));
-const recycleRequests = requests.slice(requestCountBeforeRecycle).filter((url) => url.includes('/panel/admin/data/rows'));
+const recycleRequests = requests.slice(requestCountBeforeRecycle).filter((url) => url.includes('/panel/admin/base/data/rows'));
 assert.equal(recycleRequests.length, 1, '打开回收站只应请求一次当前资源接口');
 	assert.ok(recycleRequests[0]?.includes('table=table_a') && recycleRequests[0]?.includes('include=deleted'), '回收站请求必须保留当前表和 include=deleted 参数');
 await user.click(screen.getByRole('button', { name: 'Close' }));
@@ -90,7 +90,7 @@ await user.click(screen.getByText('编辑'));
 await waitFor(() => assert.ok(requests.some((url) => url.includes('/acct_string_id'))));
 cleanup();
 requests.length = 0;
-render(React.createElement(MemoryRouter, null, React.createElement(TableCRUD, { commonApi, resourcePath: '/panel/admin/data/rows' })));
+render(React.createElement(MemoryRouter, null, React.createElement(TableCRUD, { commonApi, resourcePath: '/panel/admin/base/data/rows' })));
 await waitFor(() => assert.ok(screen.getByText('A 行')));
 
 // 选中一行后切换数据表。

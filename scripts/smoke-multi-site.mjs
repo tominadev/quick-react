@@ -96,6 +96,7 @@ try {
 	const fingerprintData = JSON.stringify({ canvas_cyrb53: '4b5a6c7d8e9f', audio_cyrb53: '1a2b3c4d5e6f' });
 	const migratedDatabase = new DatabaseSync(process.env.DEFAULT_DATABASE_FILE, { readOnly: true });
 	assert.equal(migratedDatabase.prepare("SELECT migration_status FROM global_sites WHERE key = 'passport'").get()?.migration_status, 'ready');
+	assert.equal(migratedDatabase.prepare("SELECT name FROM global_sites WHERE key = 'passport'").get()?.name, 'Passport');
 	assert.equal(migratedDatabase.prepare("SELECT name FROM sqlite_master WHERE type = 'table' AND name = 'passport_users'").get()?.name, 'passport_users');
 	migratedDatabase.close();
 	const request = async (host, path, options = {}) => {
@@ -136,12 +137,52 @@ try {
 	assert.equal(Object.hasOwn(loginResult, 'message'), false);
 	const cookie = login.headers.get('set-cookie')?.split(';')[0];
 	assert.ok(cookie);
+	const adminRootNoSlash = await app.request('http://localhost/panel/admin', { headers: { accept: 'text/html', cookie } });
+	assert.equal(adminRootNoSlash.status, 302);
+	assert.equal(adminRootNoSlash.headers.get('location'), '/panel/admin/');
+	assert.equal(adminRootNoSlash.headers.get('cache-control'), 'no-store');
+	const adminRootSlash = await app.request('http://localhost/panel/admin/', { headers: { accept: 'text/html', cookie } });
+	assert.equal(adminRootSlash.status, 200);
+	assert.equal(adminRootSlash.headers.get('location'), null);
+	assert.match(await adminRootSlash.text(), /panelRoot/);
+	for (const adminEntry of ['/panel/admin/index.html']) {
+		const response = await app.request(`http://localhost${adminEntry}`, { headers: { accept: 'text/html', cookie } });
+		assert.equal(response.status, 200, `${adminEntry} 应直接返回管理后台入口`);
+		assert.equal(response.headers.get('location'), null, `${adminEntry} 不应通过重定向进入管理后台`);
+	}
+	const adminRoot = await app.request('http://localhost/panel/admin.html', { headers: { accept: 'text/html', cookie } });
+	assert.equal(adminRoot.status, 200);
+	const rootInitial = JSON.parse((await adminRoot.text()).match(/__INITIAL_DATA__=(\{.*?\});<\/script>/s)[1]);
+	const rootNavigation = rootInitial.siteNavigation.find((item) => item.key === '/panel/admin');
+	assert.equal(rootNavigation?.component, 'panelRoot');
+	assert.equal(rootNavigation?.dashboardPath, '/panel/admin/global/dashboard');
+	const globalDashboard = await app.request('http://localhost/panel/admin/global/dashboard.html', { headers: { accept: 'text/html', cookie } });
+	const globalInitial = JSON.parse((await globalDashboard.text()).match(/__INITIAL_DATA__=(\{.*?\});<\/script>/s)[1]);
+	assert.equal(globalInitial.siteNavigation.find((item) => item.key === '/panel/admin')?.dashboardPath, '/panel/admin/global/dashboard');
+	const globalDashboardNoSuffix = await app.request('http://localhost/panel/admin/global/dashboard', { headers: { accept: 'text/html', cookie } });
+	assert.equal(globalDashboardNoSuffix.status, 200, '普通页面无后缀访问应直接返回 200');
+	assert.equal(globalDashboardNoSuffix.headers.get('location'), null, '普通页面无后缀访问不应重定向');
+	assert.equal((await request('localhost', '/api/panel/admin/global/dashboard.php', { cookie })).status, 200);
+	assert.equal((await request('localhost', '/api/panel/admin/base/dashboard.php', { cookie })).status, 200);
+	const baseDashboard = await app.request('http://localhost/panel/admin/base/dashboard.html', { headers: { accept: 'text/html', cookie } });
+	assert.equal(baseDashboard.status, 200, 'Base 基础管理 Dashboard 应可直接访问');
+	for (const hostname of ['aliyun.test', 'pve.test']) {
+		assert.equal((await request('localhost', '/api/panel/admin/global/site/hosts.php', {
+			method: 'POST', cookie, body: { hostname, site_key: hostname === 'pve.test' ? 'pve' : 'aliyun' },
+		})).status, 201);
+	}
+	assert.equal((await request('aliyun.test', '/api/panel/admin/aliyun/dashboard.php', { cookie })).status, 200);
+	assert.equal((await request('pve.test', '/api/panel/admin/pve/dashboard.php', { cookie })).status, 200);
+	for (const hostname of ['aliyun.test', 'pve.test']) {
+		const response = await app.request(`http://${hostname}/panel/admin.html`, { headers: { accept: 'text/html', cookie } });
+		assert.equal(response.status, 200);
+	}
 	const localDeviceDatabase = new DatabaseSync(process.env.DEFAULT_DATABASE_FILE, { readOnly: true });
 	assert.equal(localDeviceDatabase.prepare('SELECT COUNT(*) AS count FROM base_devices').get().count, 1);
 	assert.equal(localDeviceDatabase.prepare('SELECT COUNT(*) AS count FROM base_device_users').get().count, 1);
 	const adminUserId = localDeviceDatabase.prepare("SELECT id FROM base_users WHERE name = 'bootstrap_admin'").get().id;
 	localDeviceDatabase.close();
-	assert.equal((await request('localhost', `/api/panel/admin/system/users.php/${adminUserId}`, { method: 'PUT', cookie, body: { status: 'enabled' } })).status, 200);
+	assert.equal((await request('localhost', `/api/panel/admin/base/users.php/${adminUserId}`, { method: 'PUT', cookie, body: { status: 'enabled' } })).status, 200);
 	const auditedUserDatabase = new DatabaseSync(process.env.DEFAULT_DATABASE_FILE, { readOnly: true });
 	assert.equal(String(auditedUserDatabase.prepare('SELECT updated_duid FROM base_users WHERE id = ?').get(adminUserId).updated_duid), '1');
 	auditedUserDatabase.close();
@@ -183,6 +224,13 @@ try {
 			method: 'POST', cookie, body: { hostname, site_key: 'passport' },
 		})).status, 201);
 	}
+	const passportDashboardResponse = await request('passport.test', '/api/panel/admin/passport/dashboard.php', { cookie });
+	assert.equal(passportDashboardResponse.status, 200);
+	const passportDashboardResult = await passportDashboardResponse.json();
+	const passportDashboardDatabase = new DatabaseSync(process.env.DEFAULT_DATABASE_FILE, { readOnly: true });
+	const passportDeviceCount = passportDashboardDatabase.prepare('SELECT COUNT(*) AS count FROM passport_devices').get().count;
+	passportDashboardDatabase.close();
+	assert.equal(passportDashboardResult.dashboard.statistics.find((item) => item.key === 'devices')?.value, passportDeviceCount);
 	const sitesResult = await (await request('localhost', '/api/panel/admin/global/site/sites.php', { cookie })).json();
 	assert.equal(sitesResult.table.columns[0]?.dataIndex, 'id');
 	assert.ok(!sitesResult.table.columns.some((column) => column.dataIndex === 'passport_sso_enabled'));
@@ -207,10 +255,10 @@ try {
 	const localSiteSign = await (await request('site1.test', '/api/sign.php')).json();
 	assert.equal(localSiteSign.formPage.fields[0].name, 'username');
 	assert.match(await (await request('site1.test', '/')).text(), /<title>首页 \| site1<\/title>/);
-	const accountsSettings = await (await request('site1.test', '/api/panel/admin/system/settings/accounts-oidc.php', { cookie })).json();
+	const accountsSettings = await (await request('site1.test', '/api/panel/admin/base/settings/accounts-oidc.php', { cookie })).json();
 	assert.equal(accountsSettings.formPage.fields[0].name, 'enabled');
 	assert.deepEqual(accountsSettings.formPage.actions, [{ key: 'test', label: '测试配置' }]);
-	const techStackSave = await request('localhost', '/api/panel/admin/system/settings/tech-stack.php', { method: 'PUT', cookie, body: { nginx: false } });
+	const techStackSave = await request('localhost', '/api/panel/admin/base/settings/tech-stack.php', { method: 'PUT', cookie, body: { nginx: false } });
 	assert.equal(techStackSave.status, 200);
 	assert.equal((await techStackSave.json()).feedback.redirectAfter, 2);
 	const issuerSourceField = accountsSettings.formPage.fields.find((field) => field.name === 'issuerSource');
@@ -238,7 +286,7 @@ try {
 	const oidcClientEdit = await (await request('passport.test', `/api/panel/admin/passport/oidc/clients/${encodeURIComponent(createdOidcClient.id)}.php`, { cookie })).json();
 	assert.equal(oidcClientEdit.redirect_uri_source, 'https://site1.test/api/accounts/oidc/callback');
 	assert.equal(oidcClientEdit.backchannel_logout_path, '/api/accounts/oidc/backchannel-logout');
-	const oidcSettingsTest = await app.request('https://site1.test/api/panel/admin/system/settings/accounts-oidc.php?action=test', {
+	const oidcSettingsTest = await app.request('https://site1.test/api/panel/admin/base/settings/accounts-oidc.php?action=test', {
 		method: 'POST', headers: { cookie, 'x-device-key': deviceKey, 'x-device-fingerprint': fingerprintData, 'content-type': 'application/json' }, body: JSON.stringify({ issuer: 'https://passport.test', clientId: createdOidcClient.id, clientSecret: createdOidcCredentials.client_secret }),
 	});
 	assert.equal(oidcSettingsTest.status, 200);
