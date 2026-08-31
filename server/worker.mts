@@ -4,7 +4,7 @@ import { compress } from 'hono/compress';
 import { etag } from 'hono/etag';
 import { renderIndexHtml } from './templates/base/index.mjs';
 import { createApiGateway } from './modules/base/api-router.mjs';
-import { accountsIdentityApi, getPageMetadata, getSiteNavigation, siteProvidesApi } from './modules/base/navigation.mjs';
+import { accountsIdentityApi, getFullSiteNavigation, getPageDefinitions, getPageMetadata, getSiteNavigation, siteProvidesApi } from './modules/base/navigation.mjs';
 import { buildAuthState, resolvePagePaths, resolvePageStatus } from './modules/base/page-context.mjs';
 import { createDatabaseConfigStore } from './modules/base/config-store.mjs';
 import { createD1Adapter, type D1DatabaseLike } from './database/d1.mjs';
@@ -24,6 +24,7 @@ import { renderPrivacyHtml } from './templates/base/page/privacy.mjs';
 import { renderTermsHtml } from './templates/base/page/terms.mjs';
 import { renderWechatQrPage } from './templates/passport/accounts/external/wechat.mjs';
 import { parseRoles } from '@shared/types/role.mjs';
+import { stripPageSuffix } from '@shared/navigation-tree.mjs';
 import type { AppEnv, RuntimeBindings } from './modules/base/types.mjs';
 import { workerApiModules, workerApiRoutes } from './.generated/worker-api-registry.mjs';
 
@@ -225,6 +226,26 @@ const renderDocument = async (c: Context<WorkerEnv>) => {
 	const title = metadata.title === 'Quick React' ? site.name : `${metadata.title} | ${site.name}`;
 	const publicOrigin = systemConfig.publicOrigin || undefined;
 	const canonical = publicOrigin && !pageStatus ? new URL(requestPath, publicOrigin).toString() : undefined;
+	const bootstrapApiPath = apiBootstrap ? (() => {
+		const logicalPath = stripPageSuffix(requestPath, siteConfig.pageSuffix);
+		const page = getPageDefinitions(getFullSiteNavigation(site.codeSiteChain)).find((item) => item.path === logicalPath);
+		const authPage = auth.pages.find((item) => stripPageSuffix(item.path, siteConfig.pageSuffix) === logicalPath);
+		if (authPage) {
+			const endpoint = new URL(authPage.apiPath, c.req.url);
+			endpoint.searchParams.set('mode', authPage.mode);
+			return `${endpoint.pathname}${endpoint.search}`;
+		}
+		const dataPath = page?.component === 'panel'
+			? page.dashboardPath
+			: page?.component === 'dashboard'
+				? page.path
+				: page?.component === 'home'
+					? '/home'
+					: page?.component === 'personalCenter' || page?.component === 'form' || page?.component === 'table'
+						? page.path
+						: undefined;
+		return dataPath ? `/api${dataPath}${siteConfig.apiSuffix}` : `/api/home${siteConfig.apiSuffix}`;
+	})() : undefined;
 	c.header('Cache-Control', apiBootstrap ? 'public, max-age=60, s-maxage=300, must-revalidate' : 'no-cache');
 	return c.html(renderIndexHtml({
 		...metadata,
@@ -233,6 +254,7 @@ const renderDocument = async (c: Context<WorkerEnv>) => {
 		initialData: {
 			debug: systemConfig.debug,
 			bootstrapMode: apiBootstrap ? 'api' : 'server',
+			...(bootstrapApiPath ? { bootstrapApiPath } : {}),
 			apiSuffix: siteConfig.apiSuffix,
 			pageSuffix: siteConfig.pageSuffix,
 			siteName: site.name,

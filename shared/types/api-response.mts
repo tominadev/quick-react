@@ -36,5 +36,13 @@ export type ApiResponseBody = {
 	feedback?: ApiFeedback;
 	next?: ApiNextAction;
 	context?: ApiContext;
+	/** 页面启动响应中的业务数据；由对应通用组件直接消费。 */
+	home?: import('./home.mjs').HomePageData;
+	dashboard?: import('./dashboard.mjs').DashboardData;
+	formPage?: import('./form-page.mjs').FormPageConfig;
+	currentValues?: Record<string, unknown>;
+	user?: import('./user.mjs').UserIdentity | null;
+	accountsNotice?: string;
+	accountsCenter?: import('./user.mjs').AccountCenterLink;
 	table?: import('./table.mjs').TableResponse;
 };

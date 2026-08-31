@@ -5,6 +5,11 @@ import type { InitialData } from '@shared/types/initial-data.mjs';
 import type { AuthState } from '@shared/types/initial-data.mjs';
 import type { ApiContext } from '@shared/types/api-response.mjs';
 import type { NavigationItem } from '@shared/types/navigation.mjs';
+import type { DashboardData } from '@shared/types/dashboard.mjs';
+import type { HomePageData } from '@shared/types/home.mjs';
+import type { FormPageResponse } from '@shared/types/form-page.mjs';
+import type { TableResponse } from '@shared/types/table.mjs';
+import type { AccountCenterLink, UserIdentity } from '@shared/types/user.mjs';
 import { collectPageDefinitions, matchNavigationKey, stripPageSuffix, type NavigationPageDefinition } from '@shared/navigation-tree.mjs';
 import { useState, useEffect, useMemo, useRef } from 'react';
 import { useNavigate, useLocation } from 'react-router-dom';
@@ -31,6 +36,16 @@ const initialData = serverData ?? { apiSuffix: '', pageSuffix: '', siteName: 'Qu
 const pageUrl = (path: string) => path === '/' ? path : `${path}${initialData.pageSuffix}`;
 
 type PageDefinition = NavigationPageDefinition;
+type BootstrapResponse = FormPageResponse & {
+	context?: ApiContext;
+	home?: HomePageData;
+	dashboard?: DashboardData;
+	table?: TableResponse;
+	user?: UserIdentity;
+	accountsNotice?: string;
+	accountsCenter?: AccountCenterLink;
+};
+type BootstrapPageData = { apiPath: string; response: BootstrapResponse };
 
 const iconComponents = {
 	mail: <MailOutlined />,
@@ -57,6 +72,7 @@ const App = ({ commonApi }: AppType) => {
 	const [pageStatus, setPageStatus] = useState(initialData.pageStatus);
 	const [auth, setAuth] = useState<AuthState | undefined>(initialData.auth);
 	const [navigation, setNavigation] = useState(initialData.siteNavigation);
+	const [bootstrapPageData, setBootstrapPageData] = useState<BootstrapPageData>();
 	const bootstrapRequested = useRef(false);
 	const applyApiContext = (context?: ApiContext) => {
 		if (!context?.auth) throw new Error('认证上下文响应不完整');
@@ -67,11 +83,17 @@ const App = ({ commonApi }: AppType) => {
 	const loadAuthContext = async (path: string) => {
 		setContextError(false);
 		const pathname = new URL(path, window.location.origin).pathname;
-		const response = await commonApi.apiFetch(`/api/home${initialData.apiSuffix}?include=auth&path=${encodeURIComponent(pathname)}`);
-		const result = await response.json() as { context?: ApiContext };
+		const apiPath = initialData.bootstrapApiPath ?? `/api/home${initialData.apiSuffix}`;
+		const endpoint = new URL(apiPath, window.location.origin);
+		endpoint.searchParams.set('include', 'auth');
+		endpoint.searchParams.set('path', pathname);
+		const response = await commonApi.apiFetch(`${endpoint.pathname}${endpoint.search}`);
+		const result = await response.json() as BootstrapResponse;
 		applyApiContext(result.context);
+		setBootstrapPageData({ apiPath, response: result });
 		setContextReady(true);
 	};
+	const bootstrapResponseFor = (apiPath: string) => bootstrapPageData?.apiPath === apiPath ? bootstrapPageData.response : undefined;
 	const pages = useMemo(() => collectPageDefinitions(navigation), [navigation]);
 	const authPages: PageDefinition[] = useMemo(() => (auth?.pages ?? []).map((page) => ({
 		path: page.path,
@@ -85,30 +107,54 @@ const App = ({ commonApi }: AppType) => {
 		redirectPath: page.redirectPath,
 	})), [auth]);
 	const pageRenderers: Record<string, (page: PageDefinition) => React.ReactNode> = {
-		home: () => <HomePage commonApi={commonApi} apiSuffix={initialData.apiSuffix} />,
-		personalCenter: (page) => <PersonalCenter commonApi={commonApi} user={auth?.currentUser} title={page.title} />,
+		home: () => {
+			const apiPath = `/api/home${initialData.apiSuffix}`;
+			return <HomePage commonApi={commonApi} apiSuffix={initialData.apiSuffix} initialData={bootstrapResponseFor(apiPath)?.home} />;
+		},
+		personalCenter: (page) => {
+			const apiPath = `/api${page.path}${initialData.apiSuffix}`;
+			return <PersonalCenter commonApi={commonApi} user={auth?.currentUser} title={page.title} initialResponse={bootstrapResponseFor(apiPath)} />;
+		},
 		sign: (page) => {
+			if (!page.apiPath) return null;
+			const apiPath = new URL(page.apiPath, window.location.origin);
+			apiPath.searchParams.set('mode', page.mode ?? 'sign');
+			const requestPath = `${apiPath.pathname}${apiPath.search}`;
 			return <FormPage
 				commonApi={commonApi}
-				apiPath={`${page.apiPath}?mode=${page.mode}`}
+				apiPath={requestPath}
 				title={page.title}
 				submitMethod={page.submitMethod}
 				redirectOnFeedback
 				onSaved={() => page.redirectPath}
+				initialResponse={bootstrapResponseFor(requestPath)}
 			/>;
 		},
-		panel: (page) => <Panel commonApi={commonApi} navigation={page.navigation} dashboardPath={page.dashboardPath} title={page.title}><Dashboard commonApi={commonApi} apiPath={`/api${page.dashboardPath ?? ''}${initialData.apiSuffix}`} /></Panel>,
-		dashboard: (page) => <Panel commonApi={commonApi} navigation={page.navigation} dashboardPath={page.dashboardPath} title={page.title}><Dashboard commonApi={commonApi} apiPath={`/api${page.dashboardPath ?? ''}${initialData.apiSuffix}`} /></Panel>,
-		table: (page) => <Panel commonApi={commonApi} navigation={page.navigation} dashboardPath={page.dashboardPath} title={page.title}><TableCRUD key={page.path} commonApi={commonApi} resourcePath={page.path} /></Panel>,
-		form: (page) => <Panel commonApi={commonApi} navigation={page.navigation} dashboardPath={page.dashboardPath} title={page.title}><FormPage
+		panel: (page) => {
+			const apiPath = `/api${page.dashboardPath ?? ''}${initialData.apiSuffix}`;
+			return <Panel commonApi={commonApi} navigation={page.navigation} dashboardPath={page.dashboardPath} title={page.title}><Dashboard commonApi={commonApi} apiPath={apiPath} initialData={bootstrapResponseFor(apiPath)?.dashboard} /></Panel>;
+		},
+		dashboard: (page) => {
+			const apiPath = `/api${page.path}${initialData.apiSuffix}`;
+			return <Panel commonApi={commonApi} navigation={page.navigation} dashboardPath={page.dashboardPath} title={page.title}><Dashboard commonApi={commonApi} apiPath={apiPath} initialData={bootstrapResponseFor(apiPath)?.dashboard} /></Panel>;
+		},
+		table: (page) => {
+			const apiPath = `/api${page.path}${initialData.apiSuffix}`;
+			return <Panel commonApi={commonApi} navigation={page.navigation} dashboardPath={page.dashboardPath} title={page.title}><TableCRUD key={page.path} commonApi={commonApi} resourcePath={page.path} initialResponse={bootstrapResponseFor(apiPath)} /></Panel>;
+		},
+		form: (page) => {
+			const apiPath = `/api${page.path}${initialData.apiSuffix}`;
+			return <Panel commonApi={commonApi} navigation={page.navigation} dashboardPath={page.dashboardPath} title={page.title}><FormPage
 			commonApi={commonApi}
-			apiPath={`/api${page.path}${initialData.apiSuffix}`}
+			apiPath={apiPath}
 			 title={page.title}
+			initialResponse={bootstrapResponseFor(apiPath)}
 			onSaved={(values) => {
 				const pageSuffix = typeof values.pageSuffix === 'string' ? values.pageSuffix : initialData.pageSuffix;
 				return `${page.path}${pageSuffix}`;
 			}}
-		/></Panel>,
+		/></Panel>;
+		},
 		aliyunDescribeInstances: (page) => <Panel commonApi={commonApi} navigation={page.navigation} dashboardPath={page.dashboardPath} title={page.title}><DescribeInstances /></Panel>,
 	};
 	const routes = [...pages, ...authPages].flatMap((page) => {

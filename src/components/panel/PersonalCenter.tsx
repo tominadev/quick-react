@@ -6,15 +6,21 @@ import { roleLabel } from '@shared/types/role.mjs';
 
 const initialData = (window as Window & { __INITIAL_DATA__?: { apiSuffix?: string } }).__INITIAL_DATA__;
 const apiSuffix = initialData?.apiSuffix ?? '';
-type PersonalCenterProps = { commonApi: CommonApi; user?: UserIdentity; title: string };
+type PersonalCenterProps = { commonApi: CommonApi; user?: UserIdentity; title: string; initialResponse?: MeResponse };
 type MeResponse = { user?: UserIdentity; accountsNotice?: string; accountsCenter?: AccountCenterLink };
 
 /** 只读展示当前登录身份；账号资料在 Accounts 账号中心维护，入口始终在新页面打开。 */
-export default function PersonalCenter({ commonApi, user: initialUser, title }: PersonalCenterProps) {
+export default function PersonalCenter({ commonApi, user: initialUser, title, initialResponse }: PersonalCenterProps) {
 	const [user, setUser] = useState<UserIdentity | undefined>(initialUser);
-	const [notice, setNotice] = useState('');
-	const [accountsCenter, setAccountsCenter] = useState<AccountCenterLink>();
+	const [notice, setNotice] = useState(initialResponse?.accountsNotice ?? '');
+	const [accountsCenter, setAccountsCenter] = useState<AccountCenterLink | undefined>(initialResponse?.accountsCenter);
 	useEffect(() => {
+		if (initialResponse) {
+			if (initialResponse.user) setUser(initialResponse.user);
+			setNotice(initialResponse.accountsNotice ?? '');
+			setAccountsCenter(initialResponse.accountsCenter);
+			return;
+		}
 		let active = true;
 		commonApi.apiFetch(`/api/panel/me${apiSuffix}`).then(async (response) => {
 			const result = await response.json() as MeResponse;
@@ -24,7 +30,7 @@ export default function PersonalCenter({ commonApi, user: initialUser, title }: 
 			setAccountsCenter(result.accountsCenter);
 		}).catch((error) => console.error('加载个人中心信息失败', error));
 		return () => { active = false; };
-	}, [commonApi]);
+	}, [commonApi, initialResponse]);
 	return (
 		<Card title={title} style={{ maxWidth: 720, margin: '24px auto' }}>
 			{notice ? <Alert

@@ -4,12 +4,18 @@ import type { TableColumnsType } from 'antd';
 import type { CommonApi } from '@/utils/common/api.js';
 import type { DashboardData } from '@shared/types/dashboard.mjs';
 
-export default function Dashboard({ commonApi, apiPath }: { commonApi: CommonApi; apiPath: string }) {
-	const [data, setData] = useState<DashboardData>();
-	const [loading, setLoading] = useState(true);
+export default function Dashboard({ commonApi, apiPath, initialData }: { commonApi: CommonApi; apiPath: string; initialData?: DashboardData }) {
+	const [data, setData] = useState<DashboardData | undefined>(initialData);
+	const [loading, setLoading] = useState(!initialData);
 
 	useEffect(() => {
+		if (initialData) {
+			setData(initialData);
+			setLoading(false);
+			return;
+		}
 		let active = true;
+		setLoading(true);
 		commonApi.apiFetch(apiPath)
 			.then(async (response) => {
 				const result = await response.json() as { dashboard?: DashboardData };
@@ -20,7 +26,7 @@ export default function Dashboard({ commonApi, apiPath }: { commonApi: CommonApi
 				if (active) setLoading(false);
 			});
 		return () => { active = false; };
-	}, [commonApi, apiPath]);
+	}, [commonApi, apiPath, initialData]);
 
 	const columns: TableColumnsType<DashboardData['recentRows'][number]> = data?.recentColumns ?? [];
 

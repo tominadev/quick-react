@@ -20,6 +20,8 @@ import dayjs from 'dayjs';
 type TableCrudType = {
 	commonApi: CommonApi;
 	resourcePath: string;
+	/** API 启动模式下由首个页面请求携带的列表响应，避免重复读取同一接口。 */
+	initialResponse?: ResJSON;
 };
 
 type UploadState = {
@@ -45,7 +47,7 @@ const rowConfirmText = (template: string, record: DataType) => template.replace(
 });
 
 
-export default ({ commonApi, resourcePath }: TableCrudType) => {
+export default ({ commonApi, resourcePath, initialResponse }: TableCrudType) => {
 	const initialData = (window as Window & {
 		__INITIAL_DATA__?: { apiSuffix?: string };
 	}).__INITIAL_DATA__;
@@ -71,7 +73,7 @@ export default ({ commonApi, resourcePath }: TableCrudType) => {
 	})();
 
 	// 代码分类：API数据加载
-	const [loading, setLoading] = useState(false);
+	const [loading, setLoading] = useState(!initialResponse);
 	const [uploadState, setUploadState] = useState<UploadState>();
 	const [modalAction, setModalAction] = useState<{ path: string; title: string }>();
 	const uploadAbortController = useRef<AbortController | undefined>(undefined);
@@ -94,6 +96,8 @@ export default ({ commonApi, resourcePath }: TableCrudType) => {
 	const [searchRequestKey, setSearchRequestKey] = useState(0);
 	const initializedQueryDefaultsFor = useRef('');
 	const requestSequence = useRef(0);
+	const initialResponseConsumed = useRef(false);
+	const skipNextFetchAfterBootstrap = useRef(false);
 	const cursorsByPage = useRef<Record<number, string | undefined>>({ 1: undefined });
 	const selectedQuery = new URLSearchParams(appliedQueryValues).toString();
 	const selectedQuerySuffix = selectedQuery ? `?${selectedQuery}` : '';
@@ -183,21 +187,26 @@ export default ({ commonApi, resourcePath }: TableCrudType) => {
 
 	}
 
-	const fetchData = async (): Promise<void> => {
+	const fetchData = async (responseOverride?: ResJSON): Promise<void> => {
 		const sequence = ++requestSequence.current;
 		setLoading(true);
 		try {
-			const query: Record<string, string> = {
-				pageNum: pagination.current?.toString() || '0',
-				pageSize: pagination.pageSize?.toString() || '0',
-			};
 			const currentPage = pagination.current ?? 1;
-			const currentCursor = cursorsByPage.current[currentPage];
-			if (currentCursor) query.cursor = currentCursor;
-			Object.assign(query, appliedQueryValues);
-			const queryString = new URLSearchParams(query).toString();
-			const response: Response = await commonApi.apiFetch(`${apiPath}?${queryString}`);
-			const resJSON: ResJSON = await response.json();
+			let resJSON: ResJSON;
+			if (responseOverride) {
+				resJSON = responseOverride;
+			} else {
+				const query: Record<string, string> = {
+					pageNum: pagination.current?.toString() || '0',
+					pageSize: pagination.pageSize?.toString() || '0',
+				};
+				const currentCursor = cursorsByPage.current[currentPage];
+				if (currentCursor) query.cursor = currentCursor;
+				Object.assign(query, appliedQueryValues);
+				const queryString = new URLSearchParams(query).toString();
+				const response: Response = await commonApi.apiFetch(`${apiPath}?${queryString}`);
+				resJSON = await response.json() as ResJSON;
+			}
 			if (sequence !== requestSequence.current) return;
 			if (resJSON.table) {
 				// 每次响应都完整替换配置，不能让上一张表的按钮或查询字段残留。
@@ -328,11 +337,23 @@ export default ({ commonApi, resourcePath }: TableCrudType) => {
 		cursorsByPage.current = { 1: undefined };
 		initializedQueryDefaultsFor.current = '';
 		cacheResJsonTable.current = { columns: [] };
+		initialResponseConsumed.current = false;
+		skipNextFetchAfterBootstrap.current = false;
 		requestSequence.current += 1;
 	}, [apiPath]);
 	useEffect(() => {
-		fetchData();
-	}, [apiPath, JSON.stringify(appliedQueryValues), searchRequestKey, filters, pagination.pageSize, pagination.current]);
+		if (initialResponse && !initialResponseConsumed.current) {
+			initialResponseConsumed.current = true;
+			skipNextFetchAfterBootstrap.current = true;
+			void fetchData(initialResponse);
+			return;
+		}
+		if (skipNextFetchAfterBootstrap.current) {
+			skipNextFetchAfterBootstrap.current = false;
+			return;
+		}
+		void fetchData();
+	}, [apiPath, initialResponse, JSON.stringify(appliedQueryValues), searchRequestKey, filters, pagination.pageSize, pagination.current]);
 	useEffect(() => () => uploadAbortController.current?.abort(), []);
 	const onChange: TableProps<DataType>['onChange'] = (_pagination: TablePaginationConfig, _filters, _sorter, _extra) => {
 		// console.log('onChange-params', { _pagination, _filters, _sorter, _extra });

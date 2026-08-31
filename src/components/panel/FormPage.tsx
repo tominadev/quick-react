@@ -29,6 +29,8 @@ type FormProps = {
 	onSaved?: (values: Record<string, unknown>) => string | undefined | Promise<string | undefined>;
 	onCompleted?: () => void | Promise<void>;
 	embedded?: boolean;
+	/** API 启动模式下由首个页面请求携带的表单响应，避免重复读取同一接口。 */
+	initialResponse?: FormResponse;
 };
 
 /** 第三方登录图标按 key 渲染，未登记的身份源用通用图标兜底。 */
@@ -57,7 +59,7 @@ const fieldControl = (field: FormPageField, readOnly: boolean) => {
 	return <Input type={field.type === 'password' ? 'password' : 'text'} placeholder={field.placeholder} maxLength={field.maxLength} readOnly={readOnly} disabled={readOnly} />;
 };
 
-export default function FormPage({ commonApi, apiPath, title, submitMethod = 'PUT', redirectOnFeedback = false, onSaved, onCompleted, embedded = false }: FormProps) {
+export default function FormPage({ commonApi, apiPath, title, submitMethod = 'PUT', redirectOnFeedback = false, onSaved, onCompleted, embedded = false, initialResponse }: FormProps) {
 	const [form] = Form.useForm<Record<string, unknown>>();
 	const [messageApi, messageContextHolder] = message.useMessage();
 	const [loading, setLoading] = useState(true);
@@ -75,6 +77,16 @@ export default function FormPage({ commonApi, apiPath, title, submitMethod = 'PU
 	const [responseFeedback, setResponseFeedback] = useState<FormResponse['feedback']>();
 	const [passportError, setPassportError] = useState('');
 	const changedFields = useRef(new Set<string>());
+	const applyFormPageResponse = (result: FormResponse) => {
+		if (!result.formPage) return;
+		const values = isRecord(result.currentValues) ? result.currentValues : result.formPage.initialValues;
+		setFormConfig(result.formPage);
+		setInitialValues(values);
+		setLiveValues(values);
+		setDirty(false);
+		changedFields.current.clear();
+		form.setFieldsValue(values);
+	};
 
 	useEffect(() => {
 		setLoading(true);
@@ -84,6 +96,10 @@ export default function FormPage({ commonApi, apiPath, title, submitMethod = 'PU
 		setRefreshCancelled(false);
 		setResponseFeedback(undefined);
 		setPassportError('');
+		setFormConfig(undefined);
+		setInitialValues({});
+		setLiveValues({});
+		form.resetFields();
 		messageApi.destroy('form-feedback');
 	}, [apiPath, messageApi]);
 
@@ -101,23 +117,20 @@ export default function FormPage({ commonApi, apiPath, title, submitMethod = 'PU
 	}, [formConfig, messageApi, refreshDeadline, refreshTarget, responseFeedback, saved]);
 
 	useEffect(() => {
+		if (initialResponse) {
+			applyFormPageResponse(initialResponse);
+			setLoading(false);
+			return;
+		}
 		let active = true;
 		commonApi.apiFetch(apiPath).then(async (response) => {
 			const result = await response.json() as FormResponse;
-			if (active && result.formPage) {
-				const values = isRecord(result.currentValues) ? result.currentValues : result.formPage.initialValues;
-				setFormConfig(result.formPage);
-				setInitialValues(values);
-				setLiveValues(values);
-				setDirty(false);
-				changedFields.current.clear();
-				form.setFieldsValue(values);
-			}
+			if (active) applyFormPageResponse(result);
 		}).catch((error) => console.error(`加载配置失败: ${apiPath}`, error)).finally(() => {
 			if (active) setLoading(false);
 		});
 		return () => { active = false; };
-	}, [apiPath, commonApi, form]);
+	}, [apiPath, commonApi, form, initialResponse]);
 
 	// 后端返回新的 formPage 表示流程还在继续，这时不安排跳转，避免多步表单在中间步骤被反馈倒计时带走。
 	const applyResult = async (result: FormResponse, values: Record<string, unknown>) => {

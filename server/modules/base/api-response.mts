@@ -7,6 +7,7 @@ import { isSecureRequest } from './request-origin.mjs';
 export type { ApiFeedback, ApiFeedbackOptions, ApiSuccessData } from '@shared/types/api-response.mjs';
 
 const isSuccessStatus = (status: number) => status >= 200 && status < 300;
+const requestsAuthContext = (c: Context<AppEnv>) => (c.req.query('include') ?? '').split(',').map((value) => value.trim()).includes('auth');
 
 const defaultMessage = (status: number) => {
 	if (status === 200) return '操作成功';
@@ -37,7 +38,7 @@ export const apiResponse = async <T extends ApiSuccessData>(
 	const payload = data as Record<string, unknown>;
 	const next = payload.next;
 	const refreshesAuth = Boolean(next && typeof next === 'object' && !Array.isArray(next) && (next as { refreshAuth?: unknown }).refreshAuth === true);
-	const includesAuth = (c.req.query('include') ?? '').split(',').map((value) => value.trim()).includes('auth');
+	const includesAuth = requestsAuthContext(c);
 	let responseData: Record<string, unknown> = payload;
 	const contextProvider = c.get('apiContext');
 	if ((includesAuth || refreshesAuth) && contextProvider) {
@@ -51,6 +52,13 @@ export const apiResponse = async <T extends ApiSuccessData>(
 	if (transportCookie && !responseCookies().includes('device_key=')) c.header('Set-Cookie', transportCookie, { append: true });
 	return c.json(responseData, status as ContentfulStatusCode);
 };
+
+/** API 启动请求需要先拿到认证上下文；权限守卫拒绝页面数据时仍返回该上下文，避免前端再发一次状态请求。 */
+export const apiAuthContextFallback = (
+	c: Context<AppEnv>,
+	status: number,
+	message: string,
+) => requestsAuthContext(c) ? apiResponse(c, 200, {}) : apiMessage(c, status, message);
 
 const messagePayload = (
 	status: number,
