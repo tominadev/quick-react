@@ -8,6 +8,17 @@ export type { ApiFeedback, ApiFeedbackOptions, ApiSuccessData } from '@shared/ty
 
 const isSuccessStatus = (status: number) => status >= 200 && status < 300;
 const requestsAuthContext = (c: Context<AppEnv>) => (c.req.query('include') ?? '').split(',').map((value) => value.trim()).includes('auth');
+const requestsTableDataOnly = (c: Context<AppEnv>) => ['0', 'false'].includes((c.req.query('table_schema') ?? '').trim().toLowerCase());
+
+const stripTableSchema = (payload: Record<string, unknown>) => {
+	const table = payload.table;
+	if (!table || typeof table !== 'object' || Array.isArray(table)) return payload;
+	const source = table as Record<string, unknown>;
+	const dataOnly = Object.fromEntries(['dataSource', 'totalRecords', 'nextCursor', 'hasMore']
+		.filter((key) => key in source)
+		.map((key) => [key, source[key]]));
+	return { ...payload, table: dataOnly };
+};
 
 const defaultMessage = (status: number) => {
 	if (status === 200) return '操作成功';
@@ -39,10 +50,10 @@ export const apiResponse = async <T extends ApiSuccessData>(
 	const next = payload.next;
 	const refreshesAuth = Boolean(next && typeof next === 'object' && !Array.isArray(next) && (next as { refreshAuth?: unknown }).refreshAuth === true);
 	const includesAuth = requestsAuthContext(c);
-	let responseData: Record<string, unknown> = payload;
+	let responseData: Record<string, unknown> = requestsTableDataOnly(c) ? stripTableSchema(payload) : payload;
 	const contextProvider = c.get('apiContext');
 	if ((includesAuth || refreshesAuth) && contextProvider) {
-		responseData = { ...payload, context: await contextProvider(c.req.query('path')) };
+		responseData = { ...responseData, context: await contextProvider(c.req.query('path')) };
 		// 认证上下文包含当前用户，不得由浏览器或 CDN 缓存。
 		c.header('Cache-Control', 'no-store');
 	}

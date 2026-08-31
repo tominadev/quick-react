@@ -9,8 +9,8 @@ export const getTables = async (database: DatabaseAdapter) => (await listTables(
 export const getColumns = listColumns;
 export const databaseOptions = (label: string) => [{ value: 'current', text: label }];
 export const databaseQueryFields = (database: DatabaseAdapter, binding: boolean, tables: { value: string; text: string }[]) => [
-	{ dataIndex: 'database', label: '数据库', component: 'select' as const, defaultValue: 'current', options: databaseOptions(databaseLabel(database, binding)) },
-	{ dataIndex: 'table', label: '数据表', component: 'select' as const, placeholder: '选择数据表', options: tables, defaultValue: tables[0]?.value },
+	{ dataIndex: 'database', label: '数据库', component: 'select' as const, defaultValue: 'current', options: databaseOptions(databaseLabel(database, binding)), reloadSchema: true },
+	{ dataIndex: 'table', label: '数据表', component: 'select' as const, placeholder: '选择数据表', options: tables, defaultValue: tables[0]?.value, reloadSchema: true },
 ];
 export const databaseTableActions = (editable: boolean): TableActions => ({
 	toolbar: editable ? [

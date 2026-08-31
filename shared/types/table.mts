@@ -43,6 +43,8 @@ export type TableQueryField = {
 	placeholder?: string;
 	defaultValue?: string;
 	options?: TableSelectOption[];
+	/** 查询值变化后页面结构也会变化，下一次请求必须重新返回 option/columns。 */
+	reloadSchema?: boolean;
 };
 export type TableColumn = TableColumnFormProperties & {
 	dataIndex: string;
@@ -63,6 +65,7 @@ export type TableSelectOption = {
 	parentValue?: string;
 	fieldValues?: Record<string, string | number | boolean>;
 };
+/** `table_schema=0` 请求只返回下面的数据分页字段，option/columns 由客户端复用。 */
 export type TableResponse = {
 	option?: TableOption;
 	columns?: TableColumn[];

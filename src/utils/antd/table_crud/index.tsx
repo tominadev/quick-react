@@ -97,7 +97,10 @@ export default ({ commonApi, resourcePath, initialResponse }: TableCrudType) => 
 	const initializedQueryDefaultsFor = useRef('');
 	const requestSequence = useRef(0);
 	const initialResponseConsumed = useRef(false);
-	const skipNextFetchAfterBootstrap = useRef(false);
+	// 应用后端返回的默认查询值会触发一次状态更新；仅跳过这次由初始化产生的 effect，
+	// 不能用一个无条件的布尔值，否则用户在这段时间首次点击搜索时会被误判为初始化请求。
+	const skipFetchForSearchRequest = useRef<number | undefined>(undefined);
+	const tableSchemaLoaded = useRef(false);
 	const cursorsByPage = useRef<Record<number, string | undefined>>({ 1: undefined });
 	const selectedQuery = new URLSearchParams(appliedQueryValues).toString();
 	const selectedQuerySuffix = selectedQuery ? `?${selectedQuery}` : '';
@@ -200,6 +203,7 @@ export default ({ commonApi, resourcePath, initialResponse }: TableCrudType) => 
 					pageNum: pagination.current?.toString() || '0',
 					pageSize: pagination.pageSize?.toString() || '0',
 				};
+				if (tableSchemaLoaded.current) query.table_schema = '0';
 				const currentCursor = cursorsByPage.current[currentPage];
 				if (currentCursor) query.cursor = currentCursor;
 				Object.assign(query, appliedQueryValues);
@@ -209,13 +213,17 @@ export default ({ commonApi, resourcePath, initialResponse }: TableCrudType) => 
 			}
 			if (sequence !== requestSequence.current) return;
 			if (resJSON.table) {
-				// 每次响应都完整替换配置，不能让上一张表的按钮或查询字段残留。
-				const tableOption: ResJsonTableOption = resJSON.table.option ?? { rowKey: 'key' };
-				tableOptionRef.current = tableOption;
-				setResJsonTableOption(tableOption);
-				const fields = tableOption.queryFields;
-				setQueryActions(tableOption.actions?.query ?? []);
-				if (fields) {
+				const hasTableOption = 'option' in resJSON.table;
+				const hasTableColumns = 'columns' in resJSON.table;
+				if (hasTableOption || hasTableColumns) tableSchemaLoaded.current = true;
+				if (hasTableOption) {
+					// 首次响应完整替换配置；后续只返回数据时继续使用已缓存的配置。
+					const tableOption: ResJsonTableOption = resJSON.table.option ?? { rowKey: 'key' };
+					tableOptionRef.current = tableOption;
+					setResJsonTableOption(tableOption);
+					const fields = tableOption.queryFields;
+					setQueryActions(tableOption.actions?.query ?? []);
+					if (fields) {
 						setQueryFields(fields);
 						setQueryValues((previous) => Object.fromEntries(fields.map((field) => [
 							field.dataIndex,
@@ -226,18 +234,23 @@ export default ({ commonApi, resourcePath, initialResponse }: TableCrudType) => 
 							const defaults = Object.fromEntries(fields
 								.filter((field) => field.defaultValue !== undefined && field.defaultValue !== '')
 								.map((field) => [field.dataIndex, field.defaultValue as string]));
-							if (Object.keys(defaults).length) setAppliedQueryValues(defaults);
+							if (Object.keys(defaults).length) {
+								skipFetchForSearchRequest.current = searchRequestKey;
+								setAppliedQueryValues(defaults);
+							}
 						}
-				} else {
-					setQueryFields([]);
-					setQueryValues({});
-					setAppliedQueryValues({});
+					} else {
+						setQueryFields([]);
+						setQueryValues({});
+						setAppliedQueryValues({});
+					}
 				}
-				if (resJSON.table.columns) {
-					cacheResJsonTable.current.columns = resJSON.table.columns;
-					setResJsonColumns(resJSON.table.columns);
+				if (hasTableColumns) {
+					const columns = resJSON.table.columns ?? [];
+					cacheResJsonTable.current.columns = columns;
+					setResJsonColumns(columns);
 					const tableColumns: TableColumnsType<DataType> = [];
-					for (const column of resJSON.table.columns) {
+					for (const column of columns) {
 						if (column.hideInTable) continue;
 						const { tableDisplay, tableDisplayTextField, ...tableColumn } = column;
 						tableColumns.push({
@@ -284,15 +297,11 @@ export default ({ commonApi, resourcePath, initialResponse }: TableCrudType) => 
 						fixed: 'right',
 						width: 160,
 						render: (value: any, record: DataType, index: number) => <Space wrap size={[8, 4]}>
-							{(tableOption.actions?.row ?? []).map((action) => rowActionHandlers[action.key]?.(action, value, record, index)
+							{(tableOptionRef.current.actions?.row ?? []).map((action) => rowActionHandlers[action.key]?.(action, value, record, index)
 								?? <a key={action.key} aria-disabled={action.disabled} onClick={() => action.form ? onRowFormAction(action, record) : onSimpleRowAction(action, record)}>{action.label}</a>)}
 						</Space>,
 					});
 					setTableColumns(tableColumns);
-				} else {
-					cacheResJsonTable.current.columns = [];
-					setResJsonColumns([]);
-					setTableColumns([]);
 				}
 				setDataSource(resJSON.table.dataSource ?? []);
 				if (resJSON.table.hasMore !== undefined) {
@@ -337,19 +346,19 @@ export default ({ commonApi, resourcePath, initialResponse }: TableCrudType) => 
 		cursorsByPage.current = { 1: undefined };
 		initializedQueryDefaultsFor.current = '';
 		cacheResJsonTable.current = { columns: [] };
+		tableSchemaLoaded.current = false;
 		initialResponseConsumed.current = false;
-		skipNextFetchAfterBootstrap.current = false;
+		skipFetchForSearchRequest.current = undefined;
 		requestSequence.current += 1;
 	}, [apiPath]);
 	useEffect(() => {
 		if (initialResponse && !initialResponseConsumed.current) {
 			initialResponseConsumed.current = true;
-			skipNextFetchAfterBootstrap.current = true;
 			void fetchData(initialResponse);
 			return;
 		}
-		if (skipNextFetchAfterBootstrap.current) {
-			skipNextFetchAfterBootstrap.current = false;
+		if (skipFetchForSearchRequest.current === searchRequestKey) {
+			skipFetchForSearchRequest.current = undefined;
 			return;
 		}
 		void fetchData();
@@ -585,13 +594,20 @@ export default ({ commonApi, resourcePath, initialResponse }: TableCrudType) => 
 	};
 	const renderModalAction = (action: TableAction) => <Button key={action.key} disabled={loading || action.disabled} onClick={() => action.modalPath && setModalAction({ path: action.modalPath, title: action.label })}>{action.label}</Button>;
 	const queryActionHandlers: Record<string, (action: TableAction) => React.ReactNode> = {
-		// 查询条件变化（例如数据管理切换数据表）时，必须清掉上一次的选中行和列筛选，否则会按旧表的状态操作新数据。
+		// 普通搜索只更新当前表的数据；只有后端标记结构依赖的查询值变化时才清空结构。
 		search: (action) => <Button key={action.key} onClick={() => {
 			requestSequence.current += 1;
 			setDataSource([]);
-			setTableColumns(undefined);
-			setResJsonColumns([]);
-			cacheResJsonTable.current = { columns: [] };
+			const schemaChanged = queryFields.some((field) => field.reloadSchema && queryValues[field.dataIndex] !== appliedQueryValues[field.dataIndex]);
+			if (schemaChanged) {
+				setTableColumns(undefined);
+				setResJsonColumns([]);
+				setResJsonTableOption({ rowKey: 'key' });
+				tableOptionRef.current = { rowKey: 'key' };
+				setQueryActions([]);
+				cacheResJsonTable.current = { columns: [] };
+				tableSchemaLoaded.current = false;
+			}
 			cursorsByPage.current = { 1: undefined };
 			setSelectedRowKeys([]);
 			setFilters({});

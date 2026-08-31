@@ -26,7 +26,7 @@ const userEvent = (await import('@testing-library/user-event')).default;
 const { MemoryRouter } = await import('react-router-dom');
 const TableCRUD = (await import('../src/utils/antd/table_crud/index.js')).default;
 
-const queryFields = [{ dataIndex: 'table', label: '数据表', component: 'select', defaultValue: 'table_a', options: [{ value: 'table_a', text: 'table_a' }, { value: 'table_b', text: 'table_b' }] }];
+const queryFields = [{ dataIndex: 'table', label: '数据表', component: 'select', defaultValue: 'table_a', reloadSchema: true, options: [{ value: 'table_a', text: 'table_a' }, { value: 'table_b', text: 'table_b' }] }];
 // 第一张表：有行操作和工具栏批量删除。
 const tableA = {
 	option: { rowKey: 'id', queryFields, actions: { query: [{ key: 'search', label: '搜索' }], toolbar: [{ key: 'delete', label: '删除' }], row: [{ key: 'edit', label: '编辑' }] } },
@@ -48,18 +48,34 @@ const commonApi = {
 		requests.push(String(url));
 		if (String(url).includes('/acct_string_id')) return new Response(JSON.stringify({ id: 'acct_string_id', name: 'A 行' }), { headers: { 'content-type': 'application/json' } });
 		const table = String(url).includes('table=table_b') ? tableB : tableA;
+		if (String(url).includes('table_schema=0')) return new Response(JSON.stringify({ table: { dataSource: table.dataSource, totalRecords: table.totalRecords } }), { headers: { 'content-type': 'application/json' } });
 		return new Response(JSON.stringify({ table }), { headers: { 'content-type': 'application/json' } });
 	},
 	modalConfirm: async () => true,
 };
 
+const user = userEvent.setup({ document: dom.window.document });
+// API 启动模式会把首个完整响应直接交给 TableCRUD。初始化默认查询值更新状态后，
+// 第一次点击搜索仍必须发起数据请求，不能被初始化 effect 的跳过逻辑吞掉。
+render(React.createElement(MemoryRouter, null, React.createElement(TableCRUD, {
+	commonApi,
+	resourcePath: '/panel/admin/data/rows',
+	initialResponse: { table: tableA },
+})));
+await waitFor(() => assert.ok(screen.getByText('A 行')));
+const requestCountBeforeSearch = requests.length;
+await user.click(screen.getByRole('button', { name: /搜索/ }));
+await waitFor(() => assert.ok(requests.length > requestCountBeforeSearch, '首次点击搜索必须发起 HTTP 请求'));
+assert.ok(requests.at(-1)?.includes('table_schema=0'), '首次搜索应复用已加载的表结构');
+
+cleanup();
+requests.length = 0;
 render(React.createElement(MemoryRouter, null, React.createElement(TableCRUD, { commonApi, resourcePath: '/panel/admin/data/rows' })));
 await waitFor(() => assert.ok(screen.getByText('A 行')));
 assert.ok(screen.getByText('编辑'), '第一张表有行操作');
 assert.ok(screen.getByRole('button', { name: /删除/ }), '第一张表有工具栏删除');
 
 // 操作列必须使用同一次后端响应中的字符串 rowKey，不能捕获首次渲染的默认 key。
-const user = userEvent.setup({ document: dom.window.document });
 await user.click(screen.getByText('编辑'));
 await waitFor(() => assert.ok(requests.some((url) => url.includes('/acct_string_id'))));
 cleanup();
