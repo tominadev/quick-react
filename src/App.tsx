@@ -45,7 +45,7 @@ type BootstrapResponse = FormPageResponse & {
 	accountsNotice?: string;
 	accountsCenter?: AccountCenterLink;
 };
-type BootstrapPageData = { apiPath: string; response: BootstrapResponse };
+type BootstrapPageData = { pagePath: string; apiPath: string; response: BootstrapResponse };
 
 const iconComponents = {
 	mail: <MailOutlined />,
@@ -64,7 +64,7 @@ type AppType = {
 	commonApi: CommonApi;
 };
 
-const App = ({ commonApi }: AppType) => {
+export const App = ({ commonApi }: AppType) => {
 	const location = useLocation();
 	const navigate = useNavigate();
 	const [contextReady, setContextReady] = useState(initialData.bootstrapMode !== 'api');
@@ -90,10 +90,14 @@ const App = ({ commonApi }: AppType) => {
 		const response = await commonApi.apiFetch(`${endpoint.pathname}${endpoint.search}`);
 		const result = await response.json() as BootstrapResponse;
 		applyApiContext(result.context);
-		setBootstrapPageData({ apiPath, response: result });
+		setBootstrapPageData({ pagePath: pathname, apiPath, response: result });
 		setContextReady(true);
 	};
-	const bootstrapResponseFor = (apiPath: string) => bootstrapPageData?.apiPath === apiPath ? bootstrapPageData.response : undefined;
+	const bootstrapResponseFor = (apiPath: string) => (
+		bootstrapPageData?.pagePath === location.pathname && bootstrapPageData.apiPath === apiPath
+			? bootstrapPageData.response
+			: undefined
+	);
 	const pages = useMemo(() => collectPageDefinitions(navigation), [navigation]);
 	const authPages: PageDefinition[] = useMemo(() => (auth?.pages ?? []).map((page) => ({
 		path: page.path,
@@ -194,7 +198,9 @@ const App = ({ commonApi }: AppType) => {
 			navigate(pageUrl(e.key));
 		}
 	};
-	const memoizedRoutes = useMemo(() => routes, [auth, navigation]);
+	// 页面首屏数据在 API 启动模式下异步到达；路由元素必须随其更新，
+	// 否则切换菜单时可能复用尚未携带数据的旧页面元素。
+	const memoizedRoutes = useMemo(() => routes, [auth, navigation, bootstrapPageData]);
 
 	useEffect(() => {
 		if (initialData.bootstrapMode !== 'api' || bootstrapRequested.current) return;
@@ -204,6 +210,12 @@ const App = ({ commonApi }: AppType) => {
 			setContextReady(true);
 		});
 	}, [commonApi, location.pathname]);
+
+	useEffect(() => {
+		// HTML 启动时携带的页面响应只属于首次打开的路径。离开该路径后立即释放，
+		// 后续返回必须重新请求接口，不能把一次性启动响应当作页面缓存重复使用。
+		if (bootstrapPageData && bootstrapPageData.pagePath !== location.pathname) setBootstrapPageData(undefined);
+	}, [bootstrapPageData, location.pathname]);
 
 	useEffect(() => {
 		const onApiNavigation = (event: Event) => {
