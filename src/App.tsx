@@ -198,10 +198,6 @@ export const App = ({ commonApi }: AppType) => {
 			navigate(pageUrl(e.key));
 		}
 	};
-	// 页面首屏数据在 API 启动模式下异步到达；路由元素必须随其更新，
-	// 否则切换菜单时可能复用尚未携带数据的旧页面元素。
-	const memoizedRoutes = useMemo(() => routes, [auth, navigation, bootstrapPageData]);
-
 	useEffect(() => {
 		if (initialData.bootstrapMode !== 'api' || bootstrapRequested.current) return;
 		bootstrapRequested.current = true;
@@ -249,7 +245,7 @@ export const App = ({ commonApi }: AppType) => {
 			</Layout.Header>}
 			<Content>
 				<Routes>
-					{memoizedRoutes.map((route) => (
+					{routes.map((route) => (
 						<Route key={route.path} path={route.path} element={route.element} />
 					))}
 				</Routes>
