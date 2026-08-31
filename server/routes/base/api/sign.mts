@@ -7,7 +7,7 @@ import type { FormPageConfig } from '@shared/types/form-page.mjs';
 import { firstSql, runSql, sql } from '@server/database/sql.mjs';
 import { accountsLoginCookie, loadAccountsOidcConfig, loadDiscovery, oidcFetch } from '@server/modules/passport/accounts/client.mjs';
 import { randomToken, sha256Base64Url } from '@server/modules/passport/accounts/oidc.mjs';
-import { isSecureRequest, requestOrigin } from '@server/modules/base/request-origin.mjs';
+import { isSecureRequest, requestOrigin, requestPagePath } from '@server/modules/base/request-origin.mjs';
 import { clearPassportSessionCookie } from '@server/modules/passport/session.mjs';
 import { passwordError } from '@server/modules/base/auth/password-policy.mjs';
 
@@ -78,14 +78,14 @@ const localSign: ApiHandler = async (c, next) => {
 		catch (error) { return apiMessage(c, 400, error instanceof Error ? error.message : '设备信息无效'); }
 		await runSql(database, sql({ database }).insert('base_sessions', { token_hash: await hashSessionToken(sessionToken), user_id: user.id, device_id: deviceId, expires_at: now + maxAge * 1000 }));
 		c.header('Set-Cookie', createSessionCookie(sessionToken, new URL(c.req.url).protocol === 'https:', maxAge));
-		return apiMessageData(c, 200, '登录成功', { user: { id: user.id, username: user.username }, next: { action: 'reload', delay: 1 } });
+		return apiMessageData(c, 200, '登录成功', { user: { id: user.id, username: user.username }, next: { action: 'navigate', path: requestPagePath(c), refreshAuth: true } });
 	}
 	if (c.req.method === 'DELETE') {
 		const sessionToken = readSessionId(c.req.raw);
 		if (sessionToken) await runSql(database, sql({ database }).delete('base_sessions', { token_hash: await hashSessionToken(sessionToken) }));
 		c.header('Set-Cookie', clearSessionCookie(new URL(c.req.url).protocol === 'https:'));
 		if (c.req.query('logout') !== 'local') c.header('Set-Cookie', clearPassportSessionCookie(isSecureRequest(c)), { append: true });
-		return apiMessageData(c, 200, '已退出登录', { next: { action: 'reload' } });
+		return apiMessageData(c, 200, '已退出登录', { next: { action: 'navigate', path: requestPagePath(c), refreshAuth: true } });
 	}
 	return next();
 };
@@ -133,7 +133,7 @@ const handler: ApiHandler = async (c, next) => {
 		if (sessionHash) await runSql(database, sql({ database }).delete('base_sessions', { token_hash: sessionHash }));
 		c.header('Set-Cookie', clearSessionCookie(isSecureRequest(c)));
 		if (!localOnly) c.header('Set-Cookie', clearPassportSessionCookie(isSecureRequest(c)), { append: true });
-		return apiMessageData(c, 200, '已退出 Accounts 及所有关联站点', { next: { action: 'reload' } });
+		return apiMessageData(c, 200, '已退出 Accounts 及所有关联站点', { next: { action: 'navigate', path: requestPagePath(c), refreshAuth: true } });
 	}
 	if (c.req.method === 'POST') {
 		try {

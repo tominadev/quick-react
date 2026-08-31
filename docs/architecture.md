@@ -40,7 +40,7 @@ Base 的 `base_session` 使用滑动过期策略：有效请求会把数据库 `
 
 普通后台页面由后端提供导航、组件标识、表格列和数据接口；前端只负责通用布局、表格和表单渲染。新增常规 CRUD 页面时，在 `server/routes/<site_key>/navigation.mts` 增加导航，并在同一站点的 `api/` 下增加接口文件，无需手工修改路由表。
 
-公共请求和反馈层位于 `src/utils/common/`：`api.tsx` 负责请求加载状态、错误拦截和 `feedback` 展示，`feedback.ts` 负责跳转延迟计算；`src/utils/common/response-action.ts` 只执行后端下发的统一完成动作，`reload` 可带秒级 `delay` 以便先展示成功反馈；`src/components/common/Countdown.tsx` 提供登录和配置表单共用的倒计时组件。服务端响应输出统一由 `server/modules/base/api-response.mts` 负责，业务 API 不直接调用 `c.json()`。
+公共请求和反馈层位于 `src/utils/common/`：`api.tsx` 负责请求加载状态、错误拦截和 `feedback` 展示，`feedback.ts` 负责跳转延迟计算；`src/utils/common/response-action.ts` 只执行后端下发的统一完成动作。认证切换使用 `navigate + refreshAuth`：应用重新读取 `/api/auth` 返回的认证和导航状态后，用浏览器路由更新当前页面，不重新加载 `bundle.js`；普通 `navigate` 仍按协议执行完整页面导航，`reload` 可带秒级 `delay` 以便先展示成功反馈；`src/components/common/Countdown.tsx` 提供登录和配置表单共用的倒计时组件。站点设置中的 `apiBootstrapEnabled` 默认关闭：关闭时服务端把认证和导航上下文注入 HTML，开启时只输出不含用户状态的公共页面壳，应用启动后从 `/api/auth` 读取认证、导航和页面状态，页面壳可交给 CDN 缓存。服务端响应输出统一由 `server/modules/base/api-response.mts` 负责，业务 API 不直接调用 `c.json()`。
 
 API 使用物理目录作为分层中间件链。构建阶段扫描 `server/routes/*/api`，生成 Worker 可静态打包的站点路由和模块注册表；运行时不扫描文件系统。每一层优先使用当前站点实现，缺少时沿继承链回退到 `base`。动态 ID 作为参数传给已匹配的叶子处理文件，例如 `/api/panel/admin/data/rows/row-1` 仍由 `rows.mts` 处理。
 

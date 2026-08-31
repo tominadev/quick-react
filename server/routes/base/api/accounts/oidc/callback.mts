@@ -14,7 +14,7 @@ type LoginRequest = { id: string; issuer: string; state: string; nonce: string; 
 const popupClosePage = (returnPath: string) => {
 	const target = JSON.stringify(returnPath || '/').replaceAll('<', '\\u003c');
 	return `<!doctype html><html lang="zh-CN"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>登录成功</title><style>body{font-family:system-ui;padding:48px;text-align:center;background:#405a75;color:#f2f7fb}p{color:#d8e5f0}</style></head>`
-		+ `<body><h2>登录成功</h2><p>正在返回原页面…</p><script>if(window.opener){window.opener.postMessage({source:'passport',status:'success',next:{action:'reload'}},window.location.origin);setTimeout(function(){window.close();},100);}else{location.href=${target};}</script></body></html>`;
+		+ `<body><h2>登录成功</h2><p>正在返回原页面…</p><script>if(window.opener){window.opener.postMessage({source:'passport',status:'success',next:{action:'navigate',path:${target},refreshAuth:true}},window.location.origin);setTimeout(function(){window.close();},100);}else{location.href=${target};}</script></body></html>`;
 };
 
 /** 未设置 Accounts 用户名时的本站占位用户名，带下划线，永远不会与合法用户名冲突。 */

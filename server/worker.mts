@@ -123,7 +123,10 @@ const configureForRequest = async (c: Context<WorkerEnv>) => {
 		? storedCurrentUser
 		: undefined;
 	if (currentUser) c.set('currentUser', currentUser);
-	if (currentUser && c.req.method !== 'DELETE') {
+	const apiBootstrapDocument = configuration.siteSettings.apiBootstrapEnabled
+		&& c.req.method === 'GET'
+		&& (c.req.header('accept') ?? '').includes('text/html');
+	if (currentUser && c.req.method !== 'DELETE' && !apiBootstrapDocument) {
 		const sessionId = readSessionId(c.req.raw);
 		if (sessionId) c.header('Set-Cookie', createSessionCookie(sessionId, isSecureRequest(c), baseSessionMaxAge));
 	}
@@ -132,7 +135,7 @@ const configureForRequest = async (c: Context<WorkerEnv>) => {
 	const passportUser = passportDatabase && accountsIdentity
 		? await loadPassportSession(passportDatabase, c.req.raw)
 		: undefined;
-	if (passportSessionId && !passportUser) c.header('Set-Cookie', clearPassportSessionCookie(isSecureRequest(c)), { append: true });
+	if (passportSessionId && !passportUser && !apiBootstrapDocument) c.header('Set-Cookie', clearPassportSessionCookie(isSecureRequest(c)), { append: true });
 	if (passportUser) c.set('passportUser', passportUser);
 	// Bind the authenticated device-user IDs once per request.  The SQL public
 	// layer then fills created/updated audit fields for every route uniformly.
@@ -177,7 +180,8 @@ const renderDocument = async (c: Context<WorkerEnv>) => {
 	const site = c.get('site');
 	const siteConfig = c.get('techStackConfig');
 	const systemConfig = c.get('systemConfig');
-	const menuItems = getSiteNavigation(site.codeSiteChain, c.get('effectiveRoles'));
+	const apiBootstrap = c.get('siteSettings').apiBootstrapEnabled;
+	// 即使 API 启动模式不把认证数据写入 HTML，也要用后端完整页面集合处理规范后缀。
 	const auth = await buildAuthState(c);
 	const requestPath = c.req.path;
 	const pagePaths = resolvePagePaths(c, auth);
@@ -187,25 +191,29 @@ const renderDocument = async (c: Context<WorkerEnv>) => {
 		target.pathname = `${requestPath}${siteConfig.pageSuffix}`;
 		return c.redirect(target.toString(), 302);
 	}
-	const pageStatus = await resolvePageStatus(c, requestPath, auth, pagePaths);
-	const metadata = pageStatus
-		? { title: pageStatus.title, description: pageStatus.description }
-		: getPageMetadata(requestPath, menuItems, siteConfig.pageSuffix);
+	const menuItems = apiBootstrap ? [] : getSiteNavigation(site.codeSiteChain, c.get('effectiveRoles'));
+	const pageStatus = apiBootstrap ? undefined : await resolvePageStatus(c, requestPath, auth, pagePaths);
+	const metadata = apiBootstrap
+		? { title: site.name, description: `${site.name}提供网站页面与接口服务。` }
+		: pageStatus
+			? { title: pageStatus.title, description: pageStatus.description }
+			: getPageMetadata(requestPath, menuItems, siteConfig.pageSuffix);
 	const title = metadata.title === 'Quick React' ? site.name : `${metadata.title} | ${site.name}`;
 	const publicOrigin = systemConfig.publicOrigin || undefined;
 	const canonical = publicOrigin && !pageStatus ? new URL(requestPath, publicOrigin).toString() : undefined;
-	c.header('Cache-Control', 'no-cache');
+	c.header('Cache-Control', apiBootstrap ? 'public, max-age=60, s-maxage=300, must-revalidate' : 'no-cache');
 	return c.html(renderIndexHtml({
 		...metadata,
 		title,
 		canonical,
 		initialData: {
 			debug: systemConfig.debug,
+			bootstrapMode: apiBootstrap ? 'api' : 'server',
 			apiSuffix: siteConfig.apiSuffix,
 			pageSuffix: siteConfig.pageSuffix,
 			siteName: site.name,
-			siteNavigation: menuItems,
-			auth,
+			siteNavigation: apiBootstrap ? [] : menuItems,
+			...(apiBootstrap ? {} : { auth }),
 			footer: c.get('siteSettings').footer,
 			pageStatus,
 		},

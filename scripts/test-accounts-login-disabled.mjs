@@ -51,7 +51,7 @@ const deviceKey = '00000000-0000-4000-8000-000000000001';
 	const login = await request('/api/sign.php', { method: 'POST', body: { username: 'local_admin', password: 'test-password-123' } });
 	assert.equal(login.status, 200);
 	assert.ok(login.headers.get('set-cookie'));
-	assert.deepEqual((await login.clone().json()).next, { action: 'reload', delay: 1 });
+	assert.deepEqual((await login.clone().json()).next, { action: 'navigate', path: '/', refreshAuth: true });
 
 	// 身份中心站点和业务站点用同一套模块：后台同样有“Accounts 登录”设置页，可以在这里关掉这种登录方式。
 	const cookie = login.headers.get('set-cookie').split(';')[0];

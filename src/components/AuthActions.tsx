@@ -37,7 +37,7 @@ export default function AuthActions({ auth, commonApi, apiSuffix, pageSuffix }: 
 			return;
 		}
 		if (action.action === 'local-login') { setLocalLoginOpen(true); return; }
-		// 弹窗登录：业务页面留在原地，登录成功后刷新当前页。
+		// 弹窗登录：业务页面留在原地，登录成功后由后端指令软切换并更新认证状态。
 		if (action.action === 'accounts-login') {
 			try {
 				const result = await loginWithAccountsPopup();

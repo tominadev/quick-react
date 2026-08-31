@@ -10,7 +10,7 @@ import { clearOidcRequestCookie, oidcRequestCookieName, readCookie, sha256 } fro
 import { authorizationRequest } from '@server/modules/passport/accounts/repository.mjs';
 import { oidcIssuer, revokePassportSession, revokeOidcSession } from '@server/modules/passport/accounts/provider.mjs';
 import { clearExternalPendingCookie, clearPasswordResetCookie, clearSignupEmailCookie, passwordResetCookie, passwordResetCookieName, discardExternalEmailOtp, externalPendingCookieName, externalProviders, providersWithVerifiedEmail, issueExternalEmailOtp, pendingExternalEmailOtp, pendingExternalIdentity, signupEmailCookie, signupEmailCookieName, verifyExternalEmailOtp } from '@server/modules/passport/accounts/external.mjs';
-import { isSecureRequest } from '@server/modules/base/request-origin.mjs';
+import { isSecureRequest, requestPagePath } from '@server/modules/base/request-origin.mjs';
 import { allSql, firstSql, runSql, sql } from '@server/database/sql.mjs';
 import { sendDefaultCloudEmail } from '@server/modules/global/cloud/email.mjs';
 import { sendTelegramMessage, type TelegramInlineKeyboard } from '@server/modules/global/telegram/api.mjs';
@@ -285,7 +285,7 @@ const handler: ApiHandler = async (c, next) => {
 		const sessionId = readPassportSessionId(c.req.raw);
 		if (sessionId) await revokePassportSession(database, sessionId);
 		c.header('Set-Cookie', clearPassportSessionCookie(secure));
-		return apiMessageData(c, 200, '已退出 Accounts', { next: { action: 'reload' } });
+		return apiMessageData(c, 200, '已退出 Accounts', { next: { action: 'navigate', path: requestPagePath(c), refreshAuth: true } });
 	}
 	if (c.req.method !== 'POST') return next();
 	const body = await parseBody(c), step = text(body.step) || 'email', action = c.req.query('action')?.trim();
@@ -334,7 +334,7 @@ const handler: ApiHandler = async (c, next) => {
 		const sessionId = readPassportSessionId(c.req.raw);
 		if (sessionId) await revokeOidcSession(database, sessionId, oidcIssuer(c), c.env.OIDC_FETCH ?? fetch);
 		c.header('Set-Cookie', clearPassportSessionCookie(secure));
-		return apiMessageData(c, 200, '已退出 Accounts', { next: { action: 'reload' } });
+		return apiMessageData(c, 200, '已退出 Accounts', { next: { action: 'navigate', path: requestPagePath(c), refreshAuth: true } });
 	}
 	// 取消登录：登录在弹窗里进行，直接关闭窗口；不是弹窗时回落到来源站点。同时清掉待授权请求。
 	if (action === 'return_to_client') {

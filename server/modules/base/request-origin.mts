@@ -11,3 +11,19 @@ export const requestOrigin = (c: Context<AppEnv>) => {
 };
 
 export const isSecureRequest = (c: Context<AppEnv>) => requestOrigin(c).startsWith('https://');
+
+/**
+ * 从同源 Referer 取回发起操作的页面路径，供后端下发软导航目标。
+ * API 请求没有页面路径，缺少或不可信 Referer 时统一回到首页。
+ */
+export const requestPagePath = (c: Context<AppEnv>, fallback = '/') => {
+	try {
+		const referer = c.req.header('referer');
+		if (!referer) return fallback;
+		const source = new URL(referer);
+		if (source.origin !== requestOrigin(c) || source.pathname.startsWith('/api/')) return fallback;
+		return `${source.pathname}${source.search}` || fallback;
+	} catch {
+		return fallback;
+	}
+};

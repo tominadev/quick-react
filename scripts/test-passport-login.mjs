@@ -146,7 +146,7 @@ const fingerprintData = JSON.stringify({ canvas_cyrb53: '4b5a6c7d8e9f', audio_cy
 	localSessionDatabase.close();
 	const accountsLogout = await request('/api/accounts/sign.php', { method: 'DELETE', cookie: passportCookie });
 	assert.equal(accountsLogout.status, 200);
-	assert.deepEqual((await accountsLogout.json()).next, { action: 'reload' });
+	assert.deepEqual((await accountsLogout.json()).next, { action: 'navigate', path: '/', refreshAuth: true });
 	const completedDatabase = new DatabaseSync(process.env.DEFAULT_DATABASE_FILE, { readOnly: true });
 	assert.equal(completedDatabase.prepare("SELECT COUNT(*) AS count FROM base_sessions WHERE token_hash = ?").get(localSessionHash).count, 1, '退出 Accounts 不应删除本站会话');
 	assert.equal(completedDatabase.prepare(`SELECT status FROM passport_login_challenges WHERE challenge_id = ?`).get(challengeId).status, 'consumed');

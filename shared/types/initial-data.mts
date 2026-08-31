@@ -36,6 +36,8 @@ export type PageStatus = {
 
 export type InitialData = {
 	debug?: boolean;
+	/** server：服务端注入会话上下文；api：仅输出公共页面壳，由 /api/auth 启动。 */
+	bootstrapMode?: 'server' | 'api';
 	apiSuffix: string;
 	pageSuffix: string;
 	siteName: string;
