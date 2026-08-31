@@ -90,7 +90,6 @@ export const App = ({ commonApi }: AppType) => {
 		includes.add('schema');
 		includes.add('data');
 		endpoint.searchParams.set('include', [...includes].join(','));
-		endpoint.searchParams.set('path', pathname);
 		const response = await commonApi.apiFetch(`${endpoint.pathname}${endpoint.search}`);
 		const result = await response.json() as BootstrapResponse;
 		applyApiContext(result.context);
