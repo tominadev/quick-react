@@ -7,6 +7,7 @@ import type { SiteSettings } from './site-settings.mjs';
 import type { UserIdentity } from '@shared/types/user.mjs';
 import type { TableColumn, TableRow } from '@shared/types/table.mjs';
 import type { AccountsLoginMode } from '@server/modules/passport/accounts/client.mjs';
+import type { ApiContext } from '@shared/types/api-response.mjs';
 
 export type RuntimeBindings = Record<string, unknown> & {
 	DEFAULT_DB?: unknown;
@@ -37,6 +38,8 @@ export type AppEnv = {
 		currentUser?: UserIdentity;
 		passportUser?: UserIdentity;
 		effectiveRoles: string[];
+		/** Base 响应层按 include=auth 请求当前认证、导航和页面状态。 */
+		apiContext?: (path?: string) => Promise<ApiContext>;
 	};
 };
 

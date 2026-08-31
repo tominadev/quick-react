@@ -7,7 +7,7 @@ import { isSilentPassportError, loginWithAccountsPopup, logoutWithAccounts } fro
 import { useState } from 'react';
 import LocalLoginModal from '@/components/auth/LocalLoginModal.js';
 import { runApiNextAction } from '@/utils/common/response-action.js';
-import type { ApiNextAction } from '@shared/types/api-response.mjs';
+import type { ApiContext, ApiNextAction } from '@shared/types/api-response.mjs';
 
 type AuthActionsProps = {
 	auth?: AuthState;
@@ -15,6 +15,7 @@ type AuthActionsProps = {
 	apiSuffix: string;
 	pageSuffix: string;
 };
+type AuthRefreshResult = { next?: ApiNextAction; context?: ApiContext };
 
 const icons = { login: <LoginOutlined />, register: <UserAddOutlined />, logout: <LogoutOutlined />, user: <UserOutlined /> };
 
@@ -41,27 +42,29 @@ export default function AuthActions({ auth, commonApi, apiSuffix, pageSuffix }: 
 		if (action.action === 'accounts-login') {
 			try {
 				const result = await loginWithAccountsPopup();
-				runApiNextAction(result.next);
+				runApiNextAction(result.next, result.context);
 			} catch (error) { if (!isSilentPassportError(error)) await commonApi.modalError([error instanceof Error ? error.message : 'Accounts 登录失败']); }
 			return;
 		}
 		if (action.action === 'local-logout') {
 			try {
 				const response = await commonApi.apiFetch(`/api/sign${apiSuffix}?logout=local`, { method: 'DELETE' });
-				runApiNextAction((await response.json()).next);
+				const result = await response.json() as AuthRefreshResult;
+				runApiNextAction(result.next, result.context);
 			} catch (error) { await commonApi.modalError([error instanceof Error ? error.message : '退出本站失败']); }
 			return;
 		}
 		if (action.action === 'all-logout') {
 			try {
 				const response = await commonApi.apiFetch(`/api/sign${apiSuffix}`, { method: 'DELETE' });
-				runApiNextAction((await response.json()).next);
+				const result = await response.json() as AuthRefreshResult;
+				runApiNextAction(result.next, result.context);
 			} catch (error) { await commonApi.modalError([error instanceof Error ? error.message : '退出登录失败']); }
 			return;
 		}
 		try {
-			const result = await logoutWithAccounts({ signInPath: `/api/accounts/sign${apiSuffix}` }) as { next?: ApiNextAction };
-			runApiNextAction(result.next);
+			const result = await logoutWithAccounts({ signInPath: `/api/accounts/sign${apiSuffix}` }) as AuthRefreshResult;
+			runApiNextAction(result.next, result.context);
 		} catch (error) { await commonApi.modalError([error instanceof Error ? error.message : '退出登录失败']); }
 	};
 	if (auth.component === 'buttons') {

@@ -285,6 +285,7 @@ const handler: ApiHandler = async (c, next) => {
 		const sessionId = readPassportSessionId(c.req.raw);
 		if (sessionId) await revokePassportSession(database, sessionId);
 		c.header('Set-Cookie', clearPassportSessionCookie(secure));
+		c.set('passportUser', undefined);
 		return apiMessageData(c, 200, '已退出 Accounts', { next: { action: 'navigate', path: requestPagePath(c), refreshAuth: true } });
 	}
 	if (c.req.method !== 'POST') return next();
@@ -334,6 +335,7 @@ const handler: ApiHandler = async (c, next) => {
 		const sessionId = readPassportSessionId(c.req.raw);
 		if (sessionId) await revokeOidcSession(database, sessionId, oidcIssuer(c), c.env.OIDC_FETCH ?? fetch);
 		c.header('Set-Cookie', clearPassportSessionCookie(secure));
+		c.set('passportUser', undefined);
 		return apiMessageData(c, 200, '已退出 Accounts', { next: { action: 'navigate', path: requestPagePath(c), refreshAuth: true } });
 	}
 	// 取消登录：登录在弹窗里进行，直接关闭窗口；不是弹窗时回落到来源站点。同时清掉待授权请求。

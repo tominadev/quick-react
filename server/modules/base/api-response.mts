@@ -29,16 +29,27 @@ const writeApiResponse = (c: Context<AppEnv>, status: number, data: Record<strin
 	c.json(data, status as ContentfulStatusCode)
 );
 
-export const apiResponse = <T extends ApiSuccessData>(
+export const apiResponse = async <T extends ApiSuccessData>(
 	c: Context<AppEnv>,
 	status: number,
 	data: T,
-) => {
+): Promise<Response> => {
+	const payload = data as Record<string, unknown>;
+	const next = payload.next;
+	const refreshesAuth = Boolean(next && typeof next === 'object' && !Array.isArray(next) && (next as { refreshAuth?: unknown }).refreshAuth === true);
+	const includesAuth = (c.req.query('include') ?? '').split(',').map((value) => value.trim()).includes('auth');
+	let responseData: Record<string, unknown> = payload;
+	const contextProvider = c.get('apiContext');
+	if ((includesAuth || refreshesAuth) && contextProvider) {
+		responseData = { ...payload, context: await contextProvider(c.req.query('path')) };
+		// 认证上下文包含当前用户，不得由浏览器或 CDN 缓存。
+		c.header('Cache-Control', 'no-store');
+	}
 	const responseCookies = () => c.res.headers.get('set-cookie') ?? '';
 	const deviceKey = c.req.header('x-device-key')?.trim();
 	const transportCookie = deviceKey ? createDeviceKeyTransportCookie(deviceKey, isSecureRequest(c)) : '';
 	if (transportCookie && !responseCookies().includes('device_key=')) c.header('Set-Cookie', transportCookie, { append: true });
-	return c.json(data, status as ContentfulStatusCode);
+	return c.json(responseData, status as ContentfulStatusCode);
 };
 
 const messagePayload = (

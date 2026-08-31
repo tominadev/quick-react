@@ -164,9 +164,11 @@ try {
 	assert.equal(claims.preferred_username, 'oidcuser1');
 	assert.equal(signedInBusiness.user.username, 'oidcuser1');
 	assert.deepEqual(signedInBusiness.formPage.passportLogin, { enabled: true });
-	const signedInAuth = await (await app.request('https://site1.test/api/auth.php', { headers: { cookie: businessSessionCookie, 'x-device-key': deviceKey, 'x-device-fingerprint': fingerprintData } })).json();
-	assert.equal(signedInAuth.auth.currentUser.username, 'oidcuser1');
-	assert.ok(Array.isArray(signedInAuth.siteNavigation));
+	const signedInAuth = await (await app.request('https://site1.test/api/home.php?include=auth&path=%2Fpanel%2Fadmin.html', { headers: { cookie: businessSessionCookie, 'x-device-key': deviceKey, 'x-device-fingerprint': fingerprintData } })).json();
+	assert.ok(signedInAuth.context);
+	assert.equal(signedInAuth.context.auth.currentUser.username, 'oidcuser1');
+	assert.ok(Array.isArray(signedInAuth.context.siteNavigation));
+	assert.equal((await app.request('https://site1.test/api/auth.php')).status, 404, '认证上下文应由通用 API 响应层提供');
 	const businessUsers = new DatabaseSync(process.env.DEFAULT_DATABASE_FILE, { readOnly: true });
 	assert.equal(businessUsers.prepare("SELECT COUNT(*) AS count FROM base_users WHERE name LIKE 'passport\\_%' ESCAPE '\\'").get().count, 0);
 	businessUsers.close();

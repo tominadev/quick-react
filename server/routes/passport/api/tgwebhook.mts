@@ -1,4 +1,5 @@
 import type { ApiHandler } from '@server/modules/base/api-router.mjs';
+import { apiResponse } from '@server/modules/base/api-response.mjs';
 import type { DatabaseAdapter } from '@server/database/index.mjs';
 import { handlePassportTelegramUpdate, type PassportTelegramUpdate } from '@server/modules/passport/telegram-webhook.mjs';
 import { firstSql, runSql, sql } from '@server/database/sql.mjs';
@@ -10,7 +11,7 @@ type TelegramBot = {
 	webhook_hostname: string;
 };
 
-const jsonStatus = (c: Parameters<ApiHandler>[0], status: number, value: string) => c.json({ status: value }, status as 200 | 400 | 403 | 404 | 405 | 500);
+const jsonStatus = (c: Parameters<ApiHandler>[0], status: number, value: string) => apiResponse(c, status, { status: value });
 const decimalPattern = /^[1-9]\d*$/;
 const loadBot = (database: DatabaseAdapter, botId: string, hostname: string) => firstSql<TelegramBot>(database, sql({ database }).select({ table: 'global_telegram_bots', columns: { id: 'id', bot_token: 'token', secret_token: 'secret_token', webhook_hostname: 'webhook_hostname' }, where: [{ column: 'id', value: botId }, { column: 'webhook_hostname', value: hostname }, { column: 'status', value: 'enabled' }] }));
 

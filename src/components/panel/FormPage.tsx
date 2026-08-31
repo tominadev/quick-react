@@ -150,7 +150,7 @@ export default function FormPage({ commonApi, apiPath, title, submitMethod = 'PU
 		setSaved(true);
 		if (!result.formPage) {
 			if (onCompleted) await onCompleted();
-			if (result.next) { runApiNextAction(result.next); return; }
+			if (result.next) { runApiNextAction(result.next, result.context); return; }
 			if (onCompleted) return;
 		}
 		if (target && result.feedback && (redirectOnFeedback || result.feedback.redirectAfter !== undefined)) {
@@ -214,7 +214,7 @@ export default function FormPage({ commonApi, apiPath, title, submitMethod = 'PU
 		setPassportError('');
 		try {
 			const result = await loginWithAccountsPopup();
-			runApiNextAction(result.next);
+			runApiNextAction(result.next, result.context);
 		} catch (error) {
 			if ((error as Error & { silent?: boolean })?.silent) return;
 			setPassportError(error instanceof Error ? error.message : 'Passport 登录失败');

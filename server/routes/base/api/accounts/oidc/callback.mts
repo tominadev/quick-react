@@ -7,14 +7,17 @@ import { baseSessionMaxAge, createSessionCookie, hashSessionToken } from '@serve
 import { ensureBaseDevice } from '@server/modules/base/device.mjs';
 import { firstSql, runSql, sql } from '@server/database/sql.mjs';
 import { isSecureRequest, requestOrigin } from '@server/modules/base/request-origin.mjs';
+import { parseRoles } from '@shared/types/role.mjs';
+import type { ApiContext } from '@shared/types/api-response.mjs';
 
 type LoginRequest = { id: string; issuer: string; state: string; nonce: string; code_verifier: string; return_path: string; expires_at: number };
 
 /** 弹窗通知打开方；手机直达时没有 opener，直接跳回发起页。 */
-const popupClosePage = (returnPath: string) => {
+const popupClosePage = (returnPath: string, context?: ApiContext) => {
 	const target = JSON.stringify(returnPath || '/').replaceAll('<', '\\u003c');
+	const contextValue = JSON.stringify(context ?? null).replaceAll('<', '\\u003c');
 	return `<!doctype html><html lang="zh-CN"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>登录成功</title><style>body{font-family:system-ui;padding:48px;text-align:center;background:#405a75;color:#f2f7fb}p{color:#d8e5f0}</style></head>`
-		+ `<body><h2>登录成功</h2><p>正在返回原页面…</p><script>if(window.opener){window.opener.postMessage({source:'passport',status:'success',next:{action:'navigate',path:${target},refreshAuth:true}},window.location.origin);setTimeout(function(){window.close();},100);}else{location.href=${target};}</script></body></html>`;
+		+ `<body><h2>登录成功</h2><p>正在返回原页面…</p><script>if(window.opener){window.opener.postMessage({source:'passport',status:'success',next:{action:'navigate',path:${target},refreshAuth:true},context:${contextValue}},window.location.origin);setTimeout(function(){window.close();},100);}else{location.href=${target};}</script></body></html>`;
 };
 
 /** 未设置 Accounts 用户名时的本站占位用户名，带下划线，永远不会与合法用户名冲突。 */
@@ -84,8 +87,11 @@ const handler: ApiHandler = async (c) => {
 		await runSql(database, sql({ database }).delete('base_oidc_login_requests', { request_id: request.id }));
 		const secure = isSecureRequest(c);
 		c.header('Set-Cookie', clearAccountsLoginCookie(secure)); c.header('Set-Cookie', createSessionCookie(sessionToken, secure, maxAge), { append: true });
+		const localUser = await firstSql<{ id: number; username: string; roles: string }>(database, sql({ database }).select({ table: 'base_users', columns: { id: 'id', username: 'name', roles: 'roles' }, where: [{ column: 'id', value: account.user_id }] }));
+		if (localUser) c.set('currentUser', { id: localUser.id, username: localUser.username, roles: parseRoles(localUser.roles) });
+		const context = await c.get('apiContext')?.(request.return_path);
 		// 登录只在弹窗里完成：直接返回关闭窗口的页面，不再中转到额外的回调页面。
-		return c.html(popupClosePage(request.return_path));
+		return c.html(popupClosePage(request.return_path, context));
 	} catch (error) { return apiMessage(c, 502, error instanceof Error ? error.message : 'Accounts 登录回调失败'); }
 };
 export default handler;

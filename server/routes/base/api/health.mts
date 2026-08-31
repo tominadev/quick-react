@@ -1,5 +1,6 @@
 import type { ApiHandler } from '@server/modules/base/api-router.mjs';
+import { apiResponse } from '@server/modules/base/api-response.mjs';
 
-const handler: ApiHandler = (c) => c.json({ ok: true });
+const handler: ApiHandler = (c) => apiResponse(c, 200, { ok: true });
 
 export default handler;

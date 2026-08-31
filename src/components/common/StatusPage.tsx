@@ -5,6 +5,7 @@ import { useLocation, useNavigate } from 'react-router-dom';
 import { HomeOutlined, LoginOutlined, UserOutlined } from '@ant-design/icons';
 import type { CommonApi } from '@/utils/common/api.js';
 import type { HeaderAction, PageStatus } from '@shared/types/initial-data.mjs';
+import type { ApiContext, ApiNextAction } from '@shared/types/api-response.mjs';
 import { isSilentPassportError, loginWithAccountsPopup } from '@/utils/common/passport.js';
 import LocalLoginModal from '@/components/auth/LocalLoginModal.js';
 import { runApiNextAction } from '@/utils/common/response-action.js';
@@ -17,6 +18,7 @@ type StatusPageProps = {
 };
 
 const icons: Record<string, React.ReactNode> = { login: <LoginOutlined />, user: <UserOutlined />, home: <HomeOutlined /> };
+type AuthRefreshResult = { next?: ApiNextAction; context?: ApiContext };
 const resultStatus = (status: number) => status === 404 ? '404' as const : status >= 500 ? '500' as const : '403' as const;
 
 // 页面路径不存在、未登录或无权访问时的统一提示，提示文案由后端下发。
@@ -52,27 +54,30 @@ export default function StatusPage({ commonApi, apiSuffix, pageSuffix, pageStatu
 		if (action.action === 'accounts-login') {
 			try {
 				const result = await loginWithAccountsPopup();
-				runApiNextAction(result.next);
+				runApiNextAction(result.next, result.context);
 			} catch (error) { if (!isSilentPassportError(error)) await commonApi.modalError([error instanceof Error ? error.message : 'Accounts 登录失败']); }
 			return;
 		}
 		if (action.action === 'local-logout') {
 			try {
 				const response = await commonApi.apiFetch(`/api/sign${apiSuffix}?logout=local`, { method: 'DELETE' });
-				runApiNextAction((await response.json()).next);
+				const result = await response.json() as AuthRefreshResult;
+				runApiNextAction(result.next, result.context);
 			} catch (error) { await commonApi.modalError([error instanceof Error ? error.message : '退出本站失败']); }
 			return;
 		}
 		if (action.action === 'all-logout') {
 			try {
 				const response = await commonApi.apiFetch(`/api/sign${apiSuffix}`, { method: 'DELETE' });
-				runApiNextAction((await response.json()).next);
+				const result = await response.json() as AuthRefreshResult;
+				runApiNextAction(result.next, result.context);
 			} catch (error) { await commonApi.modalError([error instanceof Error ? error.message : '退出登录失败']); }
 			return;
 		}
 		try {
 			const response = await commonApi.apiFetch(`/api/accounts/sign${apiSuffix}`, { method: 'DELETE' });
-			runApiNextAction((await response.json()).next);
+			const result = await response.json() as AuthRefreshResult;
+			runApiNextAction(result.next, result.context);
 		} catch (error) { await commonApi.modalError([error instanceof Error ? error.message : '退出 Accounts 失败']); }
 	};
 	return <><Result

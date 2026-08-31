@@ -1,5 +1,5 @@
 import { getDeviceHeaders } from '../utils/common/device-fingerprint.js';
-import type { ApiNextAction } from '@shared/types/api-response.mjs';
+import type { ApiContext, ApiNextAction } from '@shared/types/api-response.mjs';
 
 export type PassportLoginOptions = {
 	provider?: string;
@@ -9,7 +9,7 @@ export type PassportLoginOptions = {
 	height?: number;
 };
 
-type PassportLogoutResult = { next?: ApiNextAction; feedback?: { message?: string } };
+type PassportLogoutResult = { next?: ApiNextAction; context?: ApiContext; feedback?: { message?: string } };
 type PassportError = Error & { silent?: boolean };
 
 const debugEnabled = () => Boolean((window as Window & { __INITIAL_DATA__?: { debug?: boolean } }).__INITIAL_DATA__?.debug);
@@ -21,7 +21,7 @@ const defaultSignInPath = () => {
 	return `/api/sign${suffix}`;
 };
 const Passport = {
-	async login(options: PassportLoginOptions = {}): Promise<{ next?: ApiNextAction }> {
+	async login(options: PassportLoginOptions = {}): Promise<{ next?: ApiNextAction; context?: ApiContext }> {
 		// 必须在用户点击的同步调用栈中打开窗口，Safari 等浏览器会拦截异步后的 window.open。
 		const popup = window.open('about:blank', 'passport_login', `width=${options.width ?? 480},height=${options.height ?? 680},resizable=yes,scrollbars=yes`);
 		if (!popup) throw new Error('登录窗口被浏览器拦截');
@@ -38,7 +38,7 @@ const Passport = {
 			popup.close();
 			throw error;
 		}
-		return new Promise<{ next?: ApiNextAction }>((resolve, reject) => {
+		return new Promise<{ next?: ApiNextAction; context?: ApiContext }>((resolve, reject) => {
 			const timer = window.setTimeout(() => { window.clearInterval(closeWatcher); popup.close(); window.removeEventListener('message', listener); reject(new Error('Passport 登录已超时')); }, 10 * 60 * 1000);
 			const closeWatcher = window.setInterval(() => {
 				if (!popup.closed) return;
@@ -47,7 +47,7 @@ const Passport = {
 				error.silent = !debugEnabled();
 				reject(error);
 			}, 500);
-			const listener = (event: MessageEvent) => { if (event.origin !== currentOrigin() || event.data?.source !== 'passport') return; window.clearTimeout(timer); window.clearInterval(closeWatcher); window.removeEventListener('message', listener); popup.close(); event.data.status === 'success' ? resolve({ next: event.data.next }) : reject(new Error(event.data.message || 'Passport 登录失败')); };
+			const listener = (event: MessageEvent) => { if (event.origin !== currentOrigin() || event.data?.source !== 'passport') return; window.clearTimeout(timer); window.clearInterval(closeWatcher); window.removeEventListener('message', listener); popup.close(); event.data.status === 'success' ? resolve({ next: event.data.next, context: event.data.context }) : reject(new Error(event.data.message || 'Passport 登录失败')); };
 			window.addEventListener('message', listener);
 		});
 	},

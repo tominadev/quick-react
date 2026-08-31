@@ -17,12 +17,13 @@ import { loadAccountsOidcConfig, resolveAccountsLoginMode } from './modules/pass
 import { clearPassportSessionCookie, loadPassportDeviceUserId, loadPassportSession, readPassportSessionId } from './modules/passport/session.mjs';
 import { loadSystemConfigFromStore } from './modules/base/system-config.mjs';
 import { applyTechStackHeaders, loadTechStackConfigFromStore } from './modules/base/tech-stack.mjs';
-import { isSecureRequest } from './modules/base/request-origin.mjs';
+import { isSecureRequest, requestPagePath } from './modules/base/request-origin.mjs';
 import { getClientIp, getTransportIp } from './modules/base/client-ip.mjs';
 import { loadSiteSettings } from './modules/base/site-settings.mjs';
 import { renderPrivacyHtml } from './templates/base/page/privacy.mjs';
 import { renderTermsHtml } from './templates/base/page/terms.mjs';
 import { renderWechatQrPage } from './templates/passport/accounts/external/wechat.mjs';
+import { parseRoles } from '@shared/types/role.mjs';
 import type { AppEnv, RuntimeBindings } from './modules/base/types.mjs';
 import { workerApiModules, workerApiRoutes } from './.generated/worker-api-registry.mjs';
 
@@ -173,6 +174,29 @@ const configureForRequest = async (c: Context<WorkerEnv>) => {
 		...(currentUser ? ['user', ...currentUser.roles] : []),
 		...(passportUser ? ['accounts'] : []),
 	]);
+	c.set('apiContext', async (pathValue) => {
+		// 登录或退出接口会在同一请求里更新会话；根据最新上下文重新计算角色，
+		// 让带 refreshAuth 的响应可以直接携带新的认证状态，不再依赖独立 /api/auth 请求。
+		const current = c.get('currentUser');
+		const passport = c.get('passportUser');
+		const effectiveRoles = [
+			'public',
+			...(current ? ['user', ...parseRoles(current.roles)] : []),
+			...(passport ? ['accounts'] : []),
+		];
+		c.set('effectiveRoles', effectiveRoles);
+		const auth = await buildAuthState(c);
+		let requestPath = pathValue ?? requestPagePath(c);
+		try { requestPath = new URL(requestPath, 'http://localhost').pathname.slice(0, 256) || '/'; }
+		catch { requestPath = '/'; }
+		const pagePaths = resolvePagePaths(c, auth);
+		const pageStatus = await resolvePageStatus(c, requestPath, auth, pagePaths);
+		return {
+			auth,
+			siteNavigation: getSiteNavigation(site.codeSiteChain, effectiveRoles),
+			...(pageStatus ? { pageStatus } : {}),
+		};
+	});
 	return true;
 };
 

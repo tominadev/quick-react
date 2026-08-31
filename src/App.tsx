@@ -3,7 +3,7 @@ import type { MenuProps } from 'antd';
 import type { CommonApi } from '@/utils/common/api.js';
 import type { InitialData } from '@shared/types/initial-data.mjs';
 import type { AuthState } from '@shared/types/initial-data.mjs';
-import type { ApiNextAction } from '@shared/types/api-response.mjs';
+import type { ApiContext } from '@shared/types/api-response.mjs';
 import type { NavigationItem } from '@shared/types/navigation.mjs';
 import { collectPageDefinitions, matchNavigationKey, stripPageSuffix, type NavigationPageDefinition } from '@shared/navigation-tree.mjs';
 import { useState, useEffect, useMemo, useRef } from 'react';
@@ -21,7 +21,7 @@ import PersonalCenter from './components/panel/PersonalCenter.js';
 import ExternalCallback from './components/accounts/ExternalCallback.js';
 import StatusPage from './components/common/StatusPage.js';
 import HomePage from './components/common/HomePage.js';
-import { apiNavigationEvent } from '@/utils/common/response-action.js';
+import { apiNavigationEvent, type ApiNavigationEventDetail } from '@/utils/common/response-action.js';
 const { Content } = Layout;
 
 type MenuItem = Required<MenuProps>['items'][number];
@@ -58,14 +58,18 @@ const App = ({ commonApi }: AppType) => {
 	const [auth, setAuth] = useState<AuthState | undefined>(initialData.auth);
 	const [navigation, setNavigation] = useState(initialData.siteNavigation);
 	const bootstrapRequested = useRef(false);
+	const applyApiContext = (context?: ApiContext) => {
+		if (!context?.auth) throw new Error('认证上下文响应不完整');
+		setAuth(context.auth);
+		setNavigation(context.siteNavigation ?? []);
+		setPageStatus(context.pageStatus);
+	};
 	const loadAuthContext = async (path: string) => {
 		setContextError(false);
 		const pathname = new URL(path, window.location.origin).pathname;
-		const response = await commonApi.apiFetch(`/api/auth${initialData.apiSuffix}?path=${encodeURIComponent(pathname)}`);
-		const result = await response.json() as { auth?: AuthState; siteNavigation?: NavigationItem[]; pageStatus?: InitialData['pageStatus'] };
-		setAuth(result.auth);
-		if (result.siteNavigation) setNavigation(result.siteNavigation);
-		setPageStatus(result.pageStatus);
+		const response = await commonApi.apiFetch(`/api/home${initialData.apiSuffix}?include=auth&path=${encodeURIComponent(pathname)}`);
+		const result = await response.json() as { context?: ApiContext };
+		applyApiContext(result.context);
 		setContextReady(true);
 	};
 	const pages = useMemo(() => collectPageDefinitions(navigation), [navigation]);
@@ -157,17 +161,16 @@ const App = ({ commonApi }: AppType) => {
 
 	useEffect(() => {
 		const onApiNavigation = (event: Event) => {
-			const next = (event as CustomEvent<ApiNextAction>).detail;
+			const detail = (event as CustomEvent<ApiNavigationEventDetail>).detail;
+			const next = detail?.next;
 			if (!next || next.action !== 'navigate' || !next.refreshAuth) return;
-			void (async () => {
-				try {
-					await loadAuthContext(next.path);
-					navigate(next.path);
-				} catch {
-					// 认证状态接口不可用时仍执行后端给出的目标，完整页面导航会重新建立状态。
-					window.location.assign(next.path);
-				}
-			})();
+			try {
+				applyApiContext(detail.context);
+				navigate(next.path);
+			} catch {
+				// 响应没有携带认证上下文时，完整页面导航重新建立状态。
+				window.location.assign(next.path);
+			}
 		};
 		window.addEventListener(apiNavigationEvent, onApiNavigation);
 		return () => window.removeEventListener(apiNavigationEvent, onApiNavigation);

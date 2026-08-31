@@ -1,7 +1,7 @@
 /** 业务站点统一的 Accounts 弹窗登录入口：只在用户点击后调用，本页不会离开。 */
-import type { ApiNextAction } from '@shared/types/api-response.mjs';
+import type { ApiContext, ApiNextAction } from '@shared/types/api-response.mjs';
 
-type PassportSdk = { login: () => Promise<{ next?: ApiNextAction }>; logout: (options?: { signInPath?: string }) => Promise<{ next?: ApiNextAction }> };
+type PassportSdk = { login: () => Promise<{ next?: ApiNextAction; context?: ApiContext }>; logout: (options?: { signInPath?: string }) => Promise<{ next?: ApiNextAction; context?: ApiContext }> };
 export const isSilentPassportError = (error: unknown): boolean => Boolean(error && typeof error === 'object' && 'silent' in error && (error as { silent?: unknown }).silent === true);
 
 const loadPassport = async () => {
