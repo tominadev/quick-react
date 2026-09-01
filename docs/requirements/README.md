@@ -14,6 +14,7 @@
 | [row-level-data-ownership](row-level-data-ownership.md) | 数据行归属字段与写入逻辑（owner_uid） |
 | [data-visibility-by-permission-level](data-visibility-by-permission-level.md) | 用户权限等级与数据可见性判定（perm_level） |
 | [optimization-checklist](optimization-checklist.md) | 持续优化清单 |
+| [maintenance-toolbox](maintenance-toolbox.md) | 维护工具箱、救援入口与配置恢复 |
 
 ## 写作约定
 
