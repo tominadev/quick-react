@@ -9,14 +9,15 @@ export const tableCrud: TableCrudDefinition = { table: 'passport_external_provid
 
 type ProviderId = 'google' | 'wechat';
 type WechatMode = 'open_platform' | 'official_account';
-type ProviderRow = { id: ProviderId; display_name: string; client_id: string; client_secret: string; wechat_mode: WechatMode; wechat_redirect_domain: string; status: string; created_at: number; updated_at: number };
+type ProviderRow = { id: number; provider: ProviderId; display_name: string; client_id: string; client_secret: string; wechat_mode: WechatMode; wechat_redirect_domain: string; status: string; created_at: number; updated_at: number };
 
 const providerOptions = [
 	{ value: 'google', text: 'Google' },
 	{ value: 'wechat', text: '微信开放平台' },
 ];
 const columns = [
-	{ dataIndex: 'id', title: 'ID', component: 'select', options: providerOptions, rules: [{ required: true, message: '请选择身份源' }], form: { edit: false } },
+	{ dataIndex: 'id', title: 'ID' },
+	{ dataIndex: 'provider', title: '身份源', component: 'select', options: providerOptions, rules: [{ required: true, message: '请选择身份源' }], form: { edit: false } },
 	{ dataIndex: 'display_name', title: '显示名称', component: 'textbox', rules: [{ required: true, message: '请输入显示名称' }] },
 	{ dataIndex: 'client_id', title: '客户端 ID / AppID', component: 'textbox', rules: [{ required: true, message: '请输入客户端 ID 或 AppID' }] },
 	{ dataIndex: 'client_secret', title: 'Google Client Secret / 微信 AppSecret', component: 'textbox', inputType: 'password', hideInTable: true, placeholder: '留空表示保留现有密钥', form: { create: { placeholder: '请输入 Google Client Secret 或微信 AppSecret', rules: [{ required: true, message: '请输入 Google Client Secret 或微信 AppSecret' }] } } },
@@ -34,13 +35,13 @@ const handler: ApiHandler = async (c, next, params) => {
 	const database = c.get('passportDatabase');
 	if (!database) return apiMessage(c, 404);
 	if (!params.id && c.req.method === 'GET') {
-		const rows = await allSql<ProviderRow>(database, sql({ database }).select({ table: 'passport_external_providers', columns: { id: 'provider', display_name: 'display_name', client_id: 'client_id', client_secret: 'client_secret', wechat_mode: 'wechat_mode', wechat_redirect_domain: 'wechat_redirect_domain', status: 'status', created_at: 'created_at', updated_at: 'updated_at' }, orderBy: [{ column: 'created_at' }] }));
+		const rows = await allSql<ProviderRow>(database, sql({ database }).select({ table: 'passport_external_providers', columns: { id: 'id', provider: 'provider', display_name: 'display_name', client_id: 'client_id', client_secret: 'client_secret', wechat_mode: 'wechat_mode', wechat_redirect_domain: 'wechat_redirect_domain', status: 'status', created_at: 'created_at', updated_at: 'updated_at' }, orderBy: [{ column: 'created_at' }] }));
 		const origin = c.get('systemConfig').publicOrigin?.trim() || requestOrigin(c);
-		return apiResponse(c, 200, { table: { option: { rowKey: 'id', actions: { toolbar: [{ key: 'create', label: '新增身份源' }], row: [{ key: 'edit', label: '编辑' }, { key: 'delete', label: '删除', confirm: '只能删除已停用且从未产生授权历史的身份源，确定继续吗？' }] } }, columns, dataSource: rows.map((row) => ({ ...row, client_secret: '', secret_configured: row.client_secret ? '已配置' : '未配置', callback_url: new URL(`/api/accounts/external/${row.id}`, origin).toString() })), totalRecords: rows.length } });
+		return apiResponse(c, 200, { table: { option: { rowKey: 'provider', actions: { toolbar: [{ key: 'create', label: '新增身份源' }], row: [{ key: 'edit', label: '编辑' }, { key: 'delete', label: '删除', confirm: '只能删除已停用且从未产生授权历史的身份源，确定继续吗？' }] } }, columns, dataSource: rows.map((row) => ({ ...row, client_secret: '', secret_configured: row.client_secret ? '已配置' : '未配置', callback_url: new URL(`/api/accounts/external/${row.provider}`, origin).toString() })), totalRecords: rows.length } });
 	}
 	if (!params.id && c.req.method === 'POST') {
 		const body = await parseBody(c);
-		const id = providerId(body.id), displayName = requiredText(body.display_name), clientId = requiredText(body.client_id), clientSecret = requiredText(body.client_secret), wechatMode: WechatMode = body.wechat_mode === 'official_account' ? 'official_account' : 'open_platform', redirectDomain = requiredText(body.wechat_redirect_domain).replace(/^https?:\/\//, '').replace(/\/.*$/, '');
+		const id = providerId(body.provider), displayName = requiredText(body.display_name), clientId = requiredText(body.client_id), clientSecret = requiredText(body.client_secret), wechatMode: WechatMode = body.wechat_mode === 'official_account' ? 'official_account' : 'open_platform', redirectDomain = requiredText(body.wechat_redirect_domain).replace(/^https?:\/\//, '').replace(/\/.*$/, '');
 		if (!id) return apiMessage(c, 400, '身份源只能选择 Google 或微信开放平台');
 		if (!displayName) return apiMessage(c, 400, '请输入显示名称');
 		if (!clientId) return apiMessage(c, 400, id === 'wechat' ? '请输入微信 AppID' : '请输入 Google Client ID');
@@ -55,7 +56,7 @@ const handler: ApiHandler = async (c, next, params) => {
 	const id = providerId(params.id);
 	if (!id) return apiMessage(c, 404, '外部身份源不存在');
 	if (c.req.method === 'GET') {
-		const row = await firstSql<ProviderRow>(database, sql({ database }).select({ table: 'passport_external_providers', columns: { id: 'provider', display_name: 'display_name', client_id: 'client_id', client_secret: 'client_secret', wechat_mode: 'wechat_mode', wechat_redirect_domain: 'wechat_redirect_domain', status: 'status', created_at: 'created_at', updated_at: 'updated_at' }, where: [{ column: 'provider', value: id }] }));
+		const row = await firstSql<ProviderRow>(database, sql({ database }).select({ table: 'passport_external_providers', columns: { id: 'id', provider: 'provider', display_name: 'display_name', client_id: 'client_id', client_secret: 'client_secret', wechat_mode: 'wechat_mode', wechat_redirect_domain: 'wechat_redirect_domain', status: 'status', created_at: 'created_at', updated_at: 'updated_at' }, where: [{ column: 'provider', value: id }] }));
 		if (!row) return apiMessage(c, 404, '外部身份源不存在');
 		const origin = c.get('systemConfig').publicOrigin?.trim() || requestOrigin(c);
 		return apiResponse(c, 200, { ...row, client_secret: '', secret_configured: row.client_secret ? '已配置' : '未配置', callback_url: new URL(`/api/accounts/external/${row.id}`, origin).toString() });
