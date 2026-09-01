@@ -30,6 +30,10 @@ export type DatabaseAdapter = {
 	actorUid?: DatabaseActorUid;
 	/** Optional table-aware actor, needed when Base and Passport share a DB. */
 	actorUidForTable?: DatabaseActorResolver;
+	/** Request-scoped user that owns a newly inserted row. */
+	ownerUid?: DatabaseActorUid;
+	/** Optional table-aware owner user, needed when Base and Passport share a DB. */
+	ownerUidForTable?: DatabaseActorResolver;
 	prepare: (query: string) => DatabaseStatement;
 	batch?: (statements: DatabaseBatchStatement[]) => Promise<DatabaseRunResult[]>;
 	exec?: (query: string) => Promise<void>;
@@ -49,6 +53,8 @@ export const withDatabaseDeletedScope = (database: DatabaseAdapter, deletedScope
 export type DatabaseActors = {
 	base?: DatabaseActorUid;
 	passport?: DatabaseActorUid;
+	baseUserId?: DatabaseActorUid;
+	passportUserId?: DatabaseActorUid;
 };
 
 /**
@@ -59,13 +65,21 @@ export type DatabaseActors = {
 export const withDatabaseActors = (database: DatabaseAdapter, actors: DatabaseActors): DatabaseAdapter => {
 	const hasBase = Object.prototype.hasOwnProperty.call(actors, 'base');
 	const hasPassport = Object.prototype.hasOwnProperty.call(actors, 'passport');
+	const hasBaseUser = Object.prototype.hasOwnProperty.call(actors, 'baseUserId');
+	const hasPassportUser = Object.prototype.hasOwnProperty.call(actors, 'passportUserId');
 	const inherited = (table: string) => database.actorUidForTable?.(table) ?? database.actorUid ?? null;
+	const inheritedOwner = (table: string) => database.ownerUidForTable?.(table) ?? database.ownerUid ?? null;
 	const bound: DatabaseAdapter = {
 		...database,
 		actorUidForTable: (table) => {
 			if (table.startsWith('passport_') && hasPassport) return actors.passport ?? null;
 			if (!table.startsWith('passport_') && hasBase) return actors.base ?? null;
 			return inherited(table);
+		},
+		ownerUidForTable: (table) => {
+			if (table.startsWith('passport_') && hasPassportUser) return actors.passportUserId ?? null;
+			if (!table.startsWith('passport_') && hasBaseUser) return actors.baseUserId ?? null;
+			return inheritedOwner(table);
 		},
 	};
 	if (database.transaction) {

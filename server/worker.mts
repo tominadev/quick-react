@@ -143,21 +143,26 @@ const configureForRequest = async (c: Context<WorkerEnv>) => {
 	// layer then fills created/updated audit fields for every route uniformly.
 	const baseDeviceUserId = currentUser ? await loadBaseDeviceUserId(database, c.req.raw) : null;
 	const passportDeviceUserId = passportUser && passportDatabase ? await loadPassportDeviceUserId(passportDatabase, c.req.raw) : null;
+	const baseUserId = currentUser?.id ?? null;
+	const passportUserId = passportUser?.id ?? null;
 	// Passport administration is authorized by the site's Base admin session.
 	// When both layers share one database and no Accounts session is present,
 	// the Base device-user binding is therefore the only valid audit actor.
 	const passportActor = passportDeviceUserId ?? (passportDatabase === database ? baseDeviceUserId : null);
 	const scopedDatabase = withDatabaseActors(database, {
 		base: baseDeviceUserId,
+		baseUserId,
+		...(passportDatabase === database ? { passportUserId } : {}),
 		...(passportDatabase === database ? { passport: passportActor } : {}),
 	});
 	const scopedPassportDatabase = passportDatabase && passportDatabase !== database
-		? withDatabaseActors(passportDatabase, { passport: passportDeviceUserId })
+		? withDatabaseActors(passportDatabase, { passport: passportDeviceUserId, passportUserId })
 		: scopedDatabase;
 	const globalDeviceUserId = defaultDatabase === database ? baseDeviceUserId : await loadBaseDeviceUserId(defaultDatabase, c.req.raw).catch(() => null);
+	const globalUserId = defaultDatabase === database ? baseUserId : (await loadCurrentUser(defaultDatabase, c.req.raw).catch(() => undefined))?.id ?? null;
 	const scopedGlobalDatabase = defaultDatabase === database
 		? scopedDatabase
-		: withDatabaseActors(defaultDatabase, { base: globalDeviceUserId });
+		: withDatabaseActors(defaultDatabase, { base: globalDeviceUserId, baseUserId: globalUserId });
 	const scopedConfigStore = createDatabaseConfigStore(scopedDatabase);
 	c.set('globalDatabase', scopedGlobalDatabase);
 	c.set('passportDatabase', scopedPassportDatabase);

@@ -29,6 +29,7 @@ model global_sites {
   deleted_at       BigInt @default(0)
   created_duid     BigInt?
   updated_duid     BigInt?
+  owner_uid     BigInt?
   key              String
   @@unique([key, deleted_at])
   name             String
@@ -50,6 +51,7 @@ model global_site_hosts {
   deleted_at   BigInt @default(0)
   created_duid BigInt?
   updated_duid BigInt?
+  owner_uid     BigInt?
   hostname     String
   @@unique([hostname, deleted_at])
   site_key     String
@@ -63,6 +65,7 @@ model global_cloud_credentials {
   deleted_at BigInt @default(0)
   created_duid      BigInt?
   updated_duid      BigInt?
+  owner_uid     BigInt?
   name              String
   @@unique([name, deleted_at])
   provider          String
@@ -79,6 +82,7 @@ model global_cloud_object_storage_buckets {
   deleted_at BigInt @default(0)
   created_duid        BigInt?
   updated_duid        BigInt?
+  owner_uid     BigInt?
   cloud_credential_id BigInt
   endpoint            String
   region              String @default("")
@@ -98,6 +102,7 @@ model global_cloud_object_storage_bindings {
   deleted_at BigInt @default(0)
   created_duid BigInt?
   updated_duid BigInt?
+  owner_uid     BigInt?
   site_key   String
   bucket_id  BigInt
   key_prefix String @default("")
@@ -114,6 +119,7 @@ model global_cloud_object_storage_binding_purposes {
   deleted_at BigInt @default(0)
   created_duid BigInt?
   updated_duid BigInt?
+  owner_uid     BigInt?
   binding_id BigInt
   site_key   String
   purpose    String
@@ -129,6 +135,7 @@ model global_telegram_bots {
   deleted_at BigInt @default(0)
   created_duid     BigInt?
   updated_duid     BigInt?
+  owner_uid     BigInt?
   name             String
   @@unique([name, deleted_at])
   token            String
@@ -149,6 +156,7 @@ model global_cloud_email_channels {
   deleted_at BigInt @default(0)
   created_duid        BigInt?
   updated_duid        BigInt?
+  owner_uid     BigInt?
   cloud_credential_id BigInt
   region              String
   account_name        String
@@ -166,6 +174,7 @@ model global_cloud_email_templates {
   deleted_at BigInt @default(0)
   created_duid  BigInt?
   updated_duid  BigInt?
+  owner_uid     BigInt?
   key           String
   @@unique([key, deleted_at])
   type          String @default("email_verification")
@@ -183,6 +192,7 @@ model global_cloud_email_bindings {
   deleted_at BigInt @default(0)
   created_duid BigInt?
   updated_duid BigInt?
+  owner_uid     BigInt?
   site_key   String
   channel_id BigInt
   template_id BigInt
@@ -200,6 +210,7 @@ model global_cloud_email_template_publications {
   deleted_at BigInt @default(0)
   created_duid         BigInt?
   updated_duid         BigInt?
+  owner_uid     BigInt?
   template_id          BigInt
   cloud_credential_id  BigInt
   region               String

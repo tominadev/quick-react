@@ -20,6 +20,7 @@ model base_users {
   deleted_at BigInt @default(0)
   created_duid BigInt?
   updated_duid BigInt?
+  owner_uid     BigInt?
   name          String
   @@unique([name, deleted_at])
   password      String
@@ -34,6 +35,7 @@ model base_sessions {
   deleted_at BigInt @default(0)
   created_duid BigInt?
   updated_duid BigInt?
+  owner_uid     BigInt?
   token_hash String
   @@unique([token_hash, deleted_at])
   user_id    BigInt
@@ -48,6 +50,7 @@ model base_configs {
   deleted_at BigInt @default(0)
   created_duid BigInt?
   updated_duid BigInt?
+  owner_uid     BigInt?
   key        String
   @@unique([key, deleted_at])
   value      String
@@ -60,6 +63,7 @@ model base_bootstrap {
   deleted_at BigInt @default(0)
   created_duid BigInt?
   updated_duid BigInt?
+  owner_uid     BigInt?
   key          String
   @@unique([key, deleted_at])
   value        String
@@ -72,6 +76,7 @@ model base_oidc_login_requests {
   deleted_at BigInt @default(0)
   created_duid  BigInt?
   updated_duid  BigInt?
+  owner_uid     BigInt?
   request_id    String
   @@unique([request_id, deleted_at])
   issuer        String
@@ -90,6 +95,7 @@ model base_oidc_users {
   deleted_at BigInt @default(0)
   created_duid  BigInt?
   updated_duid  BigInt?
+  owner_uid     BigInt?
   issuer        String
   subject       String
   user_id       BigInt
@@ -105,6 +111,7 @@ model base_oidc_sessions {
   deleted_at BigInt @default(0)
   created_duid  BigInt?
   updated_duid  BigInt?
+  owner_uid     BigInt?
   issuer        String
   sid           String
   session_id    BigInt
@@ -120,6 +127,7 @@ model base_devices {
   deleted_at BigInt @default(0)
   created_duid BigInt?
   updated_duid BigInt?
+  owner_uid     BigInt?
   user_id      BigInt
   key          String
   fingerprint  Json   @default("{}")
@@ -141,6 +149,7 @@ model base_device_users {
   deleted_at BigInt @default(0)
   created_duid BigInt?
   updated_duid BigInt?
+  owner_uid     BigInt?
   device_id    BigInt
   user_id      BigInt
   status       BaseDeviceStatus @default(active)
@@ -157,6 +166,7 @@ model base_device_snapshots {
   deleted_at BigInt @default(0)
   created_duid  BigInt?
   updated_duid  BigInt?
+  owner_uid     BigInt?
   device_id     BigInt
   fingerprint   Json    @default("{}")
   ip_address    String @default("")

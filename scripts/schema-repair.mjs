@@ -14,7 +14,7 @@ const groups = (groupsArg || 'global,base,passport').split(',').map((value) => v
 if (dropExtra && !yes) throw new Error('删除多余字段必须同时传入 --yes；请先运行 schema:check 查看差异');
 
 const applyMigrations = async (database) => {
-	database.exec('CREATE TABLE IF NOT EXISTS global_schema_migrations (id INTEGER NOT NULL PRIMARY KEY AUTOINCREMENT, created_at INTEGER NOT NULL, updated_at INTEGER NOT NULL, deleted_at INTEGER NOT NULL DEFAULT 0, created_duid INTEGER, updated_duid INTEGER, migration_key TEXT NOT NULL UNIQUE, applied_at INTEGER NOT NULL)');
+	database.exec('CREATE TABLE IF NOT EXISTS global_schema_migrations (id INTEGER NOT NULL PRIMARY KEY AUTOINCREMENT, created_at INTEGER NOT NULL, updated_at INTEGER NOT NULL, deleted_at INTEGER NOT NULL DEFAULT 0, created_duid INTEGER, updated_duid INTEGER, owner_uid INTEGER, migration_key TEXT NOT NULL UNIQUE, applied_at INTEGER NOT NULL)');
 	for (const group of groups) {
 		const directory = resolve('migrations', group);
 		const files = (await readdir(directory).catch(() => [])).filter((file) => file.endsWith('.sql')).sort();

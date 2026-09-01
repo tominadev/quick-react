@@ -11,6 +11,8 @@
 | [ai-agent-boundaries](ai-agent-boundaries.md) | AI agent 的称谓、身份与数据访问边界 |
 | [cloud-capability-management](cloud-capability-management.md) | 云凭据与云能力管理 |
 | [object-storage-management](object-storage-management.md) | 对象存储桶、绑定与对象管理 |
+| [row-level-data-ownership](row-level-data-ownership.md) | 数据行归属字段与写入逻辑（owner_uid） |
+| [data-visibility-by-permission-level](data-visibility-by-permission-level.md) | 用户权限等级与数据可见性判定（perm_level） |
 | [optimization-checklist](optimization-checklist.md) | 持续优化清单 |
 
 ## 写作约定
