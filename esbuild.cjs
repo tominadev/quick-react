@@ -4,8 +4,8 @@ const { spawn } = require('node:child_process');
 const { pathToFileURL } = require('node:url');
 const esbuild = require('esbuild');
 const { generate: generateWorkerRegistryFile } = require('./scripts/generate-worker-registry.cjs');
-const { createDevToolbox, createOutputGate } = require('./scripts/dev-toolbox.cjs');
-const { createDevActions } = require('./scripts/dev-toolbox-actions.cjs');
+const { createMaintenanceToolbox, createOutputGate } = require('./scripts/maintenance-toolbox.cjs');
+const { createDevProcessActions } = require('./scripts/dev-process-actions.cjs');
 
 const projectDir = __dirname;
 const distDir = path.join(projectDir, 'dist');
@@ -96,9 +96,8 @@ const main = async () => {
 			launchServer();
 		});
 	};
-	const devToolbox = toolboxEnabled ? createDevToolbox({
-		outputGate,
-		actions: createDevActions({
+	const toolbox = toolboxEnabled ? createMaintenanceToolbox({
+		actions: createDevProcessActions({
 			watch,
 			startServer,
 			restartServer,
@@ -109,10 +108,12 @@ const main = async () => {
 			restartRunningServer,
 			outputGate,
 		}),
+		title: '开发工具箱',
+		outputGate,
 	}) : undefined;
-	if (devToolbox) {
-		process.once('exit', () => devToolbox.close());
-		devToolbox.attach();
+	if (toolbox) {
+		process.once('exit', () => toolbox.close());
+		toolbox.attach();
 	}
 	generateWorkerRegistryFile();
 	const frontend = await createBuildContext('src/index.tsx', publicDir, 'bundle.js', {
@@ -163,8 +164,8 @@ const main = async () => {
 			process.once('SIGINT', stopServer);
 			process.once('SIGTERM', stopServer);
 			launchServer();
-			if (devToolbox && toolboxRequested) requestedToolbox = devToolbox.open();
-			const serverExit = new Promise((resolve, reject) => {
+			if (toolbox && toolboxRequested) requestedToolbox = toolbox.open();
+			await new Promise((resolve, reject) => {
 				serverProcess.once('error', reject);
 				serverProcess.once('exit', (code, signal) => {
 					if (code && code !== 0) reject(new Error(`Server exited with code ${code}`));
@@ -172,14 +173,13 @@ const main = async () => {
 					else resolve();
 				});
 			});
-			await serverExit;
 		} else {
 			const serverImport = import(`${pathToFileURL(path.join(distDir, 'server.mjs')).href}?startup=${Date.now()}`);
-			if (devToolbox && toolboxRequested) requestedToolbox = devToolbox.open();
+			if (toolbox && toolboxRequested) requestedToolbox = toolbox.open();
 			await serverImport;
 		}
-	} else if (devToolbox && toolboxRequested) {
-		requestedToolbox = devToolbox.open();
+	} else if (toolbox && toolboxRequested) {
+		requestedToolbox = toolbox.open();
 	}
 	if (requestedToolbox) await requestedToolbox;
 };

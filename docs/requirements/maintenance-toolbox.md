@@ -34,6 +34,8 @@
 非交互命令：maintenance <group> <action> [options]
 实现：scripts/maintenance.mjs
 公共逻辑：server/modules/base/maintenance/
+动作协议入口：server/modules/base/maintenance/index.mts
+终端调用模块：scripts/maintenance-toolbox.cjs
 ```
 
 命令行工具必须复用现有数据库适配器、SQL 助手、密码策略和配置解析逻辑，不得为 SQLite、MySQL、PostgreSQL 或 D1 复制业务实现。
@@ -52,22 +54,22 @@
 
 菜单由公共维护模块提供，操作完成后返回菜单，不启动 Web 服务。每个高风险选项都必须先显示目标、影响范围和是否立即生效，再等待明确确认。非 TTY、自动化部署和脚本场景使用稳定的非交互 action；支持 `--json` 输出机器可读结果，但不能绕过确认或救援身份校验。
 
-### 2.2 开发启动器集成
+### 2.2 与开发启动器的边界
 
-`npm run dev` 仍然是默认的开发启动命令。交互式终端中，开发启动器只注册一个通用的工具箱入口，按 `m` 打开开发控制菜单；也可以显式执行 `npm run dev -- --toolbox` 直接打开菜单。`esbuild.cjs` 只负责构建、开发服务生命周期和参数转发，菜单渲染、确认和输出抑制由 `scripts/dev-toolbox.cjs` 提供，开发进程动作由 `scripts/dev-toolbox-actions.cjs` 注册，救援业务动作则由 `server/modules/base/maintenance/` 注册。
+维护工具箱是独立终端模块，不把菜单、确认、日志闸门或救援业务实现直接写进 `esbuild.cjs`。`npm run dev` 可以通过调用模块提供开发控制入口，但开发启动器只传入生命周期回调和参数，不复制工具箱逻辑；后续增加 `npm run maintenance` 时复用同一模块，即使 dev 构建或服务损坏，工具箱也必须可以独立启动。
 
-开发控制菜单和救援维护菜单是两层能力：前者只处理开发进程状态（状态、重启、停止和暂存日志），后者处理数据库和账号恢复。开发启动器不得复制管理员恢复、OIDC 配置或 schema 修复逻辑；这些动作必须由独立的 `maintenance` CLI 调用，开发服务损坏时仍可单独运行。
+开发调用适配器：`scripts/maintenance-toolbox.cjs`；开发进程动作注册：`scripts/dev-process-actions.cjs`。这两者都属于独立模块，`esbuild.cjs` 只负责装配调用。
 
-开发启动器支持显式的低级启动参数，并将参数作为环境能力传给 Node 服务：
+开发启动器仍支持与工具箱无关的低级启动参数，并将参数作为环境能力传给 Node 服务：
 
 ```text
-npm run dev -- --toolbox --no-listen
-npm run dev -- --toolbox --no-checks
+npm run dev -- --no-listen
+npm run dev -- --no-checks
 ```
 
-其中 `--no-listen` 禁止服务监听端口，`--no-checks` 跳过启动时的 migration、代码站点初始化等检查，适合救援前的构建和诊断。参数只影响当前进程，不写入数据库，也不改变正常站点配置。
+其中 `--no-listen` 禁止服务监听端口，`--no-checks` 跳过启动时的 migration、代码站点初始化等检查，适合单独进行构建和诊断。参数只影响当前 dev 进程，不写入数据库，也不改变正常站点配置。
 
-工具箱打开期间，开发启动器将子进程输出和当前进程日志统一送入输出闸门并暂存，避免日志覆盖菜单；选择“查看开发日志”才显示暂存内容，退出菜单后恢复正常输出。子进程不读取终端输入，终端输入始终由工具箱模块管理。
+工具箱打开期间，开发调用方将 dev 子进程输出和当前进程日志交给独立模块的输出闸门暂存，避免日志覆盖菜单；返回调用方后恢复正常输出。子进程不读取终端输入，终端输入始终由工具箱模块管理。
 
 ### 2.3 救援身份
 

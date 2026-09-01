@@ -1,9 +1,9 @@
 /**
- * Development-process actions kept separate from the generic menu. Rescue
- * database actions must not be added here; they belong to the maintenance
- * module and can be called by the standalone maintenance CLI.
+ * Adapter for the dev process. The menu and output handling live in the
+ * independent maintenance toolbox module; this file only describes the
+ * lifecycle actions that dev may register with it.
  */
-const createDevActions = ({
+const createDevProcessActions = ({
 	watch,
 	startServer,
 	restartServer,
@@ -66,4 +66,4 @@ const createDevActions = ({
 	},
 ];
 
-module.exports = { createDevActions };
+module.exports = { createDevProcessActions };
