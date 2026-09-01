@@ -4,6 +4,8 @@ const { spawn } = require('node:child_process');
 const { pathToFileURL } = require('node:url');
 const esbuild = require('esbuild');
 const { generate: generateWorkerRegistryFile } = require('./scripts/generate-worker-registry.cjs');
+const { createDevToolbox, createOutputGate } = require('./scripts/dev-toolbox.cjs');
+const { createDevActions } = require('./scripts/dev-toolbox-actions.cjs');
 
 const projectDir = __dirname;
 const distDir = path.join(projectDir, 'dist');
@@ -56,15 +58,33 @@ const main = async () => {
 	const watch = process.argv.includes('--watch');
 	const startServer = process.argv.includes('--start') || process.env.START_SERVER === '1';
 	const restartServer = process.argv.includes('--restart') || process.env.AUTO_RESTART_SERVER === '1';
+	const noToolbox = process.argv.includes('--no-toolbox');
+	const toolboxRequested = process.argv.includes('--toolbox') && !noToolbox;
+	const toolboxEnabled = !noToolbox && (toolboxRequested || (startServer && Boolean(process.stdin.isTTY && process.stdout.isTTY)));
+	const noListen = process.argv.includes('--no-listen') || process.env.DEV_NO_LISTEN === '1';
+	const noStartupChecks = process.argv.includes('--no-checks') || process.env.DEV_NO_CHECKS === '1';
+	if (noListen) process.env.SKIP_SERVER_LISTEN = '1';
+	if (noStartupChecks) process.env.SKIP_STARTUP_CHECKS = '1';
 	let serverProcess;
+	let serverStartedAt = 0;
 	let watchReady = false;
 	let restartPromise = Promise.resolve();
+	const outputGate = createOutputGate();
+	if (toolboxEnabled) outputGate.installConsole();
 	const launchServer = () => {
+		const childEnv = { ...process.env };
+		if (noListen) childEnv.SKIP_SERVER_LISTEN = '1';
+		if (noStartupChecks) childEnv.SKIP_STARTUP_CHECKS = '1';
 		serverProcess = spawn(process.execPath, [path.join(distDir, 'server.mjs')], {
 			cwd: projectDir,
-			env: process.env,
-			stdio: 'inherit',
+			env: childEnv,
+			stdio: toolboxEnabled ? ['ignore', 'pipe', 'pipe'] : 'inherit',
 		});
+		serverStartedAt = Date.now();
+		if (toolboxEnabled) {
+			serverProcess.stdout?.on('data', (chunk) => outputGate.writeStdout(chunk));
+			serverProcess.stderr?.on('data', (chunk) => outputGate.writeStderr(chunk));
+		}
 	};
 	const restartRunningServer = () => {
 		restartPromise = restartPromise.then(async () => {
@@ -76,6 +96,24 @@ const main = async () => {
 			launchServer();
 		});
 	};
+	const devToolbox = toolboxEnabled ? createDevToolbox({
+		outputGate,
+		actions: createDevActions({
+			watch,
+			startServer,
+			restartServer,
+			noListen,
+			noStartupChecks,
+			getServerProcess: () => serverProcess,
+			getServerStartedAt: () => serverStartedAt,
+			restartRunningServer,
+			outputGate,
+		}),
+	}) : undefined;
+	if (devToolbox) {
+		process.once('exit', () => devToolbox.close());
+		devToolbox.attach();
+	}
 	generateWorkerRegistryFile();
 	const frontend = await createBuildContext('src/index.tsx', publicDir, 'bundle.js', {
 		minify: true,
@@ -115,6 +153,7 @@ const main = async () => {
 		createRuntimeConfig();
 	}
 
+	let requestedToolbox;
 	if (startServer) {
 		if (watch && restartServer) {
 			const stopServer = () => {
@@ -124,7 +163,8 @@ const main = async () => {
 			process.once('SIGINT', stopServer);
 			process.once('SIGTERM', stopServer);
 			launchServer();
-			await new Promise((resolve, reject) => {
+			if (devToolbox && toolboxRequested) requestedToolbox = devToolbox.open();
+			const serverExit = new Promise((resolve, reject) => {
 				serverProcess.once('error', reject);
 				serverProcess.once('exit', (code, signal) => {
 					if (code && code !== 0) reject(new Error(`Server exited with code ${code}`));
@@ -132,13 +172,21 @@ const main = async () => {
 					else resolve();
 				});
 			});
+			await serverExit;
 		} else {
-			await import(`${pathToFileURL(path.join(distDir, 'server.mjs')).href}?startup=${Date.now()}`);
+			const serverImport = import(`${pathToFileURL(path.join(distDir, 'server.mjs')).href}?startup=${Date.now()}`);
+			if (devToolbox && toolboxRequested) requestedToolbox = devToolbox.open();
+			await serverImport;
 		}
+	} else if (devToolbox && toolboxRequested) {
+		requestedToolbox = devToolbox.open();
 	}
+	if (requestedToolbox) await requestedToolbox;
 };
 
 main().catch((error) => {
-	console.error(error);
+	// Bypass the menu output gate for a fatal startup error; otherwise entering
+	// the toolbox just before a failed build could hide the only useful cause.
+	process.stderr.write(`${error instanceof Error ? error.stack || error.message : String(error)}\n`);
 	process.exitCode = 1;
 });

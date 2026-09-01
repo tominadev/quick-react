@@ -17,7 +17,7 @@ import { createPostgresqlAdapter } from './database/postgresql.mjs';
 import type { DatabaseAdapter } from './database/index.mjs';
 import { allSql, runSql, sql } from './database/sql.mjs';
 import { initializeCodeSites, migrateDatabase, migrateDefaultDatabase, seedBaseDatabase } from './database/migrate.mjs';
-import { createDatabaseConfigStore } from './modules/base/config-store.mjs';
+import { createDatabaseConfigStore, memoryConfigStore } from './modules/base/config-store.mjs';
 import { configureSystemConfig, loadSystemConfig } from './modules/base/system-config.mjs';
 import { configureTechStack, loadTechStackConfig } from './modules/base/tech-stack.mjs';
 import type { WorkerBindings } from './worker.mjs';
@@ -26,11 +26,12 @@ import { SiteRouter } from './modules/base/site-router.mjs';
 import { workerCodeSites, workerSiteNavigations } from './.generated/worker-api-registry.mjs';
 
 const env = process.env;
+const skipStartupChecks = env.SKIP_STARTUP_CHECKS === '1';
 const projectDirectory = fileURLToPath(new URL('../', import.meta.url));
 const defaultDatabase = createSqliteAdapter(env.DEFAULT_DATABASE_FILE || resolve(projectDirectory, 'database/default.sqlite'));
 const siteDatabases = new Map<string, DatabaseAdapter>();
 const staticSiteRouter = new SiteRouter(defaultDatabase);
-await migrateDefaultDatabase(defaultDatabase, resolve(projectDirectory, 'migrations'));
+if (!skipStartupChecks) await migrateDefaultDatabase(defaultDatabase, resolve(projectDirectory, 'migrations'));
 const resolveSiteDsn = (dsn: string) => {
 	let key = dsn, factory: () => DatabaseAdapter;
 	if (dsn.startsWith('sqlite://')) {
@@ -86,13 +87,15 @@ const codeSiteNames = Object.fromEntries(Object.entries(workerSiteNavigations).m
 	return [siteKey, siteNode?.label || siteKey];
 }));
 const legacyCodeSiteNames = Object.fromEntries(Object.entries(workerSiteNavigations).map(([siteKey, navigation]) => [siteKey, navigation[0]?.label || siteKey]));
-await initializeCodeSites(defaultDatabase, workerCodeSites, codeSiteNames, legacyCodeSiteNames);
+if (!skipStartupChecks) {
+	await initializeCodeSites(defaultDatabase, workerCodeSites, codeSiteNames, legacyCodeSiteNames);
 	const codeSiteRows = await allSql<{ site_key: string; database_binding: string }>(defaultDatabase, sql({ database: defaultDatabase }).select({ table: 'global_sites', columns: { site_key: 'key', database_binding: 'database_binding' }, where: [{ column: 'is_system', value: 0 }] }));
-for (const site of codeSiteRows) {
-	if (!workerCodeSites.includes(site.site_key as typeof workerCodeSites[number]) || site.database_binding) continue;
-	await migrateSite(site.site_key);
+	for (const site of codeSiteRows) {
+		if (!workerCodeSites.includes(site.site_key as typeof workerCodeSites[number]) || site.database_binding) continue;
+		await migrateSite(site.site_key);
+	}
 }
-const defaultConfigStore = createDatabaseConfigStore(defaultDatabase);
+const defaultConfigStore = skipStartupChecks ? memoryConfigStore : createDatabaseConfigStore(defaultDatabase);
 configureSystemConfig({
 	store: defaultConfigStore,
 	defaults: {
