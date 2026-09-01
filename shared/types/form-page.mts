@@ -28,6 +28,8 @@ export type FormPageConfig = {
 	description?: string;
 	submitLabel?: string;
 	actions?: Array<{ key: string; label: string; confirm?: string }>;
+	/** 页面级默认值；配合 restore-defaults 动作重置当前表单，保存后才写入配置。 */
+	defaultValues?: Record<string, unknown>;
 	externalLogins?: FormPageExternalLogin[];
 	confirmOnUnchangedSubmit?: string;
 	submitHint?: string;

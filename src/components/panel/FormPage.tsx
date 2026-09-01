@@ -77,12 +77,14 @@ export default function FormPage({ commonApi, apiPath, title, submitMethod = 'PU
 	const [responseFeedback, setResponseFeedback] = useState<FormResponse['feedback']>();
 	const [passportError, setPassportError] = useState('');
 	const changedFields = useRef(new Set<string>());
+	const restoreDefaultsPending = useRef(false);
 	const applyFormPageResponse = (result: FormResponse) => {
 		if (!result.formPage) return;
 		const values = isRecord(result.currentValues) ? result.currentValues : result.formPage.initialValues;
 		setFormConfig(result.formPage);
 		setInitialValues(values);
 		setLiveValues(values);
+		restoreDefaultsPending.current = false;
 		setDirty(false);
 		changedFields.current.clear();
 		form.setFieldsValue(values);
@@ -96,6 +98,7 @@ export default function FormPage({ commonApi, apiPath, title, submitMethod = 'PU
 		setRefreshCancelled(false);
 		setResponseFeedback(undefined);
 		setPassportError('');
+		restoreDefaultsPending.current = false;
 		setFormConfig(undefined);
 		setInitialValues({});
 		setLiveValues({});
@@ -182,12 +185,14 @@ export default function FormPage({ commonApi, apiPath, title, submitMethod = 'PU
 		}
 		setSaving(true);
 		try {
+			const payload = { ...values, [changedFieldsKey]: [...changedFields.current], ...(restoreDefaultsPending.current ? { restoreDefaults: true } : {}) };
 			const response = await commonApi.apiFetch(apiPath, {
 				method: submitMethod,
 				headers: { 'Content-Type': 'application/json' },
-				body: JSON.stringify({ ...values, [changedFieldsKey]: [...changedFields.current] } satisfies ChangedFieldsPayload & Record<string, unknown>),
+				body: JSON.stringify(payload satisfies ChangedFieldsPayload & Record<string, unknown>),
 			});
 			await applyResult(await response.json() as FormResponse, values);
+			restoreDefaultsPending.current = false;
 		} catch (error) {
 			console.error(`保存配置失败: ${apiPath}`, error);
 		} finally {
@@ -197,6 +202,25 @@ export default function FormPage({ commonApi, apiPath, title, submitMethod = 'PU
 	const runAction = async (key: string) => {
 		const action = formConfig?.actions?.find((item) => item.key === key);
 		if (action?.confirm && !await commonApi.modalConfirm([action.confirm])) return;
+		if (key === 'restore-defaults') {
+			const defaults = formConfig?.defaultValues;
+			if (!defaults || !formConfig) {
+				await commonApi.modalError(['当前页面没有提供可恢复的默认值']);
+				return;
+			}
+			form.resetFields();
+			form.setFieldsValue(defaults);
+			const fieldNames = formConfig.fields.filter((field) => !isSystemField(field.name)).map((field) => field.name);
+			const nextValues = form.getFieldsValue(true) as Record<string, unknown>;
+			setLiveValues(nextValues);
+			changedFields.current = new Set(fieldNames);
+			restoreDefaultsPending.current = true;
+			setDirty(true);
+			setSaved(false);
+			setResponseFeedback(undefined);
+			messageApi.open({ key: 'form-restore-defaults', type: 'success', content: '已恢复默认，请点击“保存配置”使其生效。', duration: 2 });
+			return;
+		}
 		setRunningAction(key);
 		const values = form.getFieldsValue(true) as Record<string, unknown>;
 		try {
@@ -262,6 +286,7 @@ export default function FormPage({ commonApi, apiPath, title, submitMethod = 'PU
 			onFinish={onFinish}
 			initialValues={formConfig?.initialValues}
 			onValuesChange={(changedValues, allValues) => {
+				restoreDefaultsPending.current = false;
 				setLiveValues(allValues);
 				for (const field of Object.keys(changedValues)) changedFields.current.add(field);
 				for (const [name, value] of Object.entries(changedValues)) {

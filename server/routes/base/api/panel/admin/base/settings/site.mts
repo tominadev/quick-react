@@ -7,14 +7,16 @@ import type { FormPageConfig } from '@shared/types/form-page.mjs';
 const formPage = {
 	description: '配置当前站点的联系信息、页脚、退出登录入口和页面启动模式。',
 	submitLabel: '保存配置',
-	initialValues: { contactEmail: '', footer: defaultSiteSettings.footer, logoutLocalEnabled: true, logoutPassportEnabled: true, logoutAllEnabled: true, apiBootstrapEnabled: false },
+	actions: [{ key: 'restore-defaults', label: '恢复默认', confirm: '确认恢复所有站点设置的默认值吗？恢复后需要点击“保存配置”才会生效。' }],
+	initialValues: defaultSiteSettings,
+	defaultValues: defaultSiteSettings,
 	fields: [
 		{ name: 'contactEmail', label: '联系邮箱', type: 'text', placeholder: 'support@example.com', maxLength: 254 },
 		{ name: 'footer', label: '页脚内容', type: 'text', placeholder: 'Ant Design ©2026 Created by Ant UED', maxLength: 512, defaultValue: defaultSiteSettings.footer },
-		{ name: 'logoutLocalEnabled', label: '启用“退出本站”', type: 'switch', defaultValue: true },
-		{ name: 'logoutPassportEnabled', label: '启用“退出 Passport”', type: 'switch', defaultValue: true },
+		{ name: 'logoutLocalEnabled', label: '启用“退出本站”', type: 'switch', defaultValue: false },
+		{ name: 'logoutPassportEnabled', label: '启用“退出 Passport”', type: 'switch', defaultValue: false },
 		{ name: 'logoutAllEnabled', label: '启用“退出登录”', type: 'switch', defaultValue: true },
-		{ name: 'apiBootstrapEnabled', label: '启用 API 页面启动（CDN 模式）', type: 'switch', defaultValue: false },
+		{ name: 'apiBootstrapEnabled', label: '启用 API 页面启动（CDN 模式）', type: 'switch', defaultValue: true },
 	],
 } satisfies FormPageConfig;
 

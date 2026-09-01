@@ -1,26 +1,31 @@
 import type { ApiHandler } from '@server/modules/base/api-router.mjs';
-import { normalizeTechStackConfig } from '@server/modules/base/tech-stack.mjs';
+import { getDefaultTechStackConfig, normalizeTechStackConfig } from '@server/modules/base/tech-stack.mjs';
 import { mergeChangedFields } from '@server/modules/base/changed-fields.mjs';
 import { apiMessageData, apiResponse } from '@server/modules/base/api-response.mjs';
 import type { FormPageConfig } from '@shared/types/form-page.mjs';
 
-const formPage = {
-	description: '配置会作用于后续 HTTP 响应，并保存到服务器配置文件。仅用于兼容性测试、演示或隐藏真实服务实现。',
-	submitLabel: '保存配置',
-	confirmOnUnchangedSubmit: '当前未修改，仍要提交吗？',
-	submitHint: '修改后立即生效',
-	initialValues: { nginx: false, phpVersion: '', apiSuffix: '.php', pageSuffix: '.html' },
-	fields: [
-		{ name: 'nginx', label: 'Nginx', type: 'switch', defaultValue: false, checkedChildren: '开启', unCheckedChildren: '关闭', extra: '开启后返回 Server: nginx。' },
-		{ name: 'phpVersion', label: 'PHP 版本号', type: 'text', extra: '填写例如 8.2.12；留空则不返回 PHP 标识。', placeholder: '例如 8.2.12', maxLength: 32 },
-		{ name: 'apiSuffix', label: 'API 路径后缀', type: 'text', extra: '例如 .php、.json；留空则使用无后缀 API 路径。', placeholder: '例如 .php', maxLength: 16 },
-		{ name: 'pageSuffix', label: '页面路径后缀', type: 'text', extra: '例如 .html；留空则使用无后缀页面路径。', placeholder: '例如 .html', maxLength: 16 },
-	],
-} satisfies FormPageConfig;
+const createFormPage = (): FormPageConfig => {
+	const defaults = getDefaultTechStackConfig();
+	return {
+		description: '配置会作用于后续 HTTP 响应，并保存到服务器配置文件。仅用于兼容性测试、演示或隐藏真实服务实现。',
+		submitLabel: '保存配置',
+		actions: [{ key: 'restore-defaults', label: '恢复默认', confirm: '确认恢复技术栈设置的默认值吗？恢复后需要点击“保存配置”才会生效。' }],
+		confirmOnUnchangedSubmit: '当前未修改，仍要提交吗？',
+		submitHint: '修改后立即生效',
+		initialValues: defaults,
+		defaultValues: defaults,
+		fields: [
+			{ name: 'nginx', label: 'Nginx', type: 'switch', defaultValue: false, checkedChildren: '开启', unCheckedChildren: '关闭', extra: '开启后返回 Server: nginx。' },
+			{ name: 'phpVersion', label: 'PHP 版本号', type: 'text', extra: '填写例如 8.2.12；留空则不返回 PHP 标识。', placeholder: '例如 8.2.12', maxLength: 32 },
+			{ name: 'apiSuffix', label: 'API 路径后缀', type: 'text', extra: '例如 .php、.json；留空则使用无后缀 API 路径。', placeholder: '例如 .php', maxLength: 16 },
+			{ name: 'pageSuffix', label: '页面路径后缀', type: 'text', extra: '例如 .html；留空则使用无后缀页面路径。', placeholder: '例如 .html', maxLength: 16 },
+		],
+	};
+};
 
 const handler: ApiHandler = async (c, next) => {
 	const store = c.get('configStore');
-	if (c.req.method === 'GET') return apiResponse(c, 200, { currentValues: c.get('techStackConfig'), formPage });
+	if (c.req.method === 'GET') return apiResponse(c, 200, { currentValues: c.get('techStackConfig'), formPage: createFormPage() });
 	if (c.req.method === 'PUT') {
 		const body = await c.req.json<unknown>().catch(() => ({}));
 		const next = mergeChangedFields(c.get('techStackConfig'), body, ['nginx', 'phpVersion', 'apiSuffix', 'pageSuffix']);

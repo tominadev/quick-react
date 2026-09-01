@@ -8,7 +8,7 @@ import { accountsIdentityApi } from '@server/modules/base/navigation.mjs';
 const defaultIssuer = 'https://accounts.example.com';
 const createFormPage = (issuerOptions: Array<{ value: string; text: string; fieldValues?: Record<string, unknown> }>): FormPageConfig => ({
 	description: '业务站点通过 OIDC Authorization Code + PKCE 登录 Accounts。客户端密钥保存在本站数据库，不会写入全局站点库。',
-	submitLabel: '保存配置', actions: [{ key: 'test', label: '测试配置' }], initialValues: defaultAccountsOidcConfig,
+	submitLabel: '保存配置', actions: [{ key: 'test', label: '测试配置' }, { key: 'restore-defaults', label: '恢复默认', confirm: '确认恢复 Accounts OIDC 设置的默认值吗？恢复后需要点击“保存配置”才会生效。' }], defaultValues: { ...defaultAccountsOidcConfig, issuerSource: '__custom__' }, initialValues: defaultAccountsOidcConfig,
 	fields: [
 		{ name: 'enabled', label: '启用 Accounts 登录', type: 'switch', defaultValue: false },
 		{ name: 'issuerSource', label: 'Passport 域名', type: 'select', options: issuerOptions, placeholder: '选择 Passport 域名，或选择自定义', rules: [{ required: true, message: '请选择 Passport 域名来源' }] },
@@ -42,7 +42,7 @@ const handler: ApiHandler = async (c, next) => {
 		return apiResponse(c, 200, { currentValues: { ...current, issuerSource, clientSecret: '' }, formPage: { ...createFormPage(issuerOptions), initialValues: { ...current, issuerSource, clientSecret: '' } } });
 	}
 	if (c.req.method === 'POST' && c.req.query('action') === 'test') {
-		const body = await c.req.json<Record<string, unknown>>().catch(() => ({}));
+		const body = await c.req.json<Record<string, unknown>>().catch(() => ({} as Record<string, unknown>));
 		const config = normalizeAccountsOidcConfig(body, current);
 		if (!config.issuer || !config.clientId || !config.clientSecret) return apiMessage(c, 400, '测试前必须填写 Issuer、客户端 ID 和客户端密钥');
 		try {
@@ -57,8 +57,9 @@ const handler: ApiHandler = async (c, next) => {
 		}
 	}
 	if (c.req.method === 'PUT') {
-		const body = await c.req.json<Record<string, unknown>>().catch(() => ({}));
-		const config = normalizeAccountsOidcConfig(body, current);
+		const body = await c.req.json<Record<string, unknown>>().catch(() => ({} as Record<string, unknown>));
+		const restoringDefaults = body.restoreDefaults === true;
+		const config = normalizeAccountsOidcConfig(restoringDefaults ? { ...body, clientSecret: '' } : body, restoringDefaults ? defaultAccountsOidcConfig : current);
 		if (config.enabled && (!config.issuer || !config.clientId || !config.clientSecret)) return apiMessage(c, 400, '启用 Accounts 登录前必须填写有效 Issuer、客户端 ID 和客户端密钥');
 		await store.put(accountsOidcConfigKey, config);
 		return apiMessageData(c, 200, 'Accounts OIDC 配置已保存', { currentValues: { ...config, clientSecret: '' } });
