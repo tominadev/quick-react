@@ -1,22 +1,16 @@
-const { createPm2Service, validateAppName, DEFAULT_LOG_LINES } = require('./maintenance-service-pm2.cjs');
+const { createPm2Service, DEFAULT_LOG_LINES } = require('./maintenance-service-pm2.cjs');
 const path = require('node:path');
 const { pathToFileURL } = require('node:url');
 
-const configuredAppName = (env = process.env) => {
-	const value = String(env.PM2_APP_NAME ?? '').trim();
-	return value ? validateAppName(value) : '';
+const describeTarget = (target) => {
+	if (!target || typeof target !== 'object') return String(target ?? '当前项目服务');
+	const cluster = Number(target.instanceCount) > 1 ? `（${target.instanceCount} 个 Cluster 实例）` : '';
+	return `${target.name ?? '当前项目服务'}${cluster}`;
 };
 
-const askAppName = async (ask, env) => {
-	const configured = configuredAppName(env);
-	if (configured) return configured;
-	if (typeof ask !== 'function') throw new Error('未配置 PM2_APP_NAME，无法确定目标服务');
-	return validateAppName(await ask('请输入 PM2 应用名：'));
-};
-
-const confirmTarget = async (ask, operation, appName) => {
+const confirmTarget = async (ask, operation, target) => {
 	if (typeof ask !== 'function') throw new Error('缺少交互确认上下文');
-	const answer = await ask(`将通过 PM2 ${operation} 服务“${appName}”，确认继续？\n请输入 yes 确认：`);
+	const answer = await ask(`将通过 PM2 ${operation} 服务“${describeTarget(target)}”，确认继续？\n请输入 yes 确认：`);
 	return String(answer).trim().toLowerCase() === 'yes';
 };
 
@@ -87,7 +81,26 @@ const confirmRescue = async (ask, message) => {
  * Service actions intentionally target PM2, not the process that happens to
  * invoke this module. The dev runner only assembles and calls these actions.
  */
-const createMaintenanceActions = ({ service = createPm2Service(), env = process.env } = {}) => ({
+const createMaintenanceActions = ({
+	service = createPm2Service(),
+	env = process.env,
+	projectDir = '',
+	beforePm2Start,
+	followPm2Logs,
+	stopPm2Logs,
+} = {}) => {
+	const ownService = async () => {
+		const own = await service.findOwn({ projectDir, pmId: env.pm_id, appName: env.PM2_APP_NAME });
+		if (!own) throw new Error('当前项目未注册 PM2 服务，不会操作其他应用');
+		return own;
+	};
+	const serviceName = () => service.resolveName({ projectDir, appName: env.PM2_APP_NAME });
+	const followOwnLogs = async () => {
+		if (typeof followPm2Logs !== 'function') return;
+		const target = await ownService();
+		await followPm2Logs(target);
+	};
+	return {
 	groups: [{
 		key: 'rescue',
 		label: '救援与登录恢复',
@@ -170,37 +183,57 @@ const createMaintenanceActions = ({ service = createPm2Service(), env = process.
 			{
 				key: 'pm2-status',
 				label: '查看服务状态',
-				description: '读取 PM2 进程列表，不操作当前开发进程',
-				run: () => service.status(),
+				description: '只读取当前项目对应的 PM2 服务及 Cluster 实例',
+				run: () => service.status({ projectDir, pmId: env.pm_id, appName: env.PM2_APP_NAME }),
+			},
+			{
+				key: 'pm2-start',
+				label: '启动服务（PM2 Cluster）',
+				description: '自动注册当前项目并交给 PM2 Cluster 运行',
+				run: async ({ ask } = {}) => {
+					const name = await serviceName();
+					const existing = await service.findOwn({ projectDir, pmId: env.pm_id, appName: env.PM2_APP_NAME });
+					if (existing && existing.onlineCount === existing.instanceCount && existing.instanceCount > 0) return `PM2 服务“${describeTarget(existing)}”已经运行`;
+					if (!await confirmTarget(ask, '启动', existing || { name, instanceCount: Number(env.PM2_INSTANCES) || 0 })) return '已取消';
+					await beforePm2Start?.();
+					const result = await service.start({ projectDir, appName: name, instances: env.PM2_INSTANCES || 'max' });
+					await followOwnLogs();
+					return result;
+				},
 			},
 			{
 				key: 'pm2-restart',
 				label: '重启服务',
-				description: '通过 PM2 重启指定应用',
+				description: '通过 PM2 重启当前项目的全部 Cluster 实例',
 				run: async ({ ask } = {}) => {
-					const appName = await askAppName(ask, env);
-					if (!await confirmTarget(ask, '重启', appName)) return '已取消';
-					return service.restart(appName);
+					const target = await ownService();
+					if (!await confirmTarget(ask, '重启', target)) return '已取消';
+					const result = await service.restart(target);
+					await followOwnLogs();
+					return result;
 				},
 			},
 			{
 				key: 'pm2-stop',
 				label: '停止服务',
-				description: '通过 PM2 停止指定应用',
+				description: '通过 PM2 停止当前项目的全部 Cluster 实例',
 				run: async ({ ask } = {}) => {
-					const appName = await askAppName(ask, env);
-					if (!await confirmTarget(ask, '停止', appName)) return '已取消';
-					return service.stop(appName);
+					const target = await ownService();
+					if (!await confirmTarget(ask, '停止', target)) return '已取消';
+					const result = await service.stop(target);
+					stopPm2Logs?.();
+					return result;
 				},
 			},
 			{
 				key: 'pm2-logs',
 				label: '查看服务日志',
-				description: `显示指定应用最近 ${DEFAULT_LOG_LINES} 行日志`,
-				run: async ({ ask } = {}) => service.logs(await askAppName(ask, env), DEFAULT_LOG_LINES),
+				description: `显示当前项目全部 Cluster 实例最近 ${DEFAULT_LOG_LINES} 行日志`,
+				run: async () => service.logs(await ownService(), DEFAULT_LOG_LINES),
 			},
 		],
 	}],
-});
+};
+};
 
-module.exports = { createMaintenanceActions, askAppName };
+module.exports = { createMaintenanceActions };

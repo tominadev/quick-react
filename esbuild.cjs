@@ -68,6 +68,25 @@ const main = async () => {
 	if (noListen) process.env.SKIP_SERVER_LISTEN = '1';
 	if (noStartupChecks) process.env.SKIP_STARTUP_CHECKS = '1';
 	let serverProcess;
+	let externalPm2Target;
+	let pm2LogFollower;
+	const followPm2Logs = async (target) => {
+		externalPm2Target = target;
+		pm2LogFollower?.stop();
+		const follower = pm2Service.followLogs(target, {
+			onStdout: (chunk) => outputGate.writeStdout(chunk),
+			onStderr: (chunk) => outputGate.writeStderr(chunk),
+		});
+		pm2LogFollower = follower;
+		follower.child.once('close', () => {
+			if (pm2LogFollower === follower) pm2LogFollower = undefined;
+		});
+	};
+	const stopPm2Logs = () => {
+		pm2LogFollower?.stop();
+		pm2LogFollower = undefined;
+		externalPm2Target = undefined;
+	};
 	let watchReady = false;
 	let restartPromise = Promise.resolve();
 	const outputGate = createOutputGate();
@@ -80,9 +99,11 @@ const main = async () => {
 	} else if (startServer && !noListen && process.env.DEV_FORCE_LISTEN !== '1') {
 		const pm2State = await pm2Service.detect({ projectDir });
 		if (pm2State.running) {
+			externalPm2Target = await pm2Service.findOwn({ projectDir });
 			noListen = true;
 			process.env.SKIP_SERVER_LISTEN = '1';
 			console.warn('检测到同一项目已有在线 PM2 服务，npm run dev 将只构建和监听文件变化，不再监听 HTTP 端口。');
+			if (externalPm2Target) await followPm2Logs(externalPm2Target);
 		} else if (!pm2State.installed) {
 			console.warn('未检测到 PM2，保留当前监听设置；服务控制菜单需要安装 PM2 后才能使用。');
 		} else if (pm2State.error && pm2State.installed) {
@@ -103,6 +124,13 @@ const main = async () => {
 			serverProcess.stderr?.on('data', (chunk) => outputGate.writeStderr(chunk));
 		}
 	};
+	const stopLocalServer = async () => {
+		if (!serverProcess || serverProcess.killed || serverProcess.exitCode !== null) return;
+		const current = serverProcess;
+		current.kill('SIGTERM');
+		await new Promise((resolve) => current.once('exit', resolve));
+		if (serverProcess === current) serverProcess = undefined;
+	};
 	const restartRunningServer = () => {
 		restartPromise = restartPromise.then(async () => {
 			if (serverProcess && !serverProcess.killed && serverProcess.exitCode === null) {
@@ -113,14 +141,38 @@ const main = async () => {
 			launchServer();
 		});
 	};
-	const maintenanceActions = toolboxEnabled ? createMaintenanceActions({ service: pm2Service }) : undefined;
+	const restartRunningPm2 = () => {
+		restartPromise = restartPromise.then(async () => {
+			const target = await pm2Service.findOwn({ projectDir });
+			if (!target) {
+				console.warn('PM2 服务已不再存在，跳过开发重启；可在维护工具箱中重新启动服务。');
+				return;
+			}
+			externalPm2Target = target;
+			await pm2Service.restart(target);
+			await followPm2Logs(target);
+		});
+	};
+	const handleBackendBuild = () => {
+		if (!watchReady) return;
+		if (externalPm2Target) restartRunningPm2();
+		else if (!noListen) restartRunningServer();
+	};
+	const maintenanceActions = toolboxEnabled ? createMaintenanceActions({
+		service: pm2Service,
+		env: process.env,
+		projectDir,
+		beforePm2Start: stopLocalServer,
+		followPm2Logs,
+		stopPm2Logs,
+	}) : undefined;
 	const toolbox = toolboxEnabled ? createMaintenanceToolbox({
 		groups: maintenanceActions.groups,
 		title: '维护工具箱',
 		outputGate,
 	}) : undefined;
 	if (toolbox) {
-		process.once('exit', () => toolbox.close());
+		process.once('exit', () => { stopPm2Logs(); toolbox.close(); });
 		toolbox.attach();
 	}
 	generateWorkerRegistryFile();
@@ -137,9 +189,7 @@ const main = async () => {
 		format: 'esm',
 		target: 'node18',
 		packages: 'external',
-	}, watch && startServer && restartServer ? () => {
-		if (watchReady) restartRunningServer();
-	} : undefined);
+	}, watch && startServer && restartServer ? handleBackendBuild : undefined);
 	const worker = await createBuildContext('server/worker.mts', distDir, 'worker.mjs', {
 		platform: 'neutral',
 		format: 'esm',
@@ -164,7 +214,7 @@ const main = async () => {
 
 	let requestedToolbox;
 	if (startServer) {
-		if (watch && restartServer) {
+		if (watch && (restartServer || toolboxEnabled) && !noListen) {
 			const stopServer = () => {
 				if (serverProcess && !serverProcess.killed) serverProcess.kill('SIGTERM');
 			};
@@ -181,10 +231,15 @@ const main = async () => {
 					else resolve();
 				});
 			});
-		} else {
+		} else if (!noListen) {
 			const serverImport = import(`${pathToFileURL(path.join(distDir, 'server.mjs')).href}?startup=${Date.now()}`);
 			if (toolbox && toolboxRequested) requestedToolbox = toolbox.open();
 			await serverImport;
+		} else {
+			// Another supervisor (normally PM2 Cluster) owns the HTTP listener. Keep
+			// the watcher/toolbox process alive without importing a second listener.
+			if (toolbox && toolboxRequested) requestedToolbox = toolbox.open();
+			await new Promise(() => {});
 		}
 	} else if (toolbox && toolboxRequested) {
 		requestedToolbox = toolbox.open();

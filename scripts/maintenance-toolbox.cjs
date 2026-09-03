@@ -36,7 +36,13 @@ const createOutputGate = ({ output = process.stdout, errorOutput = process.stder
 			originals.clear();
 			installed = false;
 		},
-		setMuted(value) { muted = Boolean(value); },
+		setMuted(value) {
+			const next = Boolean(value);
+			if (muted && !next) {
+				for (const item of buffered.splice(0)) (item.stream === 'stderr' ? errorOutput : output).write(item.chunk);
+			}
+			muted = next;
+		},
 		writeStdout(chunk) { write('stdout', chunk); },
 		writeStderr(chunk) { write('stderr', chunk); },
 		drain() {
