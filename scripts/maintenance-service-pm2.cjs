@@ -1,5 +1,6 @@
 const { spawn } = require('node:child_process');
 const fs = require('node:fs');
+const os = require('node:os');
 const path = require('node:path');
 
 const DEFAULT_LOG_LINES = 50;
@@ -117,6 +118,18 @@ const createPm2Service = () => {
 		}
 		return instances;
 	};
+	const cpuInstances = () => {
+		try {
+			const count = typeof os.availableParallelism === 'function' ? os.availableParallelism() : os.cpus().length;
+			return Math.max(1, Number(count) || 1);
+		} catch {
+			return 1;
+		}
+	};
+	const numericInstances = (value) => {
+		const instances = validateInstances(value);
+		return instances === 'max' ? cpuInstances() : Number(instances);
+	};
 	return {
 		async detect({ projectDir = '', appName = '' } = {}) {
 			try {
@@ -153,6 +166,12 @@ const createPm2Service = () => {
 		},
 		async resolveName(options = {}) {
 			return resolveAppName(options);
+		},
+		normalizeInstances(value) {
+			return validateInstances(value);
+		},
+		resolveInstanceCount(value) {
+			return numericInstances(value);
 		},
 		async start({ projectDir = '', appName = '', instances = 'max' } = {}) {
 			const projectPath = resolveProjectPath(projectDir);
@@ -192,6 +211,13 @@ const createPm2Service = () => {
 			const outputs = [];
 			for (const id of ids) outputs.push((await execute(['stop', id])).output);
 			return outputs.filter(Boolean).join('\n') || `PM2 已请求停止 ${target.name} 的 ${ids.length} 个实例`;
+		},
+		async scale(target, instances) {
+			targetArgs(target);
+			const count = numericInstances(instances);
+			const result = await execute(['scale', target.name, String(count)]);
+			await execute(['save']);
+			return result.output || `PM2 已将 ${target.name} 调整为 ${count} 个 Cluster 实例`;
 		},
 		async logs(target, lines = DEFAULT_LOG_LINES) {
 			const ids = targetArgs(target);

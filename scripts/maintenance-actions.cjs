@@ -5,12 +5,13 @@ const { pathToFileURL } = require('node:url');
 const describeTarget = (target) => {
 	if (!target || typeof target !== 'object') return String(target ?? '当前项目服务');
 	const cluster = Number(target.instanceCount) > 1 ? `（${target.instanceCount} 个 Cluster 实例）` : '';
-	return `${target.name ?? '当前项目服务'}${cluster}`;
+	const desired = target.desiredInstances ? `，目标 ${target.desiredInstances} 个实例` : '';
+	return `${target.name ?? '当前项目服务'}${cluster}${desired}`;
 };
 
 const confirmTarget = async (ask, operation, target) => {
 	if (typeof ask !== 'function') throw new Error('缺少交互确认上下文');
-	const answer = await ask(`将通过 PM2 ${operation} 服务“${describeTarget(target)}”，确认继续？\n请输入 yes 确认：`);
+	const answer = await ask(`将通过 PM2 ${operation}“${describeTarget(target)}”，确认继续？\n请输入 yes 确认：`);
 	return String(answer).trim().toLowerCase() === 'yes';
 };
 
@@ -69,6 +70,21 @@ const askValue = async (ask, env, envKey, prompt, { required = true } = {}) => {
 	const value = String(await ask(prompt)).trim();
 	if (required && !value) throw new Error(`请输入${prompt.replace(/[：:？?]$/, '')}`);
 	return value;
+};
+
+const askInstanceCount = async (ask, env, service, currentCount) => {
+	const configured = configuredValue(env, 'PM2_INSTANCES');
+	const fallback = currentCount ? String(currentCount) : 'max';
+	if (configured) return service.normalizeInstances(configured);
+	if (typeof ask !== 'function') return service.normalizeInstances(fallback);
+	let prompt = `请输入 Cluster 实例数（当前 ${currentCount || '未注册'}，直接回车使用 ${fallback}）：`;
+	while (true) {
+		const value = String(await ask(prompt)).trim() || fallback;
+		try { return service.normalizeInstances(value); }
+		catch (error) {
+			prompt = `实例数无效：${error instanceof Error ? error.message : String(error)}\n请重新输入（直接回车使用 ${fallback}）：`;
+		}
+	}
 };
 
 const confirmRescue = async (ask, message) => {
@@ -190,25 +206,40 @@ const createMaintenanceActions = ({
 				key: 'pm2-start',
 				label: '启动服务（PM2 Cluster）',
 				description: '自动注册当前项目并交给 PM2 Cluster 运行',
-				run: async ({ ask } = {}) => {
-					const name = await serviceName();
-					const existing = await service.findOwn({ projectDir, pmId: env.pm_id, appName: env.PM2_APP_NAME });
-					if (existing && existing.onlineCount === existing.instanceCount && existing.instanceCount > 0) return `PM2 服务“${describeTarget(existing)}”已经运行`;
-					if (!await confirmTarget(ask, '启动', existing || { name, instanceCount: Number(env.PM2_INSTANCES) || 0 })) return '已取消';
-					await beforePm2Start?.();
-					const result = await service.start({ projectDir, appName: name, instances: env.PM2_INSTANCES || 'max' });
-					await followOwnLogs();
-					return result;
+					run: async ({ ask } = {}) => {
+						const name = await serviceName();
+						const existing = await service.findOwn({ projectDir, pmId: env.pm_id, appName: env.PM2_APP_NAME });
+						if (existing && existing.onlineCount === existing.instanceCount && existing.instanceCount > 0) return `PM2 服务“${describeTarget(existing)}”已经运行`;
+					if (!await confirmTarget(ask, '启动', existing || { name, desiredInstances: env.PM2_INSTANCES || 'max' })) return '已取消';
+						await beforePm2Start?.();
+						const result = await service.start({ projectDir, appName: name, instances: env.PM2_INSTANCES || 'max' });
+						await followOwnLogs();
+						return result;
 				},
 			},
 			{
 				key: 'pm2-restart',
 				label: '重启服务',
 				description: '通过 PM2 重启当前项目的全部 Cluster 实例',
+					run: async ({ ask } = {}) => {
+						const target = await ownService();
+						if (!await confirmTarget(ask, '重启', target)) return '已取消';
+						const result = await service.restart(target);
+						await followOwnLogs();
+						return result;
+				},
+			},
+			{
+				key: 'pm2-scale',
+				label: '调整 Cluster 实例数',
+				description: '交互式调整当前项目的 PM2 实例数并保存配置',
 				run: async ({ ask } = {}) => {
 					const target = await ownService();
-					if (!await confirmTarget(ask, '重启', target)) return '已取消';
-					const result = await service.restart(target);
+					const instances = await askInstanceCount(ask, env, service, target.instanceCount);
+					const count = service.resolveInstanceCount(instances);
+					if (count === target.instanceCount) return `Cluster 实例数未变化，仍为 ${count}`;
+					if (!await confirmTarget(ask, '调整 Cluster 实例数', { ...target, desiredInstances: count })) return '已取消';
+					const result = await service.scale(target, instances);
 					await followOwnLogs();
 					return result;
 				},
