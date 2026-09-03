@@ -53,11 +53,17 @@ const configuredValue = (env, key) => String(env[key] ?? '').trim();
 const configuredSecret = (env, key) => String(env[key] ?? '');
 const askSecretValue = async (askSecret, env, envKey, prompt) => {
 	const configured = configuredSecret(env, envKey);
-	if (configured) return configured;
+	if (configured) {
+		if (configured.length < 8) throw new Error('密码至少需要 8 个字符');
+		return configured;
+	}
 	if (typeof askSecret !== 'function') throw new Error(`请设置 ${envKey}；密码不接受命令行参数，也不会回显到菜单`);
-	const value = String(await askSecret(prompt));
-	if (!value) throw new Error('密码不能为空');
-	return value;
+	let currentPrompt = prompt;
+	while (true) {
+		const value = String(await askSecret(currentPrompt));
+		if (value.length >= 8) return value;
+		currentPrompt = '密码至少需要 8 个字符，请重新输入（输入内容以星号显示）：';
+	}
 };
 const askValue = async (ask, env, envKey, prompt, { required = true } = {}) => {
 	const configured = configuredValue(env, envKey);
@@ -116,9 +122,9 @@ const createMaintenanceActions = ({ service = createPm2Service(), env = process.
 			{
 				key: 'set-admin-password',
 				label: '重设基础管理员密码',
-				description: '直接输入新密码，输入时不回显；非交互模式可使用环境 Secret',
+				description: '直接输入新密码，输入内容以星号显示；非交互模式可使用环境 Secret',
 				run: async ({ ask, askSecret } = {}) => {
-					const password = await askSecretValue(askSecret, env, 'MAINTENANCE_ADMIN_PASSWORD', '请输入新的管理员密码（输入内容不会回显）：');
+					const password = await askSecretValue(askSecret, env, 'MAINTENANCE_ADMIN_PASSWORD', '请输入新的管理员密码（至少 8 个字符，输入内容以星号显示）：');
 					if (!await confirmRescue(ask, '将重设 base_users.id=1 的密码并使本站 Base 会话按现有规则重新校验，确认继续？')) return '已取消';
 					return runRescueAction('set-admin-password', { password });
 				},

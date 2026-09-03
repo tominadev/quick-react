@@ -107,7 +107,7 @@ const createMaintenanceToolbox = ({
 		}
 		return resultMessage(await action.run({ ask, askSecret }));
 	};
-	const runActionMenu = async (group, ask, askSecret, write) => {
+	const runActionMenu = async (group, ask, askSecret, waitAnyKey, write) => {
 		while (true) {
 			write(`\n${group.label}`);
 			group.actions.forEach((action, index) => write(`${index + 1}) ${action.label}${action.description ? ` — ${action.description}` : ''}`));
@@ -119,8 +119,14 @@ const createMaintenanceToolbox = ({
 				write('请选择菜单中的编号');
 				continue;
 			}
-			try { write(await runAction(action, ask, askSecret)); }
-			catch (error) { write(`操作失败：${error instanceof Error ? error.message : String(error)}`); }
+			try {
+				const result = await runAction(action, ask, askSecret);
+				write(result);
+				await waitAnyKey(result === '已取消' ? '已取消，请按任意键返回菜单：' : '操作完成，请按任意键返回菜单：');
+			} catch (error) {
+				write(`操作失败：${error instanceof Error ? error.message : String(error)}`);
+				await waitAnyKey('请按任意键返回菜单：');
+			}
 		}
 	};
 	const open = async () => {
@@ -199,10 +205,41 @@ const createMaintenanceToolbox = ({
 					input.on('keypress', onKeypress);
 				});
 			};
+			const waitAnyKey = (message) => {
+				const interactive = input.isTTY && typeof input.setRawMode === 'function';
+				write(interactive ? message : message.replace('任意键', '回车'));
+				if (queue.length) {
+					queue.shift();
+					return Promise.resolve();
+				}
+				if (!interactive) return ask('').then(() => undefined);
+				return new Promise((resolve) => {
+					const wasRaw = Boolean(input.isRaw);
+					const readlineKeypressListeners = input.listeners('keypress');
+					const finish = () => {
+						input.off('keypress', onKeypress);
+						readlineKeypressListeners.forEach((listener) => input.on('keypress', listener));
+						input.setRawMode?.(wasRaw);
+						write('');
+						resolve();
+					};
+					const onKeypress = (character, key = {}) => {
+						if (key.ctrl && key.name === 'c') {
+							input.off('keypress', onKeypress);
+							onSigint();
+							return;
+						}
+						if (character || key.name) finish();
+					};
+					readlineKeypressListeners.forEach((listener) => input.off('keypress', listener));
+					input.setRawMode(true);
+					input.on('keypress', onKeypress);
+				});
+			};
 			try {
 				const configuredGroups = listGroups();
 				if (configuredGroups.length === 1) {
-					await runActionMenu(configuredGroups[0], ask, askSecret, write);
+					await runActionMenu(configuredGroups[0], ask, askSecret, waitAnyKey, write);
 				} else if (configuredGroups.length > 1) {
 					while (true) {
 						write(`\n${title}`);
@@ -215,10 +252,10 @@ const createMaintenanceToolbox = ({
 							write('请选择菜单中的编号');
 							continue;
 						}
-						await runActionMenu(group, ask, askSecret, write);
+						await runActionMenu(group, ask, askSecret, waitAnyKey, write);
 					}
 				} else {
-					await runActionMenu({ label: title, actions: listActions() }, ask, askSecret, write);
+					await runActionMenu({ label: title, actions: listActions() }, ask, askSecret, waitAnyKey, write);
 				}
 			} finally {
 				terminal.off('line', onLine);
