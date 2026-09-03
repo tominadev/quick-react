@@ -1,6 +1,6 @@
 const path = require('node:path');
 const fs = require('node:fs');
-const { spawn } = require('node:child_process');
+const { spawn, spawnSync } = require('node:child_process');
 const { pathToFileURL } = require('node:url');
 const esbuild = require('esbuild');
 const { generate: generateWorkerRegistryFile } = require('./scripts/generate-worker-registry.cjs');
@@ -11,6 +11,15 @@ const { createPm2Service } = require('./scripts/maintenance-service-pm2.cjs');
 const projectDir = __dirname;
 const distDir = path.join(projectDir, 'dist');
 const publicDir = path.join(projectDir, 'public');
+
+const verifyPrismaMigrations = () => {
+	const result = spawnSync(process.execPath, [path.join(projectDir, 'scripts', 'verify-prisma-migrations.mjs')], {
+		cwd: projectDir,
+		stdio: 'inherit',
+	});
+	if (result.error) throw result.error;
+	if (result.status !== 0) throw new Error('Prisma Schema 校验失败，已停止构建');
+};
 
 const createRuntimeConfig = () => {
 	fs.mkdirSync(distDir, { recursive: true });
@@ -56,6 +65,7 @@ const createBuildContext = async (entryPoint, outputDir, outfile, options = {}, 
 };
 
 const main = async () => {
+	verifyPrismaMigrations();
 	const watch = process.argv.includes('--watch');
 	const startServer = process.argv.includes('--start') || process.env.START_SERVER === '1';
 	const restartServer = process.argv.includes('--restart') || process.env.AUTO_RESTART_SERVER === '1';

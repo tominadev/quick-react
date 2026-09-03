@@ -1,7 +1,11 @@
 import { DatabaseSync } from 'node:sqlite';
+import { execFileSync } from 'node:child_process';
 import { mkdtemp, readdir, readFile, rm } from 'node:fs/promises';
 import { join, resolve } from 'node:path';
 import { tmpdir } from 'node:os';
+
+const projectDirectory = resolve(import.meta.dirname, '..');
+execFileSync(process.execPath, [join(projectDirectory, 'scripts', 'verify-prisma-migrations.mjs')], { cwd: projectDirectory, stdio: 'inherit' });
 
 const args = new Set(process.argv.slice(2));
 const checkOnly = args.has('--check');
@@ -10,7 +14,7 @@ const yes = args.has('--yes');
 const fileArg = process.argv.find((value) => value.startsWith('--file='))?.slice(7);
 const groupsArg = process.argv.find((value) => value.startsWith('--groups='))?.slice(9);
 const databaseFile = resolve(fileArg || process.env.DEFAULT_DATABASE_FILE || 'database/default.sqlite');
-const groups = (groupsArg || 'global,base,passport').split(',').map((value) => value.trim()).filter(Boolean);
+const groups = (groupsArg || 'global,base,passport,pve').split(',').map((value) => value.trim()).filter(Boolean);
 if (dropExtra && !yes) throw new Error('删除多余字段必须同时传入 --yes；请先运行 schema:check 查看差异');
 
 const applyMigrations = async (database) => {

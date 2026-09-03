@@ -480,6 +480,8 @@ Repository          运行时查询
 
 Prisma 仅作为开发期工具使用，生成或检查 migration；运行时使用原生 SQL、预处理语句和 D1/SQLite 适配器。
 
+Prisma Schema 是业务表结构的唯一规范源。`scripts/verify-prisma-migrations.mjs` 会在 `esbuild.cjs`、类型检查和结构检查前重新生成所有 SQLite、MySQL、PostgreSQL、D1 迁移到临时目录，并逐文件比对仓库中的 `migrations/`；缺少、增加或手工修改任何迁移都会直接终止命令。运行时只执行已经通过校验的生成迁移，禁止把迁移 SQL 作为第二份手工结构定义。`global_schema_migrations` 是迁移过程本身的基础元数据表，由迁移启动阶段创建，不属于业务模型。
+
 迁移源只维护一份 `prisma/*.prisma`，其 datasource 以 PostgreSQL 为规范基线，字段类型和约束优先遵循 PostgreSQL 标准。执行 `npm run prisma:migrations` 时，生成器会从这份规范源创建临时方言 schema，再分别输出 PostgreSQL、MySQL 和 SQLite/D1 的迁移文件。JSON 字段在 PostgreSQL 生成 `JSONB`，在 MySQL 生成 `JSON`；PostgreSQL 的标量列表（例如 `roles String[]`）生成 `TEXT[]`，应用层直接绑定字符串数组。固定值域字段使用 Prisma `enum`（例如启用状态、迁移状态和登录流程状态），PostgreSQL 生成原生 `ENUM`，MySQL 保留原生 `ENUM`；SQLite/D1 不支持枚举，生成器会在临时副本中移除枚举声明并将字段降级为 `String`（即 `TEXT`），默认值同步转换为文本。由于本地 Node 运行时和 Cloudflare D1 使用 SQLite，生成 SQLite SQL 前还会将 `Json` 和 `String[]` 分别转换为 `String`，列表默认值转换为 JSON 文本默认值；MySQL 同样把标量列表降级为文本列。SQLite/D1 还会把 `BigInt @default(autoincrement())` 的主键转换为 `Int`，以生成 `INTEGER PRIMARY KEY AUTOINCREMENT`。规范 Prisma 文件始终保留 PostgreSQL 类型和 `BigInt`，临时文件生成后立即删除。生成的 `migrations/` 文件禁止手工编辑，必须修改 Prisma schema 后重新生成。
 
 这样可以保留模型定义，同时避免 Prisma Client 增大 Worker bundle 或引入 Node 专属依赖。

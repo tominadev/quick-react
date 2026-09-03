@@ -12,6 +12,8 @@ server/templates/   -> 动态首页响应
 
 构建只生成上述产物，不启动 Node 服务，也不执行数据库初始化。执行 `npm start` 后才会加载 `dist/server.mjs`；Hono 在同一个 8088 端口提供页面、静态资源和 `/api/*` 接口。开发模式使用 `npm run dev`，会在监听构建完成后自动启动 Node 服务。
 
+数据库模型以 `prisma/*.prisma` 为唯一规范来源。`npm run prisma:migrations` 从这些 Schema 生成全部 SQLite、MySQL、PostgreSQL 和 D1 迁移，并在完成后自动校验；`npm run typecheck`、构建和 `schema:check` 也会强制执行同一校验。迁移文件缺失、增加或被手工修改时，命令直接失败，不允许运行时继续使用分叉的数据库结构。
+
 ## 请求流程
 
 访问 `/` 时，后端先使用内存路由快照把 Host 解析为站点，再生成 `initialData`，由 `server/templates/base/index.mts` 通过 `window.__INITIAL_DATA__` 注入页面。数据包含 API/页面后缀、站点名称、页脚、调试标记、按用户角色过滤的导航、认证状态和页面访问状态；导航树同时定义菜单、路由路径、页面组件和页面元信息，前端递归导航树生成路由并通过组件注册表渲染。
