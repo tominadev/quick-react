@@ -24,6 +24,7 @@ import type { WorkerBindings } from './worker.mjs';
 import type { AppEnv } from './modules/base/types.mjs';
 import { SiteRouter } from './modules/base/site-router.mjs';
 import { workerCodeSites, workerSiteNavigations } from './.generated/worker-api-registry.mjs';
+import { executeMaintenanceAction } from './modules/base/maintenance/actions.mjs';
 
 const env = process.env;
 const skipStartupChecks = env.SKIP_STARTUP_CHECKS === '1';
@@ -210,6 +211,8 @@ nodeApp.all('*', (c) => worker.fetch(c.req.raw, {
 } as WorkerBindings));
 
 export const app = nodeApp;
+/** CLI-only rescue entry. The HTTP application never exposes this function as a route. */
+export const runMaintenanceAction = (action: string, input: Record<string, unknown> = {}) => executeMaintenanceAction(defaultDatabase, action, input);
 
 const domain = systemConfig.domain || 'anan.cc';
 const port = Number(systemConfig.httpPort) || 8088;

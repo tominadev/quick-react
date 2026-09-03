@@ -5,7 +5,8 @@ const { pathToFileURL } = require('node:url');
 const esbuild = require('esbuild');
 const { generate: generateWorkerRegistryFile } = require('./scripts/generate-worker-registry.cjs');
 const { createMaintenanceToolbox, createOutputGate } = require('./scripts/maintenance-toolbox.cjs');
-const { createDevProcessActions } = require('./scripts/dev-process-actions.cjs');
+const { createMaintenanceActions } = require('./scripts/maintenance-actions.cjs');
+const { createPm2Service } = require('./scripts/maintenance-service-pm2.cjs');
 
 const projectDir = __dirname;
 const distDir = path.join(projectDir, 'dist');
@@ -61,16 +62,33 @@ const main = async () => {
 	const noToolbox = process.argv.includes('--no-toolbox');
 	const toolboxRequested = process.argv.includes('--toolbox') && !noToolbox;
 	const toolboxEnabled = !noToolbox && (toolboxRequested || (startServer && Boolean(process.stdin.isTTY && process.stdout.isTTY)));
-	const noListen = process.argv.includes('--no-listen') || process.env.DEV_NO_LISTEN === '1';
+	let noListen = process.argv.includes('--no-listen') || process.env.DEV_NO_LISTEN === '1';
 	const noStartupChecks = process.argv.includes('--no-checks') || process.env.DEV_NO_CHECKS === '1';
+	const pm2Service = createPm2Service();
 	if (noListen) process.env.SKIP_SERVER_LISTEN = '1';
 	if (noStartupChecks) process.env.SKIP_STARTUP_CHECKS = '1';
 	let serverProcess;
-	let serverStartedAt = 0;
 	let watchReady = false;
 	let restartPromise = Promise.resolve();
 	const outputGate = createOutputGate();
 	if (toolboxEnabled) outputGate.installConsole();
+	const pm2Managed = process.env.pm_id !== undefined;
+	if (startServer && !noListen && pm2Managed && process.env.DEV_FORCE_LISTEN !== '1') {
+		noListen = true;
+		process.env.SKIP_SERVER_LISTEN = '1';
+		console.warn('检测到当前 npm run dev 由 PM2 托管，将只构建和监听文件变化，不再监听 HTTP 端口。');
+	} else if (startServer && !noListen && process.env.DEV_FORCE_LISTEN !== '1') {
+		const pm2State = await pm2Service.detect({ projectDir });
+		if (pm2State.running) {
+			noListen = true;
+			process.env.SKIP_SERVER_LISTEN = '1';
+			console.warn('检测到同一项目已有在线 PM2 服务，npm run dev 将只构建和监听文件变化，不再监听 HTTP 端口。');
+		} else if (!pm2State.installed) {
+			console.warn('未检测到 PM2，保留当前监听设置；服务控制菜单需要安装 PM2 后才能使用。');
+		} else if (pm2State.error && pm2State.installed) {
+			console.warn(`PM2 状态检测失败，保留当前监听设置：${pm2State.error}`);
+		}
+	}
 	const launchServer = () => {
 		const childEnv = { ...process.env };
 		if (noListen) childEnv.SKIP_SERVER_LISTEN = '1';
@@ -80,7 +98,6 @@ const main = async () => {
 			env: childEnv,
 			stdio: toolboxEnabled ? ['ignore', 'pipe', 'pipe'] : 'inherit',
 		});
-		serverStartedAt = Date.now();
 		if (toolboxEnabled) {
 			serverProcess.stdout?.on('data', (chunk) => outputGate.writeStdout(chunk));
 			serverProcess.stderr?.on('data', (chunk) => outputGate.writeStderr(chunk));
@@ -96,19 +113,10 @@ const main = async () => {
 			launchServer();
 		});
 	};
+	const maintenanceActions = toolboxEnabled ? createMaintenanceActions({ service: pm2Service }) : undefined;
 	const toolbox = toolboxEnabled ? createMaintenanceToolbox({
-		actions: createDevProcessActions({
-			watch,
-			startServer,
-			restartServer,
-			noListen,
-			noStartupChecks,
-			getServerProcess: () => serverProcess,
-			getServerStartedAt: () => serverStartedAt,
-			restartRunningServer,
-			outputGate,
-		}),
-		title: '开发工具箱',
+		groups: maintenanceActions.groups,
+		title: '维护工具箱',
 		outputGate,
 	}) : undefined;
 	if (toolbox) {

@@ -18,3 +18,5 @@ export type MaintenanceGroup = {
 	label: string;
 	actions: MaintenanceAction[];
 };
+
+export { executeMaintenanceAction } from './actions.mjs';

@@ -62,6 +62,7 @@ const createMaintenanceToolbox = ({
 	output = process.stdout,
 	outputGate = createOutputGate({ output, errorOutput: process.stderr }),
 	actions = [],
+	groups = [],
 	title = '维护工具箱',
 	hotkey = 'm',
 } = {}) => {
@@ -69,7 +70,6 @@ const createMaintenanceToolbox = ({
 	let rawModeBeforeAttach = false;
 	let menuPromise;
 	let menuOpen = false;
-	const listActions = () => actions.filter((action) => action && action.key && action.label && typeof action.run === 'function');
 	const write = (message = '') => output.write(`${message}${message.endsWith('\n') ? '' : '\n'}`);
 	const restoreInput = () => {
 		if (keypressListener) input.off('keypress', keypressListener);
@@ -94,12 +94,34 @@ const createMaintenanceToolbox = ({
 		write(`工具箱已就绪：按 ${hotkey} 打开，Ctrl+C 退出当前进程`);
 		return true;
 	};
-	const runAction = async (action, ask) => {
+	const validActions = (items) => items.filter((action) => action && action.key && action.label && typeof action.run === 'function');
+	const listActions = () => validActions(actions);
+	const listGroups = () => groups
+		.filter((group) => group && group.key && group.label && Array.isArray(group.actions))
+		.map((group) => ({ ...group, actions: validActions(group.actions) }))
+		.filter((group) => group.actions.length);
+	const runAction = async (action, ask, askSecret) => {
 		if (action.confirm) {
 			const answer = await ask(`${action.confirm}\n请输入 yes 确认：`);
 			if (String(answer).trim().toLowerCase() !== 'yes') return '已取消';
 		}
-		return resultMessage(await action.run());
+		return resultMessage(await action.run({ ask, askSecret }));
+	};
+	const runActionMenu = async (group, ask, askSecret, write) => {
+		while (true) {
+			write(`\n${group.label}`);
+			group.actions.forEach((action, index) => write(`${index + 1}) ${action.label}${action.description ? ` — ${action.description}` : ''}`));
+			write('0) 返回');
+			const choice = String(await ask('请选择：')).trim();
+			if (choice === '0' || choice.toLowerCase() === 'q') return;
+			const action = group.actions[Number(choice) - 1];
+			if (!action) {
+				write('请选择菜单中的编号');
+				continue;
+			}
+			try { write(await runAction(action, ask, askSecret)); }
+			catch (error) { write(`操作失败：${error instanceof Error ? error.message : String(error)}`); }
+		}
 	};
 	const open = async () => {
 		if (menuPromise) return menuPromise;
@@ -138,20 +160,65 @@ const createMaintenanceToolbox = ({
 				if (inputClosed) return Promise.resolve('0');
 				return new Promise((resolve) => { waiter = resolve; });
 			};
+			const askSecret = (prompt) => {
+				if (!input.isTTY || typeof input.setRawMode !== 'function') throw new Error('当前不是交互式终端，请通过环境变量提供该敏感值');
+				write(prompt);
+				if (queue.length) return Promise.resolve(queue.shift());
+				return new Promise((resolve) => {
+					const wasRaw = Boolean(input.isRaw);
+					const readlineKeypressListeners = input.listeners('keypress');
+					let value = '';
+					const finishSecret = () => {
+						input.off('keypress', onKeypress);
+						readlineKeypressListeners.forEach((listener) => input.on('keypress', listener));
+						input.setRawMode?.(wasRaw);
+						write('');
+						resolve(value);
+					};
+					const onKeypress = (character, key = {}) => {
+						if (key.ctrl && key.name === 'c') {
+							input.off('keypress', onKeypress);
+							onSigint();
+							return;
+						}
+						if (key.name === 'return' || key.name === 'enter') return finishSecret();
+						if (key.name === 'backspace' || key.name === 'delete') {
+							if (value) {
+								value = value.slice(0, -1);
+								output.write('\b \b');
+							}
+							return;
+						}
+						if (typeof character === 'string' && character && !key.ctrl && !key.meta) {
+							value += character;
+							output.write('*'.repeat(Array.from(character).length));
+						}
+					};
+					readlineKeypressListeners.forEach((listener) => input.off('keypress', listener));
+					input.setRawMode(true);
+					input.on('keypress', onKeypress);
+				});
+			};
 			try {
-				while (true) {
-					write(`\n${title}`);
-					listActions().forEach((action, index) => write(`${index + 1}) ${action.label}${action.description ? ` — ${action.description}` : ''}`));
-					write('0) 返回调用方');
-					const choice = String(await ask('请选择：')).trim();
-					if (choice === '0' || choice.toLowerCase() === 'q') break;
-					const action = listActions()[Number(choice) - 1];
-					if (!action) {
-						write('请选择菜单中的编号');
-						continue;
+				const configuredGroups = listGroups();
+				if (configuredGroups.length === 1) {
+					await runActionMenu(configuredGroups[0], ask, askSecret, write);
+				} else if (configuredGroups.length > 1) {
+					while (true) {
+						write(`\n${title}`);
+						configuredGroups.forEach((group, index) => write(`${index + 1}) ${group.label}`));
+						write('0) 返回调用方');
+						const choice = String(await ask('请选择：')).trim();
+						if (choice === '0' || choice.toLowerCase() === 'q') break;
+						const group = configuredGroups[Number(choice) - 1];
+						if (!group) {
+							write('请选择菜单中的编号');
+							continue;
+						}
+						await runActionMenu(group, ask, askSecret, write);
 					}
-					try { write(await runAction(action, ask)); }
-					catch (error) { write(`操作失败：${error instanceof Error ? error.message : String(error)}`); }
+				} else {
+					await runActionMenu({ label: title, actions: listActions() }, ask, askSecret, write);
 				}
 			} finally {
 				terminal.off('line', onLine);
