@@ -394,6 +394,10 @@ try {
 	const auditRoute = await readFile(resolve(projectDirectory, 'server/routes/base/api/panel/admin/base/audit.mts'), 'utf8');
 	assert.match(auditRoute, /c\.req\.query\('status'\) \?\? DEFAULT_STATUS/, '状态过滤必须在参数缺失时回落到默认值');
 	assert.match(auditRoute, /DEFAULT_STATUS = 'pending'/);
+	// 「全部」用显式哨兵值：空串在 antd 的 Select 里等于「没有选中」，选完会显示成空白。
+	assert.match(auditRoute, /ALL_STATUS = 'all'/);
+	assert.match(auditRoute, /\{ value: ALL_STATUS, text: '全部' \}/);
+	assert.doesNotMatch(auditRoute, /\{ value: '', text: '全部' \}/);
 
 	// ---- 保留期（§10）----
 	const total = (await entries()).length;

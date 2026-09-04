@@ -17,8 +17,11 @@ const statusOptions = [
  * 而不是翻历史；要看全部把它清空即可。
  */
 const DEFAULT_STATUS = 'pending';
+// 「全部」用显式哨兵值而不是空串：空串在 antd 的 Select 里等于「没有选中」，
+// 选完会显示成空白。顺带让 URL 自解释——status=all 比 status= 一眼看得懂。
+const ALL_STATUS = 'all';
 const queryFields = [
-	{ dataIndex: 'status', label: '状态', component: 'select' as const, defaultValue: DEFAULT_STATUS, options: [{ value: '', text: '全部' }, ...statusOptions] },
+	{ dataIndex: 'status', label: '状态', component: 'select' as const, defaultValue: DEFAULT_STATUS, options: [{ value: ALL_STATUS, text: '全部' }, ...statusOptions] },
 	{ dataIndex: 'table_name', label: '数据表', component: 'textbox' as const, placeholder: '例如 base_users' },
 	{ dataIndex: 'row_id', label: '记录 ID', component: 'textbox' as const },
 	{ dataIndex: 'reason', label: '操作原因', component: 'textbox' as const, placeholder: '模糊匹配，% 与 _ 是通配符' },
@@ -87,11 +90,11 @@ const handler: ApiHandler = async (c, next, params) => {
 	const database = c.get('database');
 	if (c.req.method === 'GET' && !params.id) {
 		const filters: SqlCondition[] = [];
-		// 参数缺失用默认值，参数为空串才是「全部」。
+		// 参数缺失用默认值；选了「全部」或传空串都表示不过滤。
 		// 客户端首次请求发出时还没带上查询默认值——它拿到 schema 之后才填，而那一步
 		// 刻意跳过了重新请求（避免首屏两次请求）。默认值因此要由服务端认。
 		const status = (c.req.query('status') ?? DEFAULT_STATUS).trim();
-		if (status && statusOptions.some((option) => option.value === status)) filters.push({ column: 'status', value: status });
+		if (status !== ALL_STATUS && statusOptions.some((option) => option.value === status)) filters.push({ column: 'status', value: status });
 		const tableFilter = c.req.query('table_name')?.trim();
 		if (tableFilter) filters.push({ column: 'table_name', value: tableFilter });
 		const rowFilter = c.req.query('row_id')?.trim();
