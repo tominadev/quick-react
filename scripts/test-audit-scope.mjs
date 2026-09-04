@@ -20,12 +20,12 @@ const loadConstants = async () => {
 	}
 };
 
-const { SELF_EXCLUDED_TABLES, HIDDEN_VALUE_COLUMNS, isSelfExcludedTable, isHiddenValueColumn } = await loadConstants();
+const { HIDDEN_VALUE_COLUMNS, isHiddenValueColumn, ...constants } = await loadConstants();
 
-// 审计表自身不被审计，否则记录一条变更会再产生一条变更。这是唯一的表级例外。
-assert.deepEqual([...SELF_EXCLUDED_TABLES], ['base_audit_entries']);
-assert.ok(isSelfExcludedTable('base_audit_entries'));
-assert.ok(!isSelfExcludedTable('base_users'), '除审计表外没有第二个表级例外——人和机器的分界线不在表名上');
+// 受管范围里**一个表级例外都没有**：人和机器的分界线不在表名上，由 runOperation 显式声明。
+// 审计表自己也不例外——递归由 runSystemSql 挡住（审计模块自身的写入不留痕），
+// 因此改一条审计记录会照常留痕，留下的那条新记录就是「谁动了审计」的证据。
+assert.deepEqual(Object.keys(constants).filter((name) => /TABLES$/.test(name)), [], '不该再有按表划分的清单');
 
 // 凭证列照常记录、照常撤回，只是接口不返回值（§5）。
 assert.ok(isHiddenValueColumn('password') && isHiddenValueColumn('value') && !isHiddenValueColumn('name'));

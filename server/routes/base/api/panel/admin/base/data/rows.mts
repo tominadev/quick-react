@@ -5,7 +5,6 @@ import { runOperationSql } from '@server/modules/base/operation.mjs';
 import { assertTable, databaseQueryFields, databaseSelectColumns, databaseTableActions, getColumns, readTable, tableRowKey } from '@server/routes/base/data/database-table.mjs';
 import { getChangedFields } from '@server/modules/base/changed-fields.mjs';
 import { isSystemField } from '@shared/system-fields.mjs';
-import { isWriteProtectedTable } from '@shared/audit-tables.mjs';
 import type { TableCrudDefinition } from '@server/modules/base/table-crud.mjs';
 
 const body = async (c: Parameters<ApiHandler>[0]) => c.req.json<Record<string, unknown>>().catch(() => ({}));
@@ -25,9 +24,6 @@ export const tableCrud: TableCrudDefinition = {
 const handler: ApiHandler = async (c, next, params) => {
 	const database = c.get('database');
 	const tableName = c.req.query('table');
-	// 审计表只能由审计模块自己写。这一页直接操作原始表、绕过全部业务语义，
-	// 放行等于让平台管理员随手改写自己的操作记录（§7.3）。
-	if (c.req.method !== 'GET' && tableName && isWriteProtectedTable(tableName)) return apiMessage(c, 403, '审计记录不可修改、不可删除，只能随保留期过期');
 	if (params.id && c.req.method === 'GET' && tableName) {
 		try { await assertTable(database, tableName); } catch { return apiMessage(c, 404, '数据表不存在'); }
 		const info = await getColumns(database, tableName);

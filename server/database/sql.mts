@@ -1,6 +1,5 @@
 import type { DatabaseAdapter, DatabaseActorResolver, DatabaseActorUid, DatabaseRunResult } from './index.mjs';
 import { isSystemField, SYSTEM_FIELD_NAMES } from '@shared/system-fields.mjs';
-import { isSelfExcludedTable } from '@shared/audit-tables.mjs';
 
 export type SqlDialect = 'sqlite' | 'mysql' | 'postgresql';
 export type SqlActorContext = DatabaseActorUid | DatabaseActorResolver;
@@ -62,7 +61,6 @@ export type SqlAuditChanges = Record<string, SqlAuditChange>;
  * 只是一条 SQL 片段。判定由 runOperation 显式声明，runSql 只负责在漏包时报错。
  */
 const auditMetadata = (table: string, values: Values, where: SqlCondition[], owner: SqlAuditOwnership): { audit?: SqlAuditMetadata } => {
-	if (isSelfExcludedTable(table)) return {};
 	const audited = definedEntries(values);
 	if (!audited.length) return {};
 	// where 是**完整**条件（含可见性判定），归属也在这里定死：调用方可能用显式上下文

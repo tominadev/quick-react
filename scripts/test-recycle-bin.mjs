@@ -56,14 +56,23 @@ try {
 	assert.equal((await request(`${recyclePath}&action=purge`, { method: 'POST', cookie, body: [fixture.id] })).status, 200);
 	const purged = await (await request(recyclePath, { cookie })).json();
 	assert.equal(purged.table.dataSource.some((row) => row.id === fixture.id), false, '彻底删除后回收站不应保留记录');
-	// 审计表只能由审计模块自己写：「数据管理」和回收站都是绕过业务语义的通用写入通道，
-	// 放行等于让平台管理员随手改写自己的操作记录（§7.3）。
+	// 审计表本身也受管：从「数据管理」改一条审计记录会照常留痕、照常走审批。
+	// 递归由 runSystemSql 挡住（审计模块自己的写入不留痕），不靠把这张表排除在外。
 	const auditBase = '/api/panel/admin/base/data/rows.php?table=base_audit_entries';
-	assert.equal((await request(`${auditBase.replace('?', '/1?')}`, { method: 'PUT', cookie, body: { reason: '篡改' } })).status, 403, '审计表不该允许编辑');
-	assert.equal((await request(auditBase, { method: 'POST', cookie, body: { table_name: 'x', row_id: 1, action: 'update' } })).status, 403, '审计表不该允许新增');
-	assert.equal((await request(auditBase, { method: 'DELETE', cookie, body: [1] })).status, 403, '审计表不该允许删除');
-	assert.equal((await request(`${auditBase}&include=deleted,schema,data&action=purge`, { method: 'POST', cookie, body: [1] })).status, 403, '回收站也不该允许彻底删除审计记录');
-	assert.equal((await request(`${auditBase}&include=schema,data`, { cookie })).status, 200, '只读仍然允许');
+	const auditList = await (await request(`${auditBase}&include=schema,data`, { cookie })).json();
+	assert.ok(auditList.table.dataSource.length, '前面的操作应该已经留下审计记录');
+	const entryId = auditList.table.dataSource[0].id;
+	// 不勾「立即生效」：改审计记录同样要排队。
+	const pendingTamper = await request(auditBase.replace('?', `/${entryId}?`), { method: 'PUT', cookie, headers: { 'x-change-immediate': '' }, body: { reason: '试图改写' } });
+	assert.equal(pendingTamper.status, 202, '改审计记录同样要走审批');
+	const stillPending = await (await request(`${auditBase}&include=schema,data`, { cookie })).json();
+	assert.notEqual(stillPending.table.dataSource.find((row) => String(row.id) === String(entryId)).reason, '试图改写', '没批准之前不该生效');
+	// 勾了立即生效就写进去，但这次改动本身留下一条新记录——想抹干净就得无限抹下去，
+	// 篡改因此总是可见的。
+	assert.equal((await request(auditBase.replace('?', `/${entryId}?`), { method: 'PUT', cookie, body: { reason: '改写了' } })).status, 200);
+	const afterTamper = await (await request(`${auditBase}&include=schema,data`, { cookie })).json();
+	assert.equal(afterTamper.table.dataSource.find((row) => String(row.id) === String(entryId)).reason, '改写了');
+	assert.ok(afterTamper.table.dataSource.some((row) => row.table_name === 'base_audit_entries'), '改审计表也要留痕');
 
 	console.log('recycle-bin test passed');
 } finally {

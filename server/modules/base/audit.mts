@@ -149,7 +149,9 @@ const transitionOne = async (database: DatabaseAdapter, entry: AuditEntryRow, to
 		}
 	}
 	// 带上原状态做条件：并发下只有一个请求能迁移成功。
-	await runSql(database, sql({ database }).update(AUDIT_TABLE, { status: to, ...statusFields },
+	// 走 runSystemSql：这次迁移的留痕就是这几列本身，再记一条是重复；
+	// 递归也是被这条路径挡住的，审计表因此不需要被排除在受管范围之外。
+	await runSystemSql(database, sql({ database }).update(AUDIT_TABLE, { status: to, ...statusFields },
 		[{ column: 'id', value: entry.id }, { column: 'status', value: entry.status }]));
 	return { id: entry.id, ok: true, message: `已${allowed.label}` };
 };
