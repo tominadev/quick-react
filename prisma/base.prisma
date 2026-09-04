@@ -304,11 +304,17 @@ model base_audit_entries {
   reviewed_at   BigInt?
   reviewed_duid BigInt?
   review_reason String @default("")
-  /// 最后一次撤回/恢复的时间、操作者与理由。原记录的 created_* 属于原操作者，不能复用。
-  /// 与 reviewed_* 分开：合用一组会让撤回信息覆盖掉「谁批准的」。
+  /// 撤回的时间、操作者与理由。原记录的 created_* 属于原操作者，不能复用。
   reverted_at   BigInt?
   reverted_duid BigInt?
   revert_reason String @default("")
+  /// 恢复的时间、操作者与理由。
+  ///
+  /// 三组字段一律分开：同一条记录可能先被批准、再被撤回、又被恢复，合用一组的话
+  /// 后发生的会把先发生的覆盖掉——恢复完之后「撤回人」显示的就成了恢复的人。
+  restored_at    BigInt?
+  restored_duid  BigInt?
+  restore_reason String @default("")
   @@index([owner_tid, created_at])
   @@index([owner_bid, created_at])
   @@index([owner_uid, created_at])

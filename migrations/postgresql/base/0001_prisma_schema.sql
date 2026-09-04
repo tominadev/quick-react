@@ -298,6 +298,9 @@ CREATE TABLE "base_audit_entries" (
     "reverted_at" BIGINT,
     "reverted_duid" BIGINT,
     "revert_reason" TEXT NOT NULL DEFAULT '',
+    "restored_at" BIGINT,
+    "restored_duid" BIGINT,
+    "restore_reason" TEXT NOT NULL DEFAULT '',
 
     CONSTRAINT "base_audit_entries_pkey" PRIMARY KEY ("id")
 );

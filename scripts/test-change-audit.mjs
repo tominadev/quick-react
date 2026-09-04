@@ -176,7 +176,12 @@ try {
 	assert.equal(await nameOf(alice.id), 'dave', '恢复后应回到变更后的值');
 	assert.equal(await statusOf(daveEntry.id), 'applied');
 	assert.equal((await entries()).length, beforeRevert, '恢复同样不产生新记录');
-	assert.equal((await entryById(daveEntry.id)).revert_reason, '恢复：撤错了', '只留最后一次翻转');
+	// 撤回与恢复各写自己那一组：恢复不能把「谁撤的」覆盖掉。
+	const afterRestore = await entryById(daveEntry.id);
+	assert.equal(afterRestore.restore_reason, '恢复：撤错了');
+	assert.ok(Number(afterRestore.restored_at) > 0, '要记下什么时候恢复的');
+	assert.equal(afterRestore.revert_reason, '撤回理由：改错了', '恢复不能覆盖撤回理由');
+	assert.ok(Number(afterRestore.reverted_at) > 0, '撤回时间要保留');
 	// 再撤回一次，把数据放回后面用例期望的位置。
 	assert.equal((await revert([daveEntry.id]))[0].ok, true);
 	assert.equal(await nameOf(alice.id), 'alice-3');
@@ -286,6 +291,7 @@ try {
 	const afterRevert = await entryById(pendingEntry.id);
 	assert.equal(afterRevert.review_reason, '同意', '撤回不能覆盖审批意见');
 	assert.equal(afterRevert.revert_reason, '批错了');
+	assert.equal(afterRevert.restore_reason, '', '三组字段互不干扰');
 	assert.equal(await rolesOf(), originalRoles);
 
 	// 驳回：不碰数据，只落状态。

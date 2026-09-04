@@ -294,6 +294,9 @@ CREATE TABLE `base_audit_entries` (
     `reverted_at` BIGINT NULL,
     `reverted_duid` BIGINT NULL,
     `revert_reason` VARCHAR(191) NOT NULL DEFAULT '',
+    `restored_at` BIGINT NULL,
+    `restored_duid` BIGINT NULL,
+    `restore_reason` VARCHAR(191) NOT NULL DEFAULT '',
 
     INDEX `base_audit_entries_owner_tid_created_at_idx`(`owner_tid`, `created_at`),
     INDEX `base_audit_entries_owner_bid_created_at_idx`(`owner_bid`, `created_at`),

@@ -36,6 +36,9 @@ const columns = [
 	{ dataIndex: 'reverted_at', title: '撤回时间', dataType: 'js_timestamp' as const, dayjsFormat: 'YYYY-MM-DD HH:mm:ss' },
 	{ dataIndex: 'reverted_duid', title: '撤回人' },
 	{ dataIndex: 'revert_reason', title: '撤回理由' },
+	{ dataIndex: 'restored_at', title: '恢复时间', dataType: 'js_timestamp' as const, dayjsFormat: 'YYYY-MM-DD HH:mm:ss' },
+	{ dataIndex: 'restored_duid', title: '恢复人' },
+	{ dataIndex: 'restore_reason', title: '恢复理由' },
 ];
 
 const publicEntry = (row: AuditEntryRow) => ({
@@ -55,6 +58,9 @@ const publicEntry = (row: AuditEntryRow) => ({
 	reverted_at: row.reverted_at ?? '',
 	reverted_duid: row.reverted_duid ?? '',
 	revert_reason: row.revert_reason ?? '',
+	restored_at: row.restored_at ?? '',
+	restored_duid: row.restored_duid ?? '',
+	restore_reason: row.restore_reason ?? '',
 });
 
 const readIds = async (c: Parameters<ApiHandler>[0], routeId?: string) => {

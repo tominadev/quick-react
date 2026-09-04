@@ -19,6 +19,9 @@ export type AuditEntryRow = {
 	reviewed_duid: string | null;
 	review_reason: string;
 	reverted_at: number | null;
+	restored_at: number | null;
+	restored_duid: string | null;
+	restore_reason: string;
 	reverted_duid: string | null;
 	revert_reason: string;
 	created_at: number;
@@ -38,6 +41,9 @@ const entryColumns = {
 	reviewed_at: 'reviewed_at',
 	reviewed_duid: { column: 'reviewed_duid', cast: 'text' as const },
 	review_reason: 'review_reason',
+	restored_at: 'restored_at',
+	restored_duid: { column: 'restored_duid', cast: 'text' as const },
+	restore_reason: 'restore_reason',
 	reverted_at: 'reverted_at',
 	reverted_duid: { column: 'reverted_duid', cast: 'text' as const },
 	revert_reason: 'revert_reason',
@@ -107,10 +113,14 @@ const TRANSITIONS: Record<AuditStatus, { to: AuditStatus; label: string }[]> = {
 const transitionOne = async (database: DatabaseAdapter, entry: AuditEntryRow, to: AuditStatus, reason: string): Promise<AuditRevertResult> => {
 	const allowed = TRANSITIONS[entry.status].find((transition) => transition.to === to);
 	if (!allowed) return { id: entry.id, ok: false, message: `当前状态是「${STATUS_LABELS[entry.status]}」，不能执行这个操作` };
-	const reviewing = entry.status === 'pending';
-	const statusFields = reviewing
-		? { reviewed_at: Date.now(), reviewed_duid: actorOf(database), review_reason: reason }
-		: { reverted_at: Date.now(), reverted_duid: actorOf(database), revert_reason: reason };
+	// 三种迁移各写自己那一组：同一条记录可能先被批准、再被撤回、又被恢复，
+	// 合用一组的话后发生的会覆盖先发生的——恢复完之后「撤回人」就成了恢复的人。
+	const now = Date.now(), actor = actorOf(database);
+	const statusFields = entry.status === 'pending'
+		? { reviewed_at: now, reviewed_duid: actor, review_reason: reason }
+		: to === 'reverted'
+			? { reverted_at: now, reverted_duid: actor, revert_reason: reason }
+			: { restored_at: now, restored_duid: actor, restore_reason: reason };
 	// 驳回不碰数据：待审批的修改从未写入过。
 	if (to !== 'rejected') {
 		const changes = parseAuditChanges(entry.changes);
