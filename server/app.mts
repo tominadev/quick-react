@@ -25,6 +25,7 @@ import type { AppEnv } from './modules/base/types.mjs';
 import { SiteRouter } from './modules/base/site-router.mjs';
 import { workerCodeSites, workerSiteNavigations } from './.generated/worker-api-registry.mjs';
 import { executeMaintenanceAction } from './modules/base/maintenance/actions.mjs';
+import { purgeAuditRetention } from './modules/base/audit.mjs';
 
 const env = process.env;
 const skipStartupChecks = env.SKIP_STARTUP_CHECKS === '1';
@@ -232,5 +233,21 @@ const listen = async () => {
 		});
 	}
 };
+
+/**
+ * 审计保留期清理。本进程里没有调度器，因此启动跑一次、之后每 6 小时跑一次；
+ * 清理本身分批且可重入（§10），漏跑一轮只是记录多留一会儿，不会出错。
+ * Workers 部署没有常驻进程，要改用 cron 触发器调用 purgeAuditRetention。
+ */
+const auditRetentionInterval = 6 * 60 * 60 * 1000;
+const runAuditRetention = () => {
+	purgeAuditRetention(defaultDatabase)
+		.then((removed) => { if (removed) console.log(`audit retention: purged ${removed} entries`); })
+		.catch((error) => console.error('audit retention failed', error));
+};
+if (!skipStartupChecks) {
+	runAuditRetention();
+	setInterval(runAuditRetention, auditRetentionInterval).unref();
+}
 
 if (process.env.SKIP_SERVER_LISTEN !== '1') await listen();

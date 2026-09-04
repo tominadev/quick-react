@@ -9,12 +9,12 @@ const projectDirectory = resolve(import.meta.dirname, '..');
 const temporaryDirectory = await mkdtemp(join(tmpdir(), 'quick-react-change-audit-'));
 try {
 	const result = await build({
-		stdin: { contents: "export * from './server/database/sql.mts'; export * from './server/database/sqlite.mts';", resolveDir: projectDirectory, sourcefile: 'audit-test-entry.mts' },
+		stdin: { contents: "export * from './server/database/sql.mts'; export * from './server/database/sqlite.mts'; export * from './server/modules/base/audit.mts';", resolveDir: projectDirectory, sourcefile: 'audit-test-entry.mts' },
 		bundle: true, format: 'esm', platform: 'node', write: false,
 	});
 	const moduleFile = join(temporaryDirectory, 'audit.mjs');
 	await writeFile(moduleFile, result.outputFiles[0].contents);
-	const { allSql, createSqliteAdapter, firstSql, runSql, sql } = await import(pathToFileURL(moduleFile));
+	const { allSql, createSqliteAdapter, firstSql, parseAuditChanges, publicAuditChanges, purgeAuditRetention, purgeExpiredAuditEntries, revertAuditEntries, runSql, sql } = await import(pathToFileURL(moduleFile));
 
 	const database = createSqliteAdapter(join(temporaryDirectory, 'audit.sqlite'));
 	const migrations = resolve(projectDirectory, 'migrations/base');
@@ -27,7 +27,8 @@ try {
 	const counting = { ...database, prepare: (query) => { prepared.push(query); return database.prepare(query); } };
 	const reset = () => { prepared = []; };
 
-	const entries = () => allSql(counting, sql({ database: counting }).select({ table: 'base_audit_entries', includeAll: true, orderBy: [{ column: 'id', direction: 'ASC' }] }));
+	// id 统一成字符串：模块接口一律 cast 成文本（雪花号按数字读会溢出），断言要对得上。
+	const entries = async () => (await allSql(counting, sql({ database: counting }).select({ table: 'base_audit_entries', includeAll: true, orderBy: [{ column: 'id', direction: 'ASC' }] }))).map((entry) => ({ ...entry, id: String(entry.id) }));
 	const changesOf = (entry) => JSON.parse(entry.changes);
 
 	await runSql(database, sql({ database }).insert('base_users', { name: 'alice', password: 'hash-1', roles: '[]', status: 'enabled' }));
@@ -108,6 +109,106 @@ try {
 	);
 	const unchanged = await firstSql(database, sql({ database }).select({ table: 'base_users', columns: { name: 'name' }, where: [{ column: 'id', value: alice.id }] }));
 	assert.equal(unchanged.name, 'alice-3', '审计失败后业务数据不应被改动');
+
+	// ---- 撤回（§7）----
+	const nameOf = async (id) => (await firstSql(database, sql({ database }).select({ table: 'base_users', columns: { name: 'name' }, where: [{ column: 'id', value: id }], deleted: 'all' }))).name;
+	const statusOf = async (entryId) => (await firstSql(database, sql({ database }).select({ table: 'base_audit_entries', columns: { status: 'status' }, where: [{ column: 'id', value: entryId }] }))).status;
+	const latestEntry = async () => (await entries()).at(-1);
+
+	// 撤回 update 后字段恢复原值；撤回产生一条新记录，原记录 status 变为 reverted。
+	await runSql(database, sql({ database }).update('base_users', { name: 'dave' }, { id: alice.id }));
+	const daveEntry = await latestEntry();
+	const beforeRevert = (await entries()).length;
+	assert.deepEqual(await revertAuditEntries(database, [daveEntry.id]), [{ id: daveEntry.id, ok: true, message: '已撤回：update' }]);
+	assert.equal(await nameOf(alice.id), 'alice-3', '撤回后字段应恢复原值');
+	assert.equal(await statusOf(daveEntry.id), 'reverted');
+	assert.equal((await entries()).length, beforeRevert + 1, '撤回本身也要留一条记录');
+
+	// 再次撤回同一条被拒绝。
+	assert.deepEqual(await revertAuditEntries(database, [daveEntry.id]), [{ id: daveEntry.id, ok: false, message: '该记录已经撤回过' }]);
+
+	// 要还原的列在变更之后又被改过时，撤回被拒绝且数据不变。
+	await runSql(database, sql({ database }).update('base_users', { name: 'erin' }, { id: alice.id }));
+	const erinEntry = await latestEntry();
+	await runSql(database, sql({ database }).update('base_users', { name: 'frank' }, { id: alice.id }));
+	const rejected = await revertAuditEntries(database, [erinEntry.id]);
+	assert.equal(rejected[0].ok, false);
+	assert.match(rejected[0].message, /已被后续修改覆盖/);
+	assert.equal(await nameOf(alice.id), 'frank', '撤回被拒绝时数据不变');
+	assert.equal(await statusOf(erinEntry.id), 'applied', '被拒绝的记录不应标记为已撤回');
+
+	// 同一行上与本次变更无关的列被改过，不影响撤回。
+	await runSql(database, sql({ database }).update('base_users', { name: 'grace' }, { id: alice.id }));
+	const graceEntry = await latestEntry();
+	await runSql(database, sql({ database }).update('base_users', { status: 'disabled' }, { id: alice.id }));
+	assert.equal((await revertAuditEntries(database, [graceEntry.id]))[0].ok, true, '无关列被改动不应挡住撤回');
+	assert.equal(await nameOf(alice.id), 'frank');
+
+	// 同一列的两次连续变更：倒序撤回全部成功，数据回到最初值。
+	await runSql(database, sql({ database }).update('base_users', { name: 'step-b' }, { id: alice.id }));
+	const stepB = await latestEntry();
+	await runSql(database, sql({ database }).update('base_users', { name: 'step-c' }, { id: alice.id }));
+	const stepC = await latestEntry();
+	// 传入顺序故意写反，实现必须按 created_at 降序重排后执行（§8）。
+	const chained = await revertAuditEntries(database, [stepB.id, stepC.id]);
+	assert.deepEqual(chained.map((result) => result.ok), [true, true], '链式变更倒序撤回应全部成功');
+	assert.equal(chained[0].id, stepC.id, '执行顺序必须是从新到旧');
+	assert.equal(await nameOf(alice.id), 'frank', '连续撤回后应回到最初值');
+
+	// 多选中某一条被拒绝时，其余条目照常执行。
+	await runSql(database, sql({ database }).update('base_users', { name: 'mixed' }, { id: alice.id }));
+	const mixedEntry = await latestEntry();
+	const mixed = await revertAuditEntries(database, [mixedEntry.id, erinEntry.id]);
+	assert.equal(mixed.find((result) => result.id === mixedEntry.id).ok, true);
+	assert.equal(mixed.find((result) => result.id === erinEntry.id).ok, false);
+	assert.equal(await nameOf(alice.id), 'frank');
+
+	// 不存在或无权访问的记录逐条报告，不影响其余条目。
+	assert.deepEqual(await revertAuditEntries(database, ['999999']), [{ id: '999999', ok: false, message: '审计记录不存在或无权访问' }]);
+
+	// 撤回软删除后记录回到未删除；撤回恢复后回到已删除，且还原的是原时间戳。
+	await runSql(database, sql({ database }).softDelete('base_users', { id: alice.id }));
+	const deleteEntry = await latestEntry();
+	const deletedAt = (await firstSql(database, sql({ database }).select({ table: 'base_users', columns: { deleted_at: 'deleted_at' }, where: [{ column: 'id', value: alice.id }], deleted: 'all' }))).deleted_at;
+	assert.ok(Number(deletedAt) > 0);
+	assert.equal((await revertAuditEntries(database, [deleteEntry.id]))[0].ok, true);
+	const afterUndelete = await firstSql(database, sql({ database }).select({ table: 'base_users', columns: { deleted_at: 'deleted_at' }, where: [{ column: 'id', value: alice.id }], deleted: 'all' }));
+	assert.equal(Number(afterUndelete.deleted_at), 0, '撤回软删除后记录应回到未删除');
+	const undeleteEntry = await latestEntry();
+	assert.equal(undeleteEntry.action, 'restore', '撤回软删除产生的是一条 restore 记录');
+	assert.equal((await revertAuditEntries(database, [undeleteEntry.id]))[0].ok, true);
+	const afterRedelete = await firstSql(database, sql({ database }).select({ table: 'base_users', columns: { deleted_at: 'deleted_at' }, where: [{ column: 'id', value: alice.id }], deleted: 'all' }));
+	assert.equal(String(afterRedelete.deleted_at), String(deletedAt), '撤回恢复应写回原时间戳，而不是当前时间');
+	await runSql(database, sql({ database }).restore('base_users', { id: alice.id }));
+
+	// 凭证列照常记录、照常撤回，但接口不返回它的前后值（§5）。
+	await runSql(database, sql({ database }).update('base_users', { password: 'hash-2' }, { id: alice.id }));
+	const passwordEntry = await latestEntry();
+	const storedChanges = parseAuditChanges(passwordEntry.changes);
+	assert.deepEqual(storedChanges.password, { before: 'hash-1', after: 'hash-2' }, '存储层照常记录凭证前后值');
+	assert.deepEqual(publicAuditChanges(storedChanges), { password: { hidden: true } }, '接口不得返回凭证值');
+	assert.equal((await revertAuditEntries(database, [passwordEntry.id]))[0].ok, true, '凭证列仍然可以撤回');
+	const restoredPassword = await firstSql(database, sql({ database }).select({ table: 'base_users', columns: { password: 'password' }, where: [{ column: 'id', value: alice.id }] }));
+	assert.equal(restoredPassword.password, 'hash-1', '撤回后凭证应还原');
+
+	// ---- 保留期（§10）----
+	const total = (await entries()).length;
+	assert.equal(await purgeExpiredAuditEntries(database, 0), 0, '保留期为 0 表示不自动清理');
+	assert.equal((await entries()).length, total);
+	// 把一半记录的时间推到 400 天前，只有它们应该被清掉。
+	const oldest = (await entries()).slice(0, 3).map((entry) => entry.id);
+	const staleAt = Date.now() - 400 * 86400_000;
+	for (const id of oldest) database.prepare('UPDATE base_audit_entries SET created_at = ? WHERE id = ?').bind(staleAt, id).run();
+	assert.equal(await purgeExpiredAuditEntries(database, 365, { batchSize: 2 }), 3, '过期记录应被物理删除，且分批可重入');
+	assert.equal((await entries()).length, total - 3, '未到期的记录不受影响');
+	assert.equal(await purgeExpiredAuditEntries(database, 365), 0, '再跑一次没有可清理的记录');
+
+	// 保留期按租户独立：读各租户自己的站点设置。
+	await runSql(database, sql({ database }).ignoreInsert('base_tenants', ['key'], { key: 'default', name: '默认租户', status: 'enabled' }));
+	// 挑一条属于默认租户的记录：代用户那条落在 owner_tid=3，不在这次清理范围内。
+	const remaining = (await entries()).find((entry) => String(entry.owner_tid) === '1');
+	database.prepare('UPDATE base_audit_entries SET created_at = ? WHERE id = ?').bind(staleAt, remaining.id).run();
+	assert.equal(await purgeAuditRetention(database), 1, '未配置保留期的租户应回落到默认的 365 天');
 
 	console.log('change audit ok');
 } finally {

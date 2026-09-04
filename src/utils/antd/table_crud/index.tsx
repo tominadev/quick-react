@@ -605,6 +605,7 @@ const TableCRUD = ({ commonApi, resourcePath, initialResponse, initialQueryValue
 		delete: (action) => <Button key={action.key} danger type="primary" disabled={selectedRowKeys.length === 0 || action.disabled} onClick={() => onDelete(action)} icon={<DeleteOutlined />}>{action.label}</Button>,
 		restore: (action) => <Button key={action.key} type="primary" disabled={selectedRowKeys.length === 0 || loading || action.disabled} onClick={() => void onToolbarSelectionAction(action)}>{action.label}</Button>,
 		purge: (action) => <Button key={action.key} danger disabled={selectedRowKeys.length === 0 || loading || action.disabled} onClick={() => void onToolbarSelectionAction(action)}>{action.label}</Button>,
+		revert: (action) => <Button key={action.key} type="primary" disabled={selectedRowKeys.length === 0 || loading || action.disabled} onClick={() => void onToolbarSelectionAction(action)}>{action.label}</Button>,
 		upload: (action) => <Button key={action.key} type="primary" icon={<UploadOutlined />} disabled={loading || action.disabled || uploadState?.phase === 'signing' || uploadState?.phase === 'uploading'} onClick={() => {
 			const input = document.createElement('input');
 			input.type = 'file';
