@@ -15,8 +15,15 @@ export const systemRoles: SystemRoleDefinition[] = [
 	{ value: 'public', label: '访客', assignable: false, description: '任何请求都隐式拥有的角色' },
 	{ value: 'user', label: '登录用户', assignable: false, description: '任何已登录用户隐式拥有的角色' },
 	{ value: 'accounts', label: 'Accounts 用户', assignable: false, description: '存在 Accounts 会话时隐式拥有的角色' },
-	{ value: 'admin', label: '管理员', assignable: true, description: '管理后台的准入角色' },
+	{ value: 'super', label: '平台管理员', assignable: true, description: '跨租户，管理租户、站点与数据库' },
+	{ value: 'admin', label: '租户管理员', assignable: true, description: '仅限本租户；不能访问控制面和租户管理' },
+	{ value: 'support', label: '客服', assignable: true, description: '代查本租户内指定账号，每次留审计记录' },
 ];
+
+/** 不受行级归属判定约束的角色。 */
+export const isSuperRole = (roles: string[]) => roles.includes('super');
+/** 可见本租户全部数据的角色。 */
+export const isTenantAdminRole = (roles: string[]) => roles.includes('admin');
 
 const roleMap = new Map(systemRoles.map((role) => [role.value, role]));
 

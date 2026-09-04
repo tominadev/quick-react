@@ -164,7 +164,7 @@ Passport 是认证控制面，不是业务模块的用户表。业务站点的�
 
 PostgreSQL 是设备关系、会话和撤销状态的权威存储，依靠事务、唯一索引和外键保证一致性。Redis 等缓存只保存可重建的会话或撤销加速数据，事件总线（Redis Streams、NATS 或 Kafka）负责跨站点传播登录、注销和风险变更；CouchDB 或对象存储仅用于长期审计历史与事件归档，不作为当前会话的唯一事实来源。业务 API 通过统一数据库上下文获取 `duid`，不得在各业务表重复实现设备解析。
 
-所有 Prisma 业务表统一包含 `deleted_at` 软删除字段，SQL 公共层的 `select` 和 `count` 默认只返回 `deleted_at = 0` 的记录。固定系统字段 `id`、`created_at`、`updated_at`、`deleted_at`、`created_duid`、`updated_duid` 由公共层统一维护，后台和用户表单只能展示，禁止业务写入。业务归属字段 `owner_bid`、`owner_uid` 不属于审计字段：新增时由公共层按当前作用账号及其分站自动填充，系统或无用户上下文时为 `NULL`，后续允许通过过户等业务操作修改。`bid` 指分站（`base_branches.id`），与 `global_sites` 的代码站点是两回事。回收站查询必须显式使用 `deleted: 'deleted'`，全量迁移或审计读取使用 `deleted: 'all'`；业务代码不得通过手写条件绕过默认删除范围。
+所有 Prisma 业务表统一包含 `deleted_at` 软删除字段，SQL 公共层的 `select` 和 `count` 默认只返回 `deleted_at = 0` 的记录。固定系统字段 `id`、`created_at`、`updated_at`、`deleted_at`、`created_duid`、`updated_duid` 由公共层统一维护，后台和用户表单只能展示，禁止业务写入。业务归属字段 `owner_tid`、`owner_uid` 不属于审计字段：新增时由公共层按当前作用账号及其租户自动填充，系统或无用户上下文时为 `NULL`，后续允许通过过户等业务操作修改。`tid` 指租户（`base_tenants.id`），与 `global_sites` 的代码站点是两回事。回收站查询必须显式使用 `deleted: 'deleted'`，全量迁移或审计读取使用 `deleted: 'all'`；业务代码不得通过手写条件绕过默认删除范围。
 
 ## 安全策略定位
 

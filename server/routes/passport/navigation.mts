@@ -18,7 +18,7 @@ const navigation: MenuNode[] = [{
 	],
 }, {
 	label: '管理后台', key: 'panel/admin', icon: 'appstore', dashboardPath: '/panel/admin/passport/dashboard', children: [{
-			label: 'Passport', key: 'passport', icon: 'appstore', navigationGroup: 'passport', dropdown: false, title: 'Passport 管理', description: '管理 Accounts 身份服务', roles: ['admin'], children: [{
+			label: 'Passport', key: 'passport', icon: 'appstore', navigationGroup: 'passport', dropdown: false, title: 'Passport 管理', description: '管理 Accounts 身份服务', roles: ['super'], children: [{
 			label: '仪表盘', key: 'dashboard', icon: 'mail', component: 'dashboard', title: 'Passport 管理仪表盘', description: '查看 Accounts 身份服务概览' }, {
 			label: '用户管理', key: 'users', icon: 'appstore', component: 'table', title: 'Accounts 用户', description: '查看 Passport 中的用户和账号状态' }, {
 			label: '设备管理', key: 'devices', icon: 'appstore', component: 'table', title: '登录设备', description: '查看并注销 Accounts 登录设备' }, {

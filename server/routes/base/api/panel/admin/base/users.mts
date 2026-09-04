@@ -32,6 +32,9 @@ const publicUser = (row: Record<string, unknown>) => ({
 
 const handler: ApiHandler = async (c, next, params) => {
 	const database = c.get('database');
+	// 用户名只在租户内唯一，按名查找一律限本租户；列表与按 id 读取待行级判定落地后由公共层收敛。
+	const tenantId = c.get('tenantId');
+	const tenantScope = (column = 'owner_tid') => tenantId === null ? { column, operator: 'IS NULL' as const } : { column, value: tenantId };
 	if (c.req.method === 'GET' && !params.id) {
 		const rows = await allSql<Record<string, unknown>>(database, sql({ database }).select({ table: 'base_users', columns: { id: 'id', username: 'name', roles: 'roles', status: 'status', password: 'password', created_at: 'created_at', updated_at: 'updated_at' }, orderBy: [{ column: 'id', direction: 'DESC' }] }));
 		return apiResponse(c, 200, { table: { option: { rowKey: 'id', actions: { query: [{ key: 'search', label: '搜索' }], toolbar: [{ key: 'create', label: '新增' }, { key: 'delete', label: '删除' }], row: [{ key: 'edit', label: '编辑' }, { key: 'delete', label: '删除' }] } }, columns, dataSource: rows.map(publicUser), totalRecords: rows.length } });
@@ -50,7 +53,9 @@ const handler: ApiHandler = async (c, next, params) => {
 		if (unknownRoles.length) return apiMessage(c, 400, `不支持的角色：${unknownRoles.join('、')}`);
 		try {
 			await runSql(database, sql({ database }).insert('base_users', { name: username, password: await createStoredPassword(password), roles: serializeRoles(roles), status: String(body.status ?? 'enabled') }));
-			const created = await firstSql<{ id: number | string }>(database, sql({ database }).select({ table: 'base_users', columns: { id: 'id' }, where: [{ column: 'name', value: username }] }));
+			const created = await firstSql<{ id: number | string }>(database, sql({ database }).select({ table: 'base_users', columns: { id: 'id' }, where: [{ column: 'name', value: username }, tenantScope()] }));
+			// 账号行归属账号自己，不归创建它的管理员。
+			if (created) await runSql(database, sql({ database }).update('base_users', { owner_uid: created.id }, { id: created.id }));
 			return apiMessageData(c, 201, '用户已创建', { id: created?.id, username });
 		} catch {
 			return apiMessage(c, 409, '用户名已存在');

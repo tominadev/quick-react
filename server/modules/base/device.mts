@@ -1,9 +1,12 @@
-import type { DatabaseAdapter } from '@server/database/index.mjs';
+import { withDatabaseActors, type DatabaseAdapter } from '@server/database/index.mjs';
 import { firstSql, runSql, sql } from '@server/database/sql.mjs';
 import { readDeviceFingerprint, readDeviceKey, readOptionalDeviceKey, requestDeviceSnapshot } from '@server/modules/base/device-fingerprint.mjs';
 
 /** 为账号建立或恢复当前设备与账号的 Base 绑定。 */
-export const ensureBaseDevice = async (database: DatabaseAdapter, userId: string | number | bigint, request: Request, resolvedIp?: string, transportIp?: string) => {
+export const ensureBaseDevice = async (rawDatabase: DatabaseAdapter, userId: string | number | bigint, request: Request, resolvedIp?: string, transportIp?: string) => {
+	// 设备与绑定关系归属登录中的账号本人。登录流程尚未建立会话，请求级适配器上没有
+	// 归属用户，若不在此显式绑定，公共层会把 owner_uid 写成 NULL，这些行日后对本人不可见。
+	const database = withDatabaseActors(rawDatabase, { baseUserId: userId });
 	const deviceKey = readDeviceKey(request), fingerprint = readDeviceFingerprint(request), now = Date.now(), snapshot = requestDeviceSnapshot(request, resolvedIp, transportIp);
 	const deviceData = { ...snapshot, last_seen_at: now, ...(fingerprint ? { fingerprint } : {}) };
 	const existing = await firstSql<{ id: string; status: string }>(database, sql({ database }).select({ table: 'base_devices', columns: { id: { column: 'id', cast: 'text' }, status: 'status' }, where: [{ column: 'key', value: deviceKey }] }));

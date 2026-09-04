@@ -1,7 +1,7 @@
 import type { ApiHandler } from '@server/modules/base/api-router.mjs';
 import { baseSessionMaxAge, clearSessionCookie, createSessionCookie, createStoredPassword, hashSessionToken, readSessionId, verifyStoredPassword } from '@server/modules/base/auth/index.mjs';
 import { ensureBaseDevice } from '@server/modules/base/device.mjs';
-import type { DatabaseAdapter } from '@server/database/index.mjs';
+import { withDatabaseActors, type DatabaseAdapter } from '@server/database/index.mjs';
 import { apiMessage, apiMessageData, apiResponse } from '@server/modules/base/api-response.mjs';
 import type { FormPageConfig } from '@shared/types/form-page.mjs';
 import { firstSql, runSql, sql } from '@server/database/sql.mjs';
@@ -23,8 +23,24 @@ const parseCredentials = async (c: Parameters<ApiHandler>[0]) => {
 	};
 };
 
-const registrationAvailable = async (database: DatabaseAdapter) => {
-	const row = await firstSql<{ value: string }>(database, sql({ database }).select({ table: 'base_bootstrap', columns: { value: 'value' }, where: [{ column: 'key', value: 'initial_admin' }] }));
+/**
+ * 账号行归属账号自己，而不是创建它的人。
+ * 自增 id 要插入后才知道，因此回写一次；行级判定上线后，用户读自己的账号记录靠的就是它。
+ */
+const claimOwnUserRow = async (database: DatabaseAdapter, username: string, tenantId: string | null) => {
+	const scope = tenantId === null ? { column: 'owner_tid', operator: 'IS NULL' as const } : { column: 'owner_tid', value: tenantId };
+	const created = await firstSql<{ id: number | string | bigint }>(database, sql({ database }).select({ table: 'base_users', columns: { id: 'id' }, where: [{ column: 'name', value: username }, scope], limit: 1 }));
+	if (created) await runSql(database, sql({ database }).update('base_users', { owner_uid: created.id }, { id: created.id }));
+	return created?.id;
+};
+
+/**
+ * 引导状态按租户独立：每个租户各自创建自己的初始管理员。
+ * 先看本租户的行，没有再回落到 owner_tid 为 NULL 的平台默认值（种子写入的就是它）。
+ */
+const registrationAvailable = async (database: DatabaseAdapter, tenantId: string | null) => {
+	const where = [{ column: 'key', value: 'initial_admin' }, ...(tenantId === null ? [] : [{ column: 'owner_tid', value: tenantId }])];
+	const row = await firstSql<{ value: string }>(database, sql({ database }).select({ table: 'base_bootstrap', columns: { value: 'value' }, where }));
 	return row?.value === 'open';
 };
 
@@ -45,31 +61,40 @@ const localSign: ApiHandler = async (c, next) => {
 		};
 		return apiResponse(c, 200, {
 			user: c.get('currentUser') ?? null,
-			registrationAvailable: await registrationAvailable(database),
+			registrationAvailable: await registrationAvailable(database, c.get('tenantId')),
 			formPage,
 		});
 	}
 	if (c.req.method === 'PUT') {
-		if (!await registrationAvailable(database)) return apiMessage(c, 409, '初始管理员已经存在');
+		const tenantId = c.get('tenantId');
+		if (!await registrationAvailable(database, tenantId)) return apiMessage(c, 409, '初始管理员已经存在');
 		const credentials = await parseCredentials(c);
 		if (!/^[a-zA-Z0-9_.-]{3,64}$/.test(credentials.username) || passwordError(credentials.password)) {
 			return apiMessage(c, 400, '用户名至少 3 个合法字符，密码至少 8 个字符');
 		}
 		const now = Date.now();
 		const storedPassword = await createStoredPassword(credentials.password);
-		const claimed = await runSql(database, sql({ database }).update('base_bootstrap', { value: 'claimed' }, [{ column: 'key', value: 'initial_admin' }, { column: 'value', value: 'open' }]));
+		// 认领本租户的引导状态：唯一键是 (key, owner_tid)，因此插入在每个租户内只可能成功一次，
+		// 影响 0 行说明已被并发请求抢先。平台默认行（owner_tid 为 NULL）保持不变，其他租户不受影响。
+		// 认领本租户的引导状态：唯一键是 (key, owner_tid)，同一租户内只可能成功一次。
+		const claimed = await runSql(database, sql({ database }).update('base_bootstrap', { value: 'claimed' }, [{ column: 'key', value: 'initial_admin' }, { column: 'value', value: 'open' }, ...(tenantId === null ? [] : [{ column: 'owner_tid', value: tenantId }])]));
 		if (Number(claimed.meta?.changes ?? 0) !== 1) return apiMessage(c, 409, '初始管理员已经存在');
 		try {
-			await runSql(database, sql({ database }).insert('base_users', { name: credentials.username, password: storedPassword, roles: ['admin'], status: 'enabled' }));
+			// 初始管理员是平台管理员：控制面与救援入口都要求 super。
+			await runSql(database, sql({ database }).insert('base_users', { name: credentials.username, password: storedPassword, roles: ['super'], status: 'enabled' }));
+			await claimOwnUserRow(database, credentials.username, c.get('tenantId'));
 		} catch (error) {
-			await runSql(database, sql({ database }).update('base_bootstrap', { value: 'open' }, [{ column: 'key', value: 'initial_admin' }, { column: 'value', value: 'claimed' }]));
+			// 回滚本租户的认领，让下一次注册还能重试。
+			await runSql(database, sql({ database }).update('base_bootstrap', { value: 'open' }, [{ column: 'key', value: 'initial_admin' }, { column: 'value', value: 'claimed' }, ...(tenantId === null ? [] : [{ column: 'owner_tid', value: tenantId }])]));
 			throw error;
 		}
 		return apiMessage(c, 201, '初始管理员创建成功，请登录');
 	}
 	if (c.req.method === 'POST') {
 		const credentials = await parseCredentials(c);
-		const user = await firstSql<{ id: number; username: string; password: string; roles: string }>(database, sql({ database }).select({ table: 'base_users', columns: { id: 'id', username: 'name', password: 'password', roles: 'roles' }, where: [{ column: 'name', value: credentials.username }, { column: 'status', value: 'enabled' }] }));
+		// 用户名只在租户内唯一，登录必须按当前请求租户过滤：否则跨租户同名账号会被验到别人头上。
+		const tenantId = c.get('tenantId');
+		const user = await firstSql<{ id: number; username: string; password: string; roles: string }>(database, sql({ database }).select({ table: 'base_users', columns: { id: 'id', username: 'name', password: 'password', roles: 'roles' }, where: [{ column: 'name', value: credentials.username }, { column: 'status', value: 'enabled' }, tenantId === null ? { column: 'owner_tid', operator: 'IS NULL' as const } : { column: 'owner_tid', value: tenantId }] }));
 		if (!user || !await verifyStoredPassword(credentials.password, user.password)) return apiMessage(c, 401, '用户名或密码错误', { component: 'modal', type: 'error' });
 		const sessionToken = crypto.randomUUID();
 		const maxAge = baseSessionMaxAge;
@@ -77,7 +102,9 @@ const localSign: ApiHandler = async (c, next) => {
 		let deviceId: string;
 		try { deviceId = await ensureBaseDevice(database, user.id, c.req.raw, c.get('clientIp'), c.get('transportIp')); }
 		catch (error) { return apiMessage(c, 400, error instanceof Error ? error.message : '设备信息无效'); }
-		await runSql(database, sql({ database }).insert('base_sessions', { token_hash: await hashSessionToken(sessionToken), user_id: user.id, device_id: deviceId, expires_at: now + maxAge * 1000 }));
+		// 会话归属登录人本人；此刻请求级适配器还没有归属用户，必须显式绑定，否则 owner_uid 为 NULL。
+		const owned = withDatabaseActors(database, { baseUserId: user.id });
+		await runSql(owned, sql({ database: owned }).insert('base_sessions', { token_hash: await hashSessionToken(sessionToken), user_id: user.id, device_id: deviceId, expires_at: now + maxAge * 1000 }));
 		c.header('Set-Cookie', createSessionCookie(sessionToken, new URL(c.req.url).protocol === 'https:', maxAge));
 		c.set('currentUser', { id: user.id, username: user.username, roles: parseRoles(user.roles) });
 		return apiMessageData(c, 200, '登录成功', { user: { id: user.id, username: user.username }, next: { action: 'navigate', path: requestPagePath(c), refreshAuth: true } });

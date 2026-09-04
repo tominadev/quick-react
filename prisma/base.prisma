@@ -13,6 +13,43 @@ enum BaseDeviceStatus {
   revoked
 }
 
+enum BaseTenantStatus {
+  enabled
+  disabled
+}
+
+/// 业务站点内部的租户。与 global_sites 的代码站点无关，命名一律不使用 site。
+model base_tenants {
+  id           BigInt @id @default(autoincrement())
+  created_at   BigInt
+  updated_at   BigInt
+  deleted_at   BigInt @default(0)
+  created_duid BigInt?
+  updated_duid BigInt?
+  owner_tid    BigInt @default(1)
+  owner_uid    BigInt?
+  key          String
+  @@unique([key, deleted_at])
+  name         String
+  status       BaseTenantStatus @default(enabled)
+}
+
+/// 主机名到租户的映射。控制面只负责主机名到站点，租户解析在站点库内完成。
+model base_tenant_hosts {
+  id           BigInt @id @default(autoincrement())
+  created_at   BigInt
+  updated_at   BigInt
+  deleted_at   BigInt @default(0)
+  created_duid BigInt?
+  updated_duid BigInt?
+  owner_tid    BigInt @default(1)
+  owner_uid    BigInt?
+  hostname     String
+  @@unique([hostname, deleted_at])
+  tenant_id    BigInt
+  status       BaseTenantStatus @default(enabled)
+}
+
 model base_users {
   id            BigInt @id @default(autoincrement())
   created_at    BigInt
@@ -20,9 +57,11 @@ model base_users {
   deleted_at BigInt @default(0)
   created_duid BigInt?
   updated_duid BigInt?
+  owner_tid     BigInt @default(1)
   owner_uid     BigInt?
   name          String
-  @@unique([name, deleted_at])
+  // 用户名在租户内唯一：不同租户可以各有同名账号。
+  @@unique([name, owner_tid, deleted_at])
   password      String
   roles         String[] @default([])
   status        BaseUserStatus @default(enabled)
@@ -35,6 +74,7 @@ model base_sessions {
   deleted_at BigInt @default(0)
   created_duid BigInt?
   updated_duid BigInt?
+  owner_tid     BigInt @default(1)
   owner_uid     BigInt?
   token_hash String
   @@unique([token_hash, deleted_at])
@@ -50,9 +90,11 @@ model base_configs {
   deleted_at BigInt @default(0)
   created_duid BigInt?
   updated_duid BigInt?
+  owner_tid     BigInt @default(1)
   owner_uid     BigInt?
   key        String
-  @@unique([key, deleted_at])
+  // 配置按租户独立：同一个 key 每个租户各存一份，owner_tid 为 NULL 的行是平台默认值。
+  @@unique([key, owner_tid, deleted_at])
   value      String
 }
 
@@ -63,9 +105,11 @@ model base_bootstrap {
   deleted_at BigInt @default(0)
   created_duid BigInt?
   updated_duid BigInt?
+  owner_tid     BigInt @default(1)
   owner_uid     BigInt?
   key          String
-  @@unique([key, deleted_at])
+  // 引导状态同样按租户独立：每个租户各自创建自己的初始管理员。
+  @@unique([key, owner_tid, deleted_at])
   value        String
 }
 
@@ -76,6 +120,7 @@ model base_oidc_login_requests {
   deleted_at BigInt @default(0)
   created_duid  BigInt?
   updated_duid  BigInt?
+  owner_tid     BigInt @default(1)
   owner_uid     BigInt?
   request_id    String
   @@unique([request_id, deleted_at])
@@ -95,13 +140,15 @@ model base_oidc_users {
   deleted_at BigInt @default(0)
   created_duid  BigInt?
   updated_duid  BigInt?
+  owner_tid     BigInt @default(1)
   owner_uid     BigInt?
   issuer        String
   subject       String
   user_id       BigInt
   profile       String @default("{}")
 
-  @@unique([issuer, subject, deleted_at])
+  // 同一个 Accounts 身份在每个租户各有一个本地账号。
+  @@unique([issuer, subject, owner_tid, deleted_at])
 }
 
 model base_oidc_sessions {
@@ -111,6 +158,7 @@ model base_oidc_sessions {
   deleted_at BigInt @default(0)
   created_duid  BigInt?
   updated_duid  BigInt?
+  owner_tid     BigInt @default(1)
   owner_uid     BigInt?
   issuer        String
   sid           String
@@ -127,6 +175,7 @@ model base_devices {
   deleted_at BigInt @default(0)
   created_duid BigInt?
   updated_duid BigInt?
+  owner_tid     BigInt @default(1)
   owner_uid     BigInt?
   user_id      BigInt
   key          String
@@ -149,6 +198,7 @@ model base_device_users {
   deleted_at BigInt @default(0)
   created_duid BigInt?
   updated_duid BigInt?
+  owner_tid     BigInt @default(1)
   owner_uid     BigInt?
   device_id    BigInt
   user_id      BigInt
@@ -166,6 +216,7 @@ model base_device_snapshots {
   deleted_at BigInt @default(0)
   created_duid  BigInt?
   updated_duid  BigInt?
+  owner_tid     BigInt @default(1)
   owner_uid     BigInt?
   device_id     BigInt
   fingerprint   Json    @default("{}")

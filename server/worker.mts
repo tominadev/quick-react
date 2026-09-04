@@ -11,6 +11,7 @@ import { createD1Adapter, type D1DatabaseLike } from './database/d1.mjs';
 import { apiMessage } from './modules/base/api-response.mjs';
 import { oidcDiscovery } from './modules/passport/accounts/provider.mjs';
 import { withDatabaseActors, type DatabaseAdapter } from './database/index.mjs';
+import { resolveTenantId } from './modules/base/tenant.mjs';
 import { SiteRouter } from './modules/base/site-router.mjs';
 import { baseSessionMaxAge, createSessionCookie, loadBaseDeviceUserId, loadCurrentUser, readSessionId, sessionUsesAccountsOidc } from './modules/base/auth/index.mjs';
 import { loadAccountsOidcConfig, resolveAccountsLoginMode } from './modules/passport/accounts/client.mjs';
@@ -36,12 +37,21 @@ type WorkerEnv = AppEnv & { Bindings: WorkerBindings };
 const app = new Hono<WorkerEnv>();
 const adapters = new WeakMap<object, DatabaseAdapter>();
 const routers = new WeakMap<object, SiteRouter>();
-const configurationCache = new WeakMap<object, {
+type CachedConfiguration = {
 	loadedAt: number;
 	systemConfig: Awaited<ReturnType<typeof loadSystemConfigFromStore>>;
 	techStackConfig: Awaited<ReturnType<typeof loadTechStackConfigFromStore>>;
 	siteSettings: Awaited<ReturnType<typeof loadSiteSettings>>;
-}>();
+};
+// 配置按租户独立，缓存键必须是（库，租户）而不只是库。
+const configurationCache = new WeakMap<object, Map<string, CachedConfiguration>>();
+const configurationBucket = (database: object) => {
+	const existing = configurationCache.get(database);
+	if (existing) return existing;
+	const bucket = new Map<string, CachedConfiguration>();
+	configurationCache.set(database, bucket);
+	return bucket;
+};
 
 const asAdapter = (binding: unknown): DatabaseAdapter | undefined => {
 	if (!binding || typeof binding !== 'object' || !('prepare' in binding)) return undefined;
@@ -84,15 +94,20 @@ const configureForRequest = async (c: Context<WorkerEnv>) => {
 		catch { /* Global administration remains available if Passport storage is temporarily unavailable. */ }
 	}
 
-	const baseConfigStore = createDatabaseConfigStore(database);
+	// 租户必须在读取配置之前定下来：配置按租户独立，而租户只依赖 base_tenant_hosts，不依赖配置。
+	const baseTenantId = await resolveTenantId(database, site.hostname).catch(() => null);
+	const tenantCacheKey = String(baseTenantId ?? '');
+	// 写配置要落到当前租户，因此用绑定过租户的适配器；读取由 config store 自己按租户加回落处理。
+	const configDatabase = withDatabaseActors(database, { baseTenantId });
+	const baseConfigStore = createDatabaseConfigStore(configDatabase, baseTenantId);
 	const configStore = {
 		get: baseConfigStore.get,
 		put: async (key: string, value: unknown) => {
 			await baseConfigStore.put(key, value);
-			configurationCache.delete(database as object);
+			configurationBucket(database as object).delete(tenantCacheKey);
 		},
 	};
-	let configuration = configurationCache.get(database as object);
+	let configuration = configurationBucket(database as object).get(tenantCacheKey);
 	if (!configuration || Date.now() - configuration.loadedAt >= 30_000) {
 		const [systemConfig, techStackConfig, siteSettings] = await Promise.all([
 			loadSystemConfigFromStore(configStore),
@@ -100,7 +115,7 @@ const configureForRequest = async (c: Context<WorkerEnv>) => {
 			loadSiteSettings(configStore),
 		]);
 		configuration = { loadedAt: Date.now(), systemConfig, techStackConfig, siteSettings };
-		configurationCache.set(database as object, configuration);
+		configurationBucket(database as object).set(tenantCacheKey, configuration);
 	}
 	c.set('site', site);
 	c.set('globalDatabase', defaultDatabase);
@@ -152,6 +167,7 @@ const configureForRequest = async (c: Context<WorkerEnv>) => {
 	const scopedDatabase = withDatabaseActors(database, {
 		base: baseDeviceUserId,
 		baseUserId,
+		baseTenantId,
 		...(passportDatabase === database ? { passportUserId } : {}),
 		...(passportDatabase === database ? { passport: passportActor } : {}),
 	});
@@ -159,19 +175,21 @@ const configureForRequest = async (c: Context<WorkerEnv>) => {
 		? withDatabaseActors(passportDatabase, { passport: passportDeviceUserId, passportUserId })
 		: scopedDatabase;
 	const globalDeviceUserId = defaultDatabase === database ? baseDeviceUserId : await loadBaseDeviceUserId(defaultDatabase, c.req.raw).catch(() => null);
-	const globalUserId = defaultDatabase === database ? baseUserId : (await loadCurrentUser(defaultDatabase, c.req.raw).catch(() => undefined))?.id ?? null;
+	const globalUser = defaultDatabase === database ? currentUser : await loadCurrentUser(defaultDatabase, c.req.raw).catch(() => undefined);
+	const globalUserId = globalUser?.id ?? null;
 	const scopedGlobalDatabase = defaultDatabase === database
 		? scopedDatabase
-		: withDatabaseActors(defaultDatabase, { base: globalDeviceUserId, baseUserId: globalUserId });
+		: withDatabaseActors(defaultDatabase, { base: globalDeviceUserId, baseUserId: globalUserId, baseTenantId: await resolveTenantId(defaultDatabase, site.hostname).catch(() => null) });
 	const scopedConfigStore = createDatabaseConfigStore(scopedDatabase);
 	c.set('globalDatabase', scopedGlobalDatabase);
 	c.set('passportDatabase', scopedPassportDatabase);
 	c.set('database', scopedDatabase);
+	c.set('tenantId', baseTenantId);
 	c.set('configStore', {
 		get: scopedConfigStore.get,
 		put: async (key: string, value: unknown) => {
 			await scopedConfigStore.put(key, value);
-			configurationCache.delete(database as object);
+			configurationBucket(database as object).delete(tenantCacheKey);
 		},
 	});
 	// Accounts 会话只带来身份（accounts 角色），站点权限一律来自本站用户自己的角色。

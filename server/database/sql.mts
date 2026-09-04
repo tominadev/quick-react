@@ -3,7 +3,7 @@ import { isSystemField, SYSTEM_FIELD_NAMES } from '@shared/system-fields.mjs';
 
 export type SqlDialect = 'sqlite' | 'mysql' | 'postgresql';
 export type SqlActorContext = DatabaseActorUid | DatabaseActorResolver;
-export type SqlContext = { database: DatabaseAdapter; actorUid?: DatabaseActorUid; actorUidForTable?: DatabaseActorResolver; ownerUid?: DatabaseActorUid; ownerUidForTable?: DatabaseActorResolver; deletedScope?: DeletedScope };
+export type SqlContext = { database: DatabaseAdapter; actorUid?: DatabaseActorUid; actorUidForTable?: DatabaseActorResolver; ownerUid?: DatabaseActorUid; ownerUidForTable?: DatabaseActorResolver; ownerTid?: DatabaseActorUid; ownerTidForTable?: DatabaseActorResolver; deletedScope?: DeletedScope };
 export type SqlQuery = { query: string; values: unknown[] };
 type SqlValue = unknown;
 type Values = Record<string, SqlValue | undefined>;
@@ -38,7 +38,7 @@ export type SqlColumn = string | { column: string; cast?: 'text' };
 export type SqlSelectOptions = { table: string; alias?: string; distinct?: boolean; columns?: Record<string, SqlColumn>; includeAll?: boolean; sqliteRowIdAlias?: string; joins?: SqlJoin[]; where?: SqlCondition[]; orderBy?: Array<{ column: string; direction?: 'ASC' | 'DESC' }>; limit?: number; offset?: number; deleted?: DeletedScope };
 
 export abstract class SqlBuilder {
-	constructor(readonly dialect: SqlDialect, readonly actorContext: SqlActorContext = null, readonly defaultDeletedScope: DeletedScope = 'active', readonly ownerContext: SqlActorContext = null) {}
+	constructor(readonly dialect: SqlDialect, readonly actorContext: SqlActorContext = null, readonly defaultDeletedScope: DeletedScope = 'active', readonly ownerContext: SqlActorContext = null, readonly tenantContext: SqlActorContext = null) {}
 	protected actorUidFor(table: string): DatabaseActorUid | null {
 		const value = typeof this.actorContext === 'function' ? this.actorContext(table) : this.actorContext;
 		return value ?? null;
@@ -49,6 +49,13 @@ export abstract class SqlBuilder {
 		// unauthenticated creation must remain NULL.
 		const value = typeof this.ownerContext === 'function' ? this.ownerContext(table) : this.ownerContext;
 		return value ?? null;
+	}
+	protected ownerTidFor(table: string): DatabaseActorUid | undefined {
+		// owner_tid 是 NOT NULL DEFAULT 1（默认租户）。没有租户上下文时不写这一列，
+		// 让数据库默认值兜底——迁移、种子、CLI 等系统写入因此落到默认租户，
+		// 而不是留下 NULL：唯一索引里的 NULL 互不相等，会让 (key, owner_tid) 这类约束失效。
+		const value = typeof this.tenantContext === 'function' ? this.tenantContext(table) : this.tenantContext;
+		return value ?? undefined;
 	}
 	protected abstract placeholder(index: number): string;
 	protected placeholders(count: number, start = 1) { return Array.from({ length: count }, (_, index) => this.placeholder(start + index)); }
@@ -100,8 +107,8 @@ export abstract class SqlBuilder {
 		// An internal allocator may provide an ID during creation; IDs are still
 		// immutable after creation and never appear in user-facing forms.
 		assertBusinessWriteFields(values, { allowId: true });
-		const timestamp = Date.now(), actorUid = this.actorUidFor(table), ownerUid = this.ownerUidFor(table);
-		const timestamped: Values = { created_at: timestamp, updated_at: timestamp, ...(actorUid !== null ? { created_duid: actorUid, updated_duid: actorUid } : {}), owner_uid: ownerUid, ...values };
+		const timestamp = Date.now(), actorUid = this.actorUidFor(table), ownerUid = this.ownerUidFor(table), ownerTid = this.ownerTidFor(table);
+		const timestamped: Values = { created_at: timestamp, updated_at: timestamp, ...(actorUid !== null ? { created_duid: actorUid, updated_duid: actorUid } : {}), owner_tid: ownerTid, owner_uid: ownerUid, ...values };
 		const entries = definedEntries(timestamped); if (!entries.length) throw new Error('INSERT values cannot be empty');
 		return {
 			query: `INSERT INTO ${quoteIdentifier(table, this.dialect)} (${entries.map(([key]) => quoteIdentifier(key, this.dialect)).join(', ')}) VALUES (${this.placeholders(entries.length).join(', ')})`,
@@ -224,9 +231,9 @@ export abstract class SqlBuilder {
 	castText(expression: string) { const quoted = quoteIdentifier(expression, this.dialect); return this.dialect === 'mysql' ? `CAST(${quoted} AS CHAR)` : `CAST(${quoted} AS TEXT)`; }
 }
 
-export class SqliteSqlBuilder extends SqlBuilder { constructor(actorContext: SqlActorContext = null, deletedScope: DeletedScope = 'active', ownerContext: SqlActorContext = null) { super('sqlite', actorContext, deletedScope, ownerContext); } protected placeholder() { return '?'; } }
-export class MysqlSqlBuilder extends SqlBuilder { constructor(actorContext: SqlActorContext = null, deletedScope: DeletedScope = 'active', ownerContext: SqlActorContext = null) { super('mysql', actorContext, deletedScope, ownerContext); } protected placeholder() { return '?'; } }
-export class PostgresqlSqlBuilder extends SqlBuilder { constructor(actorContext: SqlActorContext = null, deletedScope: DeletedScope = 'active', ownerContext: SqlActorContext = null) { super('postgresql', actorContext, deletedScope, ownerContext); } protected placeholder(index: number) { return `$${index}`; } }
+export class SqliteSqlBuilder extends SqlBuilder { constructor(actorContext: SqlActorContext = null, deletedScope: DeletedScope = 'active', ownerContext: SqlActorContext = null, tenantContext: SqlActorContext = null) { super('sqlite', actorContext, deletedScope, ownerContext, tenantContext); } protected placeholder() { return '?'; } }
+export class MysqlSqlBuilder extends SqlBuilder { constructor(actorContext: SqlActorContext = null, deletedScope: DeletedScope = 'active', ownerContext: SqlActorContext = null, tenantContext: SqlActorContext = null) { super('mysql', actorContext, deletedScope, ownerContext, tenantContext); } protected placeholder() { return '?'; } }
+export class PostgresqlSqlBuilder extends SqlBuilder { constructor(actorContext: SqlActorContext = null, deletedScope: DeletedScope = 'active', ownerContext: SqlActorContext = null, tenantContext: SqlActorContext = null) { super('postgresql', actorContext, deletedScope, ownerContext, tenantContext); } protected placeholder(index: number) { return `$${index}`; } }
 
 export const sql = (context: SqlContext) => {
 	const dialect = dialectOf(context.database);
@@ -234,8 +241,10 @@ export const sql = (context: SqlContext) => {
 		?? (Object.prototype.hasOwnProperty.call(context, 'actorUid') ? context.actorUid ?? null : context.database.actorUidForTable ?? context.database.actorUid ?? null);
 	const ownerContext: SqlActorContext = context.ownerUidForTable
 		?? (Object.prototype.hasOwnProperty.call(context, 'ownerUid') ? context.ownerUid ?? null : context.database.ownerUidForTable ?? context.database.ownerUid ?? null);
+	const tenantContext: SqlActorContext = context.ownerTidForTable
+		?? (Object.prototype.hasOwnProperty.call(context, 'ownerTid') ? context.ownerTid ?? null : context.database.ownerTidForTable ?? context.database.ownerTid ?? null);
 	const deletedScope = context.deletedScope ?? context.database.deletedScope ?? 'active';
-	return dialect === 'mysql' ? new MysqlSqlBuilder(actorContext, deletedScope, ownerContext) : dialect === 'postgresql' ? new PostgresqlSqlBuilder(actorContext, deletedScope, ownerContext) : new SqliteSqlBuilder(actorContext, deletedScope, ownerContext);
+	return dialect === 'mysql' ? new MysqlSqlBuilder(actorContext, deletedScope, ownerContext, tenantContext) : dialect === 'postgresql' ? new PostgresqlSqlBuilder(actorContext, deletedScope, ownerContext, tenantContext) : new SqliteSqlBuilder(actorContext, deletedScope, ownerContext, tenantContext);
 };
 export const runSql = (database: DatabaseAdapter, statement: SqlQuery): Promise<DatabaseRunResult> => database.prepare(statement.query).bind(...statement.values).run();
 export const firstSql = <T,>(database: DatabaseAdapter, statement: SqlQuery) => database.prepare(statement.query).bind(...statement.values).first<T>();

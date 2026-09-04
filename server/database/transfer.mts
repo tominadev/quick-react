@@ -10,6 +10,7 @@ export const portableTableGroups = {
 		'global_cloud_email_template_publications',
 	],
 	base: [
+		'base_tenants', 'base_tenant_hosts',
 		'base_users', 'base_sessions', 'base_configs', 'base_bootstrap',
 		'base_oidc_login_requests', 'base_oidc_users', 'base_oidc_sessions',
 		'base_devices', 'base_device_users', 'base_device_snapshots',

@@ -5,6 +5,7 @@ import { readCookie } from '@server/modules/passport/accounts/oidc.mjs';
 import { isValidAccountUsername } from '@server/modules/passport/account.mjs';
 import { baseSessionMaxAge, createSessionCookie, hashSessionToken } from '@server/modules/base/auth/index.mjs';
 import { ensureBaseDevice } from '@server/modules/base/device.mjs';
+import { withDatabaseActors } from '@server/database/index.mjs';
 import { firstSql, runSql, sql } from '@server/database/sql.mjs';
 import { isSecureRequest, requestOrigin } from '@server/modules/base/request-origin.mjs';
 import { parseRoles } from '@shared/types/role.mjs';
@@ -25,10 +26,11 @@ const placeholderUsername = (subject: string) => `passport_${subject}`;
 const generatedUsername = (username: string) => username.startsWith('passport_') || username.startsWith('accounts_');
 
 /** Accounts 设置用户名后同步改写本站占位用户名；管理员手工改过的名字不覆盖。 */
-const syncLocalUsername = async (database: Parameters<typeof runSql>[0], userId: number, username: string) => {
+const syncLocalUsername = async (database: Parameters<typeof runSql>[0], userId: number, username: string, tenantId: string | null) => {
 	const current = await firstSql<{ username: string }>(database, sql({ database }).select({ table: 'base_users', columns: { username: 'name' }, where: [{ column: 'id', value: userId }] }));
 	if (!current || current.username === username || !generatedUsername(current.username)) return;
-	const taken = await firstSql(database, sql({ database }).select({ table: 'base_users', columns: { id: 'id' }, where: [{ column: 'name', value: username }] }));
+	// 用户名租户内唯一，占用检查同样限本租户。
+	const taken = await firstSql(database, sql({ database }).select({ table: 'base_users', columns: { id: 'id' }, where: [{ column: 'name', value: username }, tenantId === null ? { column: 'owner_tid', operator: 'IS NULL' as const } : { column: 'owner_tid', value: tenantId }] }));
 	if (taken) return;
 	await runSql(database, sql({ database }).update('base_users', { name: username }, { id: userId }));
 };
@@ -53,37 +55,46 @@ const handler: ApiHandler = async (c) => {
 		const claims = await verifyIdToken(tokens.id_token, await jwksResponse.json() as { keys?: JsonWebKey[] }, { issuer: config.issuer, audience: config.clientId, nonce: request.nonce });
 		const subject = String(claims.sub), now = Date.now();
 		const oidcSessionId = String(claims.sid ?? ''); if (!oidcSessionId) throw new Error('ID Token 缺少 sid');
-		let account = await firstSql<{ user_id: number; status: string }>(database, sql({ database }).select({ table: 'base_oidc_users', alias: 'a', columns: { user_id: 'a.user_id', status: 'u.status' }, joins: [{ table: 'base_users', alias: 'u', left: 'u.id', right: 'a.user_id' }], where: [{ column: 'a.issuer', value: config.issuer }, { column: 'a.subject', value: subject }] }));
+		// 同一个 Accounts 身份在每个租户各有一个本地账号，映射查找必须带上当前租户。
+		const tenantId = c.get('tenantId');
+		const tenantScope = (column: string) => tenantId === null ? { column, operator: 'IS NULL' as const } : { column, value: tenantId };
+		let account = await firstSql<{ user_id: number; status: string }>(database, sql({ database }).select({ table: 'base_oidc_users', alias: 'a', columns: { user_id: 'a.user_id', status: 'u.status' }, joins: [{ table: 'base_users', alias: 'u', left: 'u.id', right: 'a.user_id' }], where: [{ column: 'a.issuer', value: config.issuer }, { column: 'a.subject', value: subject }, tenantScope('a.owner_tid')] }));
 		const preferred = typeof claims.preferred_username === 'string' ? claims.preferred_username : '';
 		if (!account) {
 			// 先用占位用户名建号，再按 Accounts 用户名改写，避免撞上本站已有的同名账号。
 			const username = placeholderUsername(subject);
-			await runSql(database, sql({ database }).ignoreInsert('base_users', ['name'], { name: username, password: '!oidc', roles: [], status: 'enabled' }));
-			const user = await firstSql<{ id: number; status: string; password: string }>(database, sql({ database }).select({ table: 'base_users', columns: { id: 'id', status: 'status', password: 'password' }, where: [{ column: 'name', value: username }] }));
+			await runSql(database, sql({ database }).ignoreInsert('base_users', ['name', 'owner_tid'], { name: username, password: '!oidc', roles: [], status: 'enabled' }));
+			const user = await firstSql<{ id: number; status: string; password: string }>(database, sql({ database }).select({ table: 'base_users', columns: { id: 'id', status: 'status', password: 'password' }, where: [{ column: 'name', value: username }, tenantScope('owner_tid')] }));
 			if (!user) throw new Error('无法创建本站 Accounts 用户');
 			if (user.password !== '!oidc') throw new Error('本站已存在同名用户，无法绑定 Accounts 身份');
-			await runSql(database, sql({ database }).insert('base_oidc_users', { issuer: config.issuer, subject, user_id: user.id, profile: JSON.stringify(claims) }));
+			// 账号行归属账号自己。
+			await runSql(database, sql({ database }).update('base_users', { owner_uid: user.id }, { id: user.id }));
+			// 身份绑定归属账号本人；OIDC 回调没有本站会话，不显式绑定则 owner_uid 为 NULL。
+			const ownedUser = withDatabaseActors(database, { baseUserId: user.id });
+			await runSql(ownedUser, sql({ database: ownedUser }).insert('base_oidc_users', { issuer: config.issuer, subject, user_id: user.id, profile: JSON.stringify(claims) }));
 			account = { user_id: user.id, status: user.status };
 		} else {
-			await runSql(database, sql({ database }).update('base_oidc_users', { profile: JSON.stringify(claims) }, { issuer: config.issuer, subject }));
+			await runSql(database, sql({ database }).update('base_oidc_users', { profile: JSON.stringify(claims) }, [{ column: 'issuer', value: config.issuer }, { column: 'subject', value: subject }, tenantScope('owner_tid')]));
 		}
-		if (isValidAccountUsername(preferred)) await syncLocalUsername(database, account.user_id, preferred);
+		if (isValidAccountUsername(preferred)) await syncLocalUsername(database, account.user_id, preferred, tenantId);
 		if (account.status !== 'enabled') return apiMessage(c, 403, '本站用户已停用');
 		const maxAge = baseSessionMaxAge;
 		const previousSession = await firstSql<{ session_id: string }>(database, sql({ database }).select({ table: 'base_oidc_sessions', columns: { session_id: 'session_id' }, where: [{ column: 'issuer', value: config.issuer }, { column: 'sid', value: oidcSessionId }] }));
 		const sessionToken = crypto.randomUUID(), sessionHash = await hashSessionToken(sessionToken);
 		const deviceId = await ensureBaseDevice(database, String(account.user_id), c.req.raw, c.get('clientIp'), c.get('transportIp'));
+		// 会话与 OIDC 会话映射同样归属账号本人。
+		const owned = withDatabaseActors(database, { baseUserId: account.user_id });
 		let sessionId: string;
 		if (previousSession) {
 			sessionId = previousSession.session_id;
 			await runSql(database, sql({ database }).update('base_sessions', { token_hash: sessionHash, user_id: account.user_id, device_id: deviceId, expires_at: now + maxAge * 1000 }, { id: sessionId }));
 		} else {
-			await runSql(database, sql({ database }).insert('base_sessions', { token_hash: sessionHash, user_id: account.user_id, device_id: deviceId, expires_at: now + maxAge * 1000 }));
+			await runSql(owned, sql({ database: owned }).insert('base_sessions', { token_hash: sessionHash, user_id: account.user_id, device_id: deviceId, expires_at: now + maxAge * 1000 }));
 			const created = await firstSql<{ id: number | string | bigint }>(database, sql({ database }).select({ table: 'base_sessions', columns: { id: 'id' }, where: [{ column: 'token_hash', value: sessionHash }], limit: 1 }));
 			if (!created) throw new Error('本站会话创建失败');
 			sessionId = String(created.id);
 		}
-		await runSql(database, sql({ database }).upsert('base_oidc_sessions', ['issuer', 'sid'], { issuer: config.issuer, sid: oidcSessionId, session_id: sessionId }, ['session_id', 'updated_at']));
+		await runSql(owned, sql({ database: owned }).upsert('base_oidc_sessions', ['issuer', 'sid'], { issuer: config.issuer, sid: oidcSessionId, session_id: sessionId }, ['session_id', 'updated_at']));
 		await runSql(database, sql({ database }).delete('base_oidc_login_requests', { request_id: request.id }));
 		const secure = isSecureRequest(c);
 		c.header('Set-Cookie', clearAccountsLoginCookie(secure)); c.header('Set-Cookie', createSessionCookie(sessionToken, secure, maxAge), { append: true });

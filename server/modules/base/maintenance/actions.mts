@@ -28,6 +28,10 @@ const assertUsernameAvailable = async (database: DatabaseAdapter, username: stri
 		where: [{ column: 'name', value: username }],
 		limit: 1,
 	}));
+	// 用户名现在是租户内唯一，本可以只检查同租户。但救援入口跑在无请求上下文的 CLI 里，
+	// 拿不到租户，且 id = 1 的 owner_tid 取决于它当初是被救援创建（NULL）还是经 HTTP 注册
+	// 创建（默认租户），无法可靠判定。因此保留全库检查：它比唯一索引更严格，只会多拒不会漏放，
+	// 代价仅是救援时不能取一个其他租户已用的名字。
 	if (conflict && String(conflict.id) !== '1') throw new Error(`用户名“${username}”已被其他账号占用`);
 };
 
@@ -40,11 +44,11 @@ const ensureAdmin = async (database: DatabaseAdapter, input: MaintenanceInput) =
 	if (password && passwordError(password)) throw new Error(passwordError(password)!);
 	if (!existing && !password) throw new Error('base_users.id = 1 不存在，重建管理员时必须提供密码');
 	if (existing?.deleted_at && String(existing.deleted_at) !== '0') await runSql(database, sql({ database }).restore('base_users', { id: 1 }));
-	const values: Record<string, unknown> = { name: username, roles: serializeRoles([...new Set([...parseRoles(existing?.roles), 'admin'])]), status: 'enabled' };
+	const values: Record<string, unknown> = { name: username, roles: serializeRoles([...new Set([...parseRoles(existing?.roles), 'super'])]), status: 'enabled' };
 	if (password) values.password = await createStoredPassword(password);
 	if (existing) await runSql(database, sql({ database }).update('base_users', values, { id: 1 }));
 	else await runSql(database, sql({ database }).insert('base_users', { id: 1, ...values, password: await createStoredPassword(password) }));
-	return `基础管理员 id=1 已恢复：用户名 ${username}，角色已包含 admin，状态已启用`;
+	return `基础管理员 id=1 已恢复：用户名 ${username}，角色已包含 super，状态已启用`;
 };
 
 const setAdminUsername = async (database: DatabaseAdapter, input: MaintenanceInput) => {

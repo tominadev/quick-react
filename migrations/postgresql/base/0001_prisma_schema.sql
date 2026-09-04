@@ -10,6 +10,43 @@ CREATE TYPE "BaseUserStatus" AS ENUM ('enabled', 'disabled');
 -- CreateEnum
 CREATE TYPE "BaseDeviceStatus" AS ENUM ('active', 'revoked');
 
+-- CreateEnum
+CREATE TYPE "BaseTenantStatus" AS ENUM ('enabled', 'disabled');
+
+-- CreateTable
+CREATE TABLE "base_tenants" (
+    "id" BIGSERIAL NOT NULL,
+    "created_at" BIGINT NOT NULL,
+    "updated_at" BIGINT NOT NULL,
+    "deleted_at" BIGINT NOT NULL DEFAULT 0,
+    "created_duid" BIGINT,
+    "updated_duid" BIGINT,
+    "owner_tid" BIGINT NOT NULL DEFAULT 1,
+    "owner_uid" BIGINT,
+    "key" TEXT NOT NULL,
+    "name" TEXT NOT NULL,
+    "status" "BaseTenantStatus" NOT NULL DEFAULT 'enabled',
+
+    CONSTRAINT "base_tenants_pkey" PRIMARY KEY ("id")
+);
+
+-- CreateTable
+CREATE TABLE "base_tenant_hosts" (
+    "id" BIGSERIAL NOT NULL,
+    "created_at" BIGINT NOT NULL,
+    "updated_at" BIGINT NOT NULL,
+    "deleted_at" BIGINT NOT NULL DEFAULT 0,
+    "created_duid" BIGINT,
+    "updated_duid" BIGINT,
+    "owner_tid" BIGINT NOT NULL DEFAULT 1,
+    "owner_uid" BIGINT,
+    "hostname" TEXT NOT NULL,
+    "tenant_id" BIGINT NOT NULL,
+    "status" "BaseTenantStatus" NOT NULL DEFAULT 'enabled',
+
+    CONSTRAINT "base_tenant_hosts_pkey" PRIMARY KEY ("id")
+);
+
 -- CreateTable
 CREATE TABLE "base_users" (
     "id" BIGSERIAL NOT NULL,
@@ -18,6 +55,7 @@ CREATE TABLE "base_users" (
     "deleted_at" BIGINT NOT NULL DEFAULT 0,
     "created_duid" BIGINT,
     "updated_duid" BIGINT,
+    "owner_tid" BIGINT NOT NULL DEFAULT 1,
     "owner_uid" BIGINT,
     "name" TEXT NOT NULL,
     "password" TEXT NOT NULL,
@@ -35,6 +73,7 @@ CREATE TABLE "base_sessions" (
     "deleted_at" BIGINT NOT NULL DEFAULT 0,
     "created_duid" BIGINT,
     "updated_duid" BIGINT,
+    "owner_tid" BIGINT NOT NULL DEFAULT 1,
     "owner_uid" BIGINT,
     "token_hash" TEXT NOT NULL,
     "user_id" BIGINT NOT NULL,
@@ -52,6 +91,7 @@ CREATE TABLE "base_configs" (
     "deleted_at" BIGINT NOT NULL DEFAULT 0,
     "created_duid" BIGINT,
     "updated_duid" BIGINT,
+    "owner_tid" BIGINT NOT NULL DEFAULT 1,
     "owner_uid" BIGINT,
     "key" TEXT NOT NULL,
     "value" TEXT NOT NULL,
@@ -67,6 +107,7 @@ CREATE TABLE "base_bootstrap" (
     "deleted_at" BIGINT NOT NULL DEFAULT 0,
     "created_duid" BIGINT,
     "updated_duid" BIGINT,
+    "owner_tid" BIGINT NOT NULL DEFAULT 1,
     "owner_uid" BIGINT,
     "key" TEXT NOT NULL,
     "value" TEXT NOT NULL,
@@ -82,6 +123,7 @@ CREATE TABLE "base_oidc_login_requests" (
     "deleted_at" BIGINT NOT NULL DEFAULT 0,
     "created_duid" BIGINT,
     "updated_duid" BIGINT,
+    "owner_tid" BIGINT NOT NULL DEFAULT 1,
     "owner_uid" BIGINT,
     "request_id" TEXT NOT NULL,
     "issuer" TEXT NOT NULL,
@@ -102,6 +144,7 @@ CREATE TABLE "base_oidc_users" (
     "deleted_at" BIGINT NOT NULL DEFAULT 0,
     "created_duid" BIGINT,
     "updated_duid" BIGINT,
+    "owner_tid" BIGINT NOT NULL DEFAULT 1,
     "owner_uid" BIGINT,
     "issuer" TEXT NOT NULL,
     "subject" TEXT NOT NULL,
@@ -119,6 +162,7 @@ CREATE TABLE "base_oidc_sessions" (
     "deleted_at" BIGINT NOT NULL DEFAULT 0,
     "created_duid" BIGINT,
     "updated_duid" BIGINT,
+    "owner_tid" BIGINT NOT NULL DEFAULT 1,
     "owner_uid" BIGINT,
     "issuer" TEXT NOT NULL,
     "sid" TEXT NOT NULL,
@@ -135,6 +179,7 @@ CREATE TABLE "base_devices" (
     "deleted_at" BIGINT NOT NULL DEFAULT 0,
     "created_duid" BIGINT,
     "updated_duid" BIGINT,
+    "owner_tid" BIGINT NOT NULL DEFAULT 1,
     "owner_uid" BIGINT,
     "user_id" BIGINT NOT NULL,
     "key" TEXT NOT NULL,
@@ -158,6 +203,7 @@ CREATE TABLE "base_device_users" (
     "deleted_at" BIGINT NOT NULL DEFAULT 0,
     "created_duid" BIGINT,
     "updated_duid" BIGINT,
+    "owner_tid" BIGINT NOT NULL DEFAULT 1,
     "owner_uid" BIGINT,
     "device_id" BIGINT NOT NULL,
     "user_id" BIGINT NOT NULL,
@@ -176,6 +222,7 @@ CREATE TABLE "base_device_snapshots" (
     "deleted_at" BIGINT NOT NULL DEFAULT 0,
     "created_duid" BIGINT,
     "updated_duid" BIGINT,
+    "owner_tid" BIGINT NOT NULL DEFAULT 1,
     "owner_uid" BIGINT,
     "device_id" BIGINT NOT NULL,
     "fingerprint" JSONB NOT NULL DEFAULT '{}',
@@ -191,16 +238,22 @@ CREATE TABLE "base_device_snapshots" (
 );
 
 -- CreateIndex
-CREATE UNIQUE INDEX "base_users_name_deleted_at_key" ON "base_users"("name", "deleted_at");
+CREATE UNIQUE INDEX "base_tenants_key_deleted_at_key" ON "base_tenants"("key", "deleted_at");
+
+-- CreateIndex
+CREATE UNIQUE INDEX "base_tenant_hosts_hostname_deleted_at_key" ON "base_tenant_hosts"("hostname", "deleted_at");
+
+-- CreateIndex
+CREATE UNIQUE INDEX "base_users_name_owner_tid_deleted_at_key" ON "base_users"("name", "owner_tid", "deleted_at");
 
 -- CreateIndex
 CREATE UNIQUE INDEX "base_sessions_token_hash_deleted_at_key" ON "base_sessions"("token_hash", "deleted_at");
 
 -- CreateIndex
-CREATE UNIQUE INDEX "base_configs_key_deleted_at_key" ON "base_configs"("key", "deleted_at");
+CREATE UNIQUE INDEX "base_configs_key_owner_tid_deleted_at_key" ON "base_configs"("key", "owner_tid", "deleted_at");
 
 -- CreateIndex
-CREATE UNIQUE INDEX "base_bootstrap_key_deleted_at_key" ON "base_bootstrap"("key", "deleted_at");
+CREATE UNIQUE INDEX "base_bootstrap_key_owner_tid_deleted_at_key" ON "base_bootstrap"("key", "owner_tid", "deleted_at");
 
 -- CreateIndex
 CREATE UNIQUE INDEX "base_oidc_login_requests_request_id_deleted_at_key" ON "base_oidc_login_requests"("request_id", "deleted_at");
@@ -209,7 +262,7 @@ CREATE UNIQUE INDEX "base_oidc_login_requests_request_id_deleted_at_key" ON "bas
 CREATE UNIQUE INDEX "base_oidc_login_requests_state_deleted_at_key" ON "base_oidc_login_requests"("state", "deleted_at");
 
 -- CreateIndex
-CREATE UNIQUE INDEX "base_oidc_users_issuer_subject_deleted_at_key" ON "base_oidc_users"("issuer", "subject", "deleted_at");
+CREATE UNIQUE INDEX "base_oidc_users_issuer_subject_owner_tid_deleted_at_key" ON "base_oidc_users"("issuer", "subject", "owner_tid", "deleted_at");
 
 -- CreateIndex
 CREATE UNIQUE INDEX "base_oidc_sessions_session_id_deleted_at_key" ON "base_oidc_sessions"("session_id", "deleted_at");

@@ -15,6 +15,7 @@ model pve_regions {
   deleted_at   BigInt @default(0)
   created_duid BigInt?
   updated_duid BigInt?
+  owner_tid     BigInt @default(1)
   owner_uid     BigInt?
   code         String
   @@unique([code, deleted_at])
@@ -31,6 +32,7 @@ model pve_nodes {
   deleted_at       BigInt @default(0)
   created_duid     BigInt?
   updated_duid     BigInt?
+  owner_tid     BigInt @default(1)
   owner_uid     BigInt?
   region_id        BigInt
   name             String
@@ -52,6 +54,7 @@ model pve_instance_flavors {
   deleted_at BigInt @default(0)
   created_duid         BigInt?
   updated_duid         BigInt?
+  owner_tid     BigInt @default(1)
   owner_uid     BigInt?
   code                 String
   name                 String
@@ -70,6 +73,7 @@ model pve_vms {
   deleted_at         BigInt @default(0)
   created_duid       BigInt?
   updated_duid       BigInt?
+  owner_tid     BigInt @default(1)
   owner_uid     BigInt?
   kind               String @default("qemu")
   region_id          BigInt
@@ -89,6 +93,7 @@ model pve_vm_tasks {
   deleted_at       BigInt @default(0)
   created_duid     BigInt?
   updated_duid     BigInt?
+  owner_tid     BigInt @default(1)
   owner_uid     BigInt?
   vm_id            BigInt
   action           String

@@ -14,7 +14,7 @@ const navigation: MenuNode[] = [{
 			dropdown: false,
 			title: '全局管理',
 			description: '管理站点、云服务和 Telegram 资源',
-			roles: ['admin'],
+			roles: ['super'],
 			children: [
 				{ label: '仪表盘', key: 'dashboard', icon: 'mail', component: 'dashboard', title: '全局管理仪表盘', description: '查看全局站点和云服务概览' },
 				{

@@ -112,7 +112,7 @@ export const loadCurrentUser = async (database: DatabaseAdapter, request: Reques
 	const sessionId = readSessionId(request);
 	if (!sessionId) return undefined;
 	const sessionHash = await hashSessionToken(sessionId);
-	const row = await firstSql<{ id: number; username: string; roles: string; device_id: string | null }>(database, sql({ database }).select({ table: 'base_sessions', alias: 's', columns: { id: 'u.id', username: 'u.name', roles: 'u.roles', device_id: { column: 's.device_id', cast: 'text' } }, joins: [{ table: 'base_users', alias: 'u', left: 'u.id', right: 's.user_id' }], where: [{ column: 's.token_hash', value: sessionHash }, { column: 's.expires_at', operator: '>', value: Date.now() }, { column: 'u.status', value: 'enabled' }] }));
+	const row = await firstSql<{ id: number; username: string; roles: string; tenant_id: string | null; device_id: string | null }>(database, sql({ database }).select({ table: 'base_sessions', alias: 's', columns: { id: 'u.id', username: 'u.name', roles: 'u.roles', tenant_id: { column: 'u.owner_tid', cast: 'text' }, device_id: { column: 's.device_id', cast: 'text' } }, joins: [{ table: 'base_users', alias: 'u', left: 'u.id', right: 's.user_id' }], where: [{ column: 's.token_hash', value: sessionHash }, { column: 's.expires_at', operator: '>', value: Date.now() }, { column: 'u.status', value: 'enabled' }] }));
 	if (!row) return undefined;
 	if (!row.device_id) {
 		await runSql(database, sql({ database }).delete('base_sessions', { token_hash: sessionHash }));
@@ -121,7 +121,7 @@ export const loadCurrentUser = async (database: DatabaseAdapter, request: Reques
 	try {
 		if (await validateBaseDevice(database, String(row.id), row.device_id, request)) {
 			await runSql(database, sql({ database }).update('base_sessions', { expires_at: Date.now() + baseSessionMaxAge * 1000 }, { token_hash: sessionHash }));
-			return { id: row.id, username: row.username, roles: parseRoles(row.roles) };
+			return { id: row.id, username: row.username, roles: parseRoles(row.roles), tenantId: row.tenant_id };
 		}
 	} catch {
 		// 指纹格式错误同样使当前会话失效。
