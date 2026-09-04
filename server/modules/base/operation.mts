@@ -80,24 +80,6 @@ const compareKey = (value: unknown) => {
 };
 const sameValue = (left: unknown, right: unknown) => compareKey(left) === compareKey(right);
 
-/**
- * 把从库里读回的原值还原成**逻辑类型**。
- *
- * SQLite 没有 JSON 类型，`roles` 这类列以文本存储、读回来也是文本，而写入侧传的是
- * 数组。审计不该把这个存储细节漏出去——`{"before":"[\"a\"]","after":["a","b"]}`
- * 两边类型都对不上。判据取自写入侧：待写入的值是数组或对象，就说明这一列的逻辑
- * 类型是 JSON，把读回的文本解析回去，两边就都是数组了。
- *
- * 撤回时写回数组同样正确：各方言的适配器都会把数组 JSON.stringify 后入库，
- * WHERE 里的条件值也走同一条路径，因此和存储的文本能匹配上。
- */
-const logicalValue = (stored: unknown, written: unknown) => {
-	if (stored === null || stored === undefined) return null;
-	if (typeof written !== 'object' || written === null) return stored;
-	if (typeof stored !== 'string') return stored;
-	try { return JSON.parse(stored); } catch { return stored; }
-};
-
 /** 三种动作都是 UPDATE，按写入的列区分：碰了 deleted_at 就是删除或恢复。 */
 const actionOf = (changes: Record<string, { before: unknown; after: unknown }>): SqlAuditAction => {
 	const deletedAt = changes.deleted_at;
@@ -106,11 +88,39 @@ const actionOf = (changes: Record<string, { before: unknown; after: unknown }>):
 };
 
 /**
- * 找这个人自己挂在这一行上的待审批记录。
+ * 解析成数组，解析不出来就返回 undefined。
  *
- * 按操作者过滤：两个人各自对同一行提出的修改是两件事，各排各的队；同一个人改了
- * 又改，只是同一件事的最新版本。
+ * 只认数组，不认对象：各方言的适配器都会把数组 JSON.stringify 后入库，因此撤回时
+ * 写回数组能原样对上；普通对象则会被 SQLite 的绑定拒绝。对象类型的 JSON 列
+ * （fingerprint、extra_config）因此按原样记，见需求文档 §14。
  */
+const asArray = (value: unknown) => {
+	if (Array.isArray(value)) return value;
+	if (typeof value !== 'string') return undefined;
+	const text = value.trim();
+	if (!text.startsWith('[')) return undefined;
+	try { const parsed: unknown = JSON.parse(text); return Array.isArray(parsed) ? parsed : undefined; }
+	catch { return undefined; }
+};
+
+/**
+ * 把前后值还原成**逻辑类型**。
+ *
+ * SQLite 没有 JSON 类型，`roles` 这类列以文本存储、读回来也是文本。写入侧的形态却
+ * 不统一：路由层直接传数组，而「数据管理」的表单传的是 JSON 字符串。不还原的话，
+ * **同一列会因为从哪个页面改而记成两种形态**——
+ * `{"before":["a"],"after":["b"]}` 与 `{"before":"[\"a\"]","after":"[\"b\"]"}`。
+ *
+ * 因此只要写入侧能解析成数组，两边就都还原成数组。撤回时写回数组同样正确：
+ * 适配器会 JSON.stringify 后入库，WHERE 里的条件值走同一条路径，能和存储的文本对上。
+ * 即便某个业务列的值恰好长得像数组（误判），来回一趟仍是同一串文本，撤回不受影响。
+ */
+const logicalPair = (stored: unknown, written: unknown): [unknown, unknown] => {
+	const writtenArray = asArray(written);
+	if (writtenArray === undefined) return [stored ?? null, written ?? null];
+	return [asArray(stored) ?? stored ?? null, writtenArray];
+};
+
 const findPendingEntry = async (database: DatabaseAdapter, builder: ReturnType<typeof sql>, table: string, rowId: unknown) => {
 	const actor = builder.auditActor(AUDIT_TABLE);
 	const where: SqlCondition[] = [
@@ -142,8 +152,7 @@ const recordStatement = async (database: DatabaseAdapter, metadata: SqlAuditMeta
 		const changes: Record<string, { before: unknown; after: unknown }> = {};
 		// 只记实际发生变化的列：业务表单常整体提交，照单全收会让"改了什么"失去答案。
 		for (const column of columns) {
-			const after = metadata.values[column] ?? null;
-			const before = logicalValue(row[column], after);
+			const [before, after] = logicalPair(row[column], metadata.values[column]);
 			if (!sameValue(before, after)) changes[column] = { before, after };
 		}
 		if (!Object.keys(changes).length) continue;

@@ -101,6 +101,12 @@ try {
 	assert.deepEqual(changesOf(arrayEntry).roles, { before: [], after: ['tenant_admin'] }, '数组列两边都记成数组');
 	await op(sql({ database: acting }).update('base_users', { roles: ['tenant_admin'] }, { id: alice.id }));
 	assert.equal((await entries()).length, beforeArray + 1, '同样的数组再存一次不该产生记录');
+	// 同一列不能因为写入形态不同而记成两种样子：路由层传数组、「数据管理」的表单传
+	// JSON 字符串，两条路径都要还原成数组。
+	await op(sql({ database: acting }).update('base_users', { roles: '["branch_admin"]' }, { id: alice.id }));
+	assert.deepEqual(changesOf(await latestEntry()).roles, { before: ['tenant_admin'], after: ['branch_admin'] }, '写入 JSON 字符串时同样记成数组');
+	assert.equal((await transitionAuditEntries(acting, [(await latestEntry()).id], 'reverted'))[0].ok, true, '写入字符串的那条也要能撤回');
+	assert.equal((await firstSql(acting, sql({ database: acting }).select({ table: 'base_users', columns: { roles: 'roles' }, where: [{ column: 'id', value: alice.id }] }))).roles, '["tenant_admin"]');
 	assert.equal((await transitionAuditEntries(acting, [arrayEntry.id], 'reverted'))[0].ok, true, '数组列必须能撤回');
 	assert.equal((await firstSql(acting, sql({ database: acting }).select({ table: 'base_users', columns: { roles: 'roles' }, where: [{ column: 'id', value: alice.id }] }))).roles, '[]');
 
@@ -309,7 +315,7 @@ try {
 	assert.equal((await entries()).length, beforeResubmit, '同一个人对同一行重复提交不该堆出多条待审批记录');
 	const resubmitted = await entryById(pendingEntry.id);
 	assert.equal(resubmitted.reason, '改主意了，换成分站管理员', '待审批记录被覆盖成最新一版');
-	assert.deepEqual(JSON.parse(resubmitted.changes).roles, { before: originalRoles, after: '["branch_admin"]' });
+	assert.deepEqual(JSON.parse(resubmitted.changes).roles, { before: [], after: ['branch_admin'] });
 	// 换个人提交同一行：那是另一件事，各排各的队。
 	const otherActor = withDatabaseActors(counting, { subjectRoles: ['platform_admin'], humanOperation: true, base: '99' });
 	await assert.rejects(() => runOperationSql(context('另一个人的申请', false), otherActor, sql({ database: otherActor }).update('base_users', { roles: '["tenant_admin"]' }, { id: alice.id })));
