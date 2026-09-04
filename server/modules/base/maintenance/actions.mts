@@ -44,11 +44,11 @@ const ensureAdmin = async (database: DatabaseAdapter, input: MaintenanceInput) =
 	if (password && passwordError(password)) throw new Error(passwordError(password)!);
 	if (!existing && !password) throw new Error('base_users.id = 1 不存在，重建管理员时必须提供密码');
 	if (existing?.deleted_at && String(existing.deleted_at) !== '0') await runSql(database, sql({ database }).restore('base_users', { id: 1 }));
-	const values: Record<string, unknown> = { name: username, roles: serializeRoles([...new Set([...parseRoles(existing?.roles), 'super'])]), status: 'enabled' };
+	const values: Record<string, unknown> = { name: username, roles: serializeRoles([...new Set([...parseRoles(existing?.roles), 'platform_admin'])]), status: 'enabled' };
 	if (password) values.password = await createStoredPassword(password);
 	if (existing) await runSql(database, sql({ database }).update('base_users', values, { id: 1 }));
 	else await runSql(database, sql({ database }).insert('base_users', { id: 1, ...values, password: await createStoredPassword(password) }));
-	return `基础管理员 id=1 已恢复：用户名 ${username}，角色已包含 super，状态已启用`;
+	return `基础管理员 id=1 已恢复：用户名 ${username}，角色已包含 platform_admin，状态已启用`;
 };
 
 const setAdminUsername = async (database: DatabaseAdapter, input: MaintenanceInput) => {

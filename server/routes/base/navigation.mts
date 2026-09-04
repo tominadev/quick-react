@@ -14,7 +14,7 @@ const rawSiteNavigation = (): MenuNode[] => [
 		dropdown: true,
 		title: '管理后台',
 		description: '当前站点管理后台',
-		roles: ['super', 'admin'],
+		roles: ['platform_admin', 'tenant_admin', 'branch_admin'],
 		children: [
 			{
 				label: '基础管理',
@@ -22,11 +22,11 @@ const rawSiteNavigation = (): MenuNode[] => [
 				icon: 'appstore',
 				navigationGroup: 'base',
 				dropdown: true,
-				roles: ['super', 'admin'],
+				roles: ['platform_admin', 'tenant_admin', 'branch_admin'],
 				children: [
 					{ label: '仪表盘', key: 'dashboard', icon: 'mail', component: 'dashboard', title: '基础管理仪表盘', description: '查看基础账号、会话和设备概览' },
 					// 系统设置改的是站点级配置（技术栈、运行参数、OIDC 接入），不是租户内的事，限平台管理员。
-					{ label: '系统设置', key: 'settings', icon: 'appstore', roles: ['super'], children: [
+					{ label: '系统设置', key: 'settings', icon: 'appstore', roles: ['platform_admin'], children: [
 						{ label: '技术栈伪装', key: 'tech-stack', icon: 'appstore', component: 'form', title: '技术栈伪装', description: '配置 HTTP 技术栈响应头伪装' },
 						{ label: '系统配置', key: 'system-config', icon: 'appstore', component: 'form', title: '系统配置', description: '配置 Quick React 服务运行参数' },
 						{ label: '站点设置', key: 'site', icon: 'appstore', component: 'form', title: '站点设置', description: '配置联系邮箱和退出登录入口' },
@@ -38,7 +38,7 @@ const rawSiteNavigation = (): MenuNode[] => [
 						key: 'data',
 						icon: 'appstore',
 						// 直接操作原始表，绕过业务语义，限平台管理员。
-						roles: ['super'],
+						roles: ['platform_admin'],
 						children: [
 							{ label: '表列管理', key: 'columns', icon: 'appstore', component: 'table', title: '表列管理', description: '基础管理数据表列' },
 							{ label: '数据管理', key: 'rows', icon: 'appstore', component: 'table', title: '数据管理', description: '基础管理数据表记录' },

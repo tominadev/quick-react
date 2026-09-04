@@ -2,7 +2,7 @@
 
 状态：结构与归属写入已实施（2026-09-04）；可见性判定与代用户操作未实施。
 
-前置需求：[数据行归属](row-level-data-ownership.md)。相关需求：[代理用户与管理视图](agent-tenants-and-management-views.md)。
+前置需求：[数据行归属](row-level-data-ownership.md)。相关需求：[代理用户与管理视图](agent-tenants-and-management-views.md)、[变更留痕与撤回](change-audit-and-revert.md)。
 
 ## 1. 背景
 
@@ -133,9 +133,9 @@ export type SqlSubject = {
 
 | # | 条件 | 读 | 改 / 删 |
 | --- | --- | --- | --- |
-| 1 | 主体未绑定，或角色含 `super` | 全部 | 全部 |
-| 2 | 角色含 `admin`，且 `owner_tid` = 当前租户 | 允许 | 允许 |
-| 3 | 角色含 `branchadmin`，且 `owner_bid` = 当前分站 | 允许 | 允许 |
+| 1 | 主体未绑定，或角色含 `platform_admin` | 全部 | 全部 |
+| 2 | 角色含 `tenant_admin`，且 `owner_tid` = 当前租户 | 允许 | 允许 |
+| 3 | 角色含 `branch_admin`，且 `owner_bid` = 当前分站 | 允许 | 允许 |
 | 4 | `owner_uid` = 作用账号 | 允许 | 允许 |
 | 5 | 其余（含 `owner_uid IS NULL`） | 拒绝 | 拒绝 |
 
@@ -143,24 +143,28 @@ export type SqlSubject = {
 
 ### 4.3 角色
 
-角色是集中常量，定义在 `shared/types/role.mts`，不进数据库。
+角色是集中常量，定义在 `shared/types/role.mts`，不进数据库。命名统一为 `<范围>_<职能>`：读到角色键即可判断可见范围，写角色门时不会像复用一个泛化的 `admin` 那样误放行。
 
-| 角色 | 已实施 | 可见范围 | 谁能授予 |
+| 角色 | 谓词 | 代查范围 | 谁能授予 |
 | --- | --- | --- | --- |
-| `super` | 是 | 全部租户的全部数据；管理租户、分站、站点与数据库 | `super` |
-| `admin` | 是 | 本租户全部数据 | `super` |
-| `branchadmin` | **否** | 本分站全部数据 | `super`、`admin` |
-| `support` | 是（仅定义） | 自己的数据，加上代查本分站指定账号 | `super`、`admin`、`branchadmin` |
-| `agent` | 否 | 自己的数据，加上名下下级用户的管理视图，见代理需求 | `admin`、`branchadmin` |
-| `public` / `user` / `accounts` | 是 | `user` 只看自己的数据 | 运行时隐式授予 |
+| `platform_admin` | 不追加 | — | `platform_admin` |
+| `platform_support` | `owner_uid = ?` | 任意租户内任意账号 | `platform_admin` |
+| `tenant_admin` | `owner_tid = ?` | — | `platform_admin` |
+| `tenant_support` | `owner_uid = ?` | 本租户内任意账号 | `platform_admin`、`tenant_admin` |
+| `branch_admin` | `owner_bid = ?` | — | `platform_admin`、`tenant_admin` |
+| `branch_support` | `owner_uid = ?` | 本分站内任意账号 | `tenant_admin`、`branch_admin` |
+| `agent` | `owner_uid = ?` | `agent_uid` = 自己的账号 | `tenant_admin`、`branch_admin` |
+| `public` / `user` / `accounts` | `user` 为 `owner_uid = ?` | — | 运行时隐式授予 |
+
+**管理类靠谓词看整片，服务类靠代查看单个**——广度归管理，精度归服务。`tenant_admin` 与 `branch_admin` 各自覆盖一层，不需要代查；`tenant_support`、`branch_support` 与 `agent` 默认只看自己的数据，要看别人必须显式指定一个账号并留下审计记录。
+
+三者共用同一套代查机制（作用账号传递、目标校验、审计表），**只有范围校验那一条不同**，因此不需要三套实现。
 
 角色名不使用 `root`：Unix 里 root 是账号（uid 0）而非角色，用作角色名会误导。
 
-`branchadmin` 的名称**待主人确认**——它是本需求唯一未定的命名。取这个名字的理由是它自带范围：以后有人写角色门时必须主动敲出来，不会像复用 `admin` 那样把分站管理员误放进平台级页面。
+界面上不会出现光秃秃的角色键：`roleLabel` 按"中文名(英文键)"渲染，显示为「分站管理员(branch_admin)」。
 
-界面上不会出现光秃秃的角色键：`roleLabel` 按"中文名(英文键)"渲染，显示为「分站管理员(branchadmin)」。
-
-**分站受限的部分**由路由层角色门表达，不靠行级判定：系统设置、数据管理、租户与分站管理已收窄到 `roles: ['super']`，基础管理对 `admin` 开放。`branchadmin` 应当只能进本分站的用户与业务管理。
+**分站受限的部分**由路由层角色门表达，不靠行级判定：系统设置、数据管理、租户与分站管理收窄到 `platform_admin`，基础管理对 `tenant_admin` 与 `branch_admin` 开放。
 
 ### 4.4 谓词
 
@@ -168,9 +172,9 @@ export type SqlSubject = {
 
 | 主体 | 追加的条件 |
 | --- | --- |
-| 未绑定，或含 `super` | 不追加 |
-| 含 `admin` | `owner_tid = ?` |
-| 含 `branchadmin` | `owner_bid = ?` |
+| 未绑定，或含 `platform_admin` | 不追加 |
+| 含 `tenant_admin` | `owner_tid = ?` |
+| 含 `branch_admin` | `owner_bid = ?` |
 | `actingUid` 为 `NULL` | `1 = 0` |
 | 其余 | `owner_uid = ?` |
 
@@ -206,14 +210,24 @@ export type SqlSubject = {
 
 ### 5.1 授权与校验
 
-具备 `support` 角色的账号可以指定目标账号，逐条校验，任一不满足即拒绝：
+具备代查角色的账号可以指定目标账号，逐条校验，任一不满足即拒绝：
 
-1. 请求者具备 `support`。
+1. 请求者具备 `platform_support`、`tenant_support`、`branch_support` 或 `agent`。
 2. 目标账号存在于当前数据库且 `status = enabled`。
-3. 目标账号的 `owner_bid` 等于请求者的 `owner_bid`——**限本分站**。
-4. 目标账号不具备 `super`、`admin` 或 `branchadmin` 角色，否则构成提权。
+3. 目标账号落在请求者的代查范围内——三种角色只有这一条不同：
 
-`admin` 与 `branchadmin` 已能看到本租户或本分站的全部数据，不需要代查。
+   | 角色 | 范围条件 |
+   | --- | --- |
+   | `platform_support` | 不限，任意租户任意账号 |
+   | `tenant_support` | 目标的 `owner_tid` = 请求者的 `owner_tid` |
+   | `branch_support` | 目标的 `owner_bid` = 请求者的 `owner_bid` |
+   | `agent` | 目标的 `agent_uid` = 请求者自己 |
+
+4. 目标账号不具备 `platform_admin`、`tenant_admin` 或 `branch_admin` 角色，否则构成提权。
+
+`tenant_admin` 与 `branch_admin` 已能看到本租户或本分站的全部数据，不需要代查。
+
+代理走代查而不是在谓词里加一支，是有意的：谓词方案要么退化成子查询（索引失效），要么要把 `owner_aid` 铺满全表并在下级换代理时跨表回写。代查让代理**默认看不到下级的业务数据**，要看必须显式指定一个账号且每次留痕，出事时能查到是谁、什么时候、看了谁。
 
 ### 5.2 传递方式
 
@@ -225,7 +239,7 @@ export type SqlSubject = {
 
 ### 5.4 账号查找接口
 
-要指定目标账号就得先找到它，而 `base_users` 本身受判定管辖。因此账号查找必须是**显式授权的独立接口**，以系统上下文读取，按请求者的 `owner_bid` 限定范围，只返回选择目标所需的最小字段。
+要指定目标账号就得先找到它，而 `base_users` 本身受判定管辖。因此账号查找必须是**显式授权的独立接口**，以系统上下文读取，按请求者的代查范围限定（同租户、同分站或 `agent_uid` = 自己），只返回选择目标所需的最小字段。
 
 ### 5.5 代查审计
 
@@ -235,23 +249,23 @@ export type SqlSubject = {
 
 热路径谓词一次只对应一个租户、一个分站或一个账号，做不到跨层汇总。以下场景必须走**独立的授权接口**，以系统上下文查询并显式追加范围条件，自带角色校验，**不得**通过放宽 §4.2 实现：
 
-- `super` 的跨租户汇总（租户列表、用量对比）。
-- `admin` 的跨分站汇总（本租户下各分站的用量与计费归集）。
+- `platform_admin` 的跨租户汇总（租户列表、用量对比）。
+- `tenant_admin` 的跨分站汇总（本租户下各分站的用量与计费归集）。
 - `agent` 的下级用户管理视图，见代理需求。
 
-`super` 的日常管理不需要这类接口：它的谓词是"不追加条件"，从自己所在的域名就能看到全部数据。切换域名只影响新建数据归属哪个租户与分站。
+`platform_admin` 的日常管理不需要这类接口：它的谓词是"不追加条件"，从自己所在的域名就能看到全部数据。切换域名只影响新建数据归属哪个租户与分站。
 
 ## 7. 实施步骤
 
 已完成的部分见 §3。剩余：
 
-1. `shared/types/role.mts` 增加 `branchadmin`，并按 §4.3 收窄各角色门。
+1. 代查能力的三种范围实现（`tenant_support` / `branch_support` / `agent`）。
 2. `server/database/index.mts` 沿归属通道补 `actingUid` 与 `roles`，形成完整的 `SqlSubject`。
 3. `server/worker.mts` 在既有绑定处解析并校验作用账号，一并绑定。
 4. `SqlCondition` 增加原始表达式变体；`select`/`count` 与各写方法追加谓词。
 5. 请求级 configStore 的 `get` 改走未绑定适配器（§4.6）。
 6. `base_hosts` 的租户与分站一致性校验（§3.3）。
-7. 租户与分站管理页面（`/panel/admin/base/tenants`、`/panel/admin/base/branches`，`super` 限定），含域名绑定与控制面可达性校验；新建租户时自动建主分站。
+7. 租户与分站管理页面（`/panel/admin/base/tenants`、`/panel/admin/base/branches`，`platform_admin` 限定），含域名绑定与控制面可达性校验；新建租户时自动建主分站。
 8. 代查角色的实际能力、账号查找接口、`base_delegation_events`。
 9. 逐个复核 `server/routes/base/api/panel/admin/**` 下现有的全表查询。
 10. 补充冒烟用例，覆盖 §10 的全部验收条目。
@@ -292,13 +306,13 @@ export type SqlSubject = {
 判定部分：
 
 - 账号 A 新增记录后能查到、能改；同分站账号 B 查询返回 0 行，`update` 影响 0 行且不抛错。
-- `branchadmin` 能查到并改动本分站任意账号的数据，查询同租户其他分站的数据返回 0 行。
-- `admin` 能查到并改动本租户任意分站的数据，查询其他租户的数据返回 0 行。
-- `super` 与未绑定主体能查到全部数据。
-- `owner_uid` 为 `NULL` 的记录：非 `super`、非 `admin`、非 `branchadmin` 账号查询返回 0 行。
+- `branch_admin` 能查到并改动本分站任意账号的数据，查询同租户其他分站的数据返回 0 行。
+- `tenant_admin` 能查到并改动本租户任意分站的数据，查询其他租户的数据返回 0 行。
+- `platform_admin` 与未绑定主体能查到全部数据。
+- `owner_uid` 为 `NULL` 的记录：非 `platform_admin`、非 `tenant_admin`、非 `branch_admin` 账号查询返回 0 行。
 - 普通账号登录后页面正常渲染，站点配置读取不受判定影响。
-- `support` 指定同分站账号后能查到并改动其数据；指定其他分站账号、其他租户账号或任一管理员账号时被拒绝。
-- 不具备 `support` 的账号指定任何目标账号都被拒绝，作用账号仍是自己。
+- `tenant_support` 指定同分站账号后能查到并改动其数据；指定其他分站账号、其他租户账号或任一管理员账号时被拒绝。
+- 不具备 `tenant_support` 的账号指定任何目标账号都被拒绝，作用账号仍是自己。
 - 代用户新增记录后，归属是目标账号，`created_duid` 是操作者的 device-user。
 - 每次代查请求在 `base_delegation_events` 留下一条记录。
 - 不同租户可以各有同名用户；同租户内重名被拒绝。
@@ -307,5 +321,4 @@ export type SqlSubject = {
 
 ## 11. 待定事项
 
-- **`branchadmin` 的角色名**，见 §4.3。
 - 前置需求 §5.5 领取与过户时由业务代码直接写 `owner_uid` 的问题，见 [数据行归属](row-level-data-ownership.md) §5.5。

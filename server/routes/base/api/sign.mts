@@ -81,7 +81,7 @@ const localSign: ApiHandler = async (c, next) => {
 		if (Number(claimed.meta?.changes ?? 0) !== 1) return apiMessage(c, 409, '初始管理员已经存在');
 		try {
 			// 初始管理员是平台管理员：控制面与救援入口都要求 super。
-			await runSql(database, sql({ database }).insert('base_users', { name: credentials.username, password: storedPassword, roles: ['super'], status: 'enabled' }));
+			await runSql(database, sql({ database }).insert('base_users', { name: credentials.username, password: storedPassword, roles: ['platform_admin'], status: 'enabled' }));
 			await claimOwnUserRow(database, credentials.username, c.get('tenantId'));
 		} catch (error) {
 			// 回滚本租户的认领，让下一次注册还能重试。

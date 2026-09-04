@@ -15,15 +15,22 @@ export const systemRoles: SystemRoleDefinition[] = [
 	{ value: 'public', label: '访客', assignable: false, description: '任何请求都隐式拥有的角色' },
 	{ value: 'user', label: '登录用户', assignable: false, description: '任何已登录用户隐式拥有的角色' },
 	{ value: 'accounts', label: 'Accounts 用户', assignable: false, description: '存在 Accounts 会话时隐式拥有的角色' },
-	{ value: 'super', label: '平台管理员', assignable: true, description: '跨租户，管理租户、站点与数据库' },
-	{ value: 'admin', label: '租户管理员', assignable: true, description: '仅限本租户；不能访问控制面和租户管理' },
-	{ value: 'support', label: '客服', assignable: true, description: '代查本租户内指定账号，每次留审计记录' },
+	// 角色名统一为 <范围>_<职能>：读到角色键即可判断可见范围，写角色门时不会误放行。
+	{ value: 'platform_admin', label: '平台管理员', assignable: true, description: '跨租户，管理租户、分站、站点与数据库' },
+	{ value: 'platform_support', label: '平台客服', assignable: true, description: '代查任意租户内指定账号，每次留审计记录' },
+	{ value: 'tenant_admin', label: '租户管理员', assignable: true, description: '本租户全部数据；不能访问控制面与租户管理' },
+	{ value: 'tenant_support', label: '租户客服', assignable: true, description: '代查本租户内指定账号，每次留审计记录' },
+	{ value: 'branch_admin', label: '分站管理员', assignable: true, description: '本分站全部数据' },
+	{ value: 'branch_support', label: '分站客服', assignable: true, description: '代查本分站内指定账号，每次留审计记录' },
+	{ value: 'agent', label: '代理', assignable: true, description: '名下下级用户的管理视图；代查范围限自己发展的账号' },
 ];
 
 /** 不受行级归属判定约束的角色。 */
-export const isSuperRole = (roles: string[]) => roles.includes('super');
+export const isPlatformAdminRole = (roles: string[]) => roles.includes('platform_admin');
 /** 可见本租户全部数据的角色。 */
-export const isTenantAdminRole = (roles: string[]) => roles.includes('admin');
+export const isTenantAdminRole = (roles: string[]) => roles.includes('tenant_admin');
+/** 可见本分站全部数据的角色。 */
+export const isBranchAdminRole = (roles: string[]) => roles.includes('branch_admin');
 
 const roleMap = new Map(systemRoles.map((role) => [role.value, role]));
 

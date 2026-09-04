@@ -38,14 +38,18 @@ try {
 	assert.equal(rolesColumn.component, 'select');
 	assert.equal(rolesColumn.multiple, true);
 	assert.deepEqual(rolesColumn.options, [
-		{ value: 'super', text: '平台管理员(super)' },
-		{ value: 'admin', text: '租户管理员(admin)' },
-		{ value: 'support', text: '客服(support)' },
+		{ value: 'platform_admin', text: '平台管理员(platform_admin)' },
+		{ value: 'platform_support', text: '平台客服(platform_support)' },
+		{ value: 'tenant_admin', text: '租户管理员(tenant_admin)' },
+		{ value: 'tenant_support', text: '租户客服(tenant_support)' },
+		{ value: 'branch_admin', text: '分站管理员(branch_admin)' },
+		{ value: 'branch_support', text: '分站客服(branch_support)' },
+		{ value: 'agent', text: '代理(agent)' },
 	]);
 
 	// 历史 JSON 文本按数组返回，前端可以直接回填多选。
 	const bootstrap = list.table.dataSource.find((row) => row.username === 'role_admin');
-	assert.deepEqual(bootstrap.roles, ['super']);
+	assert.deepEqual(bootstrap.roles, ['platform_admin']);
 
 	// 新建用户接受数组角色。
 	assert.equal((await request(usersPath, { method: 'POST', cookie, body: { username: 'role_member', password: 'test-password-123', roles: [], status: 'enabled' } })).status, 201);
@@ -64,9 +68,9 @@ try {
 	// 编辑时同样校验，并且能把普通用户提升为管理员。
 	const rejectedEdit = await request(`${usersPath}/${created.id}`, { method: 'PUT', cookie, body: { roles: ['owner'], __changedFields: ['roles'] } });
 	assert.equal(rejectedEdit.status, 400);
-	assert.equal((await request(`${usersPath}/${created.id}`, { method: 'PUT', cookie, body: { roles: ['admin'], __changedFields: ['roles'] } })).status, 200);
+	assert.equal((await request(`${usersPath}/${created.id}`, { method: 'PUT', cookie, body: { roles: ['tenant_admin'], __changedFields: ['roles'] } })).status, 200);
 	const promoted = await (await request(`${usersPath}/${created.id}`, { cookie })).json();
-	assert.deepEqual(promoted.roles, ['admin']);
+	assert.deepEqual(promoted.roles, ['tenant_admin']);
 
 	console.log('user roles test passed');
 } finally {
