@@ -22,7 +22,7 @@ export const AUDITED_TABLES = [
 	'passport_emails', 'passport_user_emails',
 	'passport_external_providers', 'passport_external_identities',
 	'passport_oauth_accounts', 'passport_oidc_clients',
-	'passport_telegram_accounts', 'passport_telegram_menus', 'passport_group_prompts',
+	'passport_telegram_accounts',
 	// pve：资源编排的主数据，任务队列除外。
 	'pve_regions', 'pve_nodes', 'pve_instance_flavors', 'pve_vms',
 ] as const;
@@ -46,6 +46,8 @@ export const UNAUDITED_TABLES = [
 	'passport_oidc_access_tokens', 'passport_oidc_signing_keys',
 	'passport_external_login_states', 'passport_external_pending_identities',
 	'passport_external_pending_qr_states', 'passport_telegram_identity_choices',
+	// Telegram 的会话状态机与菜单状态：都是机器按对话进度改写的 UI/流程状态。
+	'passport_telegram_menus', 'passport_group_prompts',
 	// 一次性验证码。
 	'passport_email_otp', 'passport_user_email_otps', 'passport_external_email_otps',
 	// 机器队列与内部状态。
@@ -54,22 +56,63 @@ export const UNAUDITED_TABLES = [
 ] as const;
 
 /**
- * 受管表里不算「变更」的列。这些列由系统自己维护，不是人做的修改。
+ * 每张受管表里**值得留证据的列**，逐表显式声明。
  *
- * 一次更新如果只碰了这些列，整条不产生记录，**且不读原行**——判断只看列名。
- * 混在业务列里一起提交时，只是这几列不进 changes，其余照常留痕。
+ * 这里是白名单而不是排除清单：排除是失败在敞开的一侧——新增一个机器维护的列，
+ * 它会静默地开始产生噪音，而且只有等表撑大了才会被发现。白名单反过来，
+ * 新增列默认不记，再由 §3.4 的覆盖性测试逼着做一次显式决定。
+ *
+ * 没有列进来的都是机器维护的：心跳时间戳、上游快照、状态机、探活结果、
+ * 派生的哈希与只读标志。它们不是人做的修改，记下来只有噪音没有证据价值。
  */
-export const NON_AUDITED_COLUMNS = [
-	// 心跳时间戳。
-	'last_seen_at', 'last_used_at', 'last_success_at', 'expires_at',
-	// 每次变更都会动的副产品，不是变更内容本身。
-	'updated_at', 'updated_duid',
-	// global_sites 的迁移状态机：ready → migrating → ready，由 app.mts 单独写，属机器行为。
-	'migration_status',
-	// 上游身份提供方的原始快照，每次登录刷新一次。base_oidc_users.profile 存的是完整
-	// ID Token claims，iat/exp/jti 每次都不同——不排除的话每登录一次就是一条记录。
-	'profile',
-] as const;
+export const AUDITED_COLUMNS: Record<string, readonly string[]> = {
+	// —— base ——
+	base_users: ['name', 'password', 'roles', 'status', 'owner_uid'],
+	base_tenants: ['key', 'name', 'status'],
+	base_branches: ['key', 'name', 'status'],
+	base_hosts: ['hostname', 'tenant_id', 'branch_id', 'status'],
+	base_configs: ['key', 'value'],
+	base_bootstrap: ['key', 'value'],
+	// profile 是上游 ID Token claims 的快照，每次登录刷新，iat/exp/jti 都会变。
+	base_oidc_users: ['issuer', 'subject', 'user_id'],
+
+	// —— global ——
+	// migration_status 是迁移状态机，is_system 是建库时定死的只读标志。
+	global_sites: ['key', 'name', 'base_site_key', 'dsn', 'dsn_password', 'database_binding', 'status', 'is_default', 'passport_sso_enabled'],
+	global_site_hosts: ['hostname', 'site_key', 'status'],
+	global_telegram_bots: ['name', 'token', 'username', 'secret_token', 'webhook_hostname', 'status'],
+	global_cloud_credentials: ['name', 'provider', 'account_id', 'access_key_id', 'access_key_secret', 'status'],
+	global_cloud_email_channels: ['cloud_credential_id', 'region', 'account_name', 'from_alias', 'reply_to_address', 'status'],
+	global_cloud_email_bindings: ['site_key', 'channel_id', 'template_id', 'purpose', 'is_default', 'status'],
+	global_cloud_email_templates: ['key', 'type', 'name', 'subject', 'body_text', 'body_html', 'status'],
+	// provider_template_id 与 content_hash 由发布流程算出来回填，不是人填的。
+	global_cloud_email_template_publications: ['template_id', 'cloud_credential_id', 'region', 'status'],
+	global_cloud_object_storage_buckets: ['cloud_credential_id', 'endpoint', 'region', 'bucket', 'path_style', 'public_base_url', 'extra_config', 'status'],
+	global_cloud_object_storage_bindings: ['site_key', 'bucket_id', 'key_prefix', 'status'],
+	global_cloud_object_storage_binding_purposes: ['binding_id', 'site_key', 'purpose', 'is_default'],
+
+	// —— passport ——
+	passport_users: ['user_id', 'name', 'nickname', 'status'],
+	passport_user_roles: ['user_id', 'role'],
+	passport_user_credentials: ['user_id', 'password'],
+	passport_emails: ['email', 'verified'],
+	passport_user_emails: ['user_id', 'email_id', 'is_primary'],
+	passport_external_providers: ['provider', 'display_name', 'client_id', 'client_secret', 'status', 'wechat_mode', 'wechat_redirect_domain'],
+	// profile 同 base_oidc_users：上游资料快照，每次登录刷新。
+	passport_external_identities: ['user_id', 'provider', 'subject'],
+	passport_oauth_accounts: ['user_id', 'provider', 'provider_user_id'],
+	passport_oidc_clients: ['client_id', 'name', 'secret_hash', 'redirect_uris', 'allowed_scopes', 'require_pkce', 'status', 'backchannel_logout_uri', 'strict_redirect_uri'],
+	// chat_id 与 nickname 由 webhook 按用户在 Telegram 侧的改名同步，不是本站操作。
+	passport_telegram_accounts: ['user_id', 'bot_id', 'telegram_user_id'],
+
+	// —— pve ——
+	pve_regions: ['code', 'name', 'display_name', 'status', 'sort_order'],
+	// last_checked_at 与 last_error 是探活结果。
+	pve_nodes: ['region_id', 'name', 'host', 'port', 'cluster_name', 'api_user', 'api_token_id', 'api_token_secret', 'status'],
+	pve_instance_flavors: ['code', 'name', 'cpu_cores', 'memory_gb', 'status', 'sort_order'],
+	// pve_status / pve_config / error_message 是从 PVE 拉回来的运行时状态。
+	pve_vms: ['kind', 'region_id', 'node_id', 'instance_flavor_id', 'name', 'status'],
+};
 
 /**
  * 值不对外显示的列：**照常记录、照常撤回，只是接口不返回它的前后值**。
@@ -87,12 +130,21 @@ export const HIDDEN_VALUE_COLUMNS = [
 ] as const;
 
 const auditedTables: ReadonlySet<string> = new Set(AUDITED_TABLES);
-const nonAuditedColumns: ReadonlySet<string> = new Set(NON_AUDITED_COLUMNS);
+const auditedColumns = new Map(Object.entries(AUDITED_COLUMNS).map(([table, columns]) => [table, new Set<string>(columns)]));
 const hiddenValueColumns: ReadonlySet<string> = new Set(HIDDEN_VALUE_COLUMNS);
 
 export const isAuditedTable = (table: string) => auditedTables.has(table);
-export const isNonAuditedColumn = (column: string) => nonAuditedColumns.has(column);
+export const isAuditedColumn = (table: string, column: string) => auditedColumns.get(table)?.has(column) ?? false;
 export const isHiddenValueColumn = (column: string) => hiddenValueColumns.has(column);
 
-/** 只碰排除列的更新在读原行之前就短路，心跳写入因此零成本。 */
-export const hasAuditableColumns = (columns: readonly string[]) => columns.some((column) => !nonAuditedColumns.has(column));
+/**
+ * deleted_at 由公共层维护，因此不出现在任何一张表的白名单里，但它是软删除与恢复的
+ * 唯一信号——受管表一律放行，否则「谁删了这一行」永远记不下来。
+ */
+const ALWAYS_AUDITED_COLUMN = 'deleted_at';
+
+/** 白名单之外的列在读原行之前就短路：机器写入因此零成本。 */
+export const auditableColumns = (table: string, columns: readonly string[]) => {
+	const allowed = auditedColumns.get(table);
+	return allowed ? columns.filter((column) => column === ALWAYS_AUDITED_COLUMN || allowed.has(column)) : [];
+};

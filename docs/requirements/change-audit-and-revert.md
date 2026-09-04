@@ -35,7 +35,17 @@
 
 只审计修改带来的简化：**钩子只有一个**，不需要整行快照（只记变化的列），表白名单也从必需降为可选——字段排除规则加上"逐列比对无变化就不记"已经把噪音挡住了。
 
-范围再由**两层**共同界定：表白名单决定哪些表参与审计，字段排除清单决定受管表里哪些列不算变更。
+范围由**三层**共同界定，三层都是白名单——审计要记的是人做的修改，凡是要靠"排除"才能挡住的，都会失败在敞开的一侧。
+
+1. **有主体**：`subjectRoles !== null`。没有主体就不是人做的。
+2. **表白名单**：哪些表的变更值得留证据。
+3. **列白名单**：那张表里哪些列是人填的。
+
+### 3.0.1 第一层：没有主体就不是人做的
+
+`subjectRoles === null` 表示系统上下文——迁移、种子、鉴权自身、清理任务、OIDC 回调、Telegram webhook 全在这一类。**这个信号已经在可见性判定里用了**（`visibilityConditions` 的第一行），一个概念两处用，不需要新造判据。
+
+它结构性地解决了一个在 SQL 层解不了的问题：`update('base_oidc_users', { profile })` 在登录回调里和管理员手工改，生成的语句一模一样，靠列名区分只是代价高的猜测。而适配器知道有没有人登录着。
 
 ### 3.1 表白名单
 
@@ -60,24 +70,23 @@ export const UNAUDITED_TABLES = [
 
 排除 `insert` 与物理 `delete` 之后（§3.0），表这一层不再是必需的——字段规则已经能挡住高频写入。保留它的理由变成**显式声明审计面**：哪些表的变更值得留证据是一个业务判断，写下来比让它由过滤规则的副作用决定要好。
 
-### 3.2 字段排除清单
+### 3.2 列白名单
 
-受管表自身也有系统维护的列。整张表排除是不对的——`global_sites` 的名称和 DSN 是人改的，`base_oidc_users` 的绑定关系也是；有问题的是表里的某几列。
+受管表里也有机器维护的列。**逐表显式声明哪些列值得留证据**，没列进来的一律不记。
 
 ```ts
-export const NON_AUDITED_COLUMNS = [
-  'last_seen_at', 'last_used_at', 'last_success_at', 'expires_at',
-  'updated_at', 'updated_duid',
-  'migration_status', 'profile',
-] as const;
+export const AUDITED_COLUMNS: Record<string, readonly string[]> = {
+  base_users: ['name', 'password', 'roles', 'status', 'owner_uid'],
+  global_sites: ['key', 'name', 'base_site_key', 'dsn', 'status', ...],
+  ...
+};
 ```
 
-- **心跳时间戳**：`sms_shortcut_tokens.last_used_at` 每收一条短信就更新一次，只按表过滤挡不住这类量。
-- **`updated_at`、`updated_duid`**：每次变更都会动的副产品，不是变更内容本身。
-- **`migration_status`**（`global_sites`）：迁移状态机 `ready → migrating → ready`，由 `app.mts` 单独写入，属机器行为。
-- **`profile`**（`base_oidc_users`、`passport_external_identities` 等）：上游身份提供方的原始快照，每次登录刷新一次。`base_oidc_users.profile` 存的是完整 ID Token claims，`iat`/`exp`/`jti` 每次都不同——不排除的话**每登录一次就是一条记录**，量随登录数增长。
+**为什么是白名单而不是排除清单。** 排除失败在敞开的一侧：新增一个机器维护的列，它会静默地开始产生噪音，只有等表撑大了才会被发现。这一点在实现过程中被证实了两次——`global_sites.migration_status` 和 `base_oidc_users.profile` 都是事后偶然发现的。改成白名单之后逐列过一遍 170 个业务列，又找出十来个同类：`pve_nodes.last_checked_at`/`last_error`（探活结果）、`pve_vms.pve_status`/`pve_config`/`error_message`（从 PVE 拉回的运行时状态）、`global_cloud_email_template_publications.content_hash`（发布流程算出来回填）、`global_sites.is_system`（建库时定死的只读标志）、`passport_telegram_accounts.chat_id`/`nickname`（webhook 按用户在 Telegram 侧改名同步）。**黑名单永远找不全这些，白名单强迫一个个看。**
 
-**一次更新如果只碰了这些列，整条不产生记录**；混在业务列里一起提交时，只是这几列不进 `changes`，其余照常留痕。
+`deleted_at` 是唯一的例外：它由公共层维护、不出现在任何一张表的白名单里，但它是软删除与恢复的唯一信号，受管表一律放行。
+
+**一次更新如果一个白名单列都没碰，整条不产生记录**；混在机器列里一起提交时，只有白名单列进 `changes`。
 
 ### 3.3 字段规则不需要读原行
 
@@ -92,6 +101,8 @@ export const NON_AUDITED_COLUMNS = [
 表白名单有一个危险的失败方向：**新增表时忘记登记，那张表就静默地没有审计**。审计里"漏"比"吵"严重得多——吵会被表体积立刻暴露，漏只有等到要查证时才发现，而那时已经来不及。
 
 因此加一条测试：断言**每一张表要么在 `AUDITED_TABLES`，要么在 `UNAUDITED_TABLES`**，两边都不在即失败。新增表时必须主动做一次决定，不能靠"忘了"落进默认。
+
+**列这一层同样如此**：受管表必须在 `AUDITED_COLUMNS` 里声明，白名单里出现 schema 中不存在的列也失败——列改名或删除时会立刻暴露，不会留下一条永远匹配不上的死规则。
 
 ## 4. 数据结构
 

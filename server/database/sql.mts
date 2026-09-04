@@ -1,6 +1,6 @@
 import type { DatabaseAdapter, DatabaseActorResolver, DatabaseActorUid, DatabaseRunResult } from './index.mjs';
 import { isSystemField, SYSTEM_FIELD_NAMES } from '@shared/system-fields.mjs';
-import { hasAuditableColumns, isAuditedTable, isNonAuditedColumn } from '@shared/audit-tables.mjs';
+import { auditableColumns, isAuditedTable } from '@shared/audit-tables.mjs';
 
 export type SqlDialect = 'sqlite' | 'mysql' | 'postgresql';
 export type SqlActorContext = DatabaseActorUid | DatabaseActorResolver;
@@ -56,14 +56,18 @@ export type SqlAuditChange = { before: SqlValue; after: SqlValue };
 export type SqlAuditChanges = Record<string, SqlAuditChange>;
 
 /**
- * 两层过滤（需求文档 §3.1、§3.2）都只看表名和写入的列名，**不需要读原行**：
- * 白名单外的表、只碰心跳列的更新，在这里就短路，代价为零。
+ * 三层过滤（需求文档 §3.1、§3.2）都只看主体、表名和写入的列名，**不需要读原行**：
+ * 系统上下文、白名单外的表、白名单外的列，在这里就短路，代价为零。
  * 确实可能有业务列变化时才附上元信息，由 runSql 去读原行逐列比对。
  */
-const auditMetadata = (table: string, values: Values, where: SqlCondition[], owner: SqlAuditOwnership): { audit?: SqlAuditMetadata } => {
+const auditMetadata = (table: string, values: Values, where: SqlCondition[], owner: SqlAuditOwnership, subjectRoles: readonly string[] | null): { audit?: SqlAuditMetadata } => {
+	// 没有主体就不是人做的：迁移、种子、鉴权自身、清理任务、协议回调都走这条路。
+	// 与可见性判定用的是同一个信号（见 visibilityConditions），一个概念两处用。
+	if (subjectRoles === null) return {};
 	if (!isAuditedTable(table)) return {};
-	const audited = definedEntries(values).filter(([column]) => !isNonAuditedColumn(column));
-	if (!audited.length || !hasAuditableColumns(audited.map(([column]) => column))) return {};
+	const allowed = new Set(auditableColumns(table, definedEntries(values).map(([column]) => column)));
+	const audited = definedEntries(values).filter(([column]) => allowed.has(column));
+	if (!audited.length) return {};
 	// where 是**完整**条件（含可见性判定），归属也在这里定死：调用方可能用显式上下文
 	// 覆盖适配器（系统写入就是这么做的），事后从适配器重新推导会得到另一套判定。
 	return { audit: { table, values: Object.fromEntries(audited), where, owner } };
@@ -239,7 +243,7 @@ export abstract class SqlBuilder {
 		return {
 			query: `UPDATE ${quoteIdentifier(table, this.dialect)} SET ${entries.map(([key], index) => `${quoteIdentifier(key, this.dialect)} = ${this.placeholder(index + 1)}`).join(', ')} WHERE ${conditions.map((condition) => renderCondition(condition, this.dialect, () => this.placeholder(++parameterIndex))).join(' AND ')}`,
 			values: [...entries.map(([, value]) => value), ...conditions.filter(bindsValue).map((condition) => condition.value as SqlValue)],
-			...auditMetadata(table, values, conditions, { tid: this.ownerTidFor(AUDIT_TABLE), bid: this.ownerBidFor(AUDIT_TABLE), uid: this.ownerUidFor(AUDIT_TABLE), actor: this.actorUidFor(AUDIT_TABLE) }),
+			...auditMetadata(table, values, conditions, { tid: this.ownerTidFor(AUDIT_TABLE), bid: this.ownerBidFor(AUDIT_TABLE), uid: this.ownerUidFor(AUDIT_TABLE), actor: this.actorUidFor(AUDIT_TABLE) }, this.subjectRoles),
 		};
 	}
 
@@ -333,7 +337,7 @@ export abstract class SqlBuilder {
 		return {
 			...inserted,
 			query: inserted.query + suffix,
-			...(auditWhere === undefined ? {} : auditMetadata(table, auditValues, auditWhere, { tid: this.ownerTidFor(AUDIT_TABLE), bid: this.ownerBidFor(AUDIT_TABLE), uid: this.ownerUidFor(AUDIT_TABLE), actor: this.actorUidFor(AUDIT_TABLE) })),
+			...(auditWhere === undefined ? {} : auditMetadata(table, auditValues, auditWhere, { tid: this.ownerTidFor(AUDIT_TABLE), bid: this.ownerBidFor(AUDIT_TABLE), uid: this.ownerUidFor(AUDIT_TABLE), actor: this.actorUidFor(AUDIT_TABLE) }, this.subjectRoles)),
 		};
 	}
 
