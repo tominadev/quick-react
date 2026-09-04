@@ -310,25 +310,25 @@ CREATE TABLE "base_audit_entries" (
 CREATE UNIQUE INDEX "base_tenants_key_deleted_at_key" ON "base_tenants"("key", "deleted_at");
 
 -- CreateIndex
-CREATE UNIQUE INDEX "base_branches_key_owner_tid_deleted_at_key" ON "base_branches"("key", "owner_tid", "deleted_at");
+CREATE UNIQUE INDEX "base_branches_owner_tid_key_deleted_at_key" ON "base_branches"("owner_tid", "key", "deleted_at");
 
 -- CreateIndex
 CREATE UNIQUE INDEX "base_hosts_hostname_deleted_at_key" ON "base_hosts"("hostname", "deleted_at");
 
 -- CreateIndex
-CREATE UNIQUE INDEX "base_users_name_owner_tid_deleted_at_key" ON "base_users"("name", "owner_tid", "deleted_at");
+CREATE UNIQUE INDEX "base_users_owner_tid_name_deleted_at_key" ON "base_users"("owner_tid", "name", "deleted_at");
 
 -- CreateIndex
-CREATE UNIQUE INDEX "base_users_nickname_owner_tid_deleted_at_key" ON "base_users"("nickname", "owner_tid", "deleted_at");
+CREATE UNIQUE INDEX "base_users_owner_tid_nickname_deleted_at_key" ON "base_users"("owner_tid", "nickname", "deleted_at");
 
 -- CreateIndex
 CREATE UNIQUE INDEX "base_sessions_token_hash_deleted_at_key" ON "base_sessions"("token_hash", "deleted_at");
 
 -- CreateIndex
-CREATE UNIQUE INDEX "base_configs_key_owner_tid_deleted_at_key" ON "base_configs"("key", "owner_tid", "deleted_at");
+CREATE UNIQUE INDEX "base_configs_owner_tid_key_deleted_at_key" ON "base_configs"("owner_tid", "key", "deleted_at");
 
 -- CreateIndex
-CREATE UNIQUE INDEX "base_bootstrap_key_owner_tid_deleted_at_key" ON "base_bootstrap"("key", "owner_tid", "deleted_at");
+CREATE UNIQUE INDEX "base_bootstrap_owner_tid_key_deleted_at_key" ON "base_bootstrap"("owner_tid", "key", "deleted_at");
 
 -- CreateIndex
 CREATE UNIQUE INDEX "base_oidc_login_requests_request_id_deleted_at_key" ON "base_oidc_login_requests"("request_id", "deleted_at");
@@ -337,7 +337,7 @@ CREATE UNIQUE INDEX "base_oidc_login_requests_request_id_deleted_at_key" ON "bas
 CREATE UNIQUE INDEX "base_oidc_login_requests_state_deleted_at_key" ON "base_oidc_login_requests"("state", "deleted_at");
 
 -- CreateIndex
-CREATE UNIQUE INDEX "base_oidc_users_issuer_subject_owner_tid_deleted_at_key" ON "base_oidc_users"("issuer", "subject", "owner_tid", "deleted_at");
+CREATE UNIQUE INDEX "base_oidc_users_owner_tid_issuer_subject_deleted_at_key" ON "base_oidc_users"("owner_tid", "issuer", "subject", "deleted_at");
 
 -- CreateIndex
 CREATE UNIQUE INDEX "base_oidc_sessions_session_id_deleted_at_key" ON "base_oidc_sessions"("session_id", "deleted_at");

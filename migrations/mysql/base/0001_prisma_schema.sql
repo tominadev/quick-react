@@ -35,7 +35,7 @@ CREATE TABLE `base_branches` (
     `name` VARCHAR(191) NOT NULL,
     `status` ENUM('enabled', 'disabled') NOT NULL DEFAULT 'enabled',
 
-    UNIQUE INDEX `base_branches_key_owner_tid_deleted_at_key`(`key`, `owner_tid`, `deleted_at`),
+    UNIQUE INDEX `base_branches_owner_tid_key_deleted_at_key`(`owner_tid`, `key`, `deleted_at`),
     PRIMARY KEY (`id`)
 ) DEFAULT CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci;
 
@@ -76,8 +76,8 @@ CREATE TABLE `base_users` (
     `roles` VARCHAR(191) NOT NULL DEFAULT '[]',
     `status` ENUM('enabled', 'disabled') NOT NULL DEFAULT 'enabled',
 
-    UNIQUE INDEX `base_users_name_owner_tid_deleted_at_key`(`name`, `owner_tid`, `deleted_at`),
-    UNIQUE INDEX `base_users_nickname_owner_tid_deleted_at_key`(`nickname`, `owner_tid`, `deleted_at`),
+    UNIQUE INDEX `base_users_owner_tid_name_deleted_at_key`(`owner_tid`, `name`, `deleted_at`),
+    UNIQUE INDEX `base_users_owner_tid_nickname_deleted_at_key`(`owner_tid`, `nickname`, `deleted_at`),
     PRIMARY KEY (`id`)
 ) DEFAULT CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci;
 
@@ -115,7 +115,7 @@ CREATE TABLE `base_configs` (
     `key` VARCHAR(191) NOT NULL,
     `value` VARCHAR(191) NOT NULL,
 
-    UNIQUE INDEX `base_configs_key_owner_tid_deleted_at_key`(`key`, `owner_tid`, `deleted_at`),
+    UNIQUE INDEX `base_configs_owner_tid_key_deleted_at_key`(`owner_tid`, `key`, `deleted_at`),
     PRIMARY KEY (`id`)
 ) DEFAULT CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci;
 
@@ -133,7 +133,7 @@ CREATE TABLE `base_bootstrap` (
     `key` VARCHAR(191) NOT NULL,
     `value` VARCHAR(191) NOT NULL,
 
-    UNIQUE INDEX `base_bootstrap_key_owner_tid_deleted_at_key`(`key`, `owner_tid`, `deleted_at`),
+    UNIQUE INDEX `base_bootstrap_owner_tid_key_deleted_at_key`(`owner_tid`, `key`, `deleted_at`),
     PRIMARY KEY (`id`)
 ) DEFAULT CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci;
 
@@ -177,7 +177,7 @@ CREATE TABLE `base_oidc_users` (
     `user_id` BIGINT NOT NULL,
     `profile` VARCHAR(191) NOT NULL DEFAULT '{}',
 
-    UNIQUE INDEX `base_oidc_users_issuer_subject_owner_tid_deleted_at_key`(`issuer`, `subject`, `owner_tid`, `deleted_at`),
+    UNIQUE INDEX `base_oidc_users_owner_tid_issuer_subject_deleted_at_key`(`owner_tid`, `issuer`, `subject`, `deleted_at`),
     PRIMARY KEY (`id`)
 ) DEFAULT CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci;
 
