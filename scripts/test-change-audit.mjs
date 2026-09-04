@@ -110,6 +110,16 @@ try {
 	const unchanged = await firstSql(database, sql({ database }).select({ table: 'base_users', columns: { name: 'name' }, where: [{ column: 'id', value: alice.id }] }));
 	assert.equal(unchanged.name, 'alice-3', '审计失败后业务数据不应被改动');
 
+	// 机器维护的列不算变更：profile 每次登录都被上游 claims 刷新一次（iat/exp/jti 都在里面）。
+	await runSql(database, sql({ database }).insert('base_oidc_users', { issuer: 'https://issuer.test', subject: 'sub-1', user_id: alice.id, profile: '{"iat":1}' }));
+	const beforeProfile = (await entries()).length;
+	await runSql(database, sql({ database }).update('base_oidc_users', { profile: '{"iat":2}' }, { subject: 'sub-1' }));
+	assert.equal((await entries()).length, beforeProfile, '只刷新 profile 不应留痕');
+	// 混在业务列里一起提交时，只排除自己，其余照常留痕。
+	await runSql(database, sql({ database }).update('base_oidc_users', { profile: '{"iat":3}', subject: 'sub-2' }, { subject: 'sub-1' }));
+	const mixedColumns = (await entries()).at(-1);
+	assert.deepEqual(changesOf(mixedColumns), { subject: { before: 'sub-1', after: 'sub-2' } }, 'profile 不进 changes，业务列照常记录');
+
 	// upsert 的 UPDATE 分支要留痕：站点设置、系统配置都是这么写进 base_configs 的。
 	const upsertConfig = (value) => sql({ database }).upsert('base_configs', ['key', 'owner_tid'], { key: 'site-settings', value }, ['value', 'updated_at']);
 	await runSql(database, upsertConfig('{"footer":"one"}'));

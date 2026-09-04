@@ -62,18 +62,22 @@ export const UNAUDITED_TABLES = [
 
 ### 3.2 字段排除清单
 
-受管表自身也有系统维护的心跳列。`sms_shortcut_tokens` 属于受管表，但它的 `last_used_at` 每收一条短信就更新一次；只按表过滤挡不住这类量。
+受管表自身也有系统维护的列。整张表排除是不对的——`global_sites` 的名称和 DSN 是人改的，`base_oidc_users` 的绑定关系也是；有问题的是表里的某几列。
 
 ```ts
 export const NON_AUDITED_COLUMNS = [
   'last_seen_at', 'last_used_at', 'last_success_at', 'expires_at',
   'updated_at', 'updated_duid',
+  'migration_status', 'profile',
 ] as const;
 ```
 
-前四个是心跳时间戳，后两个是每次变更都会动的副产品而非变更内容。
+- **心跳时间戳**：`sms_shortcut_tokens.last_used_at` 每收一条短信就更新一次，只按表过滤挡不住这类量。
+- **`updated_at`、`updated_duid`**：每次变更都会动的副产品，不是变更内容本身。
+- **`migration_status`**（`global_sites`）：迁移状态机 `ready → migrating → ready`，由 `app.mts` 单独写入，属机器行为。
+- **`profile`**（`base_oidc_users`、`passport_external_identities` 等）：上游身份提供方的原始快照，每次登录刷新一次。`base_oidc_users.profile` 存的是完整 ID Token claims，`iat`/`exp`/`jti` 每次都不同——不排除的话**每登录一次就是一条记录**，量随登录数增长。
 
-**一次更新如果只碰了这些列，整条不产生记录。**
+**一次更新如果只碰了这些列，整条不产生记录**；混在业务列里一起提交时，只是这几列不进 `changes`，其余照常留痕。
 
 ### 3.3 字段规则不需要读原行
 

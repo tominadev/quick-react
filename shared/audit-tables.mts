@@ -54,14 +54,21 @@ export const UNAUDITED_TABLES = [
 ] as const;
 
 /**
- * 受管表里不算「变更」的列。
+ * 受管表里不算「变更」的列。这些列由系统自己维护，不是人做的修改。
  *
- * 前几个是心跳时间戳，后两个是每次变更都会动的副产品而非变更内容。
  * 一次更新如果只碰了这些列，整条不产生记录，**且不读原行**——判断只看列名。
+ * 混在业务列里一起提交时，只是这几列不进 changes，其余照常留痕。
  */
 export const NON_AUDITED_COLUMNS = [
+	// 心跳时间戳。
 	'last_seen_at', 'last_used_at', 'last_success_at', 'expires_at',
+	// 每次变更都会动的副产品，不是变更内容本身。
 	'updated_at', 'updated_duid',
+	// global_sites 的迁移状态机：ready → migrating → ready，由 app.mts 单独写，属机器行为。
+	'migration_status',
+	// 上游身份提供方的原始快照，每次登录刷新一次。base_oidc_users.profile 存的是完整
+	// ID Token claims，iat/exp/jti 每次都不同——不排除的话每登录一次就是一条记录。
+	'profile',
 ] as const;
 
 /**

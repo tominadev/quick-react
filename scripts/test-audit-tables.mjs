@@ -57,6 +57,10 @@ assert.ok(!audited.has('base_audit_entries'));
 // 排除列必须挡住心跳写入：只碰这些列的更新不读原行、不产生记录（§3.3）。
 assert.equal(hasAuditableColumns(['expires_at', 'updated_at', 'updated_duid']), false);
 assert.equal(hasAuditableColumns(['last_seen_at']), false);
+// 机器维护的状态与上游快照：单独写入时不留痕，混在业务列里时只排除自己。
+assert.equal(hasAuditableColumns(['migration_status']), false);
+assert.equal(hasAuditableColumns(['profile']), false);
+assert.equal(hasAuditableColumns(['dsn', 'migration_status']), true);
 assert.equal(hasAuditableColumns(['name', 'updated_at']), true);
 assert.equal(hasAuditableColumns(['deleted_at']), true, '软删除与恢复必须留痕');
 assert.equal(hasAuditableColumns([]), false);
