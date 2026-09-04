@@ -43,7 +43,8 @@ try {
 		VALUES (93, 91, 'cn-hangzhou', 'center-template', 'test', 'ready', ?, ?)`).run(now, now);
 	database.prepare(`INSERT INTO global_cloud_email_bindings (site_key, channel_id, template_id, purpose, is_default, status, created_at, updated_at)
 		VALUES ('passport', 92, 93, 'email_verification', 1, 'enabled', ?, ?)`).run(now, now);
-	database.prepare("INSERT INTO passport_users (user_id, name, nickname, status, created_at, updated_at) VALUES (?, 'center2026', '账户中心用户', 'enabled', ?, ?)").run(userId, now, now);
+	database.prepare("INSERT INTO passport_users (user_id, name, status, created_at, updated_at) VALUES (?, 'center2026', 'enabled', ?, ?)").run(userId, now, now)
+	database.prepare("INSERT INTO passport_user_profiles (user_id, nickname, created_at, updated_at) VALUES (?, '账户中心用户', 0, 0)").run(userId);
 	database.prepare("INSERT INTO passport_emails (id, email, verified, created_at, updated_at) VALUES (?, 'center@example.com', 1, ?, ?)").run(primaryEmailId, now, now);
 	database.prepare('INSERT INTO passport_user_emails (user_id, email_id, is_primary, created_at, updated_at) VALUES (?, ?, 1, ?, ?)').run(userId, primaryEmailId, now, now);
 	database.prepare("INSERT INTO passport_devices (id, key, fingerprint, status, last_seen_at, created_at, updated_at) VALUES (41, ?, ?, 'active', ?, ?, ?)").run(deviceKey, fingerprintData, now, now, now);

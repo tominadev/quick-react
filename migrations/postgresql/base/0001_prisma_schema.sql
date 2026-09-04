@@ -334,6 +334,9 @@ CREATE TABLE "base_user_profiles" (
     "owner_uid" BIGINT,
     "user_id" BIGINT NOT NULL,
     "nickname" TEXT NOT NULL,
+    "qq" TEXT NOT NULL DEFAULT '',
+    "wechat" TEXT NOT NULL DEFAULT '',
+    "email" TEXT NOT NULL DEFAULT '',
 
     CONSTRAINT "base_user_profiles_pkey" PRIMARY KEY ("id")
 );

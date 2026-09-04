@@ -337,6 +337,9 @@ CREATE TABLE `base_user_profiles` (
     `owner_uid` BIGINT NULL,
     `user_id` BIGINT NOT NULL,
     `nickname` VARCHAR(191) NOT NULL,
+    `qq` VARCHAR(191) NOT NULL DEFAULT '',
+    `wechat` VARCHAR(191) NOT NULL DEFAULT '',
+    `email` VARCHAR(191) NOT NULL DEFAULT '',
 
     UNIQUE INDEX `base_user_profiles_user_id_deleted_at_key`(`user_id`, `deleted_at`),
     UNIQUE INDEX `base_user_profiles_owner_tid_nickname_deleted_at_key`(`owner_tid`, `nickname`, `deleted_at`),

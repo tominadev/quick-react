@@ -1,5 +1,6 @@
 import type { DatabaseAdapter } from '@server/database/index.mjs';
 import { allSql, firstSql, sql } from '@server/database/sql.mjs';
+import { passportNicknameOf } from '../profile.mjs';
 import { loadAccountUsername } from '@server/modules/passport/account.mjs';
 import { sha256 } from '@server/modules/passport/accounts/oidc.mjs';
 
@@ -16,8 +17,15 @@ export const authorizationRequest = (database: DatabaseAdapter, id: string) => f
 export const authorizationCode = (database: DatabaseAdapter, hash: string) => firstSql<AuthorizationCodeRecord>(database, sql({ database }).select({ table: 'passport_oidc_authorization_codes', columns: { client_id: 'client_id', user_id: { column: 'user_id', cast: 'text' }, redirect_uri: 'redirect_uri', scope: 'scope', nonce: 'nonce', code_challenge: 'code_challenge', code_challenge_method: 'code_challenge_method', expires_at: 'expires_at', consumed_at: 'consumed_at', session_id: 'session_id' }, where: [{ column: 'code_hash', value: hash }] }));
 
 export const accountUser = async (database: DatabaseAdapter, userId: string) => {
-	const user = await firstSql<{ sub: string; name: string; status: string }>(database, sql({ database }).select({ table: 'passport_users', columns: { sub: { column: 'user_id', cast: 'text' }, name: 'nickname', status: 'status' }, where: [{ column: 'user_id', value: userId }] }));
-	if (!user) return null;
+	// ID Token 的 name 用昵称；没设过资料就回落到用户名。
+	const row = await firstSql<{ sub: string; username: string; nickname: string | null; status: string }>(database, sql({ database }).select({
+		table: 'passport_users', alias: 'u',
+		columns: { sub: { column: 'u.user_id', cast: 'text' }, username: 'u.name', nickname: 'p.nickname', status: 'u.status' },
+		joins: [{ type: 'LEFT', table: 'passport_user_profiles', alias: 'p', left: 'p.user_id', right: 'u.user_id' }],
+		where: [{ column: 'u.user_id', value: userId }],
+	}));
+	if (!row) return null;
+	const user = { sub: row.sub, name: passportNicknameOf(row.username, row.nickname), status: row.status };
 	// 用户名是可选能力，只有设置过才作为 preferred_username 下发。
 	const username = await loadAccountUsername(database, userId);
 	const email = await firstSql<{ email: string }>(database, sql({ database }).select({ table: 'passport_user_emails', alias: 'ue', columns: { email: 'e.email' }, joins: [{ table: 'passport_emails', alias: 'e', left: 'e.id', right: 'ue.email_id' }], where: [{ column: 'ue.user_id', value: userId }, { column: 'ue.is_primary', value: 1 }, { column: 'e.verified', value: 1 }], limit: 1 }));

@@ -36,7 +36,8 @@ try {
 		(id, name, token, username, secret_token, webhook_hostname, status, created_at, updated_at)
 		VALUES (1, 'login-bot', '1:test-token', 'passport_login_bot', 'login-secret', 'passport.test', 'enabled', ?, ?)`).run(now, now);
 	const userId = '1000000000000000000';
-	database.prepare(`INSERT INTO passport_users (user_id, name, nickname, status, created_at, updated_at) VALUES (?, ?, 'PassportUser', 'enabled', ?, ?)`).run(userId, `passport_${userId}`, now, now);
+	database.prepare(`INSERT INTO passport_users (user_id, name, status, created_at, updated_at) VALUES (?, ?, 'enabled', ?, ?)`).run(userId, `passport_${userId}`, now, now)
+	database.prepare(`INSERT INTO passport_user_profiles (user_id, nickname, created_at, updated_at) VALUES (?, 'PassportUser', 0, 0)`).run(userId);
 	database.prepare(`INSERT INTO passport_emails (id, email, verified, created_at, updated_at) VALUES (101, 'user@example.com', 1, ?, ?)`).run(now, now);
 	database.prepare(`INSERT INTO passport_user_emails (user_id, email_id, is_primary, created_at, updated_at) VALUES (?, 101, 1, ?, ?)`).run(userId, now, now);
 	database.prepare(`INSERT INTO passport_telegram_accounts

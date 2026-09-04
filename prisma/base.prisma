@@ -363,6 +363,11 @@ model base_user_profiles {
   user_id      BigInt
   /// 显示名，租户内唯一，但允许的字符比用户名多（中文都行）。
   nickname     String
+  /// 联系方式，都不唯一也不校验格式：它们是给人看的，不是登录凭据。
+  qq           String @default("")
+  wechat       String @default("")
+  /// 联系邮箱。本站没有邮箱验证流程，这里存的是人自己填的联系方式，不能当身份用。
+  email        String @default("")
 
   /// 一个账号一份资料；user_id 本身全局唯一，不必再按租户划分。
   @@unique([user_id, deleted_at])

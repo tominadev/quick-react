@@ -14,7 +14,6 @@ CREATE TABLE `passport_users` (
     `owner_uid` BIGINT NULL,
     `user_id` BIGINT NOT NULL,
     `name` VARCHAR(191) NOT NULL,
-    `nickname` VARCHAR(191) NOT NULL,
     `status` ENUM('enabled', 'disabled') NOT NULL DEFAULT 'enabled',
 
     UNIQUE INDEX `passport_users_user_id_deleted_at_key`(`user_id`, `deleted_at`),
@@ -688,5 +687,25 @@ CREATE TABLE `passport_oidc_signing_keys` (
     `status` ENUM('active', 'retired') NOT NULL DEFAULT 'active',
 
     UNIQUE INDEX `passport_oidc_signing_keys_kid_deleted_at_key`(`kid`, `deleted_at`),
+    PRIMARY KEY (`id`)
+) DEFAULT CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci;
+
+-- CreateTable
+CREATE TABLE `passport_user_profiles` (
+    `id` BIGINT NOT NULL AUTO_INCREMENT,
+    `created_at` BIGINT NOT NULL,
+    `updated_at` BIGINT NOT NULL,
+    `deleted_at` BIGINT NOT NULL DEFAULT 0,
+    `created_duid` BIGINT NULL,
+    `updated_duid` BIGINT NULL,
+    `owner_tid` BIGINT NOT NULL DEFAULT 1,
+    `owner_bid` BIGINT NOT NULL DEFAULT 1,
+    `owner_uid` BIGINT NULL,
+    `user_id` BIGINT NOT NULL,
+    `nickname` VARCHAR(191) NOT NULL,
+    `qq` VARCHAR(191) NOT NULL DEFAULT '',
+    `wechat` VARCHAR(191) NOT NULL DEFAULT '',
+
+    UNIQUE INDEX `passport_user_profiles_user_id_deleted_at_key`(`user_id`, `deleted_at`),
     PRIMARY KEY (`id`)
 ) DEFAULT CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci;

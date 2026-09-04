@@ -77,7 +77,6 @@ model passport_users {
   @@unique([user_id, deleted_at])
   name        String
   @@unique([name, deleted_at])
-  nickname    String
   status      PassportAccountStatus @default(enabled)
 }
 
@@ -680,4 +679,33 @@ model passport_oidc_signing_keys {
   private_jwk  String
   public_jwk   String
   status       PassportSigningKeyStatus @default(active)
+}
+
+/// Accounts 账号的资料。
+///
+/// 与 base_user_profiles 同构：**没有行就是没设过昵称**，显示时回落到用户名。
+///
+/// 但**不加昵称唯一索引**——本站昵称是人自己挑的，而这里的昵称来自外部提供方：
+/// 没有昵称的微信用户一律叫「微信用户」，Google 用户一律叫「Google用户」
+/// （见 accounts/external.mts 的 normalizedNickname）。加唯一约束会让第二个这样的
+/// 用户直接登不进来。
+model passport_user_profiles {
+  id           BigInt @id @default(autoincrement())
+  created_at   BigInt
+  updated_at   BigInt
+  deleted_at   BigInt @default(0)
+  created_duid BigInt?
+  updated_duid BigInt?
+  owner_tid    BigInt @default(1)
+  owner_bid    BigInt @default(1)
+  owner_uid    BigInt?
+  user_id      BigInt
+  nickname     String
+  /// 联系方式，都不唯一也不校验格式：它们是给人看的，不是登录凭据。
+  qq           String @default("")
+  wechat       String @default("")
+
+  /// 邮箱不在这里：passport_emails + passport_user_emails 已经带了验证状态与主邮箱。
+  /// 头像也不在这里：对象路径由 user_id 推导，见 modules/passport/avatar.mts。
+  @@unique([user_id, deleted_at])
 }

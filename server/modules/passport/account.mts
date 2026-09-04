@@ -3,6 +3,7 @@ import type { AppEnv } from '@server/modules/base/types.mjs';
 import type { DatabaseAdapter, DatabaseBatchStatement } from '@server/database/index.mjs';
 import { allSql, firstSql, runSql, runSystemSql, sql } from '@server/database/sql.mjs';
 import { PendingApprovalError, runOperationSql } from '@server/modules/base/operation.mjs';
+import { passportProfileStatement } from './profile.mjs';
 import { hashPassword, verifyPassword } from '@server/modules/base/auth/index.mjs';
 import { normalizePassportEmail } from './identity.mjs';
 import { getPassportSnowflakeGenerator } from './snowflake.mjs';
@@ -66,7 +67,7 @@ export const hasAccountPassword = async (database: DatabaseAdapter, userId: stri
 
 export const updateAccountNickname = async (c: Context<AppEnv>, database: DatabaseAdapter, userId: string, rawNickname: string) => {
 	const nickname = normalizeAccountNickname(rawNickname);
-	await runOperationSql(c, database, sql({ database }).update('passport_users', { nickname }, { user_id: userId }));
+	await runOperationSql(c, database, passportProfileStatement(database, userId, { nickname }));
 	return nickname;
 };
 
@@ -267,7 +268,7 @@ export const unbindAccountIdentity = async (c: Context<AppEnv>, database: Databa
 /** 账户中心概览需要的聚合信息。 */
 export const loadAccountProfile = async (database: DatabaseAdapter, userId: string) => {
 	const [user, username, emails, hasPassword, identities, telegramAccounts] = await Promise.all([
-		firstSql<{ nickname: string; created_at: number }>(database, sql({ database }).select({ table: 'passport_users', columns: { nickname: 'nickname', created_at: 'created_at' }, where: [{ column: 'user_id', value: userId }] })),
+		firstSql<{ nickname: string | null; created_at: number }>(database, sql({ database }).select({ table: 'passport_users', alias: 'u', columns: { nickname: 'p.nickname', created_at: 'u.created_at' }, joins: [{ type: 'LEFT', table: 'passport_user_profiles', alias: 'p', left: 'p.user_id', right: 'u.user_id' }], where: [{ column: 'u.user_id', value: userId }] })),
 		loadAccountUsername(database, userId),
 		listAccountEmails(database, userId),
 		hasAccountPassword(database, userId),

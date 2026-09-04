@@ -1,6 +1,7 @@
 import { createStoredPassword, hashPassword, verifyPassword, verifyStoredPassword } from '@server/modules/base/auth/index.mjs';
 import type { DatabaseAdapter, DatabaseBatchStatement } from '@server/database/index.mjs';
 import { allSql, firstSql, runSql, sql } from '@server/database/sql.mjs';
+import { passportProfileInsert } from '@server/modules/passport/profile.mjs';
 import { getPassportSnowflakeGenerator } from './snowflake.mjs';
 import { passportPlaceholderName } from './account.mjs';
 import { assertPassword } from '@server/modules/base/auth/password-policy.mjs';
@@ -142,7 +143,8 @@ export const verifyTelegramEmailOtp = async (
 		const accountId = (await generator.next()).toString();
 		resultStatus = 'created';
 		statements.push(
-			builder.insert('passport_users', { user_id: userId, name: passportPlaceholderName(userId), nickname, status: 'enabled' }),
+			builder.insert('passport_users', { user_id: userId, name: passportPlaceholderName(userId), status: 'enabled' }),
+			...passportProfileInsert(database, userId, nickname),
 			builder.insert('passport_telegram_accounts', { id: accountId, user_id: userId, bot_id: botId, telegram_user_id: telegramUserId, chat_id: chatId, nickname }),
 		);
 	}

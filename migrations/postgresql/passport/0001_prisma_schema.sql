@@ -47,7 +47,6 @@ CREATE TABLE "passport_users" (
     "owner_uid" BIGINT,
     "user_id" BIGINT NOT NULL,
     "name" TEXT NOT NULL,
-    "nickname" TEXT NOT NULL,
     "status" "PassportAccountStatus" NOT NULL DEFAULT 'enabled',
 
     CONSTRAINT "passport_users_pkey" PRIMARY KEY ("id")
@@ -674,6 +673,25 @@ CREATE TABLE "passport_oidc_signing_keys" (
     CONSTRAINT "passport_oidc_signing_keys_pkey" PRIMARY KEY ("id")
 );
 
+-- CreateTable
+CREATE TABLE "passport_user_profiles" (
+    "id" BIGSERIAL NOT NULL,
+    "created_at" BIGINT NOT NULL,
+    "updated_at" BIGINT NOT NULL,
+    "deleted_at" BIGINT NOT NULL DEFAULT 0,
+    "created_duid" BIGINT,
+    "updated_duid" BIGINT,
+    "owner_tid" BIGINT NOT NULL DEFAULT 1,
+    "owner_bid" BIGINT NOT NULL DEFAULT 1,
+    "owner_uid" BIGINT,
+    "user_id" BIGINT NOT NULL,
+    "nickname" TEXT NOT NULL,
+    "qq" TEXT NOT NULL DEFAULT '',
+    "wechat" TEXT NOT NULL DEFAULT '',
+
+    CONSTRAINT "passport_user_profiles_pkey" PRIMARY KEY ("id")
+);
+
 -- CreateIndex
 CREATE UNIQUE INDEX "passport_users_user_id_deleted_at_key" ON "passport_users"("user_id", "deleted_at");
 
@@ -823,3 +841,6 @@ CREATE UNIQUE INDEX "passport_oidc_access_tokens_authorization_code_hash_deleted
 
 -- CreateIndex
 CREATE UNIQUE INDEX "passport_oidc_signing_keys_kid_deleted_at_key" ON "passport_oidc_signing_keys"("kid", "deleted_at");
+
+-- CreateIndex
+CREATE UNIQUE INDEX "passport_user_profiles_user_id_deleted_at_key" ON "passport_user_profiles"("user_id", "deleted_at");

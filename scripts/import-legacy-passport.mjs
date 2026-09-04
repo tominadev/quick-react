@@ -256,7 +256,11 @@ export const importLegacyPassportData = async ({ parsed, databaseFile, globalDat
 		const imported = { users: 0, telegramAccounts: 0, emails: 0, userEmails: 0, otps: 0, menus: 0 };
 		try {
 			const result = await database.transaction(async (target) => {
-				for (const user of parsed.users) imported.users += changes(await runSql(target, sql({ database: target }).ignoreInsertExisting('passport_users', ['user_id'], { user_id: BigInt(user.userId), name: `passport_${user.userId}`, nickname: user.nickname, status: 'enabled', created_at: user.createdAt, updated_at: user.updatedAt })));
+				for (const user of parsed.users) {
+					imported.users += changes(await runSql(target, sql({ database: target }).ignoreInsertExisting('passport_users', ['user_id'], { user_id: BigInt(user.userId), name: `passport_${user.userId}`, status: 'enabled', created_at: user.createdAt, updated_at: user.updatedAt })));
+					// 昵称拆到了资料表：没有资料行就回落到用户名，因此空昵称不必写。
+					if (user.nickname) await runSql(target, sql({ database: target }).ignoreInsertExisting('passport_user_profiles', ['user_id'], { user_id: BigInt(user.userId), nickname: user.nickname, created_at: user.createdAt, updated_at: user.updatedAt }));
+				}
 				for (const account of parsed.telegramAccounts) {
 					const existing = await firstSql(target, sql({ database: target }).select({ table: 'passport_telegram_accounts', columns: { user_id: { column: 'user_id', cast: 'text' } }, where: [{ column: 'bot_id', value: BigInt(botId) }, { column: 'telegram_user_id', value: BigInt(account.telegramUserId) }] }));
 					if (existing && existing.user_id !== account.userId) fail(`Telegram identity ${account.telegramUserId} is already owned by another user`);

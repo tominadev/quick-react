@@ -1,5 +1,6 @@
 import type { DatabaseAdapter, DatabaseBatchStatement } from '@server/database/index.mjs';
 import { allSql, firstSql, runSql, sql } from '@server/database/sql.mjs';
+import { passportProfileInsert } from '@server/modules/passport/profile.mjs';
 import { randomToken, sha256, sha256Base64Url } from '@server/modules/passport/accounts/oidc.mjs';
 import { getPassportSnowflakeGenerator } from '@server/modules/passport/snowflake.mjs';
 import { passportPlaceholderName } from '@server/modules/passport/account.mjs';
@@ -157,7 +158,8 @@ export const resolveExternalUser = async (database: DatabaseAdapter, workerId: u
 	if (!database.batch) throw new Error('Accounts 数据库不支持原子创建外部身份');
 	const generator = getPassportSnowflakeGenerator(database, workerId), userId = (await generator.next()).toString();
 	const statements: DatabaseBatchStatement[] = [
-		sql({ database }).insert('passport_users', { user_id: userId, name: passportPlaceholderName(userId), nickname: normalizedNickname(profile.nickname, provider.id), status: 'enabled' }),
+		sql({ database }).insert('passport_users', { user_id: userId, name: passportPlaceholderName(userId), status: 'enabled' }),
+		...passportProfileInsert(database, userId, normalizedNickname(profile.nickname, provider.id)),
 		sql({ database }).insert('passport_external_identities', { user_id: userId, provider: provider.id, subject: profile.subject, profile: serializedProfile }),
 	];
 	const emailId = (await generator.next()).toString();
@@ -274,7 +276,8 @@ export const verifyExternalEmailOtp = async (database: DatabaseAdapter, workerId
 	if (!database.batch) throw new Error('Accounts 数据库不支持原子创建外部身份');
 	const generator = getPassportSnowflakeGenerator(database, workerId), userId = (await generator.next()).toString(), emailId = (await generator.next()).toString();
 	await database.batch([
-		sql({ database }).insert('passport_users', { user_id: userId, name: passportPlaceholderName(userId), nickname: pending.nickname, status: 'enabled' }),
+		sql({ database }).insert('passport_users', { user_id: userId, name: passportPlaceholderName(userId), status: 'enabled' }),
+		...passportProfileInsert(database, userId, pending.nickname),
 		sql({ database }).insert('passport_external_identities', { user_id: userId, provider: pending.provider, subject: pending.subject, profile: pending.profile }),
 		sql({ database }).insert('passport_emails', { id: emailId, email: otp.email, verified: 1 }),
 		sql({ database }).insert('passport_user_emails', { user_id: userId, email_id: emailId, is_primary: 1 }),

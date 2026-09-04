@@ -17,7 +17,7 @@ export const portableTableGroups = {
 		'base_audit_entries',
 	],
 	passport: [
-		'passport_users', 'passport_user_credentials', 'passport_sessions', 'passport_telegram_accounts',
+		'passport_users', 'passport_user_credentials', 'passport_user_profiles', 'passport_sessions', 'passport_telegram_accounts',
 		'passport_devices', 'passport_device_users',
 		'passport_oauth_accounts', 'passport_emails', 'passport_user_emails', 'passport_email_otp',
 		'passport_group_prompts', 'passport_snowflake_state', 'passport_telegram_menus',

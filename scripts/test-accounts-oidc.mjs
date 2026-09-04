@@ -27,7 +27,8 @@ try {
 	database.prepare(`INSERT INTO global_sites (key, name, base_site_key, dsn, database_binding, status, migration_status, is_default, is_system)
 		VALUES ('site1', 'Business Site', 'base', '', '', 'enabled', 'ready', 0, 0)`).run();
 	database.prepare(`INSERT INTO global_site_hosts (hostname, site_key, status, created_at) VALUES ('site1.test', 'site1', 'enabled', ?)`).run(now);
-	database.prepare(`INSERT INTO passport_users (user_id, name, nickname, status, created_at, updated_at) VALUES (?, ?, 'AccountsUser', 'enabled', ?, ?)`).run(userId, `passport_${userId}`, now, now);
+	database.prepare(`INSERT INTO passport_users (user_id, name, status, created_at, updated_at) VALUES (?, ?, 'enabled', ?, ?)`).run(userId, `passport_${userId}`, now, now)
+	database.prepare(`INSERT INTO passport_user_profiles (user_id, nickname, created_at, updated_at) VALUES (?, 'AccountsUser', 0, 0)`).run(userId);
 	database.prepare(`INSERT INTO passport_devices (user_agent, platform, ip_address, key, fingerprint, status, last_seen_at, created_at, updated_at) VALUES ('Test Browser', 'test', '127.0.0.1', ?, ?, 'active', ?, ?, ?)`).run(deviceKey, fingerprintData, now, now, now);
 	const deviceId = String(database.prepare('SELECT id FROM passport_devices WHERE key = ?').get(deviceKey).id);
 	database.prepare(`INSERT INTO passport_device_users (device_id, user_id, status, last_seen_at, created_at, updated_at) VALUES (?, ?, 'active', ?, ?, ?)`).run(deviceId, userId, now, now, now);

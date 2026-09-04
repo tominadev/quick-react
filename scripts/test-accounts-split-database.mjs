@@ -55,7 +55,8 @@ try {
 	globalDatabase.close();
 
 	const passportDatabase = new DatabaseSync(passportFile);
-	passportDatabase.prepare("INSERT INTO passport_users (user_id, name, nickname, status, created_at, updated_at) VALUES (?, ?, '分库用户', 'enabled', ?, ?)").run(userId, `passport_${userId}`, now, now);
+	passportDatabase.prepare("INSERT INTO passport_users (user_id, name, status, created_at, updated_at) VALUES (?, ?, 'enabled', ?, ?)").run(userId, `passport_${userId}`, now, now)
+	passportDatabase.prepare("INSERT INTO passport_user_profiles (user_id, nickname, created_at, updated_at) VALUES (?, '分库用户', 0, 0)").run(userId);
 	passportDatabase.prepare("INSERT INTO passport_emails (id, email, verified, created_at, updated_at) VALUES (?, 'split@example.com', 1, ?, ?)").run(emailId, now, now);
 	passportDatabase.prepare('INSERT INTO passport_user_emails (user_id, email_id, is_primary, created_at, updated_at) VALUES (?, ?, 1, ?, ?)').run(userId, emailId, now, now);
 	passportDatabase.prepare("INSERT INTO passport_devices (key,fingerprint,status,last_seen_at,created_at,updated_at) VALUES (?,?,'active',?,?,?)").run(deviceKey, fingerprintData, now, now, now);
