@@ -16,6 +16,19 @@
 export const SELF_EXCLUDED_TABLES = ['base_audit_entries'] as const;
 
 /**
+ * 只读表：任何通用写入通道都不许碰。
+ *
+ * 审计表的自身排除本来只是**防递归**，但它顺带成了一条绕过通道——没有审计元信息，
+ * runSql 的看门人不拦，审批也不管，于是「数据管理」这类直接操作原始表的页面
+ * 可以随手改写审计记录。**审计能被随手改，就等于没有审计**（§7.3）。
+ *
+ * 它只能由审计模块自己写：记录变更、以及在状态迁移时改 status 与那几组操作者字段。
+ */
+export const WRITE_PROTECTED_TABLES = ['base_audit_entries'] as const;
+const writeProtectedTables: ReadonlySet<string> = new Set(WRITE_PROTECTED_TABLES);
+export const isWriteProtectedTable = (table: string) => writeProtectedTables.has(table);
+
+/**
  * 值不对外显示的列：**照常记录、照常撤回，只是接口不返回它的前后值**。
  *
  * 撤回是服务端把记录里的值直接写回去，不经过接口，因此不需要任何人看见它。

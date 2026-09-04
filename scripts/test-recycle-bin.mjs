@@ -56,6 +56,15 @@ try {
 	assert.equal((await request(`${recyclePath}&action=purge`, { method: 'POST', cookie, body: [fixture.id] })).status, 200);
 	const purged = await (await request(recyclePath, { cookie })).json();
 	assert.equal(purged.table.dataSource.some((row) => row.id === fixture.id), false, '彻底删除后回收站不应保留记录');
+	// 审计表只能由审计模块自己写：「数据管理」和回收站都是绕过业务语义的通用写入通道，
+	// 放行等于让平台管理员随手改写自己的操作记录（§7.3）。
+	const auditBase = '/api/panel/admin/base/data/rows.php?table=base_audit_entries';
+	assert.equal((await request(`${auditBase.replace('?', '/1?')}`, { method: 'PUT', cookie, body: { reason: '篡改' } })).status, 403, '审计表不该允许编辑');
+	assert.equal((await request(auditBase, { method: 'POST', cookie, body: { table_name: 'x', row_id: 1, action: 'update' } })).status, 403, '审计表不该允许新增');
+	assert.equal((await request(auditBase, { method: 'DELETE', cookie, body: [1] })).status, 403, '审计表不该允许删除');
+	assert.equal((await request(`${auditBase}&include=deleted,schema,data&action=purge`, { method: 'POST', cookie, body: [1] })).status, 403, '回收站也不该允许彻底删除审计记录');
+	assert.equal((await request(`${auditBase}&include=schema,data`, { cookie })).status, 200, '只读仍然允许');
+
 	console.log('recycle-bin test passed');
 } finally {
 	await rm(temporaryDirectory, { recursive: true, force: true });

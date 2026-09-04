@@ -6,6 +6,7 @@ import { firstSql, runSql, sql, type SqlCondition } from '@server/database/sql.m
 import { runOperationSql } from './operation.mjs';
 import { apiMessage } from './api-response.mjs';
 import { deletedScopeFromQuery } from './query-options.mjs';
+import { isWriteProtectedTable } from '@shared/audit-tables.mjs';
 
 export type TableCrudDatabase = 'database' | 'passportDatabase' | 'globalDatabase';
 export type TableCrudValue = string | ((c: Context<AppEnv>) => string | undefined | Promise<string | undefined>);
@@ -37,6 +38,8 @@ export const handleTableCrudAction = async (c: Context<AppEnv>, definition: Tabl
 	const table = await resolveValue(c, definition.table);
 	const rowKey = await resolveValue(c, definition.rowKey);
 	if (!table || !rowKey) return apiMessage(c, 400, '回收站目标数据表或主键未配置');
+	// 回收站的「恢复」与「彻底删除」同样是通用写入通道，审计表一并挡住。
+	if (isWriteProtectedTable(table)) return apiMessage(c, 403, '审计记录不可修改、不可删除，只能随保留期过期');
 	const tables = await listTables(database);
 	if (!tables.some((item) => item.name === table)) return apiMessage(c, 404, '数据表不存在');
 	const columns = await listColumns(database, table);
