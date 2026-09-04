@@ -27,6 +27,7 @@ model base_tenants {
   created_duid BigInt?
   updated_duid BigInt?
   owner_tid    BigInt @default(1)
+  owner_bid    BigInt @default(1)
   owner_uid    BigInt?
   key          String
   @@unique([key, deleted_at])
@@ -34,8 +35,9 @@ model base_tenants {
   status       BaseTenantStatus @default(enabled)
 }
 
-/// 主机名到租户的映射。控制面只负责主机名到站点，租户解析在站点库内完成。
-model base_tenant_hosts {
+/// 分站：租户下面的一层，绑定自己的域名，管理自己的用户与代理。
+/// 分站 key 在租户内唯一：不同租户可以各有同名分站。
+model base_branches {
   id           BigInt @id @default(autoincrement())
   created_at   BigInt
   updated_at   BigInt
@@ -43,10 +45,31 @@ model base_tenant_hosts {
   created_duid BigInt?
   updated_duid BigInt?
   owner_tid    BigInt @default(1)
+  owner_bid    BigInt @default(1)
+  owner_uid    BigInt?
+  key          String
+  @@unique([key, owner_tid, deleted_at])
+  name         String
+  status       BaseTenantStatus @default(enabled)
+}
+
+/// 主机名到租户与分站的映射。控制面只负责主机名到站点，租户与分站的解析在站点库内完成。
+/// 每个域名都必须同时绑定租户和分站：没有"不属于任何分站"的状态，租户自己的域名绑到它的主分站，
+/// 这样用量与计费的聚合不需要处理 NULL 桶。
+model base_hosts {
+  id           BigInt @id @default(autoincrement())
+  created_at   BigInt
+  updated_at   BigInt
+  deleted_at   BigInt @default(0)
+  created_duid BigInt?
+  updated_duid BigInt?
+  owner_tid    BigInt @default(1)
+  owner_bid    BigInt @default(1)
   owner_uid    BigInt?
   hostname     String
   @@unique([hostname, deleted_at])
   tenant_id    BigInt
+  branch_id    BigInt
   status       BaseTenantStatus @default(enabled)
 }
 
@@ -58,6 +81,7 @@ model base_users {
   created_duid BigInt?
   updated_duid BigInt?
   owner_tid     BigInt @default(1)
+  owner_bid     BigInt @default(1)
   owner_uid     BigInt?
   name          String
   // 用户名在租户内唯一：不同租户可以各有同名账号。
@@ -75,6 +99,7 @@ model base_sessions {
   created_duid BigInt?
   updated_duid BigInt?
   owner_tid     BigInt @default(1)
+  owner_bid     BigInt @default(1)
   owner_uid     BigInt?
   token_hash String
   @@unique([token_hash, deleted_at])
@@ -91,6 +116,7 @@ model base_configs {
   created_duid BigInt?
   updated_duid BigInt?
   owner_tid     BigInt @default(1)
+  owner_bid     BigInt @default(1)
   owner_uid     BigInt?
   key        String
   // 配置按租户独立：同一个 key 每个租户各存一份，owner_tid 为 NULL 的行是平台默认值。
@@ -106,6 +132,7 @@ model base_bootstrap {
   created_duid BigInt?
   updated_duid BigInt?
   owner_tid     BigInt @default(1)
+  owner_bid     BigInt @default(1)
   owner_uid     BigInt?
   key          String
   // 引导状态同样按租户独立：每个租户各自创建自己的初始管理员。
@@ -121,6 +148,7 @@ model base_oidc_login_requests {
   created_duid  BigInt?
   updated_duid  BigInt?
   owner_tid     BigInt @default(1)
+  owner_bid     BigInt @default(1)
   owner_uid     BigInt?
   request_id    String
   @@unique([request_id, deleted_at])
@@ -141,6 +169,7 @@ model base_oidc_users {
   created_duid  BigInt?
   updated_duid  BigInt?
   owner_tid     BigInt @default(1)
+  owner_bid     BigInt @default(1)
   owner_uid     BigInt?
   issuer        String
   subject       String
@@ -159,6 +188,7 @@ model base_oidc_sessions {
   created_duid  BigInt?
   updated_duid  BigInt?
   owner_tid     BigInt @default(1)
+  owner_bid     BigInt @default(1)
   owner_uid     BigInt?
   issuer        String
   sid           String
@@ -176,6 +206,7 @@ model base_devices {
   created_duid BigInt?
   updated_duid BigInt?
   owner_tid     BigInt @default(1)
+  owner_bid     BigInt @default(1)
   owner_uid     BigInt?
   user_id      BigInt
   key          String
@@ -199,6 +230,7 @@ model base_device_users {
   created_duid BigInt?
   updated_duid BigInt?
   owner_tid     BigInt @default(1)
+  owner_bid     BigInt @default(1)
   owner_uid     BigInt?
   device_id    BigInt
   user_id      BigInt
@@ -217,6 +249,7 @@ model base_device_snapshots {
   created_duid  BigInt?
   updated_duid  BigInt?
   owner_tid     BigInt @default(1)
+  owner_bid     BigInt @default(1)
   owner_uid     BigInt?
   device_id     BigInt
   fingerprint   Json    @default("{}")

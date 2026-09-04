@@ -38,6 +38,10 @@ export type DatabaseAdapter = {
 	ownerTid?: DatabaseActorUid;
 	/** Optional table-aware owner tenant, needed when Base and Passport share a DB. */
 	ownerTidForTable?: DatabaseActorResolver;
+	/** Request-scoped branch that owns a newly inserted row. */
+	ownerBid?: DatabaseActorUid;
+	/** Optional table-aware owner branch, needed when Base and Passport share a DB. */
+	ownerBidForTable?: DatabaseActorResolver;
 	prepare: (query: string) => DatabaseStatement;
 	batch?: (statements: DatabaseBatchStatement[]) => Promise<DatabaseRunResult[]>;
 	exec?: (query: string) => Promise<void>;
@@ -61,6 +65,8 @@ export type DatabaseActors = {
 	passportUserId?: DatabaseActorUid;
 	baseTenantId?: DatabaseActorUid;
 	passportTenantId?: DatabaseActorUid;
+	baseBranchId?: DatabaseActorUid;
+	passportBranchId?: DatabaseActorUid;
 };
 
 /**
@@ -75,9 +81,12 @@ export const withDatabaseActors = (database: DatabaseAdapter, actors: DatabaseAc
 	const hasPassportUser = Object.prototype.hasOwnProperty.call(actors, 'passportUserId');
 	const hasBaseTenant = Object.prototype.hasOwnProperty.call(actors, 'baseTenantId');
 	const hasPassportTenant = Object.prototype.hasOwnProperty.call(actors, 'passportTenantId');
+	const hasBaseBranch = Object.prototype.hasOwnProperty.call(actors, 'baseBranchId');
+	const hasPassportBranch = Object.prototype.hasOwnProperty.call(actors, 'passportBranchId');
 	const inherited = (table: string) => database.actorUidForTable?.(table) ?? database.actorUid ?? null;
 	const inheritedOwner = (table: string) => database.ownerUidForTable?.(table) ?? database.ownerUid ?? null;
 	const inheritedTenant = (table: string) => database.ownerTidForTable?.(table) ?? database.ownerTid ?? null;
+	const inheritedBranch = (table: string) => database.ownerBidForTable?.(table) ?? database.ownerBid ?? null;
 	const bound: DatabaseAdapter = {
 		...database,
 		actorUidForTable: (table) => {
@@ -94,6 +103,11 @@ export const withDatabaseActors = (database: DatabaseAdapter, actors: DatabaseAc
 			if (table.startsWith('passport_') && hasPassportTenant) return actors.passportTenantId ?? null;
 			if (!table.startsWith('passport_') && hasBaseTenant) return actors.baseTenantId ?? null;
 			return inheritedTenant(table);
+		},
+		ownerBidForTable: (table) => {
+			if (table.startsWith('passport_') && hasPassportBranch) return actors.passportBranchId ?? null;
+			if (!table.startsWith('passport_') && hasBaseBranch) return actors.baseBranchId ?? null;
+			return inheritedBranch(table);
 		},
 	};
 	if (database.transaction) {

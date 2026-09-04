@@ -13,7 +13,7 @@ const ensureMigrationTable = async (database: DatabaseAdapter) => {
 			: 'INTEGER NOT NULL PRIMARY KEY AUTOINCREMENT';
 	// Migration bookkeeping is infrastructure metadata rather than a site model,
 	// but it follows the same fixed audit-column contract as every data table.
-	await database.exec?.(`CREATE TABLE IF NOT EXISTS global_schema_migrations (id ${idDefinition}, created_at ${numberType} NOT NULL, updated_at ${numberType} NOT NULL, deleted_at ${numberType} NOT NULL DEFAULT 0, created_duid ${numberType} NULL, updated_duid ${numberType} NULL, owner_tid ${numberType} NOT NULL DEFAULT 1, owner_uid ${numberType} NULL, migration_key ${keyType} NOT NULL, applied_at ${numberType} NOT NULL, UNIQUE (migration_key, deleted_at))`);
+	await database.exec?.(`CREATE TABLE IF NOT EXISTS global_schema_migrations (id ${idDefinition}, created_at ${numberType} NOT NULL, updated_at ${numberType} NOT NULL, deleted_at ${numberType} NOT NULL DEFAULT 0, created_duid ${numberType} NULL, updated_duid ${numberType} NULL, owner_tid ${numberType} NOT NULL DEFAULT 1, owner_bid ${numberType} NOT NULL DEFAULT 1, owner_uid ${numberType} NULL, migration_key ${keyType} NOT NULL, applied_at ${numberType} NOT NULL, UNIQUE (migration_key, deleted_at))`);
 };
 
 export const migrateDatabase = async (database: DatabaseAdapter, migrationsRoot: string, migrationGroups: string[]) => {
@@ -45,8 +45,10 @@ export const migrateDatabase = async (database: DatabaseAdapter, migrationsRoot:
 const seedBaseDatabase = async (database: DatabaseAdapter) => {
 	// 平台默认引导状态（owner_tid 为 NULL）：各租户没有自己的行时回落到它。
 	await runSql(database, sql({ database }).ignoreInsert('base_bootstrap', ['key', 'owner_tid'], { key: 'initial_admin', value: 'open' }));
-	// 默认租户：单租户部署开箱即用，主机名解析不到租户时一律落到它。
+	// 默认租户与它的主分站：主机名解析不到时一律落到这一对，单租户单分站部署因此开箱即用。
+	// 每个域名都必须绑定分站，所以每个租户都要有主分站——新建租户时同样要建一个。
 	await runSql(database, sql({ database }).ignoreInsert('base_tenants', ['key'], { key: 'default', name: '默认租户', status: 'enabled' }));
+	await runSql(database, sql({ database }).ignoreInsert('base_branches', ['key', 'owner_tid'], { key: 'main', name: '主分站', status: 'enabled' }));
 };
 
 export const migrateDefaultDatabase = async (database: DatabaseAdapter, migrationsRoot: string) => {

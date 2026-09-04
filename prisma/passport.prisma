@@ -71,6 +71,7 @@ model passport_users {
   created_duid BigInt?
   updated_duid BigInt?
   owner_tid     BigInt @default(1)
+  owner_bid     BigInt @default(1)
   owner_uid     BigInt?
   user_id     BigInt
   @@unique([user_id, deleted_at])
@@ -88,6 +89,7 @@ model passport_user_email_otps {
   created_duid  BigInt?
   updated_duid  BigInt?
   owner_tid     BigInt @default(1)
+  owner_bid     BigInt @default(1)
   owner_uid     BigInt?
   otp_id        String
   @@unique([otp_id, deleted_at])
@@ -109,6 +111,7 @@ model passport_user_credentials {
   created_duid BigInt?
   updated_duid BigInt?
   owner_tid     BigInt @default(1)
+  owner_bid     BigInt @default(1)
   owner_uid     BigInt?
   user_id    BigInt
   password   String
@@ -124,6 +127,7 @@ model passport_sessions {
   created_duid BigInt?
   updated_duid BigInt?
   owner_tid     BigInt @default(1)
+  owner_bid     BigInt @default(1)
   owner_uid     BigInt?
   token_hash String
   @@unique([token_hash, deleted_at])
@@ -143,6 +147,7 @@ model passport_devices {
   created_duid BigInt?
   updated_duid BigInt?
   owner_tid     BigInt @default(1)
+  owner_bid     BigInt @default(1)
   owner_uid     BigInt?
   key           String
   fingerprint  Json   @default("{}")
@@ -165,6 +170,7 @@ model passport_device_users {
   created_duid BigInt?
   updated_duid BigInt?
   owner_tid     BigInt @default(1)
+  owner_bid     BigInt @default(1)
   owner_uid     BigInt?
   device_id    BigInt
   user_id      BigInt
@@ -183,6 +189,7 @@ model passport_telegram_accounts {
   created_duid     BigInt?
   updated_duid     BigInt?
   owner_tid     BigInt @default(1)
+  owner_bid     BigInt @default(1)
   owner_uid     BigInt?
   user_id          BigInt
   bot_id           BigInt
@@ -201,6 +208,7 @@ model passport_oauth_accounts {
   created_duid     BigInt?
   updated_duid     BigInt?
   owner_tid     BigInt @default(1)
+  owner_bid     BigInt @default(1)
   owner_uid     BigInt?
   user_id          BigInt
   provider         String
@@ -217,6 +225,7 @@ model passport_emails {
   created_duid BigInt?
   updated_duid BigInt?
   owner_tid     BigInt @default(1)
+  owner_bid     BigInt @default(1)
   owner_uid     BigInt?
   email      String
   verified   Int    @default(0)
@@ -232,6 +241,7 @@ model passport_user_emails {
   created_duid BigInt?
   updated_duid BigInt?
   owner_tid     BigInt @default(1)
+  owner_bid     BigInt @default(1)
   owner_uid     BigInt?
   user_id    BigInt
   email_id   BigInt
@@ -249,6 +259,7 @@ model passport_email_otp {
   created_duid     BigInt?
   updated_duid     BigInt?
   owner_tid     BigInt @default(1)
+  owner_bid     BigInt @default(1)
   owner_uid     BigInt?
   bot_id           BigInt
   telegram_user_id BigInt
@@ -270,6 +281,7 @@ model passport_snowflake_state {
   created_duid   BigInt?
   updated_duid   BigInt?
   owner_tid     BigInt @default(1)
+  owner_bid     BigInt @default(1)
   owner_uid     BigInt?
   worker_id      Int
   @@unique([worker_id, deleted_at])
@@ -284,6 +296,7 @@ model passport_telegram_menus {
   created_duid      BigInt?
   updated_duid      BigInt?
   owner_tid     BigInt @default(1)
+  owner_bid     BigInt @default(1)
   owner_uid     BigInt?
   bot_id           BigInt
   telegram_user_id BigInt
@@ -301,6 +314,7 @@ model passport_telegram_updates {
   created_duid BigInt?
   updated_duid BigInt?
   owner_tid     BigInt @default(1)
+  owner_bid     BigInt @default(1)
   owner_uid     BigInt?
   bot_id     BigInt
   update_id  BigInt
@@ -317,6 +331,7 @@ model passport_telegram_identity_choices {
   created_duid     BigInt?
   updated_duid     BigInt?
   owner_tid     BigInt @default(1)
+  owner_bid     BigInt @default(1)
   owner_uid     BigInt?
   bot_id           BigInt
   telegram_user_id BigInt
@@ -337,6 +352,7 @@ model passport_login_challenges {
   created_duid     BigInt?
   updated_duid     BigInt?
   owner_tid     BigInt @default(1)
+  owner_bid     BigInt @default(1)
   owner_uid     BigInt?
   challenge_id     String
   @@unique([challenge_id, deleted_at])
@@ -360,6 +376,7 @@ model passport_sso_requests {
   created_duid      BigInt?
   updated_duid      BigInt?
   owner_tid     BigInt @default(1)
+  owner_bid     BigInt @default(1)
   owner_uid     BigInt?
   request_id        String
   @@unique([request_id, deleted_at])
@@ -379,6 +396,7 @@ model passport_login_tickets {
   created_duid      BigInt?
   updated_duid      BigInt?
   owner_tid     BigInt @default(1)
+  owner_bid     BigInt @default(1)
   owner_uid     BigInt?
   token_hash        String
   @@unique([token_hash, deleted_at])
@@ -399,6 +417,7 @@ model passport_site_sessions {
   created_duid BigInt?
   updated_duid BigInt?
   owner_tid     BigInt @default(1)
+  owner_bid     BigInt @default(1)
   owner_uid     BigInt?
   session_id String
   @@unique([session_id, deleted_at])
@@ -419,6 +438,7 @@ model passport_user_roles {
   created_duid BigInt?
   updated_duid BigInt?
   owner_tid     BigInt @default(1)
+  owner_bid     BigInt @default(1)
   owner_uid     BigInt?
   user_id    BigInt
   role       String
@@ -434,6 +454,7 @@ model passport_group_prompts {
   created_duid BigInt?
   updated_duid BigInt?
   owner_tid     BigInt @default(1)
+  owner_bid     BigInt @default(1)
   owner_uid     BigInt?
   chat_id    BigInt
   actor_id   BigInt
@@ -451,6 +472,7 @@ model passport_external_email_otps {
   created_duid          BigInt?
   updated_duid          BigInt?
   owner_tid     BigInt @default(1)
+  owner_bid     BigInt @default(1)
   owner_uid     BigInt?
   otp_id                String
   @@unique([otp_id, deleted_at])
@@ -472,6 +494,7 @@ model passport_external_identities {
   created_duid BigInt?
   updated_duid BigInt?
   owner_tid     BigInt @default(1)
+  owner_bid     BigInt @default(1)
   owner_uid     BigInt?
   user_id     BigInt
   provider    String
@@ -490,6 +513,7 @@ model passport_external_login_states {
   created_duid    BigInt?
   updated_duid    BigInt?
   owner_tid     BigInt @default(1)
+  owner_bid     BigInt @default(1)
   owner_uid     BigInt?
   id_hash         String
   @@unique([id_hash, deleted_at])
@@ -514,6 +538,7 @@ model passport_external_pending_identities {
   created_duid BigInt?
   updated_duid BigInt?
   owner_tid     BigInt @default(1)
+  owner_bid     BigInt @default(1)
   owner_uid     BigInt?
   id_hash      String
   @@unique([id_hash, deleted_at])
@@ -533,6 +558,7 @@ model passport_external_pending_qr_states {
   created_duid          BigInt?
   updated_duid          BigInt?
   owner_tid     BigInt @default(1)
+  owner_bid     BigInt @default(1)
   owner_uid     BigInt?
   pending_identity_hash String
   @@unique([pending_identity_hash, deleted_at])
@@ -548,6 +574,7 @@ model passport_external_providers {
   created_duid            BigInt?
   updated_duid            BigInt?
   owner_tid     BigInt @default(1)
+  owner_bid     BigInt @default(1)
   owner_uid     BigInt?
   provider                String
   @@unique([provider, deleted_at])
@@ -567,6 +594,7 @@ model passport_oidc_clients {
   created_duid           BigInt?
   updated_duid           BigInt?
   owner_tid     BigInt @default(1)
+  owner_bid     BigInt @default(1)
   owner_uid     BigInt?
   client_id              String
   @@unique([client_id, deleted_at])
@@ -588,6 +616,7 @@ model passport_oidc_authorization_requests {
   created_duid          BigInt?
   updated_duid          BigInt?
   owner_tid     BigInt @default(1)
+  owner_bid     BigInt @default(1)
   owner_uid     BigInt?
   request_id            String
   @@unique([request_id, deleted_at])
@@ -609,6 +638,7 @@ model passport_oidc_authorization_codes {
   created_duid          BigInt?
   updated_duid          BigInt?
   owner_tid     BigInt @default(1)
+  owner_bid     BigInt @default(1)
   owner_uid     BigInt?
   code_hash             String
   @@unique([code_hash, deleted_at])
@@ -634,6 +664,7 @@ model passport_oidc_access_tokens {
   created_duid            BigInt?
   updated_duid            BigInt?
   owner_tid     BigInt @default(1)
+  owner_bid     BigInt @default(1)
   owner_uid     BigInt?
   token_hash              String
   @@unique([token_hash, deleted_at])
@@ -657,6 +688,7 @@ model passport_oidc_signing_keys {
   created_duid BigInt?
   updated_duid BigInt?
   owner_tid     BigInt @default(1)
+  owner_bid     BigInt @default(1)
   owner_uid     BigInt?
   kid          String
   @@unique([kid, deleted_at])

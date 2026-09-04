@@ -30,6 +30,7 @@ model global_sites {
   created_duid     BigInt?
   updated_duid     BigInt?
   owner_tid     BigInt @default(1)
+  owner_bid     BigInt @default(1)
   owner_uid     BigInt?
   key              String
   @@unique([key, deleted_at])
@@ -53,6 +54,7 @@ model global_site_hosts {
   created_duid BigInt?
   updated_duid BigInt?
   owner_tid     BigInt @default(1)
+  owner_bid     BigInt @default(1)
   owner_uid     BigInt?
   hostname     String
   @@unique([hostname, deleted_at])
@@ -68,6 +70,7 @@ model global_cloud_credentials {
   created_duid      BigInt?
   updated_duid      BigInt?
   owner_tid     BigInt @default(1)
+  owner_bid     BigInt @default(1)
   owner_uid     BigInt?
   name              String
   @@unique([name, deleted_at])
@@ -86,6 +89,7 @@ model global_cloud_object_storage_buckets {
   created_duid        BigInt?
   updated_duid        BigInt?
   owner_tid     BigInt @default(1)
+  owner_bid     BigInt @default(1)
   owner_uid     BigInt?
   cloud_credential_id BigInt
   endpoint            String
@@ -107,6 +111,7 @@ model global_cloud_object_storage_bindings {
   created_duid BigInt?
   updated_duid BigInt?
   owner_tid     BigInt @default(1)
+  owner_bid     BigInt @default(1)
   owner_uid     BigInt?
   site_key   String
   bucket_id  BigInt
@@ -125,6 +130,7 @@ model global_cloud_object_storage_binding_purposes {
   created_duid BigInt?
   updated_duid BigInt?
   owner_tid     BigInt @default(1)
+  owner_bid     BigInt @default(1)
   owner_uid     BigInt?
   binding_id BigInt
   site_key   String
@@ -142,6 +148,7 @@ model global_telegram_bots {
   created_duid     BigInt?
   updated_duid     BigInt?
   owner_tid     BigInt @default(1)
+  owner_bid     BigInt @default(1)
   owner_uid     BigInt?
   name             String
   @@unique([name, deleted_at])
@@ -164,6 +171,7 @@ model global_cloud_email_channels {
   created_duid        BigInt?
   updated_duid        BigInt?
   owner_tid     BigInt @default(1)
+  owner_bid     BigInt @default(1)
   owner_uid     BigInt?
   cloud_credential_id BigInt
   region              String
@@ -183,6 +191,7 @@ model global_cloud_email_templates {
   created_duid  BigInt?
   updated_duid  BigInt?
   owner_tid     BigInt @default(1)
+  owner_bid     BigInt @default(1)
   owner_uid     BigInt?
   key           String
   @@unique([key, deleted_at])
@@ -202,6 +211,7 @@ model global_cloud_email_bindings {
   created_duid BigInt?
   updated_duid BigInt?
   owner_tid     BigInt @default(1)
+  owner_bid     BigInt @default(1)
   owner_uid     BigInt?
   site_key   String
   channel_id BigInt
@@ -221,6 +231,7 @@ model global_cloud_email_template_publications {
   created_duid         BigInt?
   updated_duid         BigInt?
   owner_tid     BigInt @default(1)
+  owner_bid     BigInt @default(1)
   owner_uid     BigInt?
   template_id          BigInt
   cloud_credential_id  BigInt

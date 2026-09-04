@@ -11,7 +11,7 @@ import { createD1Adapter, type D1DatabaseLike } from './database/d1.mjs';
 import { apiMessage } from './modules/base/api-response.mjs';
 import { oidcDiscovery } from './modules/passport/accounts/provider.mjs';
 import { withDatabaseActors, type DatabaseAdapter } from './database/index.mjs';
-import { resolveTenantId } from './modules/base/tenant.mjs';
+import { resolveHostScope } from './modules/base/tenant.mjs';
 import { SiteRouter } from './modules/base/site-router.mjs';
 import { baseSessionMaxAge, createSessionCookie, loadBaseDeviceUserId, loadCurrentUser, readSessionId, sessionUsesAccountsOidc } from './modules/base/auth/index.mjs';
 import { loadAccountsOidcConfig, resolveAccountsLoginMode } from './modules/passport/accounts/client.mjs';
@@ -94,11 +94,13 @@ const configureForRequest = async (c: Context<WorkerEnv>) => {
 		catch { /* Global administration remains available if Passport storage is temporarily unavailable. */ }
 	}
 
-	// 租户必须在读取配置之前定下来：配置按租户独立，而租户只依赖 base_tenant_hosts，不依赖配置。
-	const baseTenantId = await resolveTenantId(database, site.hostname).catch(() => null);
+	// 租户与分站必须在读取配置之前定下来：配置按租户独立，而它们只依赖 base_hosts，不依赖配置。
+	const hostScope = await resolveHostScope(database, site.hostname).catch(() => ({ tenantId: null, branchId: null }));
+	const baseTenantId = hostScope.tenantId;
+	const baseBranchId = hostScope.branchId;
 	const tenantCacheKey = String(baseTenantId ?? '');
 	// 写配置要落到当前租户，因此用绑定过租户的适配器；读取由 config store 自己按租户加回落处理。
-	const configDatabase = withDatabaseActors(database, { baseTenantId });
+	const configDatabase = withDatabaseActors(database, { baseTenantId, baseBranchId });
 	const baseConfigStore = createDatabaseConfigStore(configDatabase, baseTenantId);
 	const configStore = {
 		get: baseConfigStore.get,
@@ -168,6 +170,7 @@ const configureForRequest = async (c: Context<WorkerEnv>) => {
 		base: baseDeviceUserId,
 		baseUserId,
 		baseTenantId,
+		baseBranchId,
 		...(passportDatabase === database ? { passportUserId } : {}),
 		...(passportDatabase === database ? { passport: passportActor } : {}),
 	});
@@ -179,12 +182,16 @@ const configureForRequest = async (c: Context<WorkerEnv>) => {
 	const globalUserId = globalUser?.id ?? null;
 	const scopedGlobalDatabase = defaultDatabase === database
 		? scopedDatabase
-		: withDatabaseActors(defaultDatabase, { base: globalDeviceUserId, baseUserId: globalUserId, baseTenantId: await resolveTenantId(defaultDatabase, site.hostname).catch(() => null) });
+		: await (async () => {
+			const globalScope = await resolveHostScope(defaultDatabase, site.hostname).catch(() => ({ tenantId: null, branchId: null }));
+			return withDatabaseActors(defaultDatabase, { base: globalDeviceUserId, baseUserId: globalUserId, baseTenantId: globalScope.tenantId, baseBranchId: globalScope.branchId });
+		})();
 	const scopedConfigStore = createDatabaseConfigStore(scopedDatabase);
 	c.set('globalDatabase', scopedGlobalDatabase);
 	c.set('passportDatabase', scopedPassportDatabase);
 	c.set('database', scopedDatabase);
 	c.set('tenantId', baseTenantId);
+	c.set('branchId', baseBranchId);
 	c.set('configStore', {
 		get: scopedConfigStore.get,
 		put: async (key: string, value: unknown) => {

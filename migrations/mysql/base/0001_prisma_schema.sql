@@ -10,6 +10,7 @@ CREATE TABLE `base_tenants` (
     `created_duid` BIGINT NULL,
     `updated_duid` BIGINT NULL,
     `owner_tid` BIGINT NOT NULL DEFAULT 1,
+    `owner_bid` BIGINT NOT NULL DEFAULT 1,
     `owner_uid` BIGINT NULL,
     `key` VARCHAR(191) NOT NULL,
     `name` VARCHAR(191) NOT NULL,
@@ -20,7 +21,7 @@ CREATE TABLE `base_tenants` (
 ) DEFAULT CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci;
 
 -- CreateTable
-CREATE TABLE `base_tenant_hosts` (
+CREATE TABLE `base_branches` (
     `id` BIGINT NOT NULL AUTO_INCREMENT,
     `created_at` BIGINT NOT NULL,
     `updated_at` BIGINT NOT NULL,
@@ -28,12 +29,33 @@ CREATE TABLE `base_tenant_hosts` (
     `created_duid` BIGINT NULL,
     `updated_duid` BIGINT NULL,
     `owner_tid` BIGINT NOT NULL DEFAULT 1,
+    `owner_bid` BIGINT NOT NULL DEFAULT 1,
+    `owner_uid` BIGINT NULL,
+    `key` VARCHAR(191) NOT NULL,
+    `name` VARCHAR(191) NOT NULL,
+    `status` ENUM('enabled', 'disabled') NOT NULL DEFAULT 'enabled',
+
+    UNIQUE INDEX `base_branches_key_owner_tid_deleted_at_key`(`key`, `owner_tid`, `deleted_at`),
+    PRIMARY KEY (`id`)
+) DEFAULT CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci;
+
+-- CreateTable
+CREATE TABLE `base_hosts` (
+    `id` BIGINT NOT NULL AUTO_INCREMENT,
+    `created_at` BIGINT NOT NULL,
+    `updated_at` BIGINT NOT NULL,
+    `deleted_at` BIGINT NOT NULL DEFAULT 0,
+    `created_duid` BIGINT NULL,
+    `updated_duid` BIGINT NULL,
+    `owner_tid` BIGINT NOT NULL DEFAULT 1,
+    `owner_bid` BIGINT NOT NULL DEFAULT 1,
     `owner_uid` BIGINT NULL,
     `hostname` VARCHAR(191) NOT NULL,
     `tenant_id` BIGINT NOT NULL,
+    `branch_id` BIGINT NOT NULL,
     `status` ENUM('enabled', 'disabled') NOT NULL DEFAULT 'enabled',
 
-    UNIQUE INDEX `base_tenant_hosts_hostname_deleted_at_key`(`hostname`, `deleted_at`),
+    UNIQUE INDEX `base_hosts_hostname_deleted_at_key`(`hostname`, `deleted_at`),
     PRIMARY KEY (`id`)
 ) DEFAULT CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci;
 
@@ -46,6 +68,7 @@ CREATE TABLE `base_users` (
     `created_duid` BIGINT NULL,
     `updated_duid` BIGINT NULL,
     `owner_tid` BIGINT NOT NULL DEFAULT 1,
+    `owner_bid` BIGINT NOT NULL DEFAULT 1,
     `owner_uid` BIGINT NULL,
     `name` VARCHAR(191) NOT NULL,
     `password` VARCHAR(191) NOT NULL,
@@ -65,6 +88,7 @@ CREATE TABLE `base_sessions` (
     `created_duid` BIGINT NULL,
     `updated_duid` BIGINT NULL,
     `owner_tid` BIGINT NOT NULL DEFAULT 1,
+    `owner_bid` BIGINT NOT NULL DEFAULT 1,
     `owner_uid` BIGINT NULL,
     `token_hash` VARCHAR(191) NOT NULL,
     `user_id` BIGINT NOT NULL,
@@ -84,6 +108,7 @@ CREATE TABLE `base_configs` (
     `created_duid` BIGINT NULL,
     `updated_duid` BIGINT NULL,
     `owner_tid` BIGINT NOT NULL DEFAULT 1,
+    `owner_bid` BIGINT NOT NULL DEFAULT 1,
     `owner_uid` BIGINT NULL,
     `key` VARCHAR(191) NOT NULL,
     `value` VARCHAR(191) NOT NULL,
@@ -101,6 +126,7 @@ CREATE TABLE `base_bootstrap` (
     `created_duid` BIGINT NULL,
     `updated_duid` BIGINT NULL,
     `owner_tid` BIGINT NOT NULL DEFAULT 1,
+    `owner_bid` BIGINT NOT NULL DEFAULT 1,
     `owner_uid` BIGINT NULL,
     `key` VARCHAR(191) NOT NULL,
     `value` VARCHAR(191) NOT NULL,
@@ -118,6 +144,7 @@ CREATE TABLE `base_oidc_login_requests` (
     `created_duid` BIGINT NULL,
     `updated_duid` BIGINT NULL,
     `owner_tid` BIGINT NOT NULL DEFAULT 1,
+    `owner_bid` BIGINT NOT NULL DEFAULT 1,
     `owner_uid` BIGINT NULL,
     `request_id` VARCHAR(191) NOT NULL,
     `issuer` VARCHAR(191) NOT NULL,
@@ -141,6 +168,7 @@ CREATE TABLE `base_oidc_users` (
     `created_duid` BIGINT NULL,
     `updated_duid` BIGINT NULL,
     `owner_tid` BIGINT NOT NULL DEFAULT 1,
+    `owner_bid` BIGINT NOT NULL DEFAULT 1,
     `owner_uid` BIGINT NULL,
     `issuer` VARCHAR(191) NOT NULL,
     `subject` VARCHAR(191) NOT NULL,
@@ -160,6 +188,7 @@ CREATE TABLE `base_oidc_sessions` (
     `created_duid` BIGINT NULL,
     `updated_duid` BIGINT NULL,
     `owner_tid` BIGINT NOT NULL DEFAULT 1,
+    `owner_bid` BIGINT NOT NULL DEFAULT 1,
     `owner_uid` BIGINT NULL,
     `issuer` VARCHAR(191) NOT NULL,
     `sid` VARCHAR(191) NOT NULL,
@@ -179,6 +208,7 @@ CREATE TABLE `base_devices` (
     `created_duid` BIGINT NULL,
     `updated_duid` BIGINT NULL,
     `owner_tid` BIGINT NOT NULL DEFAULT 1,
+    `owner_bid` BIGINT NOT NULL DEFAULT 1,
     `owner_uid` BIGINT NULL,
     `user_id` BIGINT NOT NULL,
     `key` VARCHAR(191) NOT NULL,
@@ -204,6 +234,7 @@ CREATE TABLE `base_device_users` (
     `created_duid` BIGINT NULL,
     `updated_duid` BIGINT NULL,
     `owner_tid` BIGINT NOT NULL DEFAULT 1,
+    `owner_bid` BIGINT NOT NULL DEFAULT 1,
     `owner_uid` BIGINT NULL,
     `device_id` BIGINT NOT NULL,
     `user_id` BIGINT NOT NULL,
@@ -224,6 +255,7 @@ CREATE TABLE `base_device_snapshots` (
     `created_duid` BIGINT NULL,
     `updated_duid` BIGINT NULL,
     `owner_tid` BIGINT NOT NULL DEFAULT 1,
+    `owner_bid` BIGINT NOT NULL DEFAULT 1,
     `owner_uid` BIGINT NULL,
     `device_id` BIGINT NOT NULL,
     `fingerprint` JSON NOT NULL,

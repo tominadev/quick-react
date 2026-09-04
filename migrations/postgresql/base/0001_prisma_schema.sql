@@ -22,6 +22,7 @@ CREATE TABLE "base_tenants" (
     "created_duid" BIGINT,
     "updated_duid" BIGINT,
     "owner_tid" BIGINT NOT NULL DEFAULT 1,
+    "owner_bid" BIGINT NOT NULL DEFAULT 1,
     "owner_uid" BIGINT,
     "key" TEXT NOT NULL,
     "name" TEXT NOT NULL,
@@ -31,7 +32,7 @@ CREATE TABLE "base_tenants" (
 );
 
 -- CreateTable
-CREATE TABLE "base_tenant_hosts" (
+CREATE TABLE "base_branches" (
     "id" BIGSERIAL NOT NULL,
     "created_at" BIGINT NOT NULL,
     "updated_at" BIGINT NOT NULL,
@@ -39,12 +40,32 @@ CREATE TABLE "base_tenant_hosts" (
     "created_duid" BIGINT,
     "updated_duid" BIGINT,
     "owner_tid" BIGINT NOT NULL DEFAULT 1,
+    "owner_bid" BIGINT NOT NULL DEFAULT 1,
+    "owner_uid" BIGINT,
+    "key" TEXT NOT NULL,
+    "name" TEXT NOT NULL,
+    "status" "BaseTenantStatus" NOT NULL DEFAULT 'enabled',
+
+    CONSTRAINT "base_branches_pkey" PRIMARY KEY ("id")
+);
+
+-- CreateTable
+CREATE TABLE "base_hosts" (
+    "id" BIGSERIAL NOT NULL,
+    "created_at" BIGINT NOT NULL,
+    "updated_at" BIGINT NOT NULL,
+    "deleted_at" BIGINT NOT NULL DEFAULT 0,
+    "created_duid" BIGINT,
+    "updated_duid" BIGINT,
+    "owner_tid" BIGINT NOT NULL DEFAULT 1,
+    "owner_bid" BIGINT NOT NULL DEFAULT 1,
     "owner_uid" BIGINT,
     "hostname" TEXT NOT NULL,
     "tenant_id" BIGINT NOT NULL,
+    "branch_id" BIGINT NOT NULL,
     "status" "BaseTenantStatus" NOT NULL DEFAULT 'enabled',
 
-    CONSTRAINT "base_tenant_hosts_pkey" PRIMARY KEY ("id")
+    CONSTRAINT "base_hosts_pkey" PRIMARY KEY ("id")
 );
 
 -- CreateTable
@@ -56,6 +77,7 @@ CREATE TABLE "base_users" (
     "created_duid" BIGINT,
     "updated_duid" BIGINT,
     "owner_tid" BIGINT NOT NULL DEFAULT 1,
+    "owner_bid" BIGINT NOT NULL DEFAULT 1,
     "owner_uid" BIGINT,
     "name" TEXT NOT NULL,
     "password" TEXT NOT NULL,
@@ -74,6 +96,7 @@ CREATE TABLE "base_sessions" (
     "created_duid" BIGINT,
     "updated_duid" BIGINT,
     "owner_tid" BIGINT NOT NULL DEFAULT 1,
+    "owner_bid" BIGINT NOT NULL DEFAULT 1,
     "owner_uid" BIGINT,
     "token_hash" TEXT NOT NULL,
     "user_id" BIGINT NOT NULL,
@@ -92,6 +115,7 @@ CREATE TABLE "base_configs" (
     "created_duid" BIGINT,
     "updated_duid" BIGINT,
     "owner_tid" BIGINT NOT NULL DEFAULT 1,
+    "owner_bid" BIGINT NOT NULL DEFAULT 1,
     "owner_uid" BIGINT,
     "key" TEXT NOT NULL,
     "value" TEXT NOT NULL,
@@ -108,6 +132,7 @@ CREATE TABLE "base_bootstrap" (
     "created_duid" BIGINT,
     "updated_duid" BIGINT,
     "owner_tid" BIGINT NOT NULL DEFAULT 1,
+    "owner_bid" BIGINT NOT NULL DEFAULT 1,
     "owner_uid" BIGINT,
     "key" TEXT NOT NULL,
     "value" TEXT NOT NULL,
@@ -124,6 +149,7 @@ CREATE TABLE "base_oidc_login_requests" (
     "created_duid" BIGINT,
     "updated_duid" BIGINT,
     "owner_tid" BIGINT NOT NULL DEFAULT 1,
+    "owner_bid" BIGINT NOT NULL DEFAULT 1,
     "owner_uid" BIGINT,
     "request_id" TEXT NOT NULL,
     "issuer" TEXT NOT NULL,
@@ -145,6 +171,7 @@ CREATE TABLE "base_oidc_users" (
     "created_duid" BIGINT,
     "updated_duid" BIGINT,
     "owner_tid" BIGINT NOT NULL DEFAULT 1,
+    "owner_bid" BIGINT NOT NULL DEFAULT 1,
     "owner_uid" BIGINT,
     "issuer" TEXT NOT NULL,
     "subject" TEXT NOT NULL,
@@ -163,6 +190,7 @@ CREATE TABLE "base_oidc_sessions" (
     "created_duid" BIGINT,
     "updated_duid" BIGINT,
     "owner_tid" BIGINT NOT NULL DEFAULT 1,
+    "owner_bid" BIGINT NOT NULL DEFAULT 1,
     "owner_uid" BIGINT,
     "issuer" TEXT NOT NULL,
     "sid" TEXT NOT NULL,
@@ -180,6 +208,7 @@ CREATE TABLE "base_devices" (
     "created_duid" BIGINT,
     "updated_duid" BIGINT,
     "owner_tid" BIGINT NOT NULL DEFAULT 1,
+    "owner_bid" BIGINT NOT NULL DEFAULT 1,
     "owner_uid" BIGINT,
     "user_id" BIGINT NOT NULL,
     "key" TEXT NOT NULL,
@@ -204,6 +233,7 @@ CREATE TABLE "base_device_users" (
     "created_duid" BIGINT,
     "updated_duid" BIGINT,
     "owner_tid" BIGINT NOT NULL DEFAULT 1,
+    "owner_bid" BIGINT NOT NULL DEFAULT 1,
     "owner_uid" BIGINT,
     "device_id" BIGINT NOT NULL,
     "user_id" BIGINT NOT NULL,
@@ -223,6 +253,7 @@ CREATE TABLE "base_device_snapshots" (
     "created_duid" BIGINT,
     "updated_duid" BIGINT,
     "owner_tid" BIGINT NOT NULL DEFAULT 1,
+    "owner_bid" BIGINT NOT NULL DEFAULT 1,
     "owner_uid" BIGINT,
     "device_id" BIGINT NOT NULL,
     "fingerprint" JSONB NOT NULL DEFAULT '{}',
@@ -241,7 +272,10 @@ CREATE TABLE "base_device_snapshots" (
 CREATE UNIQUE INDEX "base_tenants_key_deleted_at_key" ON "base_tenants"("key", "deleted_at");
 
 -- CreateIndex
-CREATE UNIQUE INDEX "base_tenant_hosts_hostname_deleted_at_key" ON "base_tenant_hosts"("hostname", "deleted_at");
+CREATE UNIQUE INDEX "base_branches_key_owner_tid_deleted_at_key" ON "base_branches"("key", "owner_tid", "deleted_at");
+
+-- CreateIndex
+CREATE UNIQUE INDEX "base_hosts_hostname_deleted_at_key" ON "base_hosts"("hostname", "deleted_at");
 
 -- CreateIndex
 CREATE UNIQUE INDEX "base_users_name_owner_tid_deleted_at_key" ON "base_users"("name", "owner_tid", "deleted_at");

@@ -27,8 +27,10 @@ export type AppEnv = {
 		globalDatabase: DatabaseAdapter;
 		passportDatabase?: DatabaseAdapter;
 		database: DatabaseAdapter;
-		/** 当前请求所属租户，由主机名解析（base_tenant_hosts），未绑定时落到默认租户。 */
+		/** 当前请求所属租户，由主机名解析（base_hosts），未绑定时落到默认租户。 */
 		tenantId: string | null;
+		/** 当前请求所属分站；每个域名都绑定分站，未绑定时落到默认租户的主分站。 */
+		branchId: string | null;
 		siteRouter: SiteRouter;
 		configStore: ConfigStore;
 		systemConfig: SystemConfig;
