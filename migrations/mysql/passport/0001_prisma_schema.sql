@@ -411,24 +411,6 @@ CREATE TABLE `passport_site_sessions` (
 ) DEFAULT CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci;
 
 -- CreateTable
-CREATE TABLE `passport_user_roles` (
-    `id` BIGINT NOT NULL AUTO_INCREMENT,
-    `created_at` BIGINT NOT NULL,
-    `updated_at` BIGINT NOT NULL,
-    `deleted_at` BIGINT NOT NULL DEFAULT 0,
-    `created_duid` BIGINT NULL,
-    `updated_duid` BIGINT NULL,
-    `owner_tid` BIGINT NOT NULL DEFAULT 1,
-    `owner_bid` BIGINT NOT NULL DEFAULT 1,
-    `owner_uid` BIGINT NULL,
-    `user_id` BIGINT NOT NULL,
-    `role` VARCHAR(191) NOT NULL,
-
-    UNIQUE INDEX `passport_user_roles_user_id_role_deleted_at_key`(`user_id`, `role`, `deleted_at`),
-    PRIMARY KEY (`id`)
-) DEFAULT CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci;
-
--- CreateTable
 CREATE TABLE `passport_group_prompts` (
     `id` BIGINT NOT NULL AUTO_INCREMENT,
     `created_at` BIGINT NOT NULL,

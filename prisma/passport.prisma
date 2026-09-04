@@ -431,22 +431,6 @@ model passport_site_sessions {
   @@index([site_key, hostname, expires_at])
 }
 
-model passport_user_roles {
-  id         BigInt @id @default(autoincrement())
-  created_at BigInt
-  updated_at BigInt
-  deleted_at BigInt @default(0)
-  created_duid BigInt?
-  updated_duid BigInt?
-  owner_tid     BigInt @default(1)
-  owner_bid     BigInt @default(1)
-  owner_uid     BigInt?
-  user_id    BigInt
-  role       String
-
-  @@unique([user_id, role, deleted_at])
-}
-
 model passport_group_prompts {
   id         BigInt @id @default(autoincrement())
   created_at BigInt

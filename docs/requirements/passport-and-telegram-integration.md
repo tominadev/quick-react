@@ -366,7 +366,6 @@ passport_telegram_identity_choices
   status TEXT NOT NULL                 -- pending / confirmed / cancelled / expired
   expires_at BIGINT NOT NULL
 
-passport_user_roles                     -- 已废弃：Accounts 只分配身份，不分配权限，代码不再读取该表
   id BIGINT PRIMARY KEY
   created_at BIGINT NOT NULL
   updated_at BIGINT NOT NULL

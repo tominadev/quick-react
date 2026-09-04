@@ -23,7 +23,7 @@
 
 - Accounts 只分配身份，不分配权限：一次 Accounts 登录只带来 `accounts` 这个身份标记。
 - 站点权限一律来自站点自己的用户表：业务站点通过 OIDC 登录时会在本站 `base_users` 建立/绑定用户，角色由本站管理员在用户管理里分配，`base_users.roles` 是唯一的权限来源。
-- 因此 `passport_user_roles` 已废弃，代码不再读取；身份中心站点自己的后台权限同样由它本站的用户和角色决定。
+- 因此 `passport_user_roles` **已删除**：身份中心只分配身份、不分配权限，身份中心站点自己的后台权限同样由它本站的 `base_users.roles` 决定。留一张 schema 里有、代码里没有的表，只会让人反复追问它和 `base_users.roles` 是什么关系。
 
 ## 一、角色对照表
 

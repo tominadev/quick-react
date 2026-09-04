@@ -413,23 +413,6 @@ CREATE TABLE "passport_site_sessions" (
 );
 
 -- CreateTable
-CREATE TABLE "passport_user_roles" (
-    "id" BIGSERIAL NOT NULL,
-    "created_at" BIGINT NOT NULL,
-    "updated_at" BIGINT NOT NULL,
-    "deleted_at" BIGINT NOT NULL DEFAULT 0,
-    "created_duid" BIGINT,
-    "updated_duid" BIGINT,
-    "owner_tid" BIGINT NOT NULL DEFAULT 1,
-    "owner_bid" BIGINT NOT NULL DEFAULT 1,
-    "owner_uid" BIGINT,
-    "user_id" BIGINT NOT NULL,
-    "role" TEXT NOT NULL,
-
-    CONSTRAINT "passport_user_roles_pkey" PRIMARY KEY ("id")
-);
-
--- CreateTable
 CREATE TABLE "passport_group_prompts" (
     "id" BIGSERIAL NOT NULL,
     "created_at" BIGINT NOT NULL,
@@ -783,9 +766,6 @@ CREATE INDEX "passport_site_sessions_site_key_hostname_expires_at_idx" ON "passp
 
 -- CreateIndex
 CREATE UNIQUE INDEX "passport_site_sessions_session_id_deleted_at_key" ON "passport_site_sessions"("session_id", "deleted_at");
-
--- CreateIndex
-CREATE UNIQUE INDEX "passport_user_roles_user_id_role_deleted_at_key" ON "passport_user_roles"("user_id", "role", "deleted_at");
 
 -- CreateIndex
 CREATE INDEX "passport_group_prompts_chat_id_actor_id_updated_at_idx" ON "passport_group_prompts"("chat_id", "actor_id", "updated_at");
