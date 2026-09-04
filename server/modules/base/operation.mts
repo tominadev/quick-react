@@ -14,7 +14,25 @@ import { allSql, AUDIT_TABLE, runSystemSql, sql, type SqlAuditAction, type SqlAu
 export type OperationOptions = {
 	/** 操作原因；缺省时从请求头 X-Change-Reason 里取。 */
 	reason?: string;
+	/** 跳过审批直接生效；缺省时从请求头 X-Change-Immediate 里取，且只对管理员生效。 */
+	immediate?: boolean;
 };
+
+/**
+ * 操作已记录为待审批、**没有执行**。
+ *
+ * 抛异常而不是返回状态码：路由后面那句 `return apiMessage(c, 200, '已保存')` 不能执行，
+ * 否则会告诉用户改好了。异常一抛，业务路由一行都不用改（见需求文档 §11.5）。
+ */
+export class PendingApprovalError extends Error {
+	constructor(readonly operationId: string, readonly entries: number) {
+		super('修改已提交审批，通过后才会生效');
+		this.name = 'PendingApprovalError';
+	}
+}
+
+/** 有权跳过审批的角色，与 §9 的撤回权限一致。 */
+const APPROVAL_SKIP_ROLES = ['platform_admin', 'tenant_admin', 'branch_admin'];
 
 const MAX_REASON_LENGTH = 500;
 
@@ -26,11 +44,28 @@ const MAX_REASON_LENGTH = 500;
  * 头部只能放 ASCII，因此客户端 encodeURIComponent 后再发。
  */
 export const CHANGE_REASON_HEADER = 'x-change-reason';
+export const CHANGE_IMMEDIATE_HEADER = 'x-change-immediate';
 export const readChangeReason = (c: Context<AppEnv>) => {
 	const raw = c.req.header(CHANGE_REASON_HEADER);
 	if (!raw) return '';
 	try { return decodeURIComponent(raw).trim().slice(0, MAX_REASON_LENGTH); }
 	catch { return raw.trim().slice(0, MAX_REASON_LENGTH); }
+};
+
+/**
+ * 「立即生效」默认关闭：不勾就走审批。
+ *
+ * 是否放行由**服务端角色**说了算，不由请求头说了算——请求头只是勾选框的传递方式，
+ * 非管理员就算伪造这个头也照样进审批队列。
+ */
+const skipsApproval = (c: Context<AppEnv>, options: OperationOptions) => {
+	// 审批只适用于管理后台（需求文档 §11.2）。个人中心与账户中心的自助操作、注册引导、
+	// 以及任何显式声明的操作都照常留痕但立即生效——那些要么是用户处置自己的数据，
+	// 要么根本没有审批人可言（初始管理员注册时系统里一个账号都还没有）。
+	if (!c.req.path.startsWith('/api/panel/admin/')) return true;
+	const requested = options.immediate ?? c.req.header(CHANGE_IMMEDIATE_HEADER) === '1';
+	if (!requested) return false;
+	return (c.get('effectiveRoles') ?? []).some((role) => APPROVAL_SKIP_ROLES.includes(role));
 };
 
 /** 驱动对 BIGINT 的返回类型不一致（number / string / bigint），归一成字符串再比。 */
@@ -47,12 +82,13 @@ const actionOf = (changes: Record<string, { before: unknown; after: unknown }>):
 	return Number(deletedAt.after ?? 0) === 0 ? 'restore' : 'soft_delete';
 };
 
-const recordStatement = async (database: DatabaseAdapter, metadata: SqlAuditMetadata, operationId: string, reason: string) => {
+const recordStatement = async (database: DatabaseAdapter, metadata: SqlAuditMetadata, operationId: string, reason: string, status: 'applied' | 'pending') => {
 	// 归属与可见性条件都在生成语句时定死了：调用方可能用显式上下文覆盖适配器。
 	const builder = sql({ database, subjectRoles: null, ownerTid: metadata.owner.tid, ownerBid: metadata.owner.bid, ownerUid: metadata.owner.uid, actorUid: metadata.owner.actor });
 	const columns = Object.keys(metadata.values);
 	// deleted: 'all' 与 update 的行为对齐——恢复操作要能读到已删除的原行。
 	// 一律 cast 成文本：BIGINT 是雪花号，按数字读会溢出。
+	let recorded = 0;
 	const rows = await allSql<Record<string, unknown>>(database, builder.select({
 		table: metadata.table,
 		columns: Object.fromEntries(['id', ...columns].map((column) => [column, { column, cast: 'text' as const }])),
@@ -74,9 +110,11 @@ const recordStatement = async (database: DatabaseAdapter, metadata: SqlAuditMeta
 			row_id: row.id,
 			action: actionOf(changes),
 			changes: JSON.stringify(changes),
-			status: 'applied',
+			status,
 		}));
+		recorded += 1;
 	}
+	return recorded;
 };
 
 /**
@@ -93,10 +131,20 @@ export const runOperation = async (
 	options: OperationOptions = {},
 ): Promise<DatabaseRunResult[]> => {
 	const audited = statements.filter((statement): statement is SqlQuery & { audit: SqlAuditMetadata } => statement.audit !== undefined);
+	const immediate = audited.length === 0 || skipsApproval(c, options);
+	let recorded = 0, operationId = '';
 	if (audited.length) {
-		const operationId = crypto.randomUUID();
+		operationId = crypto.randomUUID();
 		const reason = options.reason?.trim().slice(0, MAX_REASON_LENGTH) ?? readChangeReason(c);
-		for (const statement of audited) await recordStatement(database, statement.audit, operationId, reason);
+		for (const statement of audited) recorded += await recordStatement(database, statement.audit, operationId, reason, immediate ? 'applied' : 'pending');
+	}
+	// 待审批：记录已写，数据一条都不动。逐列比对下来没有任何变化时 recorded 为 0，
+	// 那本来就不是一次修改，不该拦下来让人去批一个空操作。
+	if (!immediate && recorded > 0) {
+		// 除了抛异常，还在上下文里留个标记：万一某处 catch 把异常吞了，最外层中间件
+		// 仍会把响应改成 202。正确性不能依赖「每一处 catch 都记得重新抛出」。
+		c.set('pendingApproval', { operationId, entries: recorded });
+		throw new PendingApprovalError(operationId, recorded);
 	}
 	const results: DatabaseRunResult[] = [];
 	for (const statement of statements) results.push(await runSystemSql(database, statement));

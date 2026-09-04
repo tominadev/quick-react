@@ -15,7 +15,7 @@ import type { TableCrudDefinition } from '@server/modules/base/table-crud.mjs';
 
 export const tableCrud: TableCrudDefinition = { table: 'global_cloud_email_channels', rowKey: 'id' };
 import { allSql, firstSql, runSql, sql } from '@server/database/sql.mjs';
-import { runOperationSql } from '@server/modules/base/operation.mjs';
+import { PendingApprovalError, runOperationSql } from '@server/modules/base/operation.mjs';
 
 const columns = [
 	{ dataIndex: 'id', title: 'ID', dataType: 'int' as const },
@@ -98,7 +98,7 @@ const handler: ApiHandler = async (c, next, params) => {
 		try {
 			const now = Date.now();
 			await runSql(database, sql({ database }).insert('global_cloud_email_channels', { cloud_credential_id: credentialId, region, account_name: accountName, from_alias: fromAlias, reply_to_address: booleanValue(body.reply_to_address) ? 1 : 0, status: body.status === statusValues.disabled ? statusValues.disabled : statusValues.enabled }));
-		} catch { return apiMessage(c, 409, '该凭据、Region 和发信地址已经存在'); }
+		} catch (error) { if (error instanceof PendingApprovalError) throw error; return apiMessage(c, 409, '该凭据、Region 和发信地址已经存在'); }
 		return apiMessageData(c, 201, '邮件通道创建成功', {});
 	}
 	if (!params.id && c.req.method === 'DELETE') {

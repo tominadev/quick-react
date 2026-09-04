@@ -3,7 +3,7 @@ import { apiMessage, apiMessageData, apiResponse } from '@server/modules/base/ap
 import { createStoredPassword, readStoredPassword } from '@server/modules/base/auth/index.mjs';
 import { getChangedFields } from '@server/modules/base/changed-fields.mjs';
 import { allSql, firstSql, runSql, sql } from '@server/database/sql.mjs';
-import { runOperationSql } from '@server/modules/base/operation.mjs';
+import { PendingApprovalError, runOperationSql } from '@server/modules/base/operation.mjs';
 import { enabledDisabledOptions, statusValues } from '@shared/types/status.mjs';
 import { assignableRoleOptions, parseRoles, serializeRoles, unknownAssignableRoles } from '@shared/types/role.mjs';
 import { passwordError } from '@server/modules/base/auth/password-policy.mjs';
@@ -58,7 +58,8 @@ const handler: ApiHandler = async (c, next, params) => {
 			// 账号行归属账号自己，不归创建它的管理员。
 			if (created) await runOperationSql(c, database, sql({ database }).update('base_users', { owner_uid: created.id }, { id: created.id }));
 			return apiMessageData(c, 201, '用户已创建', { id: created?.id, username });
-		} catch {
+		} catch (error) {
+			if (error instanceof PendingApprovalError) throw error;
 			return apiMessage(c, 409, '用户名已存在');
 		}
 	}
@@ -87,7 +88,7 @@ const handler: ApiHandler = async (c, next, params) => {
 		try {
 			await runOperationSql(c, database, sql({ database }).update('base_users', values, { id: params.id }));
 			return apiMessage(c, 200, '用户已保存');
-		} catch { return apiMessage(c, 409, '用户名已存在'); }
+		} catch (error) { if (error instanceof PendingApprovalError) throw error; return apiMessage(c, 409, '用户名已存在'); }
 	}
 	if (params.id && c.req.method === 'DELETE') {
 		await runOperationSql(c, database, sql({ database }).softDelete('base_users', { id: params.id }));

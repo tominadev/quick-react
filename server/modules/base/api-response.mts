@@ -106,6 +106,28 @@ const writeApiResponse = (c: Context<AppEnv>, status: number, data: Record<strin
 	c.json(data, status as ContentfulStatusCode)
 );
 
+/** 有权跳过审批的角色，与 §9 的撤回权限一致。 */
+const APPROVAL_SKIP_ROLES = ['platform_admin', 'tenant_admin', 'branch_admin'];
+
+/**
+ * 告诉前端要不要渲染「立即生效」勾选框。
+ *
+ * 在这里注入而不是让每个路由各写一遍：46 个后台页面一个都不能漏，漏掉的那个
+ * 管理员就只能走审批。服务端另有一道校验（runOperation），这里只决定渲不渲染。
+ */
+const withChangeControl = (c: Context<AppEnv>, payload: Record<string, unknown>) => {
+	const canSkipApproval = (c.get('effectiveRoles') ?? []).some((role) => APPROVAL_SKIP_ROLES.includes(role));
+	let result = payload;
+	const table = payload.table;
+	if (table && typeof table === 'object') {
+		const option = (table as Record<string, unknown>).option;
+		if (option && typeof option === 'object') result = { ...result, table: { ...table, option: { ...option, canSkipApproval } } };
+	}
+	const formPage = payload.formPage;
+	if (formPage && typeof formPage === 'object') result = { ...result, formPage: { ...formPage, canSkipApproval } };
+	return result;
+};
+
 export const apiResponse = async <T extends ApiSuccessData>(
 	c: Context<AppEnv>,
 	status: number,
@@ -115,7 +137,7 @@ export const apiResponse = async <T extends ApiSuccessData>(
 	const next = payload.next;
 	const refreshesAuth = Boolean(next && typeof next === 'object' && !Array.isArray(next) && (next as { refreshAuth?: unknown }).refreshAuth === true);
 	const includesAuth = requestsAuthContext(c);
-	const utilityPayload = withTableUtilities(c, payload);
+	const utilityPayload = withChangeControl(c, withTableUtilities(c, payload));
 	let responseData: Record<string, unknown> = selectTableResponse(utilityPayload, c);
 	const contextProvider = c.get('apiContext');
 	if ((includesAuth || refreshesAuth) && contextProvider) {

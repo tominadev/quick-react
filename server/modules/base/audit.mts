@@ -14,7 +14,10 @@ export type AuditEntryRow = {
 	row_id: string;
 	action: SqlAuditAction;
 	changes: string;
-	status: 'applied' | 'reverted';
+	status: 'pending' | 'applied' | 'rejected' | 'reverted';
+	reviewed_at: number | null;
+	reviewed_duid: string | null;
+	review_reason: string;
 	reverted_at: number | null;
 	reverted_duid: string | null;
 	revert_reason: string;
@@ -32,6 +35,9 @@ const entryColumns = {
 	action: 'action',
 	changes: 'changes',
 	status: 'status',
+	reviewed_at: 'reviewed_at',
+	reviewed_duid: { column: 'reviewed_duid', cast: 'text' as const },
+	review_reason: 'review_reason',
 	reverted_at: 'reverted_at',
 	reverted_duid: { column: 'reverted_duid', cast: 'text' as const },
 	revert_reason: 'revert_reason',
@@ -80,78 +86,84 @@ export const readAuditEntry = (database: DatabaseAdapter, id: string) => firstSq
 }));
 
 export type AuditRevertResult = { id: string; ok: boolean; message: string };
+export type AuditStatus = AuditEntryRow['status'];
 
-/**
- * 撤回**不产生新的审计记录**，而是把这一条翻到另一面。
- *
- * 一次变更永远只有一条记录：`changes` 里同时有前值和后值，`status` 说明当前停在哪一边。
- * 撤回错了就再翻回来（reverted → applied），不会堆出一串互相指向的记录。
- *
- * 但只翻 status 不够：原记录的 created_duid、created_at、reason 属于**原操作者**，
- * 不能拿来表示"谁在什么时候把它撤了"。撤回的操作者、时间与理由另存三列；审批用另一组 reviewed_*。
- *
- * 代价是**只留最后一次翻转**：反复撤回又恢复的过程不保留，见需求文档 §14。
- */
-const flipOne = async (database: DatabaseAdapter, entry: AuditEntryRow, reason: string): Promise<AuditRevertResult> => {
-	const changes = parseAuditChanges(entry.changes);
-	const columns = Object.keys(changes);
-	if (!columns.length) return { id: entry.id, ok: false, message: '该记录没有可还原的字段' };
-	const reverting = entry.status === 'applied';
-	// 撤回写回 before、校验 after；恢复正好相反。除了方向，两者是同一段代码。
-	const target = (column: string) => reverting ? changes[column].before : changes[column].after;
-	const expected = (column: string) => reverting ? changes[column].after : changes[column].before;
-	const values = Object.fromEntries(columns.map((column) => [column, target(column) ?? null]));
-	// 每一列都要求"当前值仍等于翻转前那一侧的值"，也就是这一列之后没有被人动过（§7.2）。
-	// 期望值为 NULL 时必须写成 IS NULL：SQL 里 col = NULL 求值为 unknown，永远不匹配。
-	const where: SqlCondition[] = [
-		{ column: 'id', value: entry.row_id },
-		...columns.map((column): SqlCondition => {
-			const value = expected(column);
-			return value === null || value === undefined ? { column, operator: 'IS NULL' } : { column, value };
-		}),
-	];
-	// 不走 runOperation：这次翻转的留痕就是原记录上的 status，不该再开一条。
-	const result = await runSystemSql(database, sql({ database }).revert(entry.table_name, values, where));
-	if (Number(result.meta?.changes ?? 0) === 0) {
-		return { id: entry.id, ok: false, message: `该记录已被后续修改覆盖，无法${reverting ? '撤回' : '恢复'}` };
-	}
-	// 带上原状态做条件：并发下只有一个请求能翻成功。
-	await runSql(database, sql({ database }).update(AUDIT_TABLE, {
-		status: reverting ? 'reverted' : 'applied',
-		reverted_at: Date.now(),
-		reverted_duid: database.actorUidForTable?.(AUDIT_TABLE) ?? database.actorUid ?? null,
-		revert_reason: reason,
-	}, [{ column: 'id', value: entry.id }, { column: 'status', value: entry.status }]));
-	return { id: entry.id, ok: true, message: reverting ? '已撤回' : '已恢复' };
+/** 允许的状态迁移，其余一概拒绝。 */
+const TRANSITIONS: Record<AuditStatus, { to: AuditStatus; label: string }[]> = {
+	pending: [{ to: 'applied', label: '批准' }, { to: 'rejected', label: '驳回' }],
+	applied: [{ to: 'reverted', label: '撤回' }],
+	reverted: [{ to: 'applied', label: '恢复' }],
+	rejected: [],
 };
 
 /**
- * 多选撤回是逐条执行的批量入口，**不是原子的级联回滚**——无事务环境下做不到。
+ * 状态迁移：撤回、恢复、批准、驳回是同一段代码。
+ *
+ * 一次变更**永远只有一条记录**：`changes` 里同时有前值和后值，`status` 说明当前停在哪一边。
+ * 写哪一侧只看目标状态——落到 `applied` 就写 `after`、校验 `before`；落到 `reverted` 就反过来。
+ * 批准（`pending → applied`）与恢复（`reverted → applied`）因此是同一条路径：两种情况下
+ * 行上都还是 `before`，都要写成 `after`。驳回不碰数据，只落状态。
+ */
+const transitionOne = async (database: DatabaseAdapter, entry: AuditEntryRow, to: AuditStatus, reason: string): Promise<AuditRevertResult> => {
+	const allowed = TRANSITIONS[entry.status].find((transition) => transition.to === to);
+	if (!allowed) return { id: entry.id, ok: false, message: `当前状态是「${STATUS_LABELS[entry.status]}」，不能执行这个操作` };
+	const reviewing = entry.status === 'pending';
+	const statusFields = reviewing
+		? { reviewed_at: Date.now(), reviewed_duid: actorOf(database), review_reason: reason }
+		: { reverted_at: Date.now(), reverted_duid: actorOf(database), revert_reason: reason };
+	// 驳回不碰数据：待审批的修改从未写入过。
+	if (to !== 'rejected') {
+		const changes = parseAuditChanges(entry.changes);
+		const columns = Object.keys(changes);
+		if (!columns.length) return { id: entry.id, ok: false, message: '该记录没有可还原的字段' };
+		const toApplied = to === 'applied';
+		const write = (column: string) => toApplied ? changes[column].after : changes[column].before;
+		const expect = (column: string) => toApplied ? changes[column].before : changes[column].after;
+		// 每一列都要求当前值仍等于迁移前那一侧，也就是这一列之后没有被人动过（§7.2）。
+		// 期望值为 NULL 时必须写成 IS NULL：SQL 里 col = NULL 求值为 unknown，永远不匹配。
+		const where: SqlCondition[] = [
+			{ column: 'id', value: entry.row_id },
+			...columns.map((column): SqlCondition => {
+				const value = expect(column);
+				return value === null || value === undefined ? { column, operator: 'IS NULL' } : { column, value };
+			}),
+		];
+		const values = Object.fromEntries(columns.map((column) => [column, write(column) ?? null]));
+		// 不走 runOperation：这次迁移的留痕就是原记录上的状态，不该再开一条，更不该再排一次队。
+		const result = await runSystemSql(database, sql({ database }).revert(entry.table_name, values, where));
+		if (Number(result.meta?.changes ?? 0) === 0) {
+			return { id: entry.id, ok: false, message: `该记录已被后续修改覆盖，无法${allowed.label}` };
+		}
+	}
+	// 带上原状态做条件：并发下只有一个请求能迁移成功。
+	await runSql(database, sql({ database }).update(AUDIT_TABLE, { status: to, ...statusFields },
+		[{ column: 'id', value: entry.id }, { column: 'status', value: entry.status }]));
+	return { id: entry.id, ok: true, message: `已${allowed.label}` };
+};
+
+const actorOf = (database: DatabaseAdapter) => database.actorUidForTable?.(AUDIT_TABLE) ?? database.actorUid ?? null;
+
+export const STATUS_LABELS: Record<AuditStatus, string> = { pending: '待审批', applied: '已生效', rejected: '已驳回', reverted: '已撤回' };
+
+/**
+ * 批量迁移是逐条执行的入口，**不是原子的级联回滚**——无事务环境下做不到。
  *
  * 执行顺序必须在实现里重排，不能沿用列表的显示顺序（§8）：同一列经历 A → B → C 后
- * 当前值是 C，只有先撤 B→C 才能接着撤 A→B。恢复方向相反，因此按时间升序走。
+ * 当前值是 C，只有先撤 B→C 才能接着撤 A→B。落到 applied 的方向正好相反，按时间升序走。
  * 某一条被拒绝时其余照常执行，最后逐条返回结果。
  */
-export const revertAuditEntries = async (database: DatabaseAdapter, ids: readonly string[], reason = '', expect?: AuditEntryRow['status']): Promise<AuditRevertResult[]> => {
+export const transitionAuditEntries = async (database: DatabaseAdapter, ids: readonly string[], to: AuditStatus, reason = ''): Promise<AuditRevertResult[]> => {
 	const entries: AuditEntryRow[] = [];
-	const missing: AuditRevertResult[] = [];
+	const results: AuditRevertResult[] = [];
 	for (const id of ids) {
 		const entry = await readAuditEntry(database, id);
-		if (!entry) { missing.push({ id, ok: false, message: '审计记录不存在或无权访问' }); continue; }
-		// 界面上「撤回」和「恢复」是两个按钮，各自只对一种状态有意义。带上期望状态，
-		// 列表过期时点到的那一条会被拒绝，而不是被翻成与按钮相反的方向。
-		if (expect && entry.status !== expect) {
-			missing.push({ id, ok: false, message: expect === 'applied' ? '该记录已经撤回过' : '该记录当前是已生效状态' });
-			continue;
-		}
-		entries.push(entry);
+		if (entry) entries.push(entry);
+		else results.push({ id, ok: false, message: '审计记录不存在或无权访问' });
 	}
 	const newestFirst = (left: AuditEntryRow, right: AuditEntryRow) => Number(right.created_at) - Number(left.created_at) || Number(right.id) - Number(left.id);
-	const reverting = entries.filter((entry) => entry.status === 'applied').sort(newestFirst);
-	const restoring = entries.filter((entry) => entry.status === 'reverted').sort((left, right) => newestFirst(right, left));
-	const results: AuditRevertResult[] = [];
-	for (const entry of [...reverting, ...restoring]) results.push(await flipOne(database, entry, reason));
-	return [...results, ...missing];
+	entries.sort(to === 'reverted' ? newestFirst : (left, right) => newestFirst(right, left));
+	for (const entry of entries) results.push(await transitionOne(database, entry, to, reason));
+	return results;
 };
 
 export type AuditPurgeOptions = { tenantId?: string | number | bigint; batchSize?: number; maxBatches?: number };

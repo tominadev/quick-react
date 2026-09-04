@@ -12,7 +12,7 @@ import type { TableCrudDefinition } from '@server/modules/base/table-crud.mjs';
 
 export const tableCrud: TableCrudDefinition = { table: 'global_cloud_object_storage_buckets', rowKey: 'id' };
 import { allSql, firstSql, runSql, sql } from '@server/database/sql.mjs';
-import { runOperationSql } from '@server/modules/base/operation.mjs';
+import { PendingApprovalError, runOperationSql } from '@server/modules/base/operation.mjs';
 
 const baseColumns = [
 	{ dataIndex: 'id', title: 'ID', dataType: 'int' as const },
@@ -97,14 +97,14 @@ const handler: ApiHandler = async (c, next, params) => {
 		try {
 			const now = Date.now();
 			await runSql(database, sql({ database }).insert('global_cloud_object_storage_buckets', { cloud_credential_id: credentialId, endpoint, region: text(body.region), bucket, path_style: booleanValue(body.path_style) ? 1 : 0, public_base_url: text(body.public_base_url), extra_config: extra, status: body.status === statusValues.disabled ? statusValues.disabled : statusValues.enabled }));
-		} catch { return apiMessage(c, 409, '该凭据、Endpoint 和 Bucket 已经存在'); }
+		} catch (error) { if (error instanceof PendingApprovalError) throw error; return apiMessage(c, 409, '该凭据、Endpoint 和 Bucket 已经存在'); }
 		return apiMessageData(c, 201, 'Bucket 创建成功', {});
 	}
 	if (!params.id && c.req.method === 'DELETE') {
 		const ids = await c.req.json<unknown>().catch(() => []);
 		for (const id of Array.isArray(ids) ? ids : []) {
 			try { await runOperationSql(c, database, sql({ database }).softDelete('global_cloud_object_storage_buckets', { id: Number(id) })); }
-			catch { return apiMessage(c, 409, 'Bucket 已绑定到站点，不能删除'); }
+			catch (error) { if (error instanceof PendingApprovalError) throw error; return apiMessage(c, 409, 'Bucket 已绑定到站点，不能删除'); }
 		}
 		return apiMessage(c, 200, '删除成功，可在回收站找回或彻底删除');
 	}

@@ -17,7 +17,7 @@ try {
 	});
 	const moduleFile = join(temporaryDirectory, 'audit.mjs');
 	await writeFile(moduleFile, result.outputFiles[0].contents);
-	const { allSql, createSqliteAdapter, firstSql, parseAuditChanges, publicAuditChanges, purgeAuditRetention, purgeExpiredAuditEntries, revertAuditEntries, runOperationSql, runSql, sql, withDatabaseActors } = await import(pathToFileURL(moduleFile));
+	const { allSql, createSqliteAdapter, firstSql, parseAuditChanges, publicAuditChanges, purgeAuditRetention, purgeExpiredAuditEntries, transitionAuditEntries, runOperationSql, runSql, sql, withDatabaseActors } = await import(pathToFileURL(moduleFile));
 
 	const database = createSqliteAdapter(join(temporaryDirectory, 'audit.sqlite'));
 	const migrations = resolve(projectDirectory, 'migrations/base');
@@ -33,7 +33,15 @@ try {
 	const acting = withDatabaseActors(counting, { subjectRoles: ['platform_admin'], humanOperation: true });
 	// runOperation 只用请求上下文取「操作原因」，测试给一个最小桩。
 	// 原因走 X-Change-Reason 请求头，客户端 encodeURIComponent 后再发。
-	const context = (reason) => ({ req: { header: (name) => name === 'x-change-reason' && reason !== undefined ? encodeURIComponent(reason) : undefined } });
+	// 默认「立即生效」，绝大多数用例验的是留痕本身；审批那几条单独构造未勾选的上下文。
+	const context = (reason, immediate = true) => ({
+		req: {
+			path: '/api/panel/admin/base/users',
+			header: (name) => name === 'x-change-reason' ? (reason === undefined ? undefined : encodeURIComponent(reason)) : name === 'x-change-immediate' && immediate ? '1' : undefined,
+		},
+		get: (key) => key === 'effectiveRoles' ? ['platform_admin'] : undefined,
+		set: () => {},
+	});
 	const op = (statement, options) => runOperationSql(context(), acting, statement, options);
 
 	const entries = async () => (await allSql(acting, sql({ database: acting }).select({ table: 'base_audit_entries', includeAll: true, orderBy: [{ column: 'id', direction: 'ASC' }] }))).map((entry) => ({ ...entry, id: String(entry.id) }));
@@ -141,10 +149,8 @@ try {
 	// ---- 撤回（§7）----
 	const nameOf = async (id) => (await firstSql(acting, sql({ database: acting }).select({ table: 'base_users', columns: { name: 'name' }, where: [{ column: 'id', value: id }], deleted: 'all' }))).name;
 	const statusOf = async (entryId) => (await firstSql(acting, sql({ database: acting }).select({ table: 'base_audit_entries', columns: { status: 'status' }, where: [{ column: 'id', value: entryId }] }))).status;
-	const revert = (ids, reason = '') => revertAuditEntries(acting, ids, reason);
-	// 界面上撤回与恢复是两个按钮，各自带上期望状态；列表过期时点错的那条要被拒绝，
-	// 而不是被翻成与按钮相反的方向。
-	const flip = (ids, expect) => revertAuditEntries(acting, ids, '', expect);
+	const revert = (ids, reason = '') => transitionAuditEntries(acting, ids, 'reverted', reason);
+	const restore = (ids, reason = '') => transitionAuditEntries(acting, ids, 'applied', reason);
 	const entryById = async (id) => (await entries()).find((entry) => entry.id === id);
 
 	// 撤回不新开记录，而是把这一条翻到另一面。
@@ -152,7 +158,7 @@ try {
 	const daveEntry = await latestEntry();
 	const beforeRevert = (await entries()).length;
 	// 「恢复」按钮点在一条已生效的记录上（列表过期）：拒绝，而不是翻成相反方向。
-	assert.deepEqual(await flip([daveEntry.id], 'reverted'), [{ id: daveEntry.id, ok: false, message: '该记录当前是已生效状态' }]);
+	assert.deepEqual(await restore([daveEntry.id]), [{ id: daveEntry.id, ok: false, message: '当前状态是「已生效」，不能执行这个操作' }]);
 	assert.equal(await nameOf(alice.id), 'dave', '被拒绝时数据不变');
 	assert.deepEqual(await revert([daveEntry.id], '撤回理由：改错了'), [{ id: daveEntry.id, ok: true, message: '已撤回' }]);
 	assert.equal(await nameOf(alice.id), 'alice-3', '撤回后字段应恢复原值');
@@ -165,8 +171,8 @@ try {
 	assert.equal(flipped.reason, daveEntry.reason, '原操作的理由不应被覆盖');
 
 	// 撤回错了就再翻回来，不会堆出一串互相指向的记录。
-	assert.deepEqual(await flip([daveEntry.id], 'applied'), [{ id: daveEntry.id, ok: false, message: '该记录已经撤回过' }]);
-	assert.deepEqual(await revert([daveEntry.id], '恢复：撤错了'), [{ id: daveEntry.id, ok: true, message: '已恢复' }]);
+	assert.deepEqual(await revert([daveEntry.id]), [{ id: daveEntry.id, ok: false, message: '当前状态是「已撤回」，不能执行这个操作' }]);
+	assert.deepEqual(await restore([daveEntry.id], '恢复：撤错了'), [{ id: daveEntry.id, ok: true, message: '已恢复' }]);
 	assert.equal(await nameOf(alice.id), 'dave', '恢复后应回到变更后的值');
 	assert.equal(await statusOf(daveEntry.id), 'applied');
 	assert.equal((await entries()).length, beforeRevert, '恢复同样不产生新记录');
@@ -202,7 +208,7 @@ try {
 	assert.equal(chained[0].id, stepC.id, '执行顺序必须是从新到旧，不沿用传入顺序');
 	assert.equal(await nameOf(alice.id), 'frank', '连续撤回后应回到最初值');
 	// 恢复方向相反：从旧到新才走得通。
-	const restored = await revert([stepC.id, stepB.id]);
+	const restored = await restore([stepC.id, stepB.id]);
 	assert.deepEqual(restored.map((r) => r.ok), [true, true], '链式恢复应全部成功');
 	assert.equal(restored[0].id, stepB.id, '恢复必须从旧到新');
 	assert.equal(await nameOf(alice.id), 'step-c', '连续恢复后应回到最后的值');
@@ -231,7 +237,7 @@ try {
 	assert.equal(Number(await deletedAtOf()), 0, '撤回软删除后记录应回到未删除');
 	assert.equal((await entries()).length, beforeFlip, '撤回软删除不产生新记录');
 	assert.equal(await statusOf(deleteEntry.id), 'reverted');
-	assert.equal((await revert([deleteEntry.id]))[0].ok, true);
+	assert.equal((await restore([deleteEntry.id]))[0].ok, true);
 	assert.equal(String(await deletedAtOf()), String(deletedAt), '恢复删除应写回原时间戳，而不是当前时间');
 	assert.equal((await revert([deleteEntry.id]))[0].ok, true);
 	assert.equal(Number(await deletedAtOf()), 0);
@@ -244,6 +250,62 @@ try {
 	assert.deepEqual(publicAuditChanges(storedChanges), { password: { hidden: true } }, '接口不得返回凭证值');
 	assert.equal((await revert([passwordEntry.id]))[0].ok, true, '凭证列仍然可以撤回');
 	assert.equal((await firstSql(acting, sql({ database: acting }).select({ table: 'base_users', columns: { password: 'password' }, where: [{ column: 'id', value: alice.id }] }))).password, 'hash-1', '撤回后凭证应还原');
+
+	// ---- 审批（§11）----
+	// 默认不勾「立即生效」：记录成待审批，数据一条都不动。
+	const pendingContext = context('申请调整角色', false);
+	const beforePending = (await entries()).length;
+	const { PendingApprovalError } = await import(pathToFileURL(moduleFile));
+	await assert.rejects(
+		() => runOperationSql(pendingContext, acting, sql({ database: acting }).update('base_users', { roles: '["tenant_admin"]' }, { id: alice.id })),
+		(error) => error instanceof PendingApprovalError,
+		'不勾立即生效就该走审批，而不是直接写库',
+	);
+	const pendingEntry = await latestEntry();
+	assert.equal((await entries()).length, beforePending + 1, '待审批也要留记录');
+	assert.equal(pendingEntry.status, 'pending');
+	assert.equal(pendingEntry.reason, '申请调整角色');
+	const rolesOf = async () => (await firstSql(acting, sql({ database: acting }).select({ table: 'base_users', columns: { roles: 'roles' }, where: [{ column: 'id', value: alice.id }] }))).roles;
+	const originalRoles = '[]';
+	assert.equal(await rolesOf(), originalRoles, '待审批期间数据一条都不能动');
+
+	// 待审批的记录不能撤回，只能批准或驳回。
+	assert.equal((await revert([pendingEntry.id]))[0].message, '当前状态是「待审批」，不能执行这个操作');
+
+	// 批准：把 after 写进去，并记下审批人与意见。
+	assert.deepEqual(await transitionAuditEntries(acting, [pendingEntry.id], 'applied', '同意'), [{ id: pendingEntry.id, ok: true, message: '已批准' }]);
+	assert.equal(await rolesOf(), '["tenant_admin"]', '批准后修改才生效');
+	const approved = await entryById(pendingEntry.id);
+	assert.equal(approved.status, 'applied');
+	assert.equal(approved.review_reason, '同意');
+	assert.ok(Number(approved.reviewed_at) > 0, '要记下什么时候批的');
+	assert.equal(approved.revert_reason, '', '审批与撤回各用一组字段，不能互相覆盖');
+
+	// 批准过的可以再撤回，撤回信息不会覆盖掉「谁批准的」。
+	assert.equal((await revert([pendingEntry.id], '批错了'))[0].ok, true);
+	const afterRevert = await entryById(pendingEntry.id);
+	assert.equal(afterRevert.review_reason, '同意', '撤回不能覆盖审批意见');
+	assert.equal(afterRevert.revert_reason, '批错了');
+	assert.equal(await rolesOf(), originalRoles);
+
+	// 驳回：不碰数据，只落状态。
+	await assert.rejects(() => runOperationSql(context('申请改名', false), acting, sql({ database: acting }).update('base_users', { name: 'rejected-name' }, { id: alice.id })));
+	const rejectEntry = await latestEntry();
+	assert.deepEqual(await transitionAuditEntries(acting, [rejectEntry.id], 'rejected', '不同意'), [{ id: rejectEntry.id, ok: true, message: '已驳回' }]);
+	assert.equal(await nameOf(alice.id), 'frank', '驳回不该改动数据');
+	assert.equal((await entryById(rejectEntry.id)).status, 'rejected');
+	// 驳回是终态，不能再迁移。
+	assert.equal((await transitionAuditEntries(acting, [rejectEntry.id], 'applied'))[0].message, '当前状态是「已驳回」，不能执行这个操作');
+
+	// 非管理员就算发了 X-Change-Immediate 也照样进队列：放行由服务端角色说了算。
+	const forged = { req: context('', true).req, get: (key) => key === 'effectiveRoles' ? ['user'] : undefined, set: () => {} };
+	await assert.rejects(
+		() => runOperationSql(forged, acting, sql({ database: acting }).update('base_users', { name: 'forged' }, { id: alice.id })),
+		(error) => error instanceof PendingApprovalError,
+		'非管理员伪造请求头不能跳过审批',
+	);
+	assert.equal(await nameOf(alice.id), 'frank');
+	await transitionAuditEntries(acting, [(await latestEntry()).id], 'rejected', '清理测试数据');
 
 	// ---- 保留期（§10）----
 	const total = (await entries()).length;

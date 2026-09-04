@@ -2,7 +2,7 @@ import type { Context } from 'hono';
 import type { AppEnv } from '@server/modules/base/types.mjs';
 import type { DatabaseAdapter, DatabaseBatchStatement } from '@server/database/index.mjs';
 import { allSql, firstSql, runSql, runSystemSql, sql } from '@server/database/sql.mjs';
-import { runOperationSql } from '@server/modules/base/operation.mjs';
+import { PendingApprovalError, runOperationSql } from '@server/modules/base/operation.mjs';
 import { hashPassword, verifyPassword } from '@server/modules/base/auth/index.mjs';
 import { normalizePassportEmail } from './identity.mjs';
 import { getPassportSnowflakeGenerator } from './snowflake.mjs';
@@ -53,7 +53,8 @@ export const setAccountUsername = async (c: Context<AppEnv>, database: DatabaseA
 	if (taken) throw new Error('该用户名已被占用，请更换后重试');
 	try {
 		await runOperationSql(c, database, sql({ database }).update('passport_users', { name: username }, { user_id: userId }));
-	} catch {
+	} catch (error) {
+		if (error instanceof PendingApprovalError) throw error;
 		throw new Error('该用户名已被占用，请更换后重试');
 	}
 	return username;

@@ -25,7 +25,11 @@ enum BaseAuditAction {
 }
 
 enum BaseAuditStatus {
+  /// 已提交，等审批：记录已写，数据还没动。
+  pending
   applied
+  /// 审批未通过：数据从未被写入。
+  rejected
   reverted
 }
 
@@ -296,8 +300,12 @@ model base_audit_entries {
   changes      Json @default("{}")
   /// applied ↔ reverted 可以来回翻：撤回不新开记录，而是把这一条翻到另一面。
   status       BaseAuditStatus @default(applied)
+  /// 审批的时间、审批人与意见。pending → applied/rejected 时写一次就定了。
+  reviewed_at   BigInt?
+  reviewed_duid BigInt?
+  review_reason String @default("")
   /// 最后一次撤回/恢复的时间、操作者与理由。原记录的 created_* 属于原操作者，不能复用。
-  /// 审批用另一组 reviewed_*：合用一组会让撤回信息覆盖掉「谁批准的」。
+  /// 与 reviewed_* 分开：合用一组会让撤回信息覆盖掉「谁批准的」。
   reverted_at   BigInt?
   reverted_duid BigInt?
   revert_reason String @default("")
@@ -306,4 +314,5 @@ model base_audit_entries {
   @@index([owner_uid, created_at])
   @@index([table_name, row_id, created_at])
   @@index([operation_id])
+  @@index([status, created_at])
 }

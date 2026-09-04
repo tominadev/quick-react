@@ -19,6 +19,9 @@ try {
 		headers.set('x-device-fingerprint', fingerprintData);
 		if (options.cookie) headers.set('cookie', options.cookie);
 		if (options.body !== undefined) headers.set('content-type', 'application/json');
+		// 后台的写操作默认走审批（§11.3）。这里模拟管理员勾了「立即生效」，
+		// 用例验的是业务行为本身；审批流程由 test:change-audit 单独覆盖。
+		if (!headers.has('x-change-immediate')) headers.set('x-change-immediate', '1');
 		return app.request(`http://localhost${requestUrl.pathname}${requestUrl.search}`, {
 			method: options.method,
 			headers,

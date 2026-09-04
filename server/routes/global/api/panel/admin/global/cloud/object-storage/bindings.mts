@@ -10,7 +10,7 @@ import type { TableCrudDefinition } from '@server/modules/base/table-crud.mjs';
 export const tableCrud: TableCrudDefinition = { table: 'global_cloud_object_storage_bindings', rowKey: 'id' };
 import { getChangedFields } from '@server/modules/base/changed-fields.mjs';
 import { allSql, firstSql, runSql, sql } from '@server/database/sql.mjs';
-import { runOperationSql } from '@server/modules/base/operation.mjs';
+import { PendingApprovalError, runOperationSql } from '@server/modules/base/operation.mjs';
 
 const purposes = [
 	{ value: 'uploads', text: '上传文件' },
@@ -139,7 +139,7 @@ const handler: ApiHandler = async (c, next, params) => {
 			await runSql(database, sql({ database }).delete('global_cloud_object_storage_binding_purposes', { binding_id: Number(params.id) }));
 			await runOperationSql(c, database, sql({ database }).update('global_cloud_object_storage_bindings', { site_key: siteKey, bucket_id: bucketId, key_prefix: keyPrefix, status }, { id: Number(params.id) }));
 			await savePurposes(c, database, Number(params.id), siteKey, selected, status === statusValues.enabled ? defaults : []);
-		} catch (error) { return apiMessage(c, 400, error instanceof Error ? error.message : '保存绑定失败'); }
+		} catch (error) { if (error instanceof PendingApprovalError) throw error; return apiMessage(c, 400, error instanceof Error ? error.message : '保存绑定失败'); }
 		return apiMessage(c, 200, '保存成功');
 	}
 	if (params.id && c.req.method === 'DELETE') {

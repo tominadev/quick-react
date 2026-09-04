@@ -24,3 +24,19 @@ export const changeReasonColumn = (): TableColumn => ({
 	component: 'textbox',
 	placeholder: '可留空；写清为什么改，事后追查时最有用',
 });
+
+/**
+ * 「立即生效」勾选：跳过审批直接写库。
+ *
+ * **默认不勾——默认走审批。** 只对管理员渲染；服务端另有一道角色校验，
+ * 非管理员伪造这个字段也照样进审批队列（见需求文档 §11.3）。
+ */
+export const CHANGE_IMMEDIATE_FIELD = '_immediate';
+export const changeImmediateColumn = (): TableColumn => ({
+	dataIndex: CHANGE_IMMEDIATE_FIELD,
+	title: '立即生效',
+	component: 'switch',
+	checkedValue: '1',
+	uncheckedValue: '',
+	placeholder: '跳过审批直接生效；不勾则提交审批',
+});

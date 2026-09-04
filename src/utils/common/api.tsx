@@ -1,5 +1,5 @@
 import type React from 'react';
-import { Input, Modal, ModalFuncProps, Spin } from 'antd';
+import { Checkbox, Input, Modal, ModalFuncProps, Spin } from 'antd';
 import { message } from 'antd';
 import { ExclamationCircleOutlined } from '@ant-design/icons';
 import { useRef, useState } from 'react';
@@ -16,6 +16,8 @@ export type ResJsonTableOption = TableOption;
 export type ResJsonTable = TableResponse;
 
 export type ApiFeedback = SharedApiFeedback;
+/** 确认框里收集到的变更控制信息：操作原因与「立即生效」。 */
+export type ChangeControlValues = { reason: string; immediate: boolean };
 
 export type ResJSON = ApiResponseBody;
 
@@ -30,8 +32,8 @@ export type UploadFileOptions = {
 export interface CommonApi {
 	modalError: (aContentLine: string[], props?: ModalFuncProps) => Promise<void>,
 	modalConfirm: (aContentLine: string[], props?: ModalFuncProps) => Promise<boolean>
-	/** 带「操作原因」输入的确认框；取消时返回 undefined。原因可以留空。 */
-	modalConfirmWithReason: (aContentLine: string[], props?: ModalFuncProps) => Promise<string | undefined>
+	/** 带「操作原因」输入的确认框；取消时返回 undefined。原因可以留空，「立即生效」默认不勾。 */
+	modalConfirmWithReason: (aContentLine: string[], options?: { allowImmediate?: boolean }, props?: ModalFuncProps) => Promise<ChangeControlValues | undefined>
 	apiFetch: (input: RequestInfo | URL, init?: RequestInit) => Promise<Response>;
 	uploadFile: (input: string | URL, file: Blob, options?: UploadFileOptions) => Promise<void>;
 }
@@ -76,8 +78,10 @@ export function useCommonApi(): [CommonApi, React.JSX.Element] {
 	 * 不强制填：改个昵称也弹框要理由，人会填「1」「。」，垃圾原因比没有原因更糟，
 	 * 它给了假的可信度。哪些操作强制填由服务端另行判定。
 	 */
-	const modalConfirmWithReason = async (aContentLine: string[], props?: ModalFuncProps): Promise<string | undefined> => {
+	const modalConfirmWithReason = async (aContentLine: string[], options?: { allowImmediate?: boolean }, props?: ModalFuncProps): Promise<ChangeControlValues | undefined> => {
 		const reasonRef = { current: '' };
+		// 默认不勾：不勾就走审批。只有管理员看得到这个勾选框。
+		const immediateRef = { current: false };
 		const confirmed = await modalApi.confirm({
 			title: '确认提示',
 			icon: <ExclamationCircleOutlined />,
@@ -91,6 +95,11 @@ export function useCommonApi(): [CommonApi, React.JSX.Element] {
 						style={{ marginTop: 12 }}
 						onChange={(event) => { reasonRef.current = event.target.value; }}
 					/>
+					{options?.allowImmediate ? (
+						<Checkbox style={{ marginTop: 8 }} onChange={(event) => { immediateRef.current = event.target.checked; }}>
+							立即生效（跳过审批）
+						</Checkbox>
+					) : null}
 				</>
 			),
 			okText: '确定',
@@ -98,7 +107,7 @@ export function useCommonApi(): [CommonApi, React.JSX.Element] {
 			maskClosable: true,
 			...props,
 		});
-		return confirmed ? reasonRef.current.trim().slice(0, 500) : undefined;
+		return confirmed ? { reason: reasonRef.current.trim().slice(0, 500), immediate: immediateRef.current } : undefined;
 	};
 
 	const getJsonByRes = async (res: Response): Promise<ParsedResJSON> => {

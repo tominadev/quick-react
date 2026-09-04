@@ -23,6 +23,8 @@ export type FormPageField = {
 export type FormPageExternalLogin = { key: string; label: string; recommended?: boolean; hint?: string };
 
 export type FormPageConfig = {
+	/** 当前用户能不能跳过审批；由服务端在 apiResponse 里统一注入，见 TableOption.canSkipApproval。 */
+	canSkipApproval?: boolean;
 	/** 需要前往 Accounts 完成登录的页面：只在用户点击后弹出登录窗口，本页既不自动跳转也不整页跳走。 */
 	passportLogin?: { enabled: boolean };
 	description?: string;
@@ -62,4 +64,13 @@ export const changeReasonField = (): FormPageField => ({
 	type: 'text',
 	maxLength: 500,
 	placeholder: '可留空；写清为什么改，事后追查时最有用',
+});
+
+/** 「立即生效」勾选，与 TableCRUD 的 changeImmediateColumn 同源。默认不勾，即默认走审批。 */
+export const changeImmediateField = (): FormPageField => ({
+	name: '_immediate',
+	label: '立即生效',
+	type: 'switch',
+	defaultValue: false,
+	extra: '跳过审批直接生效；不勾则提交审批',
 });

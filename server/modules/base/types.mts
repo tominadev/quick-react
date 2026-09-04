@@ -51,6 +51,8 @@ export type AppEnv = {
 		currentUser?: UserIdentity;
 		passportUser?: UserIdentity;
 		effectiveRoles: string[];
+		/** 本次请求把修改记成了待审批：数据没动，响应必须是 202 而不是「已保存」。 */
+		pendingApproval?: { operationId: string; entries: number };
 		/** Base 响应层按 include=auth 请求当前认证、导航和页面状态；表格结构和数据用 include=schema,data 请求。 */
 		apiContext?: (path?: string) => Promise<ApiContext>;
 	};

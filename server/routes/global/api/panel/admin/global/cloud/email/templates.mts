@@ -15,7 +15,7 @@ import type { TableCrudDefinition } from '@server/modules/base/table-crud.mjs';
 export const tableCrud: TableCrudDefinition = { table: 'global_cloud_email_templates', rowKey: 'id' };
 import { cloudProviderOptions, getCloudEmailRegionLabel, getCloudEmailRegionOptions, getCloudEmailRegions, providerSupportsEmailPush } from '@server/modules/global/cloud/catalog.mjs';
 import { allSql, firstSql, runSql, sql } from '@server/database/sql.mjs';
-import { runOperationSql } from '@server/modules/base/operation.mjs';
+import { PendingApprovalError, runOperationSql } from '@server/modules/base/operation.mjs';
 
 const columns = [
 	{ dataIndex: 'id', title: 'ID', dataType: 'int' as const },
@@ -176,7 +176,7 @@ const handler: ApiHandler = async (c, next, params) => {
 		try {
 			const now = Date.now();
 			await runSql(database, sql({ database }).insert('global_cloud_email_templates', { key: templateKey, type: templateType, name, subject, body_text: bodyText, body_html: bodyHtml, status: body.status === statusValues.disabled ? statusValues.disabled : statusValues.enabled }));
-		} catch { return apiMessage(c, 409, '模板 Key 已经存在'); }
+		} catch (error) { if (error instanceof PendingApprovalError) throw error; return apiMessage(c, 409, '模板 Key 已经存在'); }
 		const template = await firstSql<CloudEmailTemplate>(database, sql({ database }).select({ table: 'global_cloud_email_templates', columns: templateColumns, where: [{ column: 'key', value: templateKey }] }));
 		if (!template) return apiMessage(c, 500, '模板创建后无法读取');
 		return apiMessageData(c, 201, '邮件模板创建成功，请选择云凭据和 Region 发布', { id: template.id });

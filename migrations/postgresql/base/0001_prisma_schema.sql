@@ -17,7 +17,7 @@ CREATE TYPE "BaseTenantStatus" AS ENUM ('enabled', 'disabled');
 CREATE TYPE "BaseAuditAction" AS ENUM ('update', 'soft_delete', 'restore');
 
 -- CreateEnum
-CREATE TYPE "BaseAuditStatus" AS ENUM ('applied', 'reverted');
+CREATE TYPE "BaseAuditStatus" AS ENUM ('pending', 'applied', 'rejected', 'reverted');
 
 -- CreateTable
 CREATE TABLE "base_tenants" (
@@ -292,6 +292,9 @@ CREATE TABLE "base_audit_entries" (
     "action" "BaseAuditAction" NOT NULL,
     "changes" JSONB NOT NULL DEFAULT '{}',
     "status" "BaseAuditStatus" NOT NULL DEFAULT 'applied',
+    "reviewed_at" BIGINT,
+    "reviewed_duid" BIGINT,
+    "review_reason" TEXT NOT NULL DEFAULT '',
     "reverted_at" BIGINT,
     "reverted_duid" BIGINT,
     "revert_reason" TEXT NOT NULL DEFAULT '',
@@ -355,3 +358,6 @@ CREATE INDEX "base_audit_entries_table_name_row_id_created_at_idx" ON "base_audi
 
 -- CreateIndex
 CREATE INDEX "base_audit_entries_operation_id_idx" ON "base_audit_entries"("operation_id");
+
+-- CreateIndex
+CREATE INDEX "base_audit_entries_status_created_at_idx" ON "base_audit_entries"("status", "created_at");

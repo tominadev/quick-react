@@ -287,7 +287,10 @@ CREATE TABLE `base_audit_entries` (
     `row_id` BIGINT NOT NULL,
     `action` ENUM('update', 'soft_delete', 'restore') NOT NULL,
     `changes` JSON NOT NULL,
-    `status` ENUM('applied', 'reverted') NOT NULL DEFAULT 'applied',
+    `status` ENUM('pending', 'applied', 'rejected', 'reverted') NOT NULL DEFAULT 'applied',
+    `reviewed_at` BIGINT NULL,
+    `reviewed_duid` BIGINT NULL,
+    `review_reason` VARCHAR(191) NOT NULL DEFAULT '',
     `reverted_at` BIGINT NULL,
     `reverted_duid` BIGINT NULL,
     `revert_reason` VARCHAR(191) NOT NULL DEFAULT '',
@@ -297,5 +300,6 @@ CREATE TABLE `base_audit_entries` (
     INDEX `base_audit_entries_owner_uid_created_at_idx`(`owner_uid`, `created_at`),
     INDEX `base_audit_entries_table_name_row_id_created_at_idx`(`table_name`, `row_id`, `created_at`),
     INDEX `base_audit_entries_operation_id_idx`(`operation_id`),
+    INDEX `base_audit_entries_status_created_at_idx`(`status`, `created_at`),
     PRIMARY KEY (`id`)
 ) DEFAULT CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci;

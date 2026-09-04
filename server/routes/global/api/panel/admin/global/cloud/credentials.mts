@@ -8,7 +8,7 @@ import type { CloudCredential } from '@server/modules/global/cloud/index.mjs';
 import { getChangedFields } from '@server/modules/base/changed-fields.mjs';
 import type { DatabaseAdapter } from '@server/database/index.mjs';
 import { allSql, firstSql, runSql, sql } from '@server/database/sql.mjs';
-import { runOperationSql } from '@server/modules/base/operation.mjs';
+import { PendingApprovalError, runOperationSql } from '@server/modules/base/operation.mjs';
 import { enabledDisabledOptions, statusValues } from '@shared/types/status.mjs';
 import type { TableCrudDefinition } from '@server/modules/base/table-crud.mjs';
 
@@ -59,7 +59,7 @@ const handler: ApiHandler = async (c, next, params) => {
 		try {
 			const now = Date.now();
 			await runSql(database, sql({ database }).insert('global_cloud_credentials', { name, provider, account_id: accountId, access_key_id: accessKeyId, access_key_secret: accessKeySecret, status: body.status === statusValues.disabled ? statusValues.disabled : statusValues.enabled }));
-		} catch { return apiMessage(c, 409, '凭据名称已经存在'); }
+		} catch (error) { if (error instanceof PendingApprovalError) throw error; return apiMessage(c, 409, '凭据名称已经存在'); }
 		return apiMessageData(c, 201, '云凭据创建成功', {});
 	}
 	if (!params.id && c.req.method === 'DELETE') {

@@ -15,6 +15,7 @@ import { resolveHostScope } from './modules/base/tenant.mjs';
 import { SiteRouter } from './modules/base/site-router.mjs';
 import { baseSessionMaxAge, createSessionCookie, loadBaseDeviceUserId, loadCurrentUser, readSessionId, sessionUsesAccountsOidc } from './modules/base/auth/index.mjs';
 import { loadAccountsOidcConfig, resolveAccountsLoginMode } from './modules/passport/accounts/client.mjs';
+import { PendingApprovalError } from './modules/base/operation.mjs';
 import { clearPassportSessionCookie, loadPassportDeviceUserId, loadPassportSession, readPassportSessionId } from './modules/passport/session.mjs';
 import { loadSystemConfigFromStore } from './modules/base/system-config.mjs';
 import { applyTechStackHeaders, loadTechStackConfigFromStore } from './modules/base/tech-stack.mjs';
@@ -325,9 +326,25 @@ app.use('*', async (c, next) => {
 	try {
 		if (!await configureForRequest(c)) return c.text('Site Not Found', 404);
 		await next();
+		// 待审批的响应在这里统一收口。
+		//
+		// 不能只靠 catch：Hono 的 compose 在**每一层** dispatch 里就地 catch 并交给 onError，
+		// 异常在深处就被转成 500 了，根本传不到这里的 await next()。业务路由自己的 catch
+		// 也可能把它吞掉。所以判据是上下文里的标记，不是异常，也不看当前状态码——
+		// 只要记成了待审批，数据就一定没动，任何别的响应都是错的。
+		// 必须直接改写 c.res：响应已经被下游 finalize 了，此时 return 出去的新响应会被
+		// compose 丢弃（它只在 finalized === false 时才采用返回值）。
+		if (c.get('pendingApproval') && c.res.status !== 202) {
+			c.res = await apiMessage(c, 202, '修改已提交审批，通过后才会生效', { component: 'modal', showIcon: true, title: '已提交审批' });
+		}
 		applyTechStackHeaders(c.res.headers, c.req.path, c.get('techStackConfig'));
 		return undefined;
 	} catch (error) {
+		// 待审批不是错误：操作已经记下来了，只是还没生效。抛异常是为了让业务路由后面
+		// 那句「已保存」不会执行——它一行都不用改（见需求文档 §11.5）。
+		if (error instanceof PendingApprovalError) {
+			return apiMessage(c, 202, error.message, { component: 'modal', showIcon: true, title: '已提交审批' });
+		}
 		console.error(error);
 		return apiMessage(c, 503, 'Service configuration unavailable');
 	}
