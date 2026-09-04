@@ -25,7 +25,8 @@ const columns = [
 	{ dataIndex: 'table_name', title: '数据表' },
 	{ dataIndex: 'row_id', title: '记录' },
 	{ dataIndex: 'action', title: '动作' },
-	{ dataIndex: 'summary', title: '变更内容' },
+	// 一列一行；multiline 模式带 pre-wrap 与三行折叠，改得多也不会撑爆表格。
+	{ dataIndex: 'summary', title: '变更内容', tableDisplay: 'multiline' as const },
 	{ dataIndex: 'reason', title: '操作原因' },
 	{ dataIndex: 'created_duid', title: '操作者' },
 	{ dataIndex: 'owner_uid', title: '作用账号' },

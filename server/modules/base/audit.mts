@@ -71,9 +71,10 @@ export const publicAuditChanges = (changes: AuditChanges) => Object.fromEntries(
 	isHiddenValueColumn(column) ? { hidden: true } : { before: change.before ?? null, after: change.after ?? null },
 ]));
 
+/** 一列一行：多列一起改时挤在一行要靠眼睛找箭头，列表用 multiline 模式渲染。 */
 export const describeAuditChanges = (changes: AuditChanges) => Object.entries(changes)
 	.map(([column, change]) => isHiddenValueColumn(column) ? `${column}：已变更` : `${column}：${displayValue(change.before)} → ${displayValue(change.after)}`)
-	.join('；');
+	.join('\n');
 
 /** 可见性由公共层的归属判定自动收敛，这里不再叠加条件。 */
 export const listAuditEntries = async (database: DatabaseAdapter, where: SqlCondition[] = [], limit = 200) => allSql<AuditEntryRow>(database, sql({ database }).select({

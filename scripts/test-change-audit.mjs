@@ -268,6 +268,14 @@ try {
 	assert.equal((await revert([passwordEntry.id]))[0].ok, true, '凭证列仍然可以撤回');
 	assert.equal((await firstSql(acting, sql({ database: acting }).select({ table: 'base_users', columns: { password: 'password' }, where: [{ column: 'id', value: alice.id }] }))).password, 'hash-1', '撤回后凭证应还原');
 
+	// 多列一起改时，摘要一列一行，不挤在一行里。
+	const { describeAuditChanges } = await import(pathToFileURL(moduleFile));
+	assert.equal(
+		describeAuditChanges({ name: { before: 'a', after: 'b' }, status: { before: 'enabled', after: 'disabled' } }),
+		'name：a → b\nstatus：enabled → disabled',
+	);
+	assert.equal(describeAuditChanges({ password: { before: 'x', after: 'y' } }), 'password：已变更', '凭证列只说已变更');
+
 	// ---- 审批（§11）----
 	// 默认不勾「立即生效」：记录成待审批，数据一条都不动。
 	const pendingContext = context('申请调整角色', false);
