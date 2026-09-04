@@ -51,3 +51,15 @@ export type FormPageResponse<T = Record<string, unknown>> = {
 };
 import type { ApiContext, ApiFeedback, ApiNextAction } from './api-response.mjs';
 import type { FieldReadOnlyWhen } from '../field-linkage.mjs';
+
+/**
+ * 客户端注入的「操作原因」字段，与 TableCRUD 的 changeReasonColumn 同源。
+ * 提交前从请求体里摘出去、改走 X-Change-Reason 请求头，业务路由看不见它。
+ */
+export const changeReasonField = (): FormPageField => ({
+	name: '_reason',
+	label: '操作原因',
+	type: 'text',
+	maxLength: 500,
+	placeholder: '可留空；写清为什么改，事后追查时最有用',
+});

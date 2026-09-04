@@ -488,16 +488,17 @@ const TableCRUD = ({ commonApi, resourcePath, initialResponse, initialQueryValue
 		}
 		const drawerForm = drawer.drawerForm({
 			title: action.label,
-			columns: action.form.columns,
+			columns: [...action.form.columns, changeReasonColumn()],
 			optionsPath: `${apiPath}/${encodeURIComponent(rowId)}`,
 		}, async (values) => {
 			if (!values) return;
 			drawerForm.setSubmitting‌(true);
 			try {
+				const { [CHANGE_REASON_FIELD]: reason, ...payload } = values;
 				await commonApi.apiFetch(url, {
 					method: 'POST',
-					headers: { 'Content-Type': 'application/json' },
-					body: JSON.stringify(values),
+					headers: { 'Content-Type': 'application/json', ...reasonHeader(typeof reason === 'string' ? reason : undefined) },
+					body: JSON.stringify(payload),
 				});
 				drawer.drawerClose();
 			} catch (error) {
@@ -510,14 +511,15 @@ const TableCRUD = ({ commonApi, resourcePath, initialResponse, initialQueryValue
 
 	const onToolbarFormAction = (action: TableAction) => {
 		if (!action.form) return;
-		const drawerForm = drawer.drawerForm({ title: action.label, columns: action.form.columns, optionsPath: apiPath }, async (values) => {
+		const drawerForm = drawer.drawerForm({ title: action.label, columns: [...action.form.columns, changeReasonColumn()], optionsPath: apiPath }, async (values) => {
 			if (!values) return;
 			drawerForm.setSubmitting‌(true);
 			try {
+				const { [CHANGE_REASON_FIELD]: reason, ...payload } = values;
 				await commonApi.apiFetch(`${apiPath}?action=${encodeURIComponent(action.key)}`, {
 					method: 'POST',
-					headers: { 'Content-Type': 'application/json' },
-					body: JSON.stringify(values),
+					headers: { 'Content-Type': 'application/json', ...reasonHeader(typeof reason === 'string' ? reason : undefined) },
+					body: JSON.stringify(payload),
 				});
 				drawer.drawerClose();
 				await fetchData();
@@ -530,8 +532,9 @@ const TableCRUD = ({ commonApi, resourcePath, initialResponse, initialQueryValue
 	};
 	const onToolbarSimpleAction = async (action: TableAction) => {
 		if (action.disabled) return;
-		if (action.confirm && !await commonApi.modalConfirm([action.confirm])) return;
-		const response = await commonApi.apiFetch(`${apiPath}?action=${encodeURIComponent(action.key)}`, { method: 'POST' });
+		const reason = await commonApi.modalConfirmWithReason([action.confirm ?? `确定执行「${action.label}」吗？`]);
+		if (reason === undefined) return;
+		const response = await commonApi.apiFetch(`${apiPath}?action=${encodeURIComponent(action.key)}`, { method: 'POST', headers: reasonHeader(reason) });
 		const result = await response.json().catch(() => ({})) as { redirectTo?: string; openWindow?: boolean };
 		if (result.redirectTo && result.openWindow) {
 			const popup = window.open(result.redirectTo, 'accounts_identity_bind', 'width=480,height=680,resizable=yes,scrollbars=yes');
@@ -578,16 +581,17 @@ const TableCRUD = ({ commonApi, resourcePath, initialResponse, initialQueryValue
 		if (action.confirm && !await commonApi.modalConfirm([rowConfirmText(action.confirm, record)])) return;
 		const drawerForm = drawer.drawerForm({
 			title: action.label,
-			columns: action.form.columns,
+			columns: [...action.form.columns, changeReasonColumn()],
 			optionsPath: `${apiPath}/${encodeURIComponent(rowId)}`,
 		}, async (values) => {
 			if (!values) return;
 			drawerForm.setSubmitting‌(true);
 			try {
+				const { [CHANGE_REASON_FIELD]: reason, ...payload } = values;
 				const response = await commonApi.apiFetch(`${apiPath}/${encodeURIComponent(rowId)}?action=${encodeURIComponent(action.key)}`, {
 					method: 'POST',
-					headers: { 'Content-Type': 'application/json' },
-					body: JSON.stringify(values),
+					headers: { 'Content-Type': 'application/json', ...reasonHeader(typeof reason === 'string' ? reason : undefined) },
+					body: JSON.stringify(payload),
 				});
 				if (!response.ok) return;
 				drawer.drawerClose();

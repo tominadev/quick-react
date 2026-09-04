@@ -3,6 +3,8 @@ import { Alert, Button, Card, Divider, Form, Input, message, Modal, Select, Spac
 import { ClearOutlined, GoogleCircleFilled, RollbackOutlined, SendOutlined, UserOutlined, WechatFilled } from '@ant-design/icons';
 import type { CommonApi } from '@/utils/common/api.js';
 import type { FormPageField, FormPageResponse } from '@shared/types/form-page.mjs';
+import { changeReasonField } from '@shared/types/form-page.mjs';
+import { CHANGE_REASON_FIELD } from '@shared/table-form.mjs';
 import { isFieldReadOnly, type FieldLinkOption } from '@shared/field-linkage.mjs';
 import { changedFieldsKey, type ChangedFieldsPayload } from '@shared/types/changed-fields.mjs';
 import { CountdownDisplay, formatCountdown } from '@/components/common/Countdown.js';
@@ -178,6 +180,9 @@ export default function FormPage({ commonApi, apiPath, title, submitMethod = 'PU
 		}
 	};
 
+	/** 原因走请求头，头部只能放 ASCII，因此先 encodeURIComponent。留空就不发。 */
+	const reasonHeader = (reason?: string): Record<string, string> => reason ? { 'X-Change-Reason': encodeURIComponent(reason) } : {};
+
 	const onFinish = async (values: Record<string, unknown>) => {
 		if (!dirty && formConfig?.confirmOnUnchangedSubmit) {
 			const confirmed = await commonApi.modalConfirm([formConfig.confirmOnUnchangedSubmit]);
@@ -185,10 +190,12 @@ export default function FormPage({ commonApi, apiPath, title, submitMethod = 'PU
 		}
 		setSaving(true);
 		try {
-			const payload = { ...values, [changedFieldsKey]: [...changedFields.current], ...(restoreDefaultsPending.current ? { restoreDefaults: true } : {}) };
+			// 原因摘出去改走请求头：它不是配置项，不该混进保存的值里。
+			const { [CHANGE_REASON_FIELD]: reason, ...submitted } = values;
+			const payload = { ...submitted, [changedFieldsKey]: [...changedFields.current].filter((name) => name !== CHANGE_REASON_FIELD), ...(restoreDefaultsPending.current ? { restoreDefaults: true } : {}) };
 			const response = await commonApi.apiFetch(apiPath, {
 				method: submitMethod,
-				headers: { 'Content-Type': 'application/json' },
+				headers: { 'Content-Type': 'application/json', ...reasonHeader(typeof reason === 'string' ? reason : undefined) },
 				body: JSON.stringify(payload satisfies ChangedFieldsPayload & Record<string, unknown>),
 			});
 			await applyResult(await response.json() as FormResponse, values);
@@ -223,11 +230,12 @@ export default function FormPage({ commonApi, apiPath, title, submitMethod = 'PU
 		}
 		setRunningAction(key);
 		const values = form.getFieldsValue(true) as Record<string, unknown>;
+		const { [CHANGE_REASON_FIELD]: actionReason, ...actionValues } = values;
 		try {
 			const response = await commonApi.apiFetch(actionPath(apiPath, key), {
 				method: 'POST',
-				headers: { 'Content-Type': 'application/json' },
-				body: JSON.stringify({ ...values, [changedFieldsKey]: [...changedFields.current] } satisfies ChangedFieldsPayload & Record<string, unknown>),
+				headers: { 'Content-Type': 'application/json', ...reasonHeader(typeof actionReason === 'string' ? actionReason : undefined) },
+				body: JSON.stringify({ ...actionValues, [changedFieldsKey]: [...changedFields.current].filter((name) => name !== CHANGE_REASON_FIELD) } satisfies ChangedFieldsPayload & Record<string, unknown>),
 			});
 			await applyResult(await response.json() as FormResponse, values);
 		} catch (error) {
@@ -300,10 +308,10 @@ export default function FormPage({ commonApi, apiPath, title, submitMethod = 'PU
 				setDirty(changedFields.current.size > 0);
 			}}
 		>
-			{formConfig?.fields.filter((field) => !isSystemField(field.name)).map((field) => field.type === 'hidden' ? (
+			{[...(formConfig?.fields ?? []), ...(formConfig ? [changeReasonField()] : [])].filter((field) => !isSystemField(field.name)).map((field) => field.type === 'hidden' ? (
 				<Form.Item key={field.name} name={field.name} hidden><Input /></Form.Item>
 			) : (() => {
-				const sourceOptions = field.readOnlyWhen ? formConfig.fields.find((candidate) => candidate.name === field.readOnlyWhen?.field)?.options as FieldLinkOption[] | undefined : undefined;
+				const sourceOptions = field.readOnlyWhen ? formConfig?.fields.find((candidate) => candidate.name === field.readOnlyWhen?.field)?.options as FieldLinkOption[] | undefined : undefined;
 				const readOnly = isFieldReadOnly(field.readOnlyWhen, field.readOnlyWhen ? liveValues[field.readOnlyWhen.field] : undefined, sourceOptions);
 				return (
 				<Form.Item
