@@ -1,6 +1,6 @@
 # 本站账号与 Accounts 身份并存需求开发文档
 
-状态：设计待确认，未实施。
+状态：设计已确认，实施中。
 
 前置需求：[Accounts 用户名/密码补全、登录页与账户中心](accounts-account-center.md)、[Passport 身份中心](passport-and-telegram-integration.md)。
 
@@ -74,13 +74,33 @@ Accounts 登录 → 本站用户名已存在 ─┬─ 该账号是 OIDC 占位�
 
 ## 6. 密码同步
 
-Accounts 登录成功那一刻能拿到**明文密码**（用户刚在 Accounts 输过），因此可以为本站账号生成一份 `createStoredPassword` 写进 `base_users.password`。
+Accounts 登录成功时，把凭证同步到本站账号，使本站登录用同一个密码。
 
-**这是单向的**：Accounts → 本站。方向反过来做不到——本站改密码时拿不到 Accounts 的写入权限。
+### 6.1 送的是哈希，不是明文
 
-由此产生一条必须写明的限制：**用户在本站改了密码，下次用 Accounts 登录会被同步覆盖回去。** 两边看起来「不同步」，但这是单向同步的必然结果，不是缺陷。要避免的话只能不开这个开关。
+同步的是 `password` 这个 blob 本身（PBKDF2 哈希），不是明文。两边用的是**同一套哈希实现**——`server/modules/passport/identity.mts` 直接引入 `@server/modules/base/auth` 的 `createStoredPassword`——因此 blob 拷过去能原样验通。
 
-> **待确认（§9-A）**：本站是通过标准 OIDC 接入 Accounts 的，而标准 OIDC 流程里**本站拿不到明文密码**——用户是在 Accounts 的页面上输入的，本站只收到 ID Token。密码同步因此只在「Accounts 与本站同库、或本站自己承载登录表单」时才成立。需要确认实际部署形态。
+标准 OIDC 流程里本站拿不到明文（用户是在 Accounts 的页面上输的），送哈希绕开了这个限制。
+
+### 6.2 不能反过来读 passport 的表
+
+一个被否掉的方案：让本站登录时直接查 `passport_user_credentials` 验密码。那样一份凭证两处用、不会漂移，看起来更优雅，但它**违反分层**——业务站点只允许访问自己的表和 `base_*` 表。`passportDatabase` 在请求上下文里拿得到只是同库测试环境的巧合，拆库之后就不成立了。
+
+凭证必须**通过接口送过来**，由本站写进自己的 `base_users.password`。
+
+### 6.3 走 ID Token 的自定义 claim
+
+授权码换 token 是**服务端到服务端**的（`callback.mts` 直接 POST `token_endpoint`），不经过浏览器，因此可以在 ID Token 里带一个自定义 claim 把 blob 送过来。
+
+两条硬性要求：
+
+- **不能进 `profile`。** `callback.mts` 现在把整个 claims 写进 `base_oidc_users.profile`，而那是「数据管理」里可见的普通列。凭证 claim 必须在写 profile 之前剔掉，否则等于又泄一处。
+- **只送 `hash`，`pattern` 送空串。** `pattern` 记的是密码的字符类布局（`"SUSLDLDDD"`），对爆破是极强的提示，而且它还显示在用户管理页上（`users.mts` 的 `readStoredPassword(row.password)?.pattern`）。空串匹配 `[DULS]*`，是合法值。
+
+### 6.4 已知代价
+
+- **单向。** 用户在本站改了密码，下次用 Accounts 登录会被同步覆盖回去。方向反过来做不到——本站没有 Accounts 的写入权限。
+- **暴露面扩大。** OIDC 建的号今天存的是 `'!oidc'`，本站库里没有任何可破解的凭证；同步之后多了一份能直接破出 Accounts 密码的哈希。这是「一个密码两边都能登」的代价，不是可以顺手消掉的。
 
 ## 7. 数据结构变更
 
@@ -102,5 +122,7 @@ Accounts 登录成功那一刻能拿到**明文密码**（用户刚在 Accounts 
 
 ## 9. 待确认
 
-- **A. 密码同步在标准 OIDC 下拿不到明文**（见 §6）。如果部署形态确实拿不到，这一条要改成「不做同步，靠 §5 的绑定与 §4 的自助改密」。
-- **B. 昵称放在哪。** `passport_users` 已经有 `nickname`。本站再存一份，两边会各改各的；也可以只在本站没有 Accounts 绑定时才允许改本站昵称。
+两处已确认：
+
+- **密码同步送哈希 blob，走 ID Token 的自定义 claim**（§6）。不读 `passport_*` 表。
+- **昵称在 `base_users` 新增一列**。与 `passport_users.nickname` 各自独立：本站的昵称属于本站账号，不随 Accounts 变。
