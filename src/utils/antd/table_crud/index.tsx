@@ -115,8 +115,20 @@ const TableCRUD = ({ commonApi, resourcePath, initialResponse, initialQueryValue
 	const skipFetchForSearchRequest = useRef<number | undefined>(undefined);
 	const tableSchemaLoaded = useRef(false);
 	const cursorsByPage = useRef<Record<number, string | undefined>>({ 1: undefined });
-	const selectedQuery = new URLSearchParams(appliedQueryValues).toString();
-	const selectedQuerySuffix = selectedQuery ? `?${selectedQuery}` : '';
+	/**
+	 * 已生效的查询条件要在**调用时**读，不能在渲染时求值。
+	 *
+	 * 列定义连同它们的 onClick 闭包是在异步回调里构建、存进 state 的，捕获的是发起
+	 * 那次请求时的值。首次加载时查询条件还是空的，于是「表列管理」点编辑会带不上
+	 * table 参数，报「请选择数据表」；切换数据表再搜索会重建列定义，就正常了。
+	 */
+	const appliedQueryValuesRef = useRef(appliedQueryValues);
+	appliedQueryValuesRef.current = appliedQueryValues;
+	const currentQueryValues = () => appliedQueryValuesRef.current;
+	const selectedQuerySuffix = () => {
+		const query = new URLSearchParams(currentQueryValues()).toString();
+		return query ? `?${query}` : '';
+	};
 	const cacheResJsonTable = useRef<ResJsonTable>({
 		columns: [],
 	});
@@ -153,7 +165,7 @@ const TableCRUD = ({ commonApi, resourcePath, initialResponse, initialQueryValue
 		// 向后段API发送删除指令
 		try {
 			setLoading(true);
-			await commonApi.apiFetch(`${apiPath}${selectedQuerySuffix}`, { method: 'DELETE', headers, body: JSON.stringify(ids) });
+			await commonApi.apiFetch(`${apiPath}${selectedQuerySuffix()}`, { method: 'DELETE', headers, body: JSON.stringify(ids) });
 			await fetchData();
 		} catch (ex) {
 			console.error(ex);
@@ -184,7 +196,7 @@ const TableCRUD = ({ commonApi, resourcePath, initialResponse, initialQueryValue
 			console.error('编辑失败：记录缺少 rowKey', record);
 			return;
 		}
-		const url = `${apiPath}/${encodeURIComponent(rowId)}${selectedQuerySuffix}`;
+		const url = `${apiPath}/${encodeURIComponent(rowId)}${selectedQuerySuffix()}`;
 		let row: DataType;
 		try {
 			const res = await commonApi.apiFetch(url, {
@@ -250,7 +262,7 @@ const TableCRUD = ({ commonApi, resourcePath, initialResponse, initialQueryValue
 				};
 				const currentCursor = cursorsByPage.current[currentPage];
 				if (currentCursor) query.cursor = currentCursor;
-				Object.assign(query, appliedQueryValues);
+				Object.assign(query, currentQueryValues());
 				// `include` 是公共响应协议参数，优先级高于业务查询字段。
 				// 首次请求加载结构，之后只请求数据；回收站状态始终保留。
 				const includes = new Set((query.include ?? '').split(',').map((value) => value.trim()).filter(Boolean));
@@ -467,7 +479,7 @@ const TableCRUD = ({ commonApi, resourcePath, initialResponse, initialQueryValue
 			// 前端校验通过，开始向后端提交表单
 			drawerForm.setSubmitting‌(true);
 			try {
-				const res = await commonApi.apiFetch(`${apiPath}${selectedQuerySuffix}`, {
+				const res = await commonApi.apiFetch(`${apiPath}${selectedQuerySuffix()}`, {
 					method: 'POST', // 指定请求方法
 					headers: {
 						'Content-Type': 'application/json', // 指定请求头，表明是 JSON 数据
@@ -573,7 +585,7 @@ const TableCRUD = ({ commonApi, resourcePath, initialResponse, initialQueryValue
 		if (action.disabled || !selectedRowKeys.length) return;
 		const control = await confirmChange([action.confirm ?? `确定对所选的 ${selectedRowKeys.length} 项执行「${action.label}」吗？`]);
 		if (control === undefined) return;
-		const query = new URLSearchParams(appliedQueryValues);
+		const query = new URLSearchParams(currentQueryValues());
 		query.set('action', action.key);
 		await commonApi.apiFetch(`${apiPath}?${query.toString()}`, {
 			method: 'POST',
@@ -588,7 +600,7 @@ const TableCRUD = ({ commonApi, resourcePath, initialResponse, initialQueryValue
 		if (!rowId || action.disabled) return;
 		const control = await confirmChange([action.confirm ? rowConfirmText(action.confirm, record) : `确定执行「${action.label}」吗？`]);
 		if (control === undefined) return;
-		const query = new URLSearchParams(appliedQueryValues);
+		const query = new URLSearchParams(currentQueryValues());
 		query.set('action', action.key);
 		await commonApi.apiFetch(`${apiPath}/${encodeURIComponent(rowId)}?${query.toString()}`, { method: 'POST', headers: confirmHeaders(control) });
 		await fetchData();
@@ -629,7 +641,7 @@ const TableCRUD = ({ commonApi, resourcePath, initialResponse, initialQueryValue
 		download: (action, _value, record) => <a key={action.key} aria-disabled={action.disabled} onClick={async () => {
 			if (action.disabled) return;
 			const key = String(record[tableOptionRef.current.rowKey] ?? '');
-			const query = new URLSearchParams(appliedQueryValues);
+			const query = new URLSearchParams(currentQueryValues());
 			query.set('key', key);
 			const response = await commonApi.apiFetch(`${apiPath}?${query}`, { method: 'PUT' });
 			const result = await response.json() as { downloadUrl?: string };
@@ -654,7 +666,7 @@ const TableCRUD = ({ commonApi, resourcePath, initialResponse, initialQueryValue
 				try {
 					setLoading(true);
 					const key = file.name;
-					const response = await commonApi.apiFetch(`${apiPath}${selectedQuerySuffix}`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ key, size: file.size }) });
+					const response = await commonApi.apiFetch(`${apiPath}${selectedQuerySuffix()}`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ key, size: file.size }) });
 					const result = await response.json() as { uploadUrl?: string };
 					if (!result.uploadUrl) throw new Error('上传地址为空');
 					setUploadState((previous) => previous && { ...previous, phase: 'uploading' });

@@ -113,4 +113,17 @@ assert.equal(screen.queryByText('A 行'), null);
 assert.equal(document.querySelectorAll('tbody input[type="checkbox"]:checked').length, 0, '切表后不应该还有选中行');
 assert.equal(screen.queryByRole('button', { name: /搜索/ }), null, '新表没有查询动作时按钮也不应该残留');
 
+// 首次加载后直接点编辑：行操作必须带上**已生效的查询条件**。
+// 这些闭包是在异步回调里构建的，如果在渲染时求值就会捕获初始的空条件——
+// 「表列管理」点编辑会因此丢掉 table 参数，报「请选择数据表」，
+// 而切换数据表再搜索会重建列定义，于是又正常了。
+cleanup();
+requests.length = 0;
+render(React.createElement(MemoryRouter, null, React.createElement(TableCRUD, { commonApi, resourcePath: '/panel/admin/base/data/columns' })));
+await waitFor(() => assert.ok(screen.getByText('A 行')));
+await user.click(screen.getByText('编辑'));
+await waitFor(() => assert.ok(requests.some((url) => url.includes('/acct_string_id'))));
+const editRequest = requests.find((url) => url.includes('/acct_string_id'))!;
+assert.ok(editRequest.includes('table=table_a'), `编辑请求必须带上已生效的查询条件：${editRequest}`);
+
 console.log('table switch browser test passed');
