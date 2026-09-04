@@ -9,7 +9,8 @@ type D1StatementLike = {
 
 type D1RunResult = { success?: boolean; meta?: Record<string, unknown> };
 
-const d1Values = (values: unknown[]) => values.map((value) => Array.isArray(value) ? JSON.stringify(value) : value);
+const d1Values = (values: unknown[]) => values.map((value) =>
+	value !== null && typeof value === 'object' && !(value instanceof Uint8Array) ? JSON.stringify(value) : value);
 
 export type D1DatabaseLike = {
 	prepare: (query: string) => D1StatementLike;

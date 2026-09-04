@@ -58,7 +58,7 @@ CREATE TABLE `passport_user_credentials` (
     `owner_bid` BIGINT NOT NULL DEFAULT 1,
     `owner_uid` BIGINT NULL,
     `user_id` BIGINT NOT NULL,
-    `password` VARCHAR(191) NOT NULL,
+    `password` JSON NOT NULL,
 
     INDEX `passport_user_credentials_user_id_created_at_id_idx`(`user_id`, `created_at`, `id`),
     PRIMARY KEY (`id`)

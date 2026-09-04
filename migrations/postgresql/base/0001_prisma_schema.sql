@@ -86,7 +86,7 @@ CREATE TABLE "base_users" (
     "owner_bid" BIGINT NOT NULL DEFAULT 1,
     "owner_uid" BIGINT,
     "name" TEXT NOT NULL,
-    "password" TEXT NOT NULL,
+    "password" JSONB NOT NULL,
     "roles" TEXT[] DEFAULT ARRAY[]::TEXT[],
     "status" "BaseUserStatus" NOT NULL DEFAULT 'enabled',
 

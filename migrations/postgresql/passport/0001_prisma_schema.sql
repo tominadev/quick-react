@@ -87,7 +87,7 @@ CREATE TABLE "passport_user_credentials" (
     "owner_bid" BIGINT NOT NULL DEFAULT 1,
     "owner_uid" BIGINT,
     "user_id" BIGINT NOT NULL,
-    "password" TEXT NOT NULL,
+    "password" JSONB NOT NULL,
 
     CONSTRAINT "passport_user_credentials_pkey" PRIMARY KEY ("id")
 );

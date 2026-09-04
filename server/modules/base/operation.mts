@@ -88,19 +88,21 @@ const actionOf = (changes: Record<string, { before: unknown; after: unknown }>):
 };
 
 /**
- * 解析成数组，解析不出来就返回 undefined。
+ * 解析成 JSON 的数组或对象，解析不出来就返回 undefined。
  *
- * 只认数组，不认对象：各方言的适配器都会把数组 JSON.stringify 后入库，因此撤回时
- * 写回数组能原样对上；普通对象则会被 SQLite 的绑定拒绝。对象类型的 JSON 列
- * （fingerprint、extra_config）因此按原样记，见需求文档 §14。
+ * 只认数组与对象，不认数字、布尔、null——那几种会把普通文本列误判成 JSON
+ * （`'123'` 会变成 123）。数组与对象则不会：一个业务字符串恰好以 `[` 或 `{`
+ * 开头并且能整段解析，基本上就是 JSON。
  */
-const asArray = (value: unknown) => {
-	if (Array.isArray(value)) return value;
+const asJson = (value: unknown) => {
+	if (value !== null && typeof value === 'object') return value;
 	if (typeof value !== 'string') return undefined;
 	const text = value.trim();
-	if (!text.startsWith('[')) return undefined;
-	try { const parsed: unknown = JSON.parse(text); return Array.isArray(parsed) ? parsed : undefined; }
-	catch { return undefined; }
+	if (!text.startsWith('[') && !text.startsWith('{')) return undefined;
+	try {
+		const parsed: unknown = JSON.parse(text);
+		return parsed !== null && typeof parsed === 'object' ? parsed : undefined;
+	} catch { return undefined; }
 };
 
 /**
@@ -111,14 +113,14 @@ const asArray = (value: unknown) => {
  * **同一列会因为从哪个页面改而记成两种形态**——
  * `{"before":["a"],"after":["b"]}` 与 `{"before":"[\"a\"]","after":"[\"b\"]"}`。
  *
- * 因此只要写入侧能解析成数组，两边就都还原成数组。撤回时写回数组同样正确：
+ * 因此只要写入侧能解析成 JSON，两边就都还原成对象或数组。撤回时写回对象同样正确：
  * 适配器会 JSON.stringify 后入库，WHERE 里的条件值走同一条路径，能和存储的文本对上。
- * 即便某个业务列的值恰好长得像数组（误判），来回一趟仍是同一串文本，撤回不受影响。
+ * 即便某个业务列的值恰好长得像 JSON（误判），来回一趟仍是同一串文本，撤回不受影响。
  */
 const logicalPair = (stored: unknown, written: unknown): [unknown, unknown] => {
-	const writtenArray = asArray(written);
-	if (writtenArray === undefined) return [stored ?? null, written ?? null];
-	return [asArray(stored) ?? stored ?? null, writtenArray];
+	const writtenJson = asJson(written);
+	if (writtenJson === undefined) return [stored ?? null, written ?? null];
+	return [asJson(stored) ?? stored ?? null, writtenJson];
 };
 
 const findPendingEntry = async (database: DatabaseAdapter, builder: ReturnType<typeof sql>, table: string, rowId: unknown) => {

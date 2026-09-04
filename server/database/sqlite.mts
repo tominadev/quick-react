@@ -7,8 +7,9 @@ type SqliteValue = null | number | bigint | string | Uint8Array;
 
 const sqliteValues = (values: unknown[]) => values.map((value) => {
 	if (typeof value === 'boolean') return value ? 1 : 0;
-	if (Array.isArray(value)) return JSON.stringify(value);
 	if (value === null || typeof value === 'number' || typeof value === 'bigint' || typeof value === 'string' || value instanceof Uint8Array) return value;
+	// JSON 列按序列化后的文本入库，与 D1、MySQL 以及 PostgreSQL 的读取归一保持一致。
+	if (typeof value === 'object') return JSON.stringify(value);
 	throw new TypeError(`Unsupported SQLite parameter type: ${typeof value}`);
 }) as SqliteValue[];
 

@@ -10,6 +10,10 @@ pg.types.setTypeParser(3802, (value) => value);
 
 type PostgresqlExecutor = Pick<pg.Pool | pg.PoolClient, 'query'>;
 
+/** JSON 列按序列化后的文本入库，与其余三种方言一致；驱动自己的对象序列化不参与。 */
+const postgresqlValues = (values: unknown[]) => values.map((value) =>
+	value !== null && typeof value === 'object' && !(value instanceof Date) && !(value instanceof Uint8Array) ? JSON.stringify(value) : value);
+
 class PostgresqlStatement implements DatabaseStatement {
 	private values: unknown[] = [];
 	private readonly statement;
@@ -18,7 +22,7 @@ class PostgresqlStatement implements DatabaseStatement {
 		this.statement = compileSqlPlaceholders(query, 'postgresql');
 	}
 
-	bind(...values: unknown[]) { this.values = values; return this; }
+	bind(...values: unknown[]) { this.values = postgresqlValues(values); return this; }
 	private execute() { return this.executor.query(this.statement.query, this.statement.values(this.values)); }
 	async first<T>() { const result = await this.execute(); return (result.rows[0] as T | undefined) ?? null; }
 	async all<T>() { const result = await this.execute(); return { results: result.rows as T[] }; }

@@ -114,7 +114,8 @@ model passport_user_credentials {
   owner_bid     BigInt @default(1)
   owner_uid     BigInt?
   user_id    BigInt
-  password   String
+  /// 同 base_users.password：存的是 { hash, pattern }。
+  password   Json
 
   @@index([user_id, created_at, id])
 }

@@ -48,7 +48,7 @@ try {
 	const changesOf = (entry) => JSON.parse(entry.changes);
 	const latestEntry = async () => (await entries()).at(-1);
 
-	await runSql(acting, sql({ database: acting }).insert('base_users', { name: 'alice', password: 'hash-1', roles: '[]', status: 'enabled' }));
+	await runSql(acting, sql({ database: acting }).insert('base_users', { name: 'alice', password: { hash: 'hash-1', pattern: 'LLLL' }, roles: '[]', status: 'enabled' }));
 	const alice = await firstSql(acting, sql({ database: acting }).select({ table: 'base_users', columns: { id: 'id' }, where: [{ column: 'name', value: 'alice' }] }));
 
 	// 新增不产生审计条目（§3.0）：insert 不带元信息，因此 runSql 也不会拦它。
@@ -274,13 +274,14 @@ try {
 	assert.equal(Number(await deletedAtOf()), 0);
 
 	// ---- 凭证列：照常记录、照常撤回，只是接口不返回值（§5）----
-	await op(sql({ database: acting }).update('base_users', { password: 'hash-2' }, { id: alice.id }));
+	// password 是 JSON 列（存 { hash, pattern }），因此前后值都记成对象而不是转义文本。
+	await op(sql({ database: acting }).update('base_users', { password: { hash: 'hash-2', pattern: 'LLLL' } }, { id: alice.id }));
 	const passwordEntry = await latestEntry();
 	const storedChanges = parseAuditChanges(passwordEntry.changes);
-	assert.deepEqual(storedChanges.password, { before: 'hash-1', after: 'hash-2' }, '存储层照常记录凭证前后值');
+	assert.deepEqual(storedChanges.password, { before: { hash: 'hash-1', pattern: 'LLLL' }, after: { hash: 'hash-2', pattern: 'LLLL' } }, '存储层照常记录凭证前后值，且按 JSON 列的形态记');
 	assert.deepEqual(publicAuditChanges(storedChanges), { password: { hidden: true } }, '接口不得返回凭证值');
 	assert.equal((await revert([passwordEntry.id]))[0].ok, true, '凭证列仍然可以撤回');
-	assert.equal((await firstSql(acting, sql({ database: acting }).select({ table: 'base_users', columns: { password: 'password' }, where: [{ column: 'id', value: alice.id }] }))).password, 'hash-1', '撤回后凭证应还原');
+	assert.equal((await firstSql(acting, sql({ database: acting }).select({ table: 'base_users', columns: { password: 'password' }, where: [{ column: 'id', value: alice.id }] }))).password, '{"hash":"hash-1","pattern":"LLLL"}', '撤回后凭证应还原');
 
 	// 多列一起改时，摘要一列一行，不挤在一行里。
 	const { describeAuditChanges } = await import(pathToFileURL(moduleFile));

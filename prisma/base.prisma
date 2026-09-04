@@ -101,7 +101,8 @@ model base_users {
   name          String
   // 用户名在租户内唯一：不同租户可以各有同名账号。
   @@unique([name, owner_tid, deleted_at])
-  password      String
+  /// 存的是 { hash, pattern }：由数据库承认它是 JSON，而不是应用私下往文本列里塞。
+  password      Json
   roles         String[] @default([])
   status        BaseUserStatus @default(enabled)
 }

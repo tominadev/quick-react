@@ -71,7 +71,7 @@ CREATE TABLE `base_users` (
     `owner_bid` BIGINT NOT NULL DEFAULT 1,
     `owner_uid` BIGINT NULL,
     `name` VARCHAR(191) NOT NULL,
-    `password` VARCHAR(191) NOT NULL,
+    `password` JSON NOT NULL,
     `roles` VARCHAR(191) NOT NULL DEFAULT '[]',
     `status` ENUM('enabled', 'disabled') NOT NULL DEFAULT 'enabled',
 

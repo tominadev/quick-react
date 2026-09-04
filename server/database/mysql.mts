@@ -7,7 +7,7 @@ type MysqlExecutor = Pick<Pool | PoolConnection, 'execute'>;
 const rowsFrom = (result: unknown) => Array.isArray(result) ? result as Record<string, unknown>[] : [];
 const mysqlValues = (values: unknown[]) => values.map((value) => {
 	if (typeof value === 'bigint') return value.toString();
-	if (Array.isArray(value)) return JSON.stringify(value);
+	if (value !== null && typeof value === 'object' && !(value instanceof Date) && !(value instanceof Uint8Array)) return JSON.stringify(value);
 	return value;
 }) as never;
 const runResult = (result: unknown): DatabaseRunResult => {

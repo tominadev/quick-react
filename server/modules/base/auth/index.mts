@@ -43,16 +43,16 @@ export const createStoredPassword = async (password: string) => {
 		else if (/^[a-z]$/.test(character)) pattern += 'L';
 		else pattern += 'S';
 	}
-	return JSON.stringify({
-		hash: await hashPassword(password),
-		pattern,
-	} satisfies StoredPassword);
+	// 返回对象而不是 JSON 文本：password 是 JSON 列，序列化交给数据库适配器统一做。
+	return { hash: await hashPassword(password), pattern } satisfies StoredPassword;
 };
 
 export const readStoredPassword = (value: unknown): StoredPassword | undefined => {
-	if (typeof value !== 'string') return undefined;
+	// 四种方言读 JSON 列都归一成文本（见 postgresql.mts 的 setTypeParser），
+	// 但同一个对象刚写进去、还没落库回读时也可能直接传进来，两种都接。
+	if (typeof value !== 'string' && (typeof value !== 'object' || value === null)) return undefined;
 	try {
-		const parsed = JSON.parse(value) as Partial<StoredPassword>;
+		const parsed = (typeof value === 'string' ? JSON.parse(value) : value) as Partial<StoredPassword>;
 		const pattern = parsed.pattern;
 		if (
 			typeof parsed.hash !== 'string'
