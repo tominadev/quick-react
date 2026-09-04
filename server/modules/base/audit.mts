@@ -132,13 +132,19 @@ const flipOne = async (database: DatabaseAdapter, entry: AuditEntryRow, reason: 
  * 当前值是 C，只有先撤 B→C 才能接着撤 A→B。恢复方向相反，因此按时间升序走。
  * 某一条被拒绝时其余照常执行，最后逐条返回结果。
  */
-export const revertAuditEntries = async (database: DatabaseAdapter, ids: readonly string[], reason = ''): Promise<AuditRevertResult[]> => {
+export const revertAuditEntries = async (database: DatabaseAdapter, ids: readonly string[], reason = '', expect?: AuditEntryRow['status']): Promise<AuditRevertResult[]> => {
 	const entries: AuditEntryRow[] = [];
 	const missing: AuditRevertResult[] = [];
 	for (const id of ids) {
 		const entry = await readAuditEntry(database, id);
-		if (entry) entries.push(entry);
-		else missing.push({ id, ok: false, message: '审计记录不存在或无权访问' });
+		if (!entry) { missing.push({ id, ok: false, message: '审计记录不存在或无权访问' }); continue; }
+		// 界面上「撤回」和「恢复」是两个按钮，各自只对一种状态有意义。带上期望状态，
+		// 列表过期时点到的那一条会被拒绝，而不是被翻成与按钮相反的方向。
+		if (expect && entry.status !== expect) {
+			missing.push({ id, ok: false, message: expect === 'applied' ? '该记录已经撤回过' : '该记录当前是已生效状态' });
+			continue;
+		}
+		entries.push(entry);
 	}
 	const newestFirst = (left: AuditEntryRow, right: AuditEntryRow) => Number(right.created_at) - Number(left.created_at) || Number(right.id) - Number(left.id);
 	const reverting = entries.filter((entry) => entry.status === 'applied').sort(newestFirst);

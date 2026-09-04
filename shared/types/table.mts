@@ -30,6 +30,12 @@ export type TableAction = {
 	label: string;
 	disabled?: boolean;
 	confirm?: string;
+	/**
+	 * 按行决定这个动作显不显示：只有当该行 `field` 列的值落在 `values` 里才渲染。
+	 * 用于同一张表上互斥的动作——例如审计里「撤回」只对已生效的行有意义，
+	 * 「恢复」只对已撤回的行有意义，一行上永远只该出现其中一个。
+	 */
+	visibleWhen?: { field: string; values: string[] };
 	form?: {
 		columns: TableColumn[];
 	};

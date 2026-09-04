@@ -4,7 +4,11 @@ import { readChangeReason } from '@server/modules/base/operation.mjs';
 import { describeAuditChanges, listAuditEntries, parseAuditChanges, publicAuditChanges, readAuditEntry, revertAuditEntries, type AuditEntryRow } from '@server/modules/base/audit.mjs';
 
 const actionLabels: Record<string, string> = { update: '修改', soft_delete: '删除', restore: '恢复' };
-const statusLabels: Record<string, string> = { applied: '已生效', reverted: '已撤回' };
+// 状态用带颜色的标签：绿色一眼看出这条变更此刻是生效的。
+const statusOptions = [
+	{ value: 'applied', text: '已生效', color: 'green' },
+	{ value: 'reverted', text: '已撤回', color: 'default' },
+];
 
 const columns = [
 	{ dataIndex: 'id', title: 'ID', dataType: 'int' as const },
@@ -16,7 +20,7 @@ const columns = [
 	{ dataIndex: 'reason', title: '操作原因' },
 	{ dataIndex: 'created_duid', title: '操作者' },
 	{ dataIndex: 'owner_uid', title: '作用账号' },
-	{ dataIndex: 'status', title: '状态' },
+	{ dataIndex: 'status', title: '状态', options: statusOptions },
 	{ dataIndex: 'reverted_at', title: '撤回时间', dataType: 'js_timestamp' as const, dayjsFormat: 'YYYY-MM-DD HH:mm:ss' },
 	{ dataIndex: 'reverted_duid', title: '撤回人' },
 	{ dataIndex: 'revert_reason', title: '撤回理由' },
@@ -32,7 +36,7 @@ const publicEntry = (row: AuditEntryRow) => ({
 	reason: row.reason ?? '',
 	created_duid: row.created_duid ?? '',
 	owner_uid: row.owner_uid ?? '',
-	status: statusLabels[row.status] ?? row.status,
+	status: row.status,
 	reverted_at: row.reverted_at ?? '',
 	reverted_duid: row.reverted_duid ?? '',
 	revert_reason: row.revert_reason ?? '',
@@ -53,8 +57,15 @@ const handler: ApiHandler = async (c, next, params) => {
 			option: { rowKey: 'id', actions: {
 				query: [{ key: 'search', label: '搜索' }],
 				// 撤回不新开记录，而是把这一条翻到另一面；已撤回的再点一次就恢复。
-				toolbar: [{ key: 'revert', label: '撤回 / 恢复选中记录', confirm: '确认翻转选中的变更吗？撤回按时间从新到旧、恢复从旧到新逐条执行。' }],
-				row: [{ key: 'revert', label: '撤回 / 恢复', confirm: '确认翻转这条变更吗？' }],
+				// 撤回与恢复是互斥的两个动作，一行上只显示其中适用的那个。
+				toolbar: [
+					{ key: 'revert', label: '撤回选中记录', confirm: '确认撤回选中的变更吗？按时间从新到旧逐条还原。' },
+					{ key: 'restore', label: '恢复选中记录', confirm: '确认恢复选中的变更吗？按时间从旧到新逐条重做。' },
+				],
+				row: [
+					{ key: 'revert', label: '撤回', confirm: '确认撤回这条变更吗？', visibleWhen: { field: 'status', values: ['applied'] } },
+					{ key: 'restore', label: '恢复', confirm: '确认恢复这条变更吗？', visibleWhen: { field: 'status', values: ['reverted'] } },
+				],
 			} },
 			columns,
 			dataSource: rows.map(publicEntry),
@@ -66,10 +77,11 @@ const handler: ApiHandler = async (c, next, params) => {
 		if (!row) return apiMessage(c, 404, '审计记录不存在');
 		return apiResponse(c, 200, { ...publicEntry(row), changes: publicAuditChanges(parseAuditChanges(row.changes)) });
 	}
-	if (c.req.method === 'POST' && c.req.query('action') === 'revert') {
+	const flipAction = c.req.method === 'POST' ? c.req.query('action') : undefined;
+	if (flipAction === 'revert' || flipAction === 'restore') {
 		const ids = await readIds(c, params.id);
-		if (!ids.length) return apiMessage(c, 400, '请选择要撤回的记录');
-		const results = await revertAuditEntries(database, ids, readChangeReason(c));
+		if (!ids.length) return apiMessage(c, 400, `请选择要${flipAction === 'revert' ? '撤回' : '恢复'}的记录`);
+		const results = await revertAuditEntries(database, ids, readChangeReason(c), flipAction === 'revert' ? 'applied' : 'reverted');
 		const failed = results.filter((result) => !result.ok);
 		if (!failed.length) return apiMessage(c, 200, `已处理 ${results.length} 条变更`);
 		// 逐条独立判定：某一条被拒绝时其余照常执行，最后逐条返回结果（§7.4）。

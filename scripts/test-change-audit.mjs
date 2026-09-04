@@ -142,12 +142,18 @@ try {
 	const nameOf = async (id) => (await firstSql(acting, sql({ database: acting }).select({ table: 'base_users', columns: { name: 'name' }, where: [{ column: 'id', value: id }], deleted: 'all' }))).name;
 	const statusOf = async (entryId) => (await firstSql(acting, sql({ database: acting }).select({ table: 'base_audit_entries', columns: { status: 'status' }, where: [{ column: 'id', value: entryId }] }))).status;
 	const revert = (ids, reason = '') => revertAuditEntries(acting, ids, reason);
+	// 界面上撤回与恢复是两个按钮，各自带上期望状态；列表过期时点错的那条要被拒绝，
+	// 而不是被翻成与按钮相反的方向。
+	const flip = (ids, expect) => revertAuditEntries(acting, ids, '', expect);
 	const entryById = async (id) => (await entries()).find((entry) => entry.id === id);
 
 	// 撤回不新开记录，而是把这一条翻到另一面。
 	await op(sql({ database: acting }).update('base_users', { name: 'dave' }, { id: alice.id }));
 	const daveEntry = await latestEntry();
 	const beforeRevert = (await entries()).length;
+	// 「恢复」按钮点在一条已生效的记录上（列表过期）：拒绝，而不是翻成相反方向。
+	assert.deepEqual(await flip([daveEntry.id], 'reverted'), [{ id: daveEntry.id, ok: false, message: '该记录当前是已生效状态' }]);
+	assert.equal(await nameOf(alice.id), 'dave', '被拒绝时数据不变');
 	assert.deepEqual(await revert([daveEntry.id], '撤回理由：改错了'), [{ id: daveEntry.id, ok: true, message: '已撤回' }]);
 	assert.equal(await nameOf(alice.id), 'alice-3', '撤回后字段应恢复原值');
 	assert.equal(await statusOf(daveEntry.id), 'reverted');
@@ -159,6 +165,7 @@ try {
 	assert.equal(flipped.reason, daveEntry.reason, '原操作的理由不应被覆盖');
 
 	// 撤回错了就再翻回来，不会堆出一串互相指向的记录。
+	assert.deepEqual(await flip([daveEntry.id], 'applied'), [{ id: daveEntry.id, ok: false, message: '该记录已经撤回过' }]);
 	assert.deepEqual(await revert([daveEntry.id], '恢复：撤错了'), [{ id: daveEntry.id, ok: true, message: '已恢复' }]);
 	assert.equal(await nameOf(alice.id), 'dave', '恢复后应回到变更后的值');
 	assert.equal(await statusOf(daveEntry.id), 'applied');

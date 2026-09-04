@@ -125,6 +125,10 @@ const TableCRUD = ({ commonApi, resourcePath, initialResponse, initialQueryValue
 	 * 操作原因走请求头，不走请求体：删除接口的请求体是 id 数组，塞不进字段。
 	 * 头部只能放 ASCII，因此先 encodeURIComponent。留空就不发这个头。
 	 */
+	/** 按行过滤互斥动作：撤回只对已生效的行有意义，恢复只对已撤回的行有意义。 */
+	const actionVisibleForRow = (action: TableAction, record: DataType) =>
+		!action.visibleWhen || action.visibleWhen.values.includes(String(record[action.visibleWhen.field] ?? ''));
+
 	const reasonHeader = (reason?: string): Record<string, string> => reason ? { 'X-Change-Reason': encodeURIComponent(reason) } : {};
 
 	const apiDelete = async (ids: unknown[], reason?: string) => {
@@ -339,7 +343,7 @@ const TableCRUD = ({ commonApi, resourcePath, initialResponse, initialQueryValue
 						fixed: 'right',
 						width: 160,
 						render: (value: any, record: DataType, index: number) => <Space wrap size={[8, 4]}>
-							{(tableOptionRef.current.actions?.row ?? []).map((action) => rowActionHandlers[action.key]?.(action, value, record, index)
+							{(tableOptionRef.current.actions?.row ?? []).filter((action) => actionVisibleForRow(action, record)).map((action) => rowActionHandlers[action.key]?.(action, value, record, index)
 								?? <a key={action.key} aria-disabled={action.disabled} onClick={() => action.form ? onRowFormAction(action, record) : onSimpleRowAction(action, record)}>{action.label}</a>)}
 						</Space>,
 					});
