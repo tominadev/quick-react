@@ -49,6 +49,8 @@ export type SqlCondition =
 /** 该条件是否需要绑定一个参数值。raw 与 IS NULL 系列都不绑定。 */
 /** 审计表与它自己的动作常量。审计表自身不被审计，否则记录一条变更会再产生一条变更。 */
 export const AUDIT_TABLE = 'base_audit_entries';
+/** 与 Prisma schema 里 owner_tid / owner_bid 的 @default(1) 对应：不写这两列时数据库落到默认租户与主分站。 */
+const DEFAULT_OWNER_ID = 1;
 export type SqlAuditAction = 'update' | 'soft_delete' | 'restore';
 export type SqlAuditChange = { before: SqlValue; after: SqlValue };
 export type SqlAuditChanges = Record<string, SqlAuditChange>;
@@ -291,6 +293,32 @@ export abstract class SqlBuilder {
 		};
 	}
 
+	/**
+	 * 冲突时命中的那一行由**插入值**决定，因此审计要按同一组值去找原行。
+	 * 归属列没写进 INSERT 时数据库会用默认值，条件也要跟着用默认值，否则找错行。
+	 * 有一个键的值推不出来就整体不审计——宁可没有记录，也不要一条指错行的记录。
+	 */
+	private upsertAuditWhere(table: string, conflictKeys: string[], values: Values): SqlCondition[] | undefined {
+		const conditions: SqlCondition[] = [];
+		for (const key of conflictTarget(conflictKeys)) {
+			if (values[key] !== undefined) { conditions.push({ column: key, value: values[key] }); continue; }
+			if (key === 'deleted_at') { conditions.push({ column: key, value: 0 }); continue; }
+			if (key === 'owner_tid') { conditions.push({ column: key, value: this.ownerTidFor(table) ?? DEFAULT_OWNER_ID }); continue; }
+			if (key === 'owner_bid') { conditions.push({ column: key, value: this.ownerBidFor(table) ?? DEFAULT_OWNER_ID }); continue; }
+			if (key === 'owner_uid') {
+				const ownerUid = this.ownerUidFor(table);
+				conditions.push(ownerUid === null ? { column: key, operator: 'IS NULL' } : { column: key, value: ownerUid });
+				continue;
+			}
+			return undefined;
+		}
+		return conditions;
+	}
+
+	/**
+	 * 只有冲突走 UPDATE 那一支才算变更。新插入的行读不到原值，审计的 SELECT 因此
+	 * 自然返回空、不产生记录——与"insert 不审计"是同一个结果，不需要分支判断。
+	 */
 	upsert(table: string, conflictKeys: string[], values: Values, updateKeys: string[]): SqlQuery {
 		const inserted = this.insert(table, values), actorUid = this.actorUidFor(table);
 		const managedUpdateKeys = [...new Set([...updateKeys, 'updated_at', ...(actorUid === null ? [] : ['updated_duid'])])];
@@ -300,7 +328,13 @@ export abstract class SqlBuilder {
 		const suffix = this.dialect === 'mysql'
 			? ` ON DUPLICATE KEY UPDATE ${quotedUpdates.map((key) => `${key} = VALUES(${key})`).join(', ')}`
 			: ` ON CONFLICT (${target.map((key) => quoteIdentifier(key, this.dialect)).join(', ')}) DO UPDATE SET ${quotedUpdates.map((key) => `${key} = excluded.${key}`).join(', ')}`;
-		return { ...inserted, query: inserted.query + suffix };
+		const auditWhere = this.upsertAuditWhere(table, conflictKeys, values);
+		const auditValues = auditWhere === undefined ? {} : Object.fromEntries(updateKeys.filter((key) => values[key] !== undefined).map((key) => [key, values[key]]));
+		return {
+			...inserted,
+			query: inserted.query + suffix,
+			...(auditWhere === undefined ? {} : auditMetadata(table, auditValues, auditWhere, { tid: this.ownerTidFor(AUDIT_TABLE), bid: this.ownerBidFor(AUDIT_TABLE), uid: this.ownerUidFor(AUDIT_TABLE), actor: this.actorUidFor(AUDIT_TABLE) })),
+		};
 	}
 
 	ignoreInsert(table: string, conflictKeys: string[], values: Values): SqlQuery {

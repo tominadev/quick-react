@@ -31,7 +31,9 @@
 
 剩下 3 处是后台人工删除：`global_telegram_bots`、`global_cloud_object_storage_bindings`、`global_cloud_object_storage_binding_purposes`。它们的表都有 `deleted_at` 列，按项目约定本就应改用 `softDelete`；改过之后审计自然覆盖，无需为物理删除单开一条路径。在改动之前，这三处是已知的审计盲区。
 
-只审计 `update` 带来的简化：**钩子只有一个**，不需要整行快照（只记变化的列），表白名单也从必需降为可选——字段排除规则加上"逐列比对无变化就不记"已经把噪音挡住了。
+**`upsert` 的改写分支也审计。** 配置就是这么写的（`base_configs` 的 `upsert`），不覆盖它等于把最该留证据的一类变更漏掉。不需要分支判断：审计按插入值去找原行，新插入时读不到原行、自然不产生记录，与"insert 不审计"是同一个结果。只有一个前提——冲突键的值必须全部推得出来（归属列没写进 INSERT 时按数据库默认值推），推不出来就整体不审计，宁可没有记录也不要一条指错行的记录。
+
+只审计修改带来的简化：**钩子只有一个**，不需要整行快照（只记变化的列），表白名单也从必需降为可选——字段排除规则加上"逐列比对无变化就不记"已经把噪音挡住了。
 
 范围再由**两层**共同界定：表白名单决定哪些表参与审计，字段排除清单决定受管表里哪些列不算变更。
 
@@ -118,8 +120,11 @@ export const NON_AUDITED_COLUMNS = [
 ```ts
 // 存，但接口不返回值——只显示"该列已变更"
 export const HIDDEN_VALUE_COLUMNS = [
-  'password', 'token_hash', 'secret_hash', 'secret_prefix',
-  'access_key_secret', 'client_secret', 'private_key', 'value',
+  'password', 'dsn', 'dsn_password',
+  'token', 'token_hash', 'secret_token', 'secret_hash',
+  'access_key_secret', 'api_token_secret', 'client_secret',
+  'authorization_code_hash', 'code_hash',
+  'value',
 ] as const;
 ```
 

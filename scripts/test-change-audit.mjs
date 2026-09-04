@@ -110,6 +110,21 @@ try {
 	const unchanged = await firstSql(database, sql({ database }).select({ table: 'base_users', columns: { name: 'name' }, where: [{ column: 'id', value: alice.id }] }));
 	assert.equal(unchanged.name, 'alice-3', '审计失败后业务数据不应被改动');
 
+	// upsert 的 UPDATE 分支要留痕：站点设置、系统配置都是这么写进 base_configs 的。
+	const upsertConfig = (value) => sql({ database }).upsert('base_configs', ['key', 'owner_tid'], { key: 'site-settings', value }, ['value', 'updated_at']);
+	await runSql(database, upsertConfig('{"footer":"one"}'));
+	const afterConfigInsert = (await entries()).length;
+	assert.equal(sql({ database }).upsert('base_configs', ['key', 'owner_tid'], { key: 'k', value: 'v' }, ['value']).audit?.table, 'base_configs');
+	await runSql(database, upsertConfig('{"footer":"two"}'));
+	const configEntry = (await entries()).at(-1);
+	assert.equal((await entries()).length, afterConfigInsert + 1, '新插入的配置行不留痕，冲突改写才留痕');
+	assert.equal(configEntry.table_name, 'base_configs');
+	assert.deepEqual(changesOf(configEntry), { value: { before: '{"footer":"one"}', after: '{"footer":"two"}' } });
+	// value 是凭证列：存了值，但接口只返回"已变更"。
+	assert.deepEqual(publicAuditChanges(changesOf(configEntry)), { value: { hidden: true } });
+	await runSql(database, upsertConfig('{"footer":"two"}'));
+	assert.equal((await entries()).length, afterConfigInsert + 1, '值没变的 upsert 不产生记录');
+
 	// ---- 撤回（§7）----
 	const nameOf = async (id) => (await firstSql(database, sql({ database }).select({ table: 'base_users', columns: { name: 'name' }, where: [{ column: 'id', value: id }], deleted: 'all' }))).name;
 	const statusOf = async (entryId) => (await firstSql(database, sql({ database }).select({ table: 'base_audit_entries', columns: { status: 'status' }, where: [{ column: 'id', value: entryId }] }))).status;
