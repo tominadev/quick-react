@@ -1,3 +1,5 @@
+import type { Context } from 'hono';
+import type { AppEnv } from '@server/modules/base/types.mjs';
 import type { ApiHandler } from '@server/modules/base/api-router.mjs';
 import { apiMessage, apiMessageData, apiResponse } from '@server/modules/base/api-response.mjs';
 import { getCloudEmailProduct, getCloudEmailRegionLabel } from '@server/modules/global/cloud/catalog.mjs';
@@ -9,6 +11,7 @@ import type { TableCrudDefinition } from '@server/modules/base/table-crud.mjs';
 
 export const tableCrud: TableCrudDefinition = { table: 'global_cloud_email_bindings', rowKey: 'id' };
 import { allSql, firstSql, runSql, sql } from '@server/database/sql.mjs';
+import { runOperationSql } from '@server/modules/base/operation.mjs';
 
 const columns = [
 	{ dataIndex: 'id', title: 'ID', dataType: 'int' as const },
@@ -56,12 +59,12 @@ const validateTarget = async (database: DatabaseAdapter, siteKey: string, channe
 	}
 	return { purpose: template.template_type };
 };
-const clearOtherDefaults = (database: DatabaseAdapter, id: number, siteKey: string, purpose: string) => runSql(database, sql({ database }).update('global_cloud_email_bindings', { is_default: 0 }, [{ column: 'site_key', value: siteKey }, { column: 'purpose', value: purpose }, { column: 'id', operator: '!=', value: id }, { column: 'is_default', value: 1 }]));
-const deleteBinding = async (database: DatabaseAdapter, id: number) => {
+const clearOtherDefaults = (c: Context<AppEnv>, database: DatabaseAdapter, id: number, siteKey: string, purpose: string) => runOperationSql(c, database, sql({ database }).update('global_cloud_email_bindings', { is_default: 0 }, [{ column: 'site_key', value: siteKey }, { column: 'purpose', value: purpose }, { column: 'id', operator: '!=', value: id }, { column: 'is_default', value: 1 }]));
+const deleteBinding = async (c: Context<AppEnv>, database: DatabaseAdapter, id: number) => {
 	const row = await firstSql<{ id: number; status: string }>(database, sql({ database }).select({ table: 'global_cloud_email_bindings', columns: { id: 'id', status: 'status' }, where: [{ column: 'id', value: id }] }));
 	if (!row) return '邮件绑定不存在';
 	if (row.status !== statusValues.disabled) return '邮件绑定必须先停用才能删除';
-	await runSql(database, sql({ database }).softDelete('global_cloud_email_bindings', { id }));
+	await runOperationSql(c, database, sql({ database }).softDelete('global_cloud_email_bindings', { id }));
 };
 
 const handler: ApiHandler = async (c, next, params) => {
@@ -96,14 +99,14 @@ const handler: ApiHandler = async (c, next, params) => {
 			]);
 			else await runSql(database, insert);
 			const created = await firstSql<{ id: number }>(database, builder.select({ table: 'global_cloud_email_bindings', columns: { id: 'id' }, where: [{ column: 'site_key', value: siteKey }, { column: 'channel_id', value: channelId }, { column: 'template_id', value: templateId }, { column: 'purpose', value: purpose }] }));
-			if (created && isDefault && !database.batch) await clearOtherDefaults(database, created.id, siteKey, purpose);
+			if (created && isDefault && !database.batch) await clearOtherDefaults(c, database, created.id, siteKey, purpose);
 		} catch { return apiMessage(c, 409, '相同站点、通道、模板和用途的绑定已存在，或该用途已有默认通道'); }
 		return apiMessageData(c, 201, '邮件绑定创建成功', {});
 	}
 	if (!params.id && c.req.method === 'DELETE') {
 		const ids = await c.req.json<unknown>().catch(() => []);
 		for (const value of Array.isArray(ids) ? ids : []) {
-			const error = await deleteBinding(database, Number(value));
+			const error = await deleteBinding(c, database, Number(value));
 			if (error) return apiMessage(c, 409, error);
 		}
 		return apiMessage(c, 200, '删除成功，可在回收站找回或彻底删除');
@@ -135,14 +138,14 @@ const handler: ApiHandler = async (c, next, params) => {
 				builder.update('global_cloud_email_bindings', { is_default: 1 }, { id: Number(params.id) }),
 			]);
 			else {
-				if (isDefault) await clearOtherDefaults(database, Number(params.id), siteKey, purpose);
+				if (isDefault) await clearOtherDefaults(c, database, Number(params.id), siteKey, purpose);
 				await runSql(database, update);
 			}
 		} catch { return apiMessage(c, 409, '相同站点、通道、模板和用途的绑定已存在，或该用途已有默认通道'); }
 		return apiMessage(c, 200, '保存成功');
 	}
 	if (params.id && c.req.method === 'DELETE') {
-		const error = await deleteBinding(database, Number(params.id));
+		const error = await deleteBinding(c, database, Number(params.id));
 		return error ? apiMessage(c, 409, error) : apiMessage(c, 200, '删除成功，可在回收站找回或彻底删除');
 	}
 	return next();

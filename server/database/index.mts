@@ -43,6 +43,11 @@ export type DatabaseAdapter = {
 	 * 绑定了数组（哪怕为空）就受判定约束。
 	 */
 	subjectRoles?: readonly string[] | null;
+	/**
+	 * 这次请求是不是人工操作（管理后台与账户中心的表单提交）。
+	 * 为 true 时受管写入必须走 runOperation，否则 runSql 直接报错。
+	 */
+	humanOperation?: boolean;
 	/** Request-scoped branch that owns a newly inserted row. */
 	ownerBid?: DatabaseActorUid;
 	/** Optional table-aware owner branch, needed when Base and Passport share a DB. */
@@ -66,6 +71,8 @@ export const withDatabaseDeletedScope = (database: DatabaseAdapter, deletedScope
 export type DatabaseActors = {
 	/** 主体角色；绑定后该适配器上的读写都受行级判定约束。 */
 	subjectRoles?: readonly string[] | null;
+	/** 这次请求是不是人工操作；由 worker.mts 按请求路径设置。 */
+	humanOperation?: boolean;
 	base?: DatabaseActorUid;
 	passport?: DatabaseActorUid;
 	baseUserId?: DatabaseActorUid;
@@ -97,6 +104,7 @@ export const withDatabaseActors = (database: DatabaseAdapter, actors: DatabaseAc
 	const bound: DatabaseAdapter = {
 		...database,
 		...(Object.prototype.hasOwnProperty.call(actors, 'subjectRoles') ? { subjectRoles: actors.subjectRoles ?? null } : {}),
+		...(Object.prototype.hasOwnProperty.call(actors, 'humanOperation') ? { humanOperation: actors.humanOperation ?? false } : {}),
 		actorUidForTable: (table) => {
 			if (table.startsWith('passport_') && hasPassport) return actors.passport ?? null;
 			if (!table.startsWith('passport_') && hasBase) return actors.base ?? null;

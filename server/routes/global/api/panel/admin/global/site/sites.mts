@@ -7,6 +7,7 @@ import type { TableCrudDefinition } from '@server/modules/base/table-crud.mjs';
 export const tableCrud: TableCrudDefinition = { table: 'global_sites', rowKey: 'key' };
 import { getChangedFields } from '@server/modules/base/changed-fields.mjs';
 import { allSql, firstSql, runSql, sql } from '@server/database/sql.mjs';
+import { runOperationSql } from '@server/modules/base/operation.mjs';
 import { buildDatabaseTarget, DatabaseTargetError, parseDatabaseTarget, type DatabaseTargetForm } from '@server/database/dsn.mjs';
 import { portableTableGroups, transferPortableDatabase, type PortableTableGroup } from '@server/database/transfer.mjs';
 import { listTables } from '@server/database/schema.mjs';
@@ -158,8 +159,8 @@ const handler: ApiHandler = async (c, next, params) => {
 		for (const siteKey of siteKeys) {
 			const current = await firstSql<{ is_system: number }>(database, sql({ database }).select({ table: 'global_sites', columns: { is_system: 'is_system' }, where: [{ column: 'key', value: siteKey }] }));
 			if (!current || current.is_system) continue;
-			await runSql(database, sql({ database }).softDelete('global_site_hosts', { site_key: siteKey }));
-			await runSql(database, sql({ database }).softDelete('global_sites', { key: siteKey }));
+			await runOperationSql(c, database, sql({ database }).softDelete('global_site_hosts', { site_key: siteKey }));
+			await runOperationSql(c, database, sql({ database }).softDelete('global_sites', { key: siteKey }));
 		}
 		await c.get('siteRouter').refresh();
 		return apiMessage(c, 200, '删除成功，可在回收站找回或彻底删除');
@@ -246,7 +247,7 @@ const handler: ApiHandler = async (c, next, params) => {
 			values.status = statusValues.disabled;
 			values.migration_status = 'creating';
 		} else if (status !== undefined) values.status = status;
-		await runSql(database, sql({ database }).update('global_sites', values, { key: params.id }));
+		await runOperationSql(c, database, sql({ database }).update('global_sites', values, { key: params.id }));
 		await c.get('siteRouter').refresh();
 		return apiMessage(c, 200, '保存成功');
 	}
@@ -254,8 +255,8 @@ const handler: ApiHandler = async (c, next, params) => {
 		const current = await firstSql<{ is_system: number }>(database, sql({ database }).select({ table: 'global_sites', columns: { is_system: 'is_system' }, where: [{ column: 'key', value: params.id }] }));
 		if (!current) return apiMessage(c, 404, '站点不存在');
 		if (current.is_system) return apiMessage(c, 400, '系统站点不可删除');
-		await runSql(database, sql({ database }).softDelete('global_site_hosts', { site_key: params.id }));
-		await runSql(database, sql({ database }).softDelete('global_sites', { key: params.id }));
+		await runOperationSql(c, database, sql({ database }).softDelete('global_site_hosts', { site_key: params.id }));
+		await runOperationSql(c, database, sql({ database }).softDelete('global_sites', { key: params.id }));
 		await c.get('siteRouter').refresh();
 		return apiMessage(c, 200, '删除成功，可在回收站找回或彻底删除');
 	}

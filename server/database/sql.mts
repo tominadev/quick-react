@@ -1,6 +1,6 @@
 import type { DatabaseAdapter, DatabaseActorResolver, DatabaseActorUid, DatabaseRunResult } from './index.mjs';
 import { isSystemField, SYSTEM_FIELD_NAMES } from '@shared/system-fields.mjs';
-import { auditableColumns, isAuditedTable } from '@shared/audit-tables.mjs';
+import { isSelfExcludedTable } from '@shared/audit-tables.mjs';
 
 export type SqlDialect = 'sqlite' | 'mysql' | 'postgresql';
 export type SqlActorContext = DatabaseActorUid | DatabaseActorResolver;
@@ -56,17 +56,14 @@ export type SqlAuditChange = { before: SqlValue; after: SqlValue };
 export type SqlAuditChanges = Record<string, SqlAuditChange>;
 
 /**
- * 三层过滤（需求文档 §3.1、§3.2）都只看主体、表名和写入的列名，**不需要读原行**：
- * 系统上下文、白名单外的表、白名单外的列，在这里就短路，代价为零。
- * 确实可能有业务列变化时才附上元信息，由 runSql 去读原行逐列比对。
+ * 附在受管写入上的结构化信息，供操作层读原行、算差异。
+ *
+ * 这里**不判断这次写入算不算人工操作**——那个信息在路由层才完整，SqlBuilder 看到的
+ * 只是一条 SQL 片段。判定由 runOperation 显式声明，runSql 只负责在漏包时报错。
  */
-const auditMetadata = (table: string, values: Values, where: SqlCondition[], owner: SqlAuditOwnership, subjectRoles: readonly string[] | null): { audit?: SqlAuditMetadata } => {
-	// 没有主体就不是人做的：迁移、种子、鉴权自身、清理任务、协议回调都走这条路。
-	// 与可见性判定用的是同一个信号（见 visibilityConditions），一个概念两处用。
-	if (subjectRoles === null) return {};
-	if (!isAuditedTable(table)) return {};
-	const allowed = new Set(auditableColumns(table, definedEntries(values).map(([column]) => column)));
-	const audited = definedEntries(values).filter(([column]) => allowed.has(column));
+const auditMetadata = (table: string, values: Values, where: SqlCondition[], owner: SqlAuditOwnership): { audit?: SqlAuditMetadata } => {
+	if (isSelfExcludedTable(table)) return {};
+	const audited = definedEntries(values);
 	if (!audited.length) return {};
 	// where 是**完整**条件（含可见性判定），归属也在这里定死：调用方可能用显式上下文
 	// 覆盖适配器（系统写入就是这么做的），事后从适配器重新推导会得到另一套判定。
@@ -243,7 +240,7 @@ export abstract class SqlBuilder {
 		return {
 			query: `UPDATE ${quoteIdentifier(table, this.dialect)} SET ${entries.map(([key], index) => `${quoteIdentifier(key, this.dialect)} = ${this.placeholder(index + 1)}`).join(', ')} WHERE ${conditions.map((condition) => renderCondition(condition, this.dialect, () => this.placeholder(++parameterIndex))).join(' AND ')}`,
 			values: [...entries.map(([, value]) => value), ...conditions.filter(bindsValue).map((condition) => condition.value as SqlValue)],
-			...auditMetadata(table, values, conditions, { tid: this.ownerTidFor(AUDIT_TABLE), bid: this.ownerBidFor(AUDIT_TABLE), uid: this.ownerUidFor(AUDIT_TABLE), actor: this.actorUidFor(AUDIT_TABLE) }, this.subjectRoles),
+			...auditMetadata(table, values, conditions, { tid: this.ownerTidFor(AUDIT_TABLE), bid: this.ownerBidFor(AUDIT_TABLE), uid: this.ownerUidFor(AUDIT_TABLE), actor: this.actorUidFor(AUDIT_TABLE) }),
 		};
 	}
 
@@ -337,7 +334,7 @@ export abstract class SqlBuilder {
 		return {
 			...inserted,
 			query: inserted.query + suffix,
-			...(auditWhere === undefined ? {} : auditMetadata(table, auditValues, auditWhere, { tid: this.ownerTidFor(AUDIT_TABLE), bid: this.ownerBidFor(AUDIT_TABLE), uid: this.ownerUidFor(AUDIT_TABLE), actor: this.actorUidFor(AUDIT_TABLE) }, this.subjectRoles)),
+			...(auditWhere === undefined ? {} : auditMetadata(table, auditValues, auditWhere, { tid: this.ownerTidFor(AUDIT_TABLE), bid: this.ownerBidFor(AUDIT_TABLE), uid: this.ownerUidFor(AUDIT_TABLE), actor: this.actorUidFor(AUDIT_TABLE) })),
 		};
 	}
 
@@ -376,59 +373,35 @@ export const sql = (context: SqlContext) => {
  * 记录失败时整个操作失败：不允许"审计写不进去就跳过"，那等于给了绕过审计的开关。
  */
 /**
- * 跨方言比较：驱动对 BIGINT 的返回类型不一致（number / string / bigint），
- * 直接用 !== 会把"没变"误判成"变了"。归一成字符串比较，null 与 undefined 同义。
+ * 执行一条语句，不做任何审计判断。两种用途：
+ *
+ * 1. 操作层执行已经记过账的语句；
+ * 2. **人工请求里的机器写入**——一次表单提交里除了那个操作本身，还会顺带推进一些
+ *    状态机（一次性验证码过期、会话续期）。它们发生在人工请求里，却不是人做的修改，
+ *    记下来只有噪音。用这个函数是一次显式声明，读代码的人一眼能看见。
  */
-const sameAuditValue = (left: SqlValue, right: SqlValue) => {
-	if (left === null || left === undefined) return right === null || right === undefined;
-	if (right === null || right === undefined) return false;
-	return String(left) === String(right);
-};
+export const runSystemSql = (database: DatabaseAdapter, statement: SqlQuery): Promise<DatabaseRunResult> =>
+	database.prepare(statement.query).bind(...statement.values).run();
 
-/** 三种动作都是 UPDATE，按写入的列区分：碰了 deleted_at 就是删除或恢复。 */
-const auditActionOf = (changes: SqlAuditChanges): SqlAuditAction => {
-	const deletedAt = changes.deleted_at;
-	if (!deletedAt) return 'update';
-	return Number(deletedAt.after ?? 0) === 0 ? 'restore' : 'soft_delete';
-};
-
-const recordAuditEntries = async (database: DatabaseAdapter, metadata: SqlAuditMetadata) => {
-	// subjectRoles 为 null：可见性判定已经算进 metadata.where 了，再算一遍会重复追加条件。
-	// 归属取自生成语句时的上下文，保证审计记录与被改动的行落在同一租户、同一分站。
-	const builder = sql({ database, subjectRoles: null, ownerTid: metadata.owner.tid, ownerBid: metadata.owner.bid, ownerUid: metadata.owner.uid, actorUid: metadata.owner.actor });
-	const columns = Object.keys(metadata.values);
-	// deleted: 'all' 与 update 的行为对齐——updateManaged 不追加删除状态条件，
-	// 因此恢复操作要能读到已删除的原行，否则 restore 永远记不出变更。
-	const rows = await allSql<Record<string, SqlValue>>(database, builder.select({
-		table: metadata.table,
-		// 一律 cast 成文本：BIGINT 是雪花号，按数字读会溢出（服务端适配器没开 readBigInts）。
-		// 项目里读 ID 本就是这个写法，写回时由列的类型亲和性还原成整数。
-		columns: Object.fromEntries(['id', ...columns].map((column) => [column, { column, cast: 'text' as const }])),
-		where: metadata.where,
-		deleted: 'all',
-	}));
-	for (const row of rows) {
-		const changes: SqlAuditChanges = {};
-		// 只记实际发生变化的列：业务表单常整体提交，照单全收会让"改了什么"失去答案。
-		for (const column of columns) {
-			const before = row[column] ?? null, after = metadata.values[column] ?? null;
-			if (!sameAuditValue(before, after)) changes[column] = { before, after };
-		}
-		if (!Object.keys(changes).length) continue;
-		await runSql(database, builder.insert(AUDIT_TABLE, {
-			table_name: metadata.table,
-			row_id: row.id,
-			action: auditActionOf(changes),
-			changes: JSON.stringify(changes),
-			status: 'applied',
-		}));
-	}
-};
-
+/**
+ * 受管写入的看门人。
+ *
+ * 记录本身在操作层做（`server/modules/base/operation.mts`）：那里才知道这是哪个人、
+ * 因为什么、勾没勾立即生效、这次操作包含哪几条写入。SqlBuilder 这一层看到的只是
+ * 一条 SQL 片段，靠表名列名反推"算不算人工操作"只是代价高的猜测。
+ *
+ * 但覆盖面不能靠"记得调用 runOperation"——漏一处就少一条证据，而且没有任何征兆。
+ * 所以这里保留一道断言：**人工请求里的受管写入必须走操作层**，漏包立刻报错。
+ */
 export const runSql = async (database: DatabaseAdapter, statement: SqlQuery): Promise<DatabaseRunResult> => {
-	if (statement.audit) await recordAuditEntries(database, statement.audit);
-	return database.prepare(statement.query).bind(...statement.values).run();
+	// 异步抛出而不是同步抛出：声明的返回类型是 Promise，同步抛会从没 await 的调用方
+	// 的 .catch() 里漏出去。
+	if (statement.audit && database.humanOperation) {
+		throw new Error(`人工操作的受管写入必须走 runOperation：${statement.audit.table}`);
+	}
+	return runSystemSql(database, statement);
 };
+
 export const firstSql = <T,>(database: DatabaseAdapter, statement: SqlQuery) => database.prepare(statement.query).bind(...statement.values).first<T>();
 export const allSql = async <T,>(database: DatabaseAdapter, statement: SqlQuery) => (await database.prepare(statement.query).bind(...statement.values).all<T>()).results;
 export { compileSqlPlaceholders } from './placeholders.mjs';

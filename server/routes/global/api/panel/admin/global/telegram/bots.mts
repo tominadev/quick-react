@@ -8,6 +8,7 @@ import type { TableCrudDefinition } from '@server/modules/base/table-crud.mjs';
 
 export const tableCrud: TableCrudDefinition = { table: 'global_telegram_bots', rowKey: 'id' };
 import { allSql, firstSql, runSql, sql } from '@server/database/sql.mjs';
+import { runOperationSql } from '@server/modules/base/operation.mjs';
 import { accountsIdentityApi } from '@server/modules/base/navigation.mjs';
 
 const columns = [
@@ -94,7 +95,7 @@ const removeBot = async (c: Parameters<ApiHandler>[0], id: number) => {
 	if (!passportDatabase) return apiMessage(c, 503, 'Passport 数据库不可用，无法确认关联数据');
 	const associated = await botAssociated(passportDatabase, id);
 	if (associated) return apiMessage(c, 409, '机器人存在 Passport 账号关联，只能保持停用，不能删除');
-	await runSql(database, sql({ database }).softDelete('global_telegram_bots', { id }));
+	await runOperationSql(c, database, sql({ database }).softDelete('global_telegram_bots', { id }));
 	return undefined;
 };
 
@@ -178,7 +179,7 @@ const handler: ApiHandler = async (c, next, params) => {
 			else if (current.status === statusValues.enabled || token !== current.bot_token) await deleteTelegramWebhook(current.bot_token);
 			if (token !== current.bot_token && current.status === statusValues.enabled) await deleteTelegramWebhook(current.bot_token).catch(() => undefined);
 		} catch (error) { return apiMessage(c, 502, error instanceof Error ? error.message : 'Webhook 更新失败'); }
-		await runSql(database, sql({ database }).update('global_telegram_bots', { name, token, username, secret_token: secretToken, webhook_hostname: hostname, status }, { id }));
+		await runOperationSql(c, database, sql({ database }).update('global_telegram_bots', { name, token, username, secret_token: secretToken, webhook_hostname: hostname, status }, { id }));
 		return apiMessage(c, 200, status === statusValues.enabled ? '机器人已保存并更新 Webhook' : '机器人已停用并删除 Webhook');
 	}
 	if (c.req.method === 'DELETE') {

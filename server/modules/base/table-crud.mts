@@ -3,6 +3,7 @@ import type { AppEnv } from './types.mjs';
 import type { DatabaseAdapter } from '@server/database/index.mjs';
 import { listColumns, listTables } from '@server/database/schema.mjs';
 import { firstSql, runSql, sql, type SqlCondition } from '@server/database/sql.mjs';
+import { runOperationSql } from './operation.mjs';
 import { apiMessage } from './api-response.mjs';
 import { deletedScopeFromQuery } from './query-options.mjs';
 
@@ -52,7 +53,7 @@ export const handleTableCrudAction = async (c: Context<AppEnv>, definition: Tabl
 	for (const id of ids) {
 		const where: SqlCondition[] = [...businessWhere, { column: rowKey, value: id }, { column: 'deleted_at', operator: '!=', value: 0 }];
 		const statement = action === 'restore' ? sql({ database }).restore(table, where) : sql({ database }).delete(table, where);
-		await runSql(database, statement);
+		await runOperationSql(c, database, statement);
 	}
 	await c.get('siteRouter').refresh();
 	return apiMessage(c, 200, action === 'restore' ? '记录已恢复' : '记录已彻底删除');

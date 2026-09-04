@@ -1,3 +1,6 @@
+import type { Context } from 'hono';
+import type { AppEnv } from './types.mjs';
+import { runOperation } from './operation.mjs';
 import { withDatabaseActors, type DatabaseAdapter } from '@server/database/index.mjs';
 import { createDatabaseConfigStore } from './config-store.mjs';
 import { normalizeSiteSettings } from './site-settings.mjs';
@@ -8,6 +11,8 @@ export type AuditChange = { before: unknown; after: unknown };
 export type AuditChanges = Record<string, AuditChange>;
 export type AuditEntryRow = {
 	id: string;
+	operation_id: string;
+	reason: string;
 	table_name: string;
 	row_id: string;
 	action: SqlAuditAction;
@@ -20,6 +25,8 @@ export type AuditEntryRow = {
 
 const entryColumns = {
 	id: { column: 'id', cast: 'text' as const },
+	operation_id: 'operation_id',
+	reason: 'reason',
 	table_name: 'table_name',
 	row_id: { column: 'row_id', cast: 'text' as const },
 	action: 'action',
@@ -74,7 +81,7 @@ const inverseAction = (action: SqlAuditAction): SqlAuditAction => action === 'so
 
 export type AuditRevertResult = { id: string; ok: boolean; message: string };
 
-const revertOne = async (database: DatabaseAdapter, entry: AuditEntryRow): Promise<AuditRevertResult> => {
+const revertOne = async (c: Context<AppEnv>, database: DatabaseAdapter, entry: AuditEntryRow): Promise<AuditRevertResult> => {
 	if (entry.status !== 'applied') return { id: entry.id, ok: false, message: '该记录已经撤回过' };
 	const changes = parseAuditChanges(entry.changes);
 	const columns = Object.keys(changes);
@@ -89,8 +96,8 @@ const revertOne = async (database: DatabaseAdapter, entry: AuditEntryRow): Promi
 			return after === null || after === undefined ? { column, operator: 'IS NULL' } : { column, value: after };
 		}),
 	];
-	// 撤回本身也是一次变更，公共层会为它记下一条新的审计记录（§7.3）。
-	const result = await runSql(database, sql({ database }).revert(entry.table_name, values, where));
+	// 撤回本身也是一次人工操作，因此走操作层——它会为这次撤回记下一条新的审计记录（§7.3）。
+	const [result] = await runOperation(c, database, [sql({ database }).revert(entry.table_name, values, where)], { reason: `撤回审计记录 #${entry.id}` });
 	if (Number(result.meta?.changes ?? 0) === 0) return { id: entry.id, ok: false, message: '该记录已被后续修改覆盖，无法撤回' };
 	// status 是审计记录上唯一可变的字段，且只能从 applied 变成 reverted 一次。
 	await runSql(database, sql({ database }).update(AUDIT_TABLE, { status: 'reverted' }, [{ column: 'id', value: entry.id }, { column: 'status', value: 'applied' }]));
@@ -103,7 +110,7 @@ const revertOne = async (database: DatabaseAdapter, entry: AuditEntryRow): Promi
  * 执行顺序必须按 created_at 降序重排，不能沿用列表的显示顺序（§8）：同一列经历
  * A → B → C 后当前值是 C，只有先撤 B→C 才能接着撤 A→B。某一条被拒绝时其余照常执行。
  */
-export const revertAuditEntries = async (database: DatabaseAdapter, ids: readonly string[]): Promise<AuditRevertResult[]> => {
+export const revertAuditEntries = async (c: Context<AppEnv>, database: DatabaseAdapter, ids: readonly string[]): Promise<AuditRevertResult[]> => {
 	const entries: AuditEntryRow[] = [];
 	const missing: AuditRevertResult[] = [];
 	for (const id of ids) {
@@ -113,7 +120,7 @@ export const revertAuditEntries = async (database: DatabaseAdapter, ids: readonl
 	}
 	entries.sort((left, right) => Number(right.created_at) - Number(left.created_at) || Number(right.id) - Number(left.id));
 	const results: AuditRevertResult[] = [];
-	for (const entry of entries) results.push(await revertOne(database, entry));
+	for (const entry of entries) results.push(await revertOne(c, database, entry));
 	return [...results, ...missing];
 };
 

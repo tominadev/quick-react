@@ -1,6 +1,7 @@
 import type { ApiHandler } from '@server/modules/base/api-router.mjs';
 import { apiMessage, apiResponse } from '@server/modules/base/api-response.mjs';
 import { allSql, firstSql, runSql, sql } from '@server/database/sql.mjs';
+import { runOperationSql } from '@server/modules/base/operation.mjs';
 import { readPassportSessionId } from '@server/modules/passport/session.mjs';
 import { sha256 } from '@server/modules/passport/accounts/oidc.mjs';
 
@@ -36,7 +37,7 @@ const handler: ApiHandler = async (c, next, params) => {
 		for (const id of ids) {
 			const device = await firstSql<{ id: string }>(database, sql({ database }).select({ table: 'passport_device_users', columns: { id: { column: 'device_id', cast: 'text' } }, where: [{ column: 'device_id', value: id }, { column: 'user_id', value: userId }, { column: 'status', value: 'active' }] }));
 			if (!device) return apiMessage(c, 404, '设备不存在或已经注销');
-			await runSql(database, sql({ database }).update('passport_device_users', { status: 'revoked', revoked_at: Date.now() }, { device_id: device.id, user_id: userId }));
+			await runOperationSql(c, database, sql({ database }).update('passport_device_users', { status: 'revoked', revoked_at: Date.now() }, { device_id: device.id, user_id: userId }));
 			await runSql(database, sql({ database }).delete('passport_sessions', { device_id: device.id, user_id: userId }));
 		}
 		return apiMessage(c, 200, '设备已注销');

@@ -8,6 +8,7 @@ export const tableCrud: TableCrudDefinition = { table: 'global_site_hosts', rowK
 import { getChangedFields } from '@server/modules/base/changed-fields.mjs';
 import { accountsIdentityApi } from '@server/modules/base/navigation.mjs';
 import { allSql, firstSql, runSql, sql } from '@server/database/sql.mjs';
+import { runOperationSql } from '@server/modules/base/operation.mjs';
 
 const columns = [
 	{ dataIndex: 'id', title: 'ID' },
@@ -37,7 +38,7 @@ const removeHost = async (c: Parameters<ApiHandler>[0], id: number) => {
 	if (host.status !== statusValues.disabled) return apiMessage(c, 409, '域名必须先停用才能删除');
 	const bot = await firstSql(database, sql({ database }).select({ table: 'global_telegram_bots', columns: { id: 'id' }, where: [{ column: 'webhook_hostname', value: host.hostname }], limit: 1 }));
 	if (bot) return apiMessage(c, 409, '域名正在被 Telegram 机器人使用，不能删除');
-	await runSql(database, sql({ database }).softDelete('global_site_hosts', { id }));
+	await runOperationSql(c, database, sql({ database }).softDelete('global_site_hosts', { id }));
 	return undefined;
 };
 
@@ -95,7 +96,7 @@ const handler: ApiHandler = async (c, next, params) => {
 		if (hostname) values.hostname = hostname;
 		if (changedFields.has('site_key')) values.site_key = nextSiteKey;
 		if (status) values.status = status;
-		if (Object.keys(values).length) await runSql(database, sql({ database }).update('global_site_hosts', values, { id: Number(params.id) }));
+		if (Object.keys(values).length) await runOperationSql(c, database, sql({ database }).update('global_site_hosts', values, { id: Number(params.id) }));
 		await c.get('siteRouter').refresh();
 		return apiMessage(c, 200, '保存成功');
 	}

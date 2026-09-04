@@ -285,6 +285,10 @@ model base_audit_entries {
   owner_tid    BigInt @default(1)
   owner_bid    BigInt @default(1)
   owner_uid    BigInt?
+  /// 同一次人工操作可能写多张表多行，它们共享一个 operation_id 与同一条原因。
+  operation_id String
+  /// 操作原因：审计记录了「改了什么」，这一列记「为什么」，取证时后者更有价值。
+  reason       String @default("")
   table_name   String
   row_id       BigInt
   action       BaseAuditAction
@@ -295,4 +299,5 @@ model base_audit_entries {
   @@index([owner_bid, created_at])
   @@index([owner_uid, created_at])
   @@index([table_name, row_id, created_at])
+  @@index([operation_id])
 }

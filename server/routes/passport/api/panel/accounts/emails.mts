@@ -61,7 +61,7 @@ const handler: ApiHandler = async (c, _next, params) => {
 	if (params.id === PENDING_ROW_KEY) return apiMessage(c, 409, '该邮箱正在验证中，请前往「绑定邮箱」页面输入验证码完成绑定');
 
 	if (c.req.method === 'POST' && params.id && action === 'primary') {
-		try { return apiMessage(c, 200, `${await setPrimaryAccountEmail(database, userId, params.id)} 已设为主邮箱`); }
+		try { return apiMessage(c, 200, `${await setPrimaryAccountEmail(c, database, userId, params.id)} 已设为主邮箱`); }
 		catch (error) { return apiMessage(c, 409, error instanceof Error ? error.message : '设置主邮箱失败'); }
 	}
 
@@ -72,7 +72,7 @@ const handler: ApiHandler = async (c, _next, params) => {
 		if (targets.includes(PENDING_ROW_KEY)) return apiMessage(c, 409, '该邮箱正在验证中，请前往「绑定邮箱」页面输入验证码完成绑定');
 		const removed: string[] = [];
 		for (const target of targets) {
-			try { removed.push(await unbindAccountEmail(database, userId, target)); }
+			try { removed.push(await unbindAccountEmail(c, database, userId, target)); }
 			catch (error) { return apiMessage(c, 409, error instanceof Error ? error.message : '解绑失败'); }
 		}
 		return apiMessage(c, 200, `${removed.join('、')} 已解绑`);

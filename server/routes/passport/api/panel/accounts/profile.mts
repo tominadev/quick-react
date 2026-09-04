@@ -31,8 +31,8 @@ const handler: ApiHandler = async (c, next) => {
 	try {
 		const requestedUsername = String(body.username ?? '').trim();
 		// 用户名是 passport_users.name 的必填字段；占位名或空值都必须先改成正式用户名。
-		username = await setAccountUsername(database, userId, requestedUsername);
-		nickname = await updateAccountNickname(database, userId, String(body.nickname ?? ''));
+		username = await setAccountUsername(c, database, userId, requestedUsername);
+		nickname = await updateAccountNickname(c, database, userId, String(body.nickname ?? ''));
 	}
 	catch (error) { return apiMessage(c, 400, error instanceof Error ? error.message : '昵称不合法'); }
 	return apiMessageData(c, 200, '资料已保存', {

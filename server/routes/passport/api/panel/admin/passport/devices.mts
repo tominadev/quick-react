@@ -1,6 +1,7 @@
 import type { ApiHandler } from '@server/modules/base/api-router.mjs';
 import { apiMessage, apiResponse } from '@server/modules/base/api-response.mjs';
 import { allSql, runSql, sql } from '@server/database/sql.mjs';
+import { runOperationSql } from '@server/modules/base/operation.mjs';
 
 const columns = [
 	{ dataIndex: 'id', title: 'ID' },
@@ -23,8 +24,8 @@ const handler: ApiHandler = async (c, next, params) => {
 		if (!ids.length) return apiMessage(c, 400, '请选择要注销的设备');
 		for (const id of ids) {
 			const now = Date.now();
-			await runSql(database, sql({ database }).update('passport_devices', { status: 'revoked', revoked_at: now }, { id, status: 'active' }));
-			await runSql(database, sql({ database }).update('passport_device_users', { status: 'revoked', revoked_at: now }, { device_id: id, status: 'active' }));
+			await runOperationSql(c, database, sql({ database }).update('passport_devices', { status: 'revoked', revoked_at: now }, { id, status: 'active' }));
+			await runOperationSql(c, database, sql({ database }).update('passport_device_users', { status: 'revoked', revoked_at: now }, { device_id: id, status: 'active' }));
 			await runSql(database, sql({ database }).delete('passport_sessions', { device_id: id }));
 		}
 		return apiMessage(c, 200, '设备已注销');

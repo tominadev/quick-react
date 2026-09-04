@@ -173,7 +173,13 @@ const configureForRequest = async (c: Context<WorkerEnv>) => {
 	// When both layers share one database and no Accounts session is present,
 	// the Base device-user binding is therefore the only valid audit actor.
 	const passportActor = passportDeviceUserId ?? (passportDatabase === database ? baseDeviceUserId : null);
+	// 人工操作 = 管理后台与账户中心的表单提交。登录、OIDC 回调、Telegram webhook、
+	// 迁移与清理都不在这个前缀下，因此它们的写入不需要走操作层，也不留痕。
+	// 判定放在这里而不是路由的角色门上：三个站点各有自己的 panel 目录，
+	// 按路径判一次比在每个站点各挂一道守卫更难漏。
+	const humanOperation = new URL(c.req.url).pathname.startsWith('/api/panel/');
 	const scopedDatabase = withDatabaseActors(database, {
+		humanOperation,
 		base: baseDeviceUserId,
 		baseUserId,
 		baseTenantId,
@@ -183,7 +189,7 @@ const configureForRequest = async (c: Context<WorkerEnv>) => {
 		...(passportDatabase === database ? { passport: passportActor } : {}),
 	});
 	const scopedPassportDatabase = passportDatabase && passportDatabase !== database
-		? withDatabaseActors(passportDatabase, { passport: passportDeviceUserId, passportUserId })
+		? withDatabaseActors(passportDatabase, { humanOperation, passport: passportDeviceUserId, passportUserId })
 		: scopedDatabase;
 	const globalDeviceUserId = defaultDatabase === database ? baseDeviceUserId : await loadBaseDeviceUserId(defaultDatabase, c.req.raw).catch(() => null);
 	const globalUser = defaultDatabase === database ? currentUser : await loadCurrentUser(defaultDatabase, c.req.raw).catch(() => undefined);
@@ -192,12 +198,12 @@ const configureForRequest = async (c: Context<WorkerEnv>) => {
 		? scopedDatabase
 		: await (async () => {
 			const globalScope = await resolveHostScope(defaultDatabase, site.hostname).catch(() => ({ tenantId: null, branchId: null }));
-			return withDatabaseActors(defaultDatabase, { base: globalDeviceUserId, baseUserId: globalUserId, baseTenantId: globalScope.tenantId, baseBranchId: globalScope.branchId });
+			return withDatabaseActors(defaultDatabase, { humanOperation, base: globalDeviceUserId, baseUserId: globalUserId, baseTenantId: globalScope.tenantId, baseBranchId: globalScope.branchId });
 		})();
 	// 配置读取不参与行级判定：配置行没有账号归属，绑定主体后普通账号一条都读不到，
 	// 登录表单、站点设置这些未登录也要用的东西会全部失效。读走未绑定适配器（configDatabase
 	// 只绑了租户与分站，没有主体角色），写仍走绑定适配器以维护审计字段。
-	const scopedConfigWriter = createDatabaseConfigStore(withDatabaseActors(scopedDatabase, { baseTenantId, baseBranchId }), baseTenantId);
+	const scopedConfigWriter = createDatabaseConfigStore(withDatabaseActors(scopedDatabase, { baseTenantId, baseBranchId }), baseTenantId, c);
 	c.set('globalDatabase', scopedGlobalDatabase);
 	c.set('passportDatabase', scopedPassportDatabase);
 	// 登录、注册、OIDC 回调等发生在会话建立之前的读取必须用它，否则会被自己的判定挡住。

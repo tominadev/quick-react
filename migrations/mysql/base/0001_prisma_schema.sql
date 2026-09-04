@@ -281,6 +281,8 @@ CREATE TABLE `base_audit_entries` (
     `owner_tid` BIGINT NOT NULL DEFAULT 1,
     `owner_bid` BIGINT NOT NULL DEFAULT 1,
     `owner_uid` BIGINT NULL,
+    `operation_id` VARCHAR(191) NOT NULL,
+    `reason` VARCHAR(191) NOT NULL DEFAULT '',
     `table_name` VARCHAR(191) NOT NULL,
     `row_id` BIGINT NOT NULL,
     `action` ENUM('update', 'soft_delete', 'restore') NOT NULL,
@@ -291,5 +293,6 @@ CREATE TABLE `base_audit_entries` (
     INDEX `base_audit_entries_owner_bid_created_at_idx`(`owner_bid`, `created_at`),
     INDEX `base_audit_entries_owner_uid_created_at_idx`(`owner_uid`, `created_at`),
     INDEX `base_audit_entries_table_name_row_id_created_at_idx`(`table_name`, `row_id`, `created_at`),
+    INDEX `base_audit_entries_operation_id_idx`(`operation_id`),
     PRIMARY KEY (`id`)
 ) DEFAULT CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci;

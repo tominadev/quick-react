@@ -51,7 +51,7 @@ const handler: ApiHandler = async (c, _next, params) => {
 		if (!targets.length) return apiMessage(c, 400, '请选择要解绑的身份');
 		const removed: string[] = [];
 		for (const target of targets) {
-			try { removed.push(await unbindAccountIdentity(database, globalDatabase, userId, target)); }
+			try { removed.push(await unbindAccountIdentity(c, database, globalDatabase, userId, target)); }
 			catch (error) { return apiMessage(c, 409, error instanceof Error ? error.message : '解绑失败'); }
 		}
 		return apiMessage(c, 200, `${removed.join('、')} 已解绑`);

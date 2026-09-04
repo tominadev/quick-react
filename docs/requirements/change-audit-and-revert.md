@@ -19,90 +19,61 @@
 
 ## 3. 受管范围
 
-### 3.0 只审计 `update`
+### 3.0 判定的是「操作」，不是表和列
 
-审计的对象是**人对已有数据做的修改**，而在公共层里这恰好就是一个动作：`update`。
-
-`softDelete` 与 `restore` 都是 `updateManaged(table, { deleted_at: ... })`，SQL 层面就是 UPDATE，**挂一个钩子同时覆盖修改、删除与恢复**。
-
-**`insert` 不审计。** 新增没有"变更前"可留，而行本身就是"新增了什么"的完整记录——`created_at` 与 `created_duid` 已经记下谁在什么时候创建了它。为新增再存一份快照是把同一份事实抄两遍。它也是量最大的一类写入（建会话、存短信、签发令牌），排除它去掉了审计表最主要的增长来源。
-
-**物理 `delete` 不审计。** 本项目里人做的删除就是软删除：`sql.mts` 中 `delete` 的注释写明"仅供清理任务和明确的不可恢复操作使用"，AGENTS.md 也要求业务表统一软删除并提供回收站。现有 13 处物理删除调用中，12 处是会话与协议清理，属机器行为。
-
-剩下 3 处是后台人工删除：`global_telegram_bots`、`global_cloud_object_storage_bindings`、`global_cloud_object_storage_binding_purposes`。它们的表都有 `deleted_at` 列，按项目约定本就应改用 `softDelete`；改过之后审计自然覆盖，无需为物理删除单开一条路径。在改动之前，这三处是已知的审计盲区。
-
-**`upsert` 的改写分支也审计。** 配置就是这么写的（`base_configs` 的 `upsert`），不覆盖它等于把最该留证据的一类变更漏掉。不需要分支判断：审计按插入值去找原行，新插入时读不到原行、自然不产生记录，与"insert 不审计"是同一个结果。只有一个前提——冲突键的值必须全部推得出来（归属列没写进 INSERT 时按数据库默认值推），推不出来就整体不审计，宁可没有记录也不要一条指错行的记录。
-
-只审计修改带来的简化：**钩子只有一个**，不需要整行快照（只记变化的列），表白名单也从必需降为可选——字段排除规则加上"逐列比对无变化就不记"已经把噪音挡住了。
-
-范围由**三层**共同界定，三层都是白名单——审计要记的是人做的修改，凡是要靠"排除"才能挡住的，都会失败在敞开的一侧。
-
-1. **有主体**：`subjectRoles !== null`。没有主体就不是人做的。
-2. **表白名单**：哪些表的变更值得留证据。
-3. **列白名单**：那张表里哪些列是人填的。
-
-### 3.0.1 第一层：没有主体就不是人做的
-
-`subjectRoles === null` 表示系统上下文——迁移、种子、鉴权自身、清理任务、OIDC 回调、Telegram webhook 全在这一类。**这个信号已经在可见性判定里用了**（`visibilityConditions` 的第一行），一个概念两处用，不需要新造判据。
-
-它结构性地解决了一个在 SQL 层解不了的问题：`update('base_oidc_users', { profile })` 在登录回调里和管理员手工改，生成的语句一模一样，靠列名区分只是代价高的猜测。而适配器知道有没有人登录着。
-
-### 3.1 表白名单
-
-**审计范围是代码常量，不是配置，不进数据库**——与 `shared/system-fields.mts` 的 `SYSTEM_FIELD_NAMES` 同例。放进配置意味着运行时可以关掉审计，那正是审计最不该允许的事。
+审计要记的是**人做的修改**。而这个信息在 SQL 层已经没有了：
 
 ```ts
-// shared/audit-tables.mts
-export const AUDITED_TABLES = [
-  'base_users', 'base_tenants', 'base_branches', 'base_hosts',
-  'base_configs', 'base_bootstrap',
-  'global_sites', 'global_site_hosts', 'global_cloud_credentials', ...
-] as const;
-
-/** 显式声明不审计的表，与白名单共同覆盖全部表，见 §3.4。 */
-export const UNAUDITED_TABLES = [
-  'base_sessions', 'base_devices', 'base_device_users', 'base_oidc_sessions',
-  'base_audit_entries', 'global_schema_migrations', ...
-] as const;
+update('base_oidc_users', { profile })   // 登录回调刷新上游快照？还是管理员手工改？
+update('global_sites', { migration_status })  // 迁移状态机？还是管理员改了 DSN？
 ```
 
-各业务站点按需把自己的表加进对应的一份。
+两种情况生成的语句**一模一样**。靠表名或列名去反推，只是代价很高的猜测——实现过程中按列排除试过两轮，两次都漏（`migration_status`、`profile` 都是事后偶然发现的），改成列白名单又会把真正的人工操作误伤：管理员吊销一台设备写的是 `passport_devices`，和登录时机器写的是同一张表。
 
-排除 `insert` 与物理 `delete` 之后（§3.0），表这一层不再是必需的——字段规则已经能挡住高频写入。保留它的理由变成**显式声明审计面**：哪些表的变更值得留证据是一个业务判断，写下来比让它由过滤规则的副作用决定要好。
-
-### 3.2 列白名单
-
-受管表里也有机器维护的列。**逐表显式声明哪些列值得留证据**，没列进来的一律不记。
+**所以判定放在路由层，由调用方显式声明**：
 
 ```ts
-export const AUDITED_COLUMNS: Record<string, readonly string[]> = {
-  base_users: ['name', 'password', 'roles', 'status', 'owner_uid'],
-  global_sites: ['key', 'name', 'base_site_key', 'dsn', 'status', ...],
-  ...
-};
+await runOperation(c, database, [sql({ database }).update('base_users', values, { id })], { reason });
 ```
 
-**为什么是白名单而不是排除清单。** 排除失败在敞开的一侧：新增一个机器维护的列，它会静默地开始产生噪音，只有等表撑大了才会被发现。这一点在实现过程中被证实了两次——`global_sites.migration_status` 和 `base_oidc_users.profile` 都是事后偶然发现的。改成白名单之后逐列过一遍 170 个业务列，又找出十来个同类：`pve_nodes.last_checked_at`/`last_error`（探活结果）、`pve_vms.pve_status`/`pve_config`/`error_message`（从 PVE 拉回的运行时状态）、`global_cloud_email_template_publications.content_hash`（发布流程算出来回填）、`global_sites.is_system`（建库时定死的只读标志）、`passport_telegram_accounts.chat_id`/`nickname`（webhook 按用户在 Telegram 侧改名同步）。**黑名单永远找不全这些，白名单强迫一个个看。**
+只有这里同时知道：这是哪个人、因为什么、勾没勾立即生效、这次操作包含哪几条写入。
 
-`deleted_at` 是唯一的例外：它由公共层维护、不出现在任何一张表的白名单里，但它是软删除与恢复的唯一信号，受管表一律放行。
+### 3.1 三种写入路径
 
-**一次更新如果一个白名单列都没碰，整条不产生记录**；混在机器列里一起提交时，只有白名单列进 `changes`。
+| 函数 | 用于 | 留痕 |
+| --- | --- | --- |
+| `runOperation` / `runOperationSql` | 人工操作 | **是** |
+| `runSystemSql` | 人工请求里顺带推进的机器写入（验证码过期、会话续期） | 否 |
+| `runSql` | 其余一切（登录、OIDC 回调、webhook、迁移、清理、CLI） | 否 |
 
-### 3.3 字段规则不需要读原行
+第二行是必要的：一次表单提交里除了那个操作本身，还会顺带推进一些状态机。它们发生在人工请求里却不是人做的修改，用 `runSystemSql` 是一次**显式声明**，读代码的人一眼能看见，而不是靠一份列名清单去猜。
 
-判断"这次更新是否只碰了排除列"**只看写入的列名**，不需要先读那一行。因此 `update('base_sessions', { expires_at })` 这类写入在进入公共层的第一步就短路：不多一次读、不产生记录、零成本。
+唯一的表级例外是 `base_audit_entries` 自己——记录一条变更会再产生一条变更，理由是防递归，不是防噪音。
 
-只有确实在改业务列时才去读原行做逐列比对（§4.2）。**"每次受管写入多一次读"这个代价只落在真正的业务变更上**，不落在心跳路径上。
+### 3.2 `insert` 与物理 `delete` 仍然不审计
 
-按 1000 日活、人均 50 次请求估算，仅会话续期一项每天就是 5 万次写入——两层过滤后它们一条记录都不产生。
+**`insert` 不审计。** 新增没有"变更前"可留，而行本身就是"新增了什么"的完整记录——`created_at` 与 `created_duid` 已经记下谁在什么时候创建了它。为新增再存一份快照是把同一份事实抄两遍。
 
-### 3.4 遗漏必须变成构建失败
+**物理 `delete` 不审计。** 本项目里人做的删除就是软删除；`sql.mts` 中 `delete` 的注释写明"仅供清理任务和明确的不可恢复操作使用"。现有 13 处物理删除调用中，12 处是会话与协议清理，属机器行为。剩下 3 处后台人工删除（`global_telegram_bots`、两张对象存储绑定表）按项目约定本就应改用 `softDelete`；改过之后审计自然覆盖。
 
-表白名单有一个危险的失败方向：**新增表时忘记登记，那张表就静默地没有审计**。审计里"漏"比"吵"严重得多——吵会被表体积立刻暴露，漏只有等到要查证时才发现，而那时已经来不及。
+`softDelete` 与 `restore` 都是 `updateManaged(table, { deleted_at: ... })`，SQL 层面就是 UPDATE，因此**一条路径同时覆盖修改、删除与恢复**。
 
-因此加一条测试：断言**每一张表要么在 `AUDITED_TABLES`，要么在 `UNAUDITED_TABLES`**，两边都不在即失败。新增表时必须主动做一次决定，不能靠"忘了"落进默认。
+### 3.3 只记变化的列，且只在需要时读原行
 
-**列这一层同样如此**：受管表必须在 `AUDITED_COLUMNS` 里声明，白名单里出现 schema 中不存在的列也失败——列改名或删除时会立刻暴露，不会留下一条永远匹配不上的死规则。
+判断"这次写入要不要记"完全不需要读表：`runSql` 与 `runSystemSql` 直接执行，只有 `runOperation` 才会去读原行做逐列比对（§4.2）。**"每次写入多一次读"这个代价只落在人工操作上**，登录续期、心跳、协议状态机一次都不多读。
+
+按 1000 日活、人均 50 次请求估算，仅会话续期一项每天就是 5 万次写入——它们走 `runSql`，一条记录都不产生。
+
+### 3.4 漏包必须立刻报错
+
+把判定搬到路由层，就重新引入了一个风险：**忘了包 `runOperation`，那次操作就静默地没有审计**。审计里"漏"比"吵"严重得多——吵会被表体积立刻暴露，漏只有等到要查证时才发现。
+
+两道防线：
+
+1. **运行时断言。** `worker.mts` 按请求路径（`/api/panel/`）给适配器打上 `humanOperation` 标记，`runSql` 见到"人工请求 + 受管写入"直接抛错。忘了包就是立刻报错，而不是少一条证据。
+2. **静态检查。** `npm run test:audit-scope` 扫描全部 `api/panel/**` 路由，断言里面不出现裸的受管写入。
+
+`runSql` 因此从**记录者**变成了**看门人**：它不做记录，只保证没人绕过操作层。
 
 ## 4. 数据结构
 
@@ -110,6 +81,8 @@ export const AUDITED_COLUMNS: Record<string, readonly string[]> = {
 
 | 字段 | 说明 |
 | --- | --- |
+| `operation_id` | 同一次人工操作的多条写入共享它 |
+| `reason` | 操作原因（§11.1）：审计记了「改了什么」，这一列记「为什么」 |
 | `table_name` | 被改动的表 |
 | `row_id` | 被改动的行 |
 | `action` | `update` / `soft_delete` / `restore`；三者都是 UPDATE，按写入的列区分。不含 `insert` 与物理 `delete`，见 §3.0 |
@@ -147,24 +120,17 @@ export const HIDDEN_VALUE_COLUMNS = [
 
 ## 6. 钩子落点与记录顺序
 
-### 6.1 记录挂在 `runSql`，不挂在 `SqlBuilder`
+### 6.1 记录在操作层，`runSql` 只看门
 
-`SqlBuilder` 是纯的：只生成 `{ query, values }`，不碰数据库。而审计要"读原行 → 写记录 → 再执行"，是有副作用的多步流程，放不进去。
+`SqlBuilder` 是纯的：只生成 `{ query, values, audit }`，不碰数据库。`audit` 是结构化的元信息（表、写入值、完整 WHERE、归属），供上层读原行、算差异——**它不判断这次写入算不算人工操作**，那个信息在这一层根本没有（§3.0）。
 
-因此 `update` 在返回值里附带元信息，由 `runSql` 据此完成记录再执行：
+记录由 `server/modules/base/operation.mts` 完成："读原行 → 写记录 → 再执行全部语句"。放在这里有三个好处：
 
-```ts
-export type SqlQuery = {
-	query: string;
-	values: unknown[];
-	/** 仅 update 附带；runSql 据此决定是否记录变更。业务代码不构造也不读取它。 */
-	audit?: { table: string; values: Values; where: SqlCondition[] };
-};
-```
+- **一次操作一个 `operation_id`**，多条写入共享同一条原因，不再是"一条语句一条记录"各自为政；
+- 拿得到**操作原因**与后续的**立即生效**勾选（§11）；
+- 审批可以在动手之前决定，要么全做要么全不做，不会出现批了一半的中间态。
 
-**不新开 `runAudited()` 之类的显式入口。** 审计不应依赖"记得调用哪个函数"——漏掉一处就少一条证据，而且这种遗漏没有任何征兆。`runSql` 已经是所有写入的必经之路，把判断放在那里，覆盖面由类型和调用路径保证，不由人的记性保证。
-
-代价是 `runSql` 从"执行一条语句"变成"可能先做两次额外查询再执行"。这个代价只落在受管表的业务列变更上：白名单外的表、只碰排除列的更新，都在生成元信息之前就被排除了（§3.2、§3.3）。
+代价是覆盖面不再由"所有写入的必经之路"自动保证，改由 §3.4 的两道防线保证——一道运行时断言，一道静态检查。
 
 ### 6.2 记录时机与顺序
 

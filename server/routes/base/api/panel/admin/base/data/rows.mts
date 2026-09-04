@@ -1,6 +1,7 @@
 import type { ApiHandler } from '@server/modules/base/api-router.mjs';
 import { apiMessage, apiMessageData, apiResponse } from '@server/modules/base/api-response.mjs';
 import { firstSql, runSql, sql } from '@server/database/sql.mjs';
+import { runOperationSql } from '@server/modules/base/operation.mjs';
 import { assertTable, databaseQueryFields, databaseSelectColumns, databaseTableActions, getColumns, readTable, tableRowKey } from '@server/routes/base/data/database-table.mjs';
 import { getChangedFields } from '@server/modules/base/changed-fields.mjs';
 import { isSystemField } from '@shared/system-fields.mjs';
@@ -51,7 +52,7 @@ const handler: ApiHandler = async (c, next, params) => {
 		const changedFields = getChangedFields(source, [...names]);
 		const values = editableFields(source, changedFields);
 		if (!values.length) return apiMessage(c, 400, '没有可更新的字段');
-		await runSql(database, sql({ database }).update(tableName, Object.fromEntries(values), { [rowKey]: params.id }));
+		await runOperationSql(c, database, sql({ database }).update(tableName, Object.fromEntries(values), { [rowKey]: params.id }));
 		return apiMessage(c, 200, '保存成功');
 	}
 	if (c.req.method === 'POST') {
@@ -66,7 +67,7 @@ const handler: ApiHandler = async (c, next, params) => {
 	if (c.req.method === 'DELETE') {
 		const ids = await c.req.json<unknown>().catch(() => []);
 		if (!Array.isArray(ids)) return apiMessage(c, 400, '删除参数无效');
-		for (const id of ids) await runSql(database, sql({ database }).softDelete(tableName, { [rowKey]: String(id) }));
+		for (const id of ids) await runOperationSql(c, database, sql({ database }).softDelete(tableName, { [rowKey]: String(id) }));
 		return apiMessage(c, 200, '删除成功，可在回收站找回或彻底删除');
 	}
 	return next();

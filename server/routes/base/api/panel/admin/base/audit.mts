@@ -12,6 +12,7 @@ const columns = [
 	{ dataIndex: 'row_id', title: '记录' },
 	{ dataIndex: 'action', title: '动作' },
 	{ dataIndex: 'summary', title: '变更内容' },
+	{ dataIndex: 'reason', title: '操作原因' },
 	{ dataIndex: 'created_duid', title: '操作者' },
 	{ dataIndex: 'owner_uid', title: '作用账号' },
 	{ dataIndex: 'status', title: '状态' },
@@ -24,6 +25,7 @@ const publicEntry = (row: AuditEntryRow) => ({
 	row_id: row.row_id,
 	action: actionLabels[row.action] ?? row.action,
 	summary: describeAuditChanges(parseAuditChanges(row.changes)),
+	reason: row.reason ?? '',
 	created_duid: row.created_duid ?? '',
 	owner_uid: row.owner_uid ?? '',
 	status: statusLabels[row.status] ?? row.status,
@@ -59,7 +61,7 @@ const handler: ApiHandler = async (c, next, params) => {
 	if (c.req.method === 'POST' && c.req.query('action') === 'revert') {
 		const ids = await readIds(c, params.id);
 		if (!ids.length) return apiMessage(c, 400, '请选择要撤回的记录');
-		const results = await revertAuditEntries(database, ids);
+		const results = await revertAuditEntries(c, database, ids);
 		const failed = results.filter((result) => !result.ok);
 		if (!failed.length) return apiMessage(c, 200, `已撤回 ${results.length} 条变更`);
 		// 逐条独立判定：某一条被拒绝时其余照常执行，最后逐条返回结果（§7.4）。

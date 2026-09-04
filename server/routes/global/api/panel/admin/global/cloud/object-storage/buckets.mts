@@ -12,6 +12,7 @@ import type { TableCrudDefinition } from '@server/modules/base/table-crud.mjs';
 
 export const tableCrud: TableCrudDefinition = { table: 'global_cloud_object_storage_buckets', rowKey: 'id' };
 import { allSql, firstSql, runSql, sql } from '@server/database/sql.mjs';
+import { runOperationSql } from '@server/modules/base/operation.mjs';
 
 const baseColumns = [
 	{ dataIndex: 'id', title: 'ID', dataType: 'int' as const },
@@ -102,7 +103,7 @@ const handler: ApiHandler = async (c, next, params) => {
 	if (!params.id && c.req.method === 'DELETE') {
 		const ids = await c.req.json<unknown>().catch(() => []);
 		for (const id of Array.isArray(ids) ? ids : []) {
-			try { await runSql(database, sql({ database }).softDelete('global_cloud_object_storage_buckets', { id: Number(id) })); }
+			try { await runOperationSql(c, database, sql({ database }).softDelete('global_cloud_object_storage_buckets', { id: Number(id) })); }
 			catch { return apiMessage(c, 409, 'Bucket 已绑定到站点，不能删除'); }
 		}
 		return apiMessage(c, 200, '删除成功，可在回收站找回或彻底删除');
@@ -131,12 +132,12 @@ const handler: ApiHandler = async (c, next, params) => {
 		const extra = changed.has('extra_config') ? parseExtra(body.extra_config) : String(current.extra_config);
 		if (extra === null) return apiMessage(c, 400, '扩展配置必须是有效 JSON');
 		try {
-			await runSql(database, sql({ database }).update('global_cloud_object_storage_buckets', { cloud_credential_id: credentialId, endpoint, region: changed.has('region') ? text(body.region) : current.region, bucket, path_style: changed.has('path_style') ? (booleanValue(body.path_style) ? 1 : 0) : current.path_style, public_base_url: changed.has('public_base_url') ? text(body.public_base_url) : current.public_base_url, extra_config: extra, status: changed.has('status') && body.status === statusValues.disabled ? statusValues.disabled : changed.has('status') ? statusValues.enabled : current.status }, { id: Number(params.id) }));
+			await runOperationSql(c, database, sql({ database }).update('global_cloud_object_storage_buckets', { cloud_credential_id: credentialId, endpoint, region: changed.has('region') ? text(body.region) : current.region, bucket, path_style: changed.has('path_style') ? (booleanValue(body.path_style) ? 1 : 0) : current.path_style, public_base_url: changed.has('public_base_url') ? text(body.public_base_url) : current.public_base_url, extra_config: extra, status: changed.has('status') && body.status === statusValues.disabled ? statusValues.disabled : changed.has('status') ? statusValues.enabled : current.status }, { id: Number(params.id) }));
 		} catch { return apiMessage(c, 409, '该凭据、Endpoint 和 Bucket 已经存在'); }
 		return apiMessage(c, 200, '保存成功');
 	}
 	if (params.id && c.req.method === 'DELETE') {
-		try { await runSql(database, sql({ database }).softDelete('global_cloud_object_storage_buckets', { id: Number(params.id) })); }
+		try { await runOperationSql(c, database, sql({ database }).softDelete('global_cloud_object_storage_buckets', { id: Number(params.id) })); }
 		catch { return apiMessage(c, 409, 'Bucket 已绑定到站点，不能删除'); }
 		return apiMessage(c, 200, '删除成功，可在回收站找回或彻底删除');
 	}

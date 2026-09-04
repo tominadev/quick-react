@@ -1,3 +1,5 @@
+import type { Context } from 'hono';
+import type { AppEnv } from '@server/modules/base/types.mjs';
 import type { ApiHandler } from '@server/modules/base/api-router.mjs';
 import { apiMessage, apiMessageData, apiResponse } from '@server/modules/base/api-response.mjs';
 import { cloudProviderOptions, getCloudEmailProduct, getCloudEmailRegionOptions, getCloudEmailRegions, providerSupportsEmailPush } from '@server/modules/global/cloud/catalog.mjs';
@@ -13,6 +15,7 @@ import type { TableCrudDefinition } from '@server/modules/base/table-crud.mjs';
 
 export const tableCrud: TableCrudDefinition = { table: 'global_cloud_email_channels', rowKey: 'id' };
 import { allSql, firstSql, runSql, sql } from '@server/database/sql.mjs';
+import { runOperationSql } from '@server/modules/base/operation.mjs';
 
 const columns = [
 	{ dataIndex: 'id', title: 'ID', dataType: 'int' as const },
@@ -49,13 +52,13 @@ const validCredential = async (database: DatabaseAdapter, id: number, region: st
 	return Boolean(credential && providerSupportsEmailPush(credential.provider) && getCloudEmailRegions(credential.provider).some((item) => item === region));
 };
 const loadCredential = (database: DatabaseAdapter, id: number) => firstSql<CloudCredential>(database, sql({ database }).select({ table: 'global_cloud_credentials', where: [{ column: 'id', value: id }, { column: 'status', value: 'enabled' }] }));
-const deleteChannel = async (database: DatabaseAdapter, id: number) => {
+const deleteChannel = async (c: Context<AppEnv>, database: DatabaseAdapter, id: number) => {
 	const row = await firstSql<{ id: number; status: string }>(database, sql({ database }).select({ table: 'global_cloud_email_channels', columns: { id: 'id', status: 'status' }, where: [{ column: 'id', value: id }] }));
 	if (!row) return '邮件通道不存在';
 	if (row.status !== statusValues.disabled) return '邮件通道必须先停用才能删除';
 	const association = await firstSql(database, sql({ database }).select({ table: 'global_cloud_email_bindings', columns: { channel_id: 'channel_id' }, where: [{ column: 'channel_id', value: id }], limit: 1 }));
 	if (association) return '邮件通道仍有站点绑定，不能删除';
-	await runSql(database, sql({ database }).softDelete('global_cloud_email_channels', { id }));
+	await runOperationSql(c, database, sql({ database }).softDelete('global_cloud_email_channels', { id }));
 };
 
 const handler: ApiHandler = async (c, next, params) => {
@@ -101,7 +104,7 @@ const handler: ApiHandler = async (c, next, params) => {
 	if (!params.id && c.req.method === 'DELETE') {
 		const ids = await c.req.json<unknown>().catch(() => []);
 		for (const value of Array.isArray(ids) ? ids : []) {
-			const error = await deleteChannel(database, Number(value));
+			const error = await deleteChannel(c, database, Number(value));
 			if (error) return apiMessage(c, 409, error);
 		}
 		return apiMessage(c, 200, '删除成功，可在回收站找回或彻底删除');
@@ -161,12 +164,12 @@ const handler: ApiHandler = async (c, next, params) => {
 			if (binding) return apiMessage(c, 409, '邮件通道已有站点绑定，不能修改凭据、Region 或发信地址');
 		}
 		try {
-			await runSql(database, sql({ database }).update('global_cloud_email_channels', { cloud_credential_id: credentialId, region, account_name: accountName, from_alias: fromAlias, reply_to_address: changed.has('reply_to_address') ? (booleanValue(body.reply_to_address) ? 1 : 0) : current.reply_to_address, status: changed.has('status') && body.status === statusValues.disabled ? statusValues.disabled : changed.has('status') ? statusValues.enabled : current.status }, { id: Number(params.id) }));
+			await runOperationSql(c, database, sql({ database }).update('global_cloud_email_channels', { cloud_credential_id: credentialId, region, account_name: accountName, from_alias: fromAlias, reply_to_address: changed.has('reply_to_address') ? (booleanValue(body.reply_to_address) ? 1 : 0) : current.reply_to_address, status: changed.has('status') && body.status === statusValues.disabled ? statusValues.disabled : changed.has('status') ? statusValues.enabled : current.status }, { id: Number(params.id) }));
 		} catch { return apiMessage(c, 409, '该凭据、Region 和发信地址已经存在'); }
 		return apiMessage(c, 200, '保存成功');
 	}
 	if (params.id && c.req.method === 'DELETE') {
-		const error = await deleteChannel(database, Number(params.id));
+		const error = await deleteChannel(c, database, Number(params.id));
 		return error ? apiMessage(c, 409, error) : apiMessage(c, 200, '删除成功，可在回收站找回或彻底删除');
 	}
 	return next();

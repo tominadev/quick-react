@@ -1,3 +1,5 @@
+import type { Context } from 'hono';
+import type { AppEnv } from '@server/modules/base/types.mjs';
 import type { ApiHandler } from '@server/modules/base/api-router.mjs';
 import { apiMessage, apiMessageData, apiResponse } from '@server/modules/base/api-response.mjs';
 import type { DatabaseAdapter } from '@server/database/index.mjs';
@@ -8,6 +10,7 @@ import type { TableCrudDefinition } from '@server/modules/base/table-crud.mjs';
 export const tableCrud: TableCrudDefinition = { table: 'global_cloud_object_storage_bindings', rowKey: 'id' };
 import { getChangedFields } from '@server/modules/base/changed-fields.mjs';
 import { allSql, firstSql, runSql, sql } from '@server/database/sql.mjs';
+import { runOperationSql } from '@server/modules/base/operation.mjs';
 
 const purposes = [
 	{ value: 'uploads', text: '上传文件' },
@@ -42,11 +45,11 @@ const purposeState = (rows: BindingPurposeRow[]) => ({
 	purposes: rows.map((item) => item.purpose),
 	default_purposes: rows.filter((item) => Boolean(item.is_default)).map((item) => item.purpose),
 });
-const savePurposes = async (database: DatabaseAdapter, bindingId: number, siteKey: string, selected: string[], defaults: string[]) => {
+const savePurposes = async (c: Context<AppEnv>, database: DatabaseAdapter, bindingId: number, siteKey: string, selected: string[], defaults: string[]) => {
 	for (const purpose of selected) await runSql(database, sql({ database }).insert('global_cloud_object_storage_binding_purposes', { binding_id: bindingId, site_key: siteKey, purpose, is_default: 0 }));
 	for (const purpose of defaults) {
-		await runSql(database, sql({ database }).update('global_cloud_object_storage_binding_purposes', { is_default: 0 }, [{ column: 'site_key', value: siteKey }, { column: 'purpose', value: purpose }, { column: 'binding_id', operator: '!=', value: bindingId }]));
-		await runSql(database, sql({ database }).update('global_cloud_object_storage_binding_purposes', { is_default: 1 }, { binding_id: bindingId, purpose }));
+		await runOperationSql(c, database, sql({ database }).update('global_cloud_object_storage_binding_purposes', { is_default: 0 }, [{ column: 'site_key', value: siteKey }, { column: 'purpose', value: purpose }, { column: 'binding_id', operator: '!=', value: bindingId }]));
+		await runOperationSql(c, database, sql({ database }).update('global_cloud_object_storage_binding_purposes', { is_default: 1 }, { binding_id: bindingId, purpose }));
 	}
 };
 const validateTarget = async (database: DatabaseAdapter, siteKey: string, bucketId: number) => {
@@ -96,7 +99,7 @@ const handler: ApiHandler = async (c, next, params) => {
 			const binding = await firstSql<{ id: number }>(database, sql({ database }).select({ table: 'global_cloud_object_storage_bindings', columns: { id: 'id' }, where: [{ column: 'site_key', value: siteKey }, { column: 'bucket_id', value: bucketId }, { column: 'key_prefix', value: keyPrefix }] }));
 			if (!binding) throw new Error('绑定创建后无法读取');
 			createdBindingId = binding.id;
-			await savePurposes(database, binding.id, siteKey, selected, status === statusValues.enabled ? defaults : []);
+			await savePurposes(c, database, binding.id, siteKey, selected, status === statusValues.enabled ? defaults : []);
 		} catch (error) {
 			if (createdBindingId) await runSql(database, sql({ database }).delete('global_cloud_object_storage_bindings', { id: createdBindingId })).catch(() => undefined);
 			return apiMessage(c, 400, error instanceof Error ? error.message : '创建绑定失败');
@@ -105,7 +108,7 @@ const handler: ApiHandler = async (c, next, params) => {
 	}
 	if (!params.id && c.req.method === 'DELETE') {
 		const ids = await c.req.json<unknown>().catch(() => []);
-		for (const id of Array.isArray(ids) ? ids : []) await runSql(database, sql({ database }).softDelete('global_cloud_object_storage_bindings', { id: Number(id) }));
+		for (const id of Array.isArray(ids) ? ids : []) await runOperationSql(c, database, sql({ database }).softDelete('global_cloud_object_storage_bindings', { id: Number(id) }));
 		return apiMessage(c, 200, '删除成功，可在回收站找回或彻底删除');
 	}
 	if (params.id && c.req.method === 'GET') {
@@ -134,13 +137,13 @@ const handler: ApiHandler = async (c, next, params) => {
 		if (duplicate) return apiMessage(c, 409, '相同站点、Bucket 和对象前缀的绑定已存在');
 		try {
 			await runSql(database, sql({ database }).delete('global_cloud_object_storage_binding_purposes', { binding_id: Number(params.id) }));
-			await runSql(database, sql({ database }).update('global_cloud_object_storage_bindings', { site_key: siteKey, bucket_id: bucketId, key_prefix: keyPrefix, status }, { id: Number(params.id) }));
-			await savePurposes(database, Number(params.id), siteKey, selected, status === statusValues.enabled ? defaults : []);
+			await runOperationSql(c, database, sql({ database }).update('global_cloud_object_storage_bindings', { site_key: siteKey, bucket_id: bucketId, key_prefix: keyPrefix, status }, { id: Number(params.id) }));
+			await savePurposes(c, database, Number(params.id), siteKey, selected, status === statusValues.enabled ? defaults : []);
 		} catch (error) { return apiMessage(c, 400, error instanceof Error ? error.message : '保存绑定失败'); }
 		return apiMessage(c, 200, '保存成功');
 	}
 	if (params.id && c.req.method === 'DELETE') {
-		await runSql(database, sql({ database }).softDelete('global_cloud_object_storage_bindings', { id: Number(params.id) }));
+		await runOperationSql(c, database, sql({ database }).softDelete('global_cloud_object_storage_bindings', { id: Number(params.id) }));
 		return apiMessage(c, 200, '删除成功，可在回收站找回或彻底删除');
 	}
 	return next();

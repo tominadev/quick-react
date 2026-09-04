@@ -1,6 +1,7 @@
 import type { ApiHandler } from '@server/modules/base/api-router.mjs';
 import { apiMessage, apiResponse } from '@server/modules/base/api-response.mjs';
 import { allSql, firstSql, runSql, sql } from '@server/database/sql.mjs';
+import { runOperationSql } from '@server/modules/base/operation.mjs';
 import { requiredColumns } from '@server/database/schema.mjs';
 import type { TableCrudDefinition } from '@server/modules/base/table-crud.mjs';
 
@@ -37,7 +38,7 @@ export const pveCrud = (config: Config): ApiHandler & { tableCrud: TableCrudDefi
 		const values: Record<string, unknown> = {};
 		for (const field of config.writable) values[field] = body[field];
 		if (!params.id) { await runSql(database, sql({ database }).insert(config.table, values)); return apiMessage(c, 201, '创建成功'); }
-		await runSql(database, sql({ database }).update(config.table, values, { [config.key]: params.id })); return apiMessage(c, 200, '保存成功');
+		await runOperationSql(c, database, sql({ database }).update(config.table, values, { [config.key]: params.id })); return apiMessage(c, 200, '保存成功');
 	}
 	return next();
 };

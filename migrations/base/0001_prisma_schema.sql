@@ -241,6 +241,8 @@ CREATE TABLE "base_audit_entries" (
     "owner_tid" BIGINT NOT NULL DEFAULT 1,
     "owner_bid" BIGINT NOT NULL DEFAULT 1,
     "owner_uid" BIGINT,
+    "operation_id" TEXT NOT NULL,
+    "reason" TEXT NOT NULL DEFAULT '',
     "table_name" TEXT NOT NULL,
     "row_id" BIGINT NOT NULL,
     "action" TEXT NOT NULL,
@@ -301,3 +303,6 @@ CREATE INDEX "base_audit_entries_owner_uid_created_at_idx" ON "base_audit_entrie
 
 -- CreateIndex
 CREATE INDEX "base_audit_entries_table_name_row_id_created_at_idx" ON "base_audit_entries"("table_name", "row_id", "created_at");
+
+-- CreateIndex
+CREATE INDEX "base_audit_entries_operation_id_idx" ON "base_audit_entries"("operation_id");

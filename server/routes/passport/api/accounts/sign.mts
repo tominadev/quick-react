@@ -372,7 +372,7 @@ const handler: ApiHandler = async (c, next) => {
 		if (!user) return apiMessage(c, 401, '登录状态已失效，请重新登录');
 		const userId = String(user.id);
 		if (step === 'set_username') {
-			try { await setAccountUsername(database, userId, text(body.username)); }
+			try { await setAccountUsername(c, database, userId, text(body.username)); }
 			catch (error) { return apiMessage(c, 400, error instanceof Error ? error.message : '用户名不合法'); }
 			return completeLogin(userId, '用户名已设置');
 		}
