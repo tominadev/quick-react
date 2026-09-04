@@ -1,7 +1,7 @@
 import type { Context } from 'hono';
 import type { AppEnv } from './types.mjs';
 import type { DatabaseAdapter, DatabaseRunResult } from '@server/database/index.mjs';
-import { allSql, AUDIT_TABLE, runSystemSql, sql, type SqlAuditAction, type SqlAuditMetadata, type SqlQuery } from '@server/database/sql.mjs';
+import { allSql, AUDIT_TABLE, firstSql, runSystemSql, sql, type SqlAuditAction, type SqlAuditMetadata, type SqlCondition, type SqlQuery } from '@server/database/sql.mjs';
 
 /**
  * 一次人工操作。
@@ -82,6 +82,26 @@ const actionOf = (changes: Record<string, { before: unknown; after: unknown }>):
 	return Number(deletedAt.after ?? 0) === 0 ? 'restore' : 'soft_delete';
 };
 
+/**
+ * 找这个人自己挂在这一行上的待审批记录。
+ *
+ * 按操作者过滤：两个人各自对同一行提出的修改是两件事，各排各的队；同一个人改了
+ * 又改，只是同一件事的最新版本。
+ */
+const findPendingEntry = async (database: DatabaseAdapter, builder: ReturnType<typeof sql>, table: string, rowId: unknown) => {
+	const actor = builder.auditActor(AUDIT_TABLE);
+	const where: SqlCondition[] = [
+		{ column: 'table_name', value: table },
+		{ column: 'row_id', value: rowId },
+		{ column: 'status', value: 'pending' },
+		actor === null ? { column: 'created_duid', operator: 'IS NULL' } : { column: 'created_duid', value: actor },
+	];
+	return firstSql<{ id: string }>(database, builder.select({
+		table: AUDIT_TABLE, columns: { id: { column: 'id', cast: 'text' } }, where,
+		orderBy: [{ column: 'id', direction: 'DESC' }], limit: 1,
+	}));
+};
+
 const recordStatement = async (database: DatabaseAdapter, metadata: SqlAuditMetadata, operationId: string, reason: string, status: 'applied' | 'pending') => {
 	// 归属与可见性条件都在生成语句时定死了：调用方可能用显式上下文覆盖适配器。
 	const builder = sql({ database, subjectRoles: null, ownerTid: metadata.owner.tid, ownerBid: metadata.owner.bid, ownerUid: metadata.owner.uid, actorUid: metadata.owner.actor });
@@ -103,7 +123,7 @@ const recordStatement = async (database: DatabaseAdapter, metadata: SqlAuditMeta
 			if (!sameValue(before, after)) changes[column] = { before, after };
 		}
 		if (!Object.keys(changes).length) continue;
-		await runSystemSql(database, builder.insert(AUDIT_TABLE, {
+		const values = {
 			operation_id: operationId,
 			reason,
 			table_name: metadata.table,
@@ -111,7 +131,13 @@ const recordStatement = async (database: DatabaseAdapter, metadata: SqlAuditMeta
 			action: actionOf(changes),
 			changes: JSON.stringify(changes),
 			status,
-		}));
+		};
+		// 同一个人对同一条记录反复提交时，覆盖他自己那条待审批记录而不是再排一条：
+		// 队列里堆着同一个人对同一行的多份申请，审批人只能逐条批过去，而先批的那几条
+		// 会因为值校验（§7.2）全部失败——它们的 before 是更早的值。改一次留一条最新的。
+		const existing = status === 'pending' ? await findPendingEntry(database, builder, metadata.table, row.id) : undefined;
+		if (existing) await runSystemSql(database, builder.update(AUDIT_TABLE, values, [{ column: 'id', value: existing.id }, { column: 'status', value: 'pending' }]));
+		else await runSystemSql(database, builder.insert(AUDIT_TABLE, values));
 		recorded += 1;
 	}
 	return recorded;

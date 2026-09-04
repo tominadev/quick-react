@@ -125,20 +125,25 @@ const TableCRUD = ({ commonApi, resourcePath, initialResponse, initialQueryValue
 	 * 操作原因走请求头，不走请求体：删除接口的请求体是 id 数组，塞不进字段。
 	 * 头部只能放 ASCII，因此先 encodeURIComponent。留空就不发这个头。
 	 */
-	/** 只有管理员看得到「立即生效」；服务端另有一道角色校验，这里只是不渲染无用控件。 */
-	const canSkipApproval = Boolean(tableOptionRef.current.canSkipApproval);
+	/**
+	 * 只有管理员看得到「立即生效」；服务端另有一道角色校验，这里只是不渲染无用控件。
+	 *
+	 * 写成函数而不是在渲染时求值：列定义（连同它们的 onClick 闭包）是在异步回调里
+	 * 构建的，会捕获**发起请求那次渲染**的值，那时表格配置还没回来。必须在调用时读 ref。
+	 */
+	const canSkipApproval = () => Boolean(tableOptionRef.current.canSkipApproval);
 	/** 提交时把两个控制字段摘出去改走请求头：它们不是业务字段。 */
 	const controlHeaders = (values: Record<string, unknown>) => ({
 		...reasonHeader(typeof values[CHANGE_REASON_FIELD] === 'string' ? values[CHANGE_REASON_FIELD] as string : undefined),
-		...(canSkipApproval && values[CHANGE_IMMEDIATE_FIELD] ? { 'X-Change-Immediate': '1' } : {}),
+		...(canSkipApproval() && values[CHANGE_IMMEDIATE_FIELD] ? { 'X-Change-Immediate': '1' } : {}),
 	});
 	/** 确认框收集到的控制信息转成请求头，与表单那条路径同一套语义。 */
 	const confirmHeaders = (control: ChangeControlValues): Record<string, string> => ({
 		...reasonHeader(control.reason),
-		...(canSkipApproval && control.immediate ? { 'X-Change-Immediate': '1' } : {}),
+		...(canSkipApproval() && control.immediate ? { 'X-Change-Immediate': '1' } : {}),
 	});
-	const confirmChange = (lines: string[]) => commonApi.modalConfirmWithReason(lines);
-	const controlColumns = () => canSkipApproval ? [changeReasonColumn(), changeImmediateColumn()] : [changeReasonColumn()];
+	const confirmChange = (lines: string[]) => commonApi.modalConfirmWithReason(lines, { allowImmediate: canSkipApproval() });
+	const controlColumns = () => canSkipApproval() ? [changeReasonColumn(), changeImmediateColumn()] : [changeReasonColumn()];
 	const withoutControls = (values: Record<string, unknown>) => {
 		const { [CHANGE_REASON_FIELD]: _reason, [CHANGE_IMMEDIATE_FIELD]: _immediate, ...rest } = values;
 		return rest;

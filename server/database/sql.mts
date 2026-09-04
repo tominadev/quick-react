@@ -248,6 +248,9 @@ export abstract class SqlBuilder {
 		return this.updateManaged(table, values, where);
 	}
 
+	/** 审计记录的操作者：与 insert 写进 created_duid 的是同一个值。 */
+	auditActor(table: string): DatabaseActorUid | null { return this.actorUidFor(table); }
+
 	/**
 	 * 撤回专用：把审计记录里的前值写回。
 	 *

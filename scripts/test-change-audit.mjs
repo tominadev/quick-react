@@ -274,6 +274,21 @@ try {
 	const originalRoles = '[]';
 	assert.equal(await rolesOf(), originalRoles, '待审批期间数据一条都不能动');
 
+	// 同一个人对同一条记录再提交一次：覆盖自己那条待审批记录，不再排一条。
+	const beforeResubmit = (await entries()).length;
+	await assert.rejects(() => runOperationSql(context('改主意了，换成分站管理员', false), acting, sql({ database: acting }).update('base_users', { roles: '["branch_admin"]' }, { id: alice.id })));
+	assert.equal((await entries()).length, beforeResubmit, '同一个人对同一行重复提交不该堆出多条待审批记录');
+	const resubmitted = await entryById(pendingEntry.id);
+	assert.equal(resubmitted.reason, '改主意了，换成分站管理员', '待审批记录被覆盖成最新一版');
+	assert.deepEqual(JSON.parse(resubmitted.changes).roles, { before: originalRoles, after: '["branch_admin"]' });
+	// 换个人提交同一行：那是另一件事，各排各的队。
+	const otherActor = withDatabaseActors(counting, { subjectRoles: ['platform_admin'], humanOperation: true, base: '99' });
+	await assert.rejects(() => runOperationSql(context('另一个人的申请', false), otherActor, sql({ database: otherActor }).update('base_users', { roles: '["tenant_admin"]' }, { id: alice.id })));
+	assert.equal((await entries()).length, beforeResubmit + 1, '不同操作者的申请各排各的队');
+	await transitionAuditEntries(acting, [(await latestEntry()).id], 'rejected', '清理测试数据');
+	// 把这条改回原先的值，后面的断言接得上。
+	await assert.rejects(() => runOperationSql(context('申请调整角色', false), acting, sql({ database: acting }).update('base_users', { roles: '["tenant_admin"]' }, { id: alice.id })));
+
 	// 待审批的记录不能撤回，只能批准或驳回。
 	assert.equal((await revert([pendingEntry.id]))[0].message, '当前状态是「待审批」，不能执行这个操作');
 
