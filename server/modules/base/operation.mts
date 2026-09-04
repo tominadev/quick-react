@@ -12,18 +12,25 @@ import { allSql, AUDIT_TABLE, runSystemSql, sql, type SqlAuditAction, type SqlAu
  * 机器写是噪音，管理员吊销设备时人工写是证据（见需求文档 §3.0）。
  */
 export type OperationOptions = {
-	/** 操作原因；缺省时从请求体的 _reason 里取。 */
+	/** 操作原因；缺省时从请求头 X-Change-Reason 里取。 */
 	reason?: string;
 };
 
 const MAX_REASON_LENGTH = 500;
 
-/** 原因随表单一起提交，业务路由因此不用改签名。请求体已被 Hono 缓存，重复读取是安全的。 */
-const readReason = async (c: Context<AppEnv>) => {
-	const body = await c.req.json<unknown>().catch(() => undefined);
-	if (!body || typeof body !== 'object' || Array.isArray(body)) return '';
-	const reason = (body as Record<string, unknown>)._reason;
-	return typeof reason === 'string' ? reason.trim().slice(0, MAX_REASON_LENGTH) : '';
+/**
+ * 原因走请求头，不走请求体。
+ *
+ * 删除接口的请求体是一个 id 数组，塞不进字段；用请求头对所有请求形状都统一，
+ * 业务路由也完全看不见它，不用改签名，也不会误把它当成业务字段。
+ * 头部只能放 ASCII，因此客户端 encodeURIComponent 后再发。
+ */
+export const CHANGE_REASON_HEADER = 'x-change-reason';
+export const readChangeReason = (c: Context<AppEnv>) => {
+	const raw = c.req.header(CHANGE_REASON_HEADER);
+	if (!raw) return '';
+	try { return decodeURIComponent(raw).trim().slice(0, MAX_REASON_LENGTH); }
+	catch { return raw.trim().slice(0, MAX_REASON_LENGTH); }
 };
 
 /** 驱动对 BIGINT 的返回类型不一致（number / string / bigint），归一成字符串再比。 */
@@ -88,7 +95,7 @@ export const runOperation = async (
 	const audited = statements.filter((statement): statement is SqlQuery & { audit: SqlAuditMetadata } => statement.audit !== undefined);
 	if (audited.length) {
 		const operationId = crypto.randomUUID();
-		const reason = options.reason?.trim().slice(0, MAX_REASON_LENGTH) ?? await readReason(c);
+		const reason = options.reason?.trim().slice(0, MAX_REASON_LENGTH) ?? readChangeReason(c);
 		for (const statement of audited) await recordStatement(database, statement.audit, operationId, reason);
 	}
 	const results: DatabaseRunResult[] = [];

@@ -1,5 +1,5 @@
 import type React from 'react';
-import { Modal, ModalFuncProps, Spin } from 'antd';
+import { Input, Modal, ModalFuncProps, Spin } from 'antd';
 import { message } from 'antd';
 import { ExclamationCircleOutlined } from '@ant-design/icons';
 import { useRef, useState } from 'react';
@@ -30,6 +30,8 @@ export type UploadFileOptions = {
 export interface CommonApi {
 	modalError: (aContentLine: string[], props?: ModalFuncProps) => Promise<void>,
 	modalConfirm: (aContentLine: string[], props?: ModalFuncProps) => Promise<boolean>
+	/** 带「操作原因」输入的确认框；取消时返回 undefined。原因可以留空。 */
+	modalConfirmWithReason: (aContentLine: string[], props?: ModalFuncProps) => Promise<string | undefined>
 	apiFetch: (input: RequestInfo | URL, init?: RequestInit) => Promise<Response>;
 	uploadFile: (input: string | URL, file: Blob, options?: UploadFileOptions) => Promise<void>;
 }
@@ -67,6 +69,36 @@ export function useCommonApi(): [CommonApi, React.JSX.Element] {
 			maskClosable: true,
 			...props,
 		});
+	};
+
+	/**
+	 * 审计记了「改了什么」，操作原因记「为什么」——取证时后者更有价值。
+	 * 不强制填：改个昵称也弹框要理由，人会填「1」「。」，垃圾原因比没有原因更糟，
+	 * 它给了假的可信度。哪些操作强制填由服务端另行判定。
+	 */
+	const modalConfirmWithReason = async (aContentLine: string[], props?: ModalFuncProps): Promise<string | undefined> => {
+		const reasonRef = { current: '' };
+		const confirmed = await modalApi.confirm({
+			title: '确认提示',
+			icon: <ExclamationCircleOutlined />,
+			content: (
+				<>
+					{getContentLine(aContentLine)}
+					<Input.TextArea
+						autoSize={{ minRows: 2, maxRows: 4 }}
+						maxLength={500}
+						placeholder="操作原因（可留空）"
+						style={{ marginTop: 12 }}
+						onChange={(event) => { reasonRef.current = event.target.value; }}
+					/>
+				</>
+			),
+			okText: '确定',
+			cancelText: '取消',
+			maskClosable: true,
+			...props,
+		});
+		return confirmed ? reasonRef.current.trim().slice(0, 500) : undefined;
 	};
 
 	const getJsonByRes = async (res: Response): Promise<ParsedResJSON> => {
@@ -211,6 +243,7 @@ export function useCommonApi(): [CommonApi, React.JSX.Element] {
 	implementationRef.current = {
 		modalError,
 		modalConfirm,
+		modalConfirmWithReason,
 		apiFetch,
 		uploadFile,
 	};
@@ -218,6 +251,7 @@ export function useCommonApi(): [CommonApi, React.JSX.Element] {
 	stableApiRef.current ??= {
 		modalError: (...args) => implementationRef.current!.modalError(...args),
 		modalConfirm: (...args) => implementationRef.current!.modalConfirm(...args),
+		modalConfirmWithReason: (...args) => implementationRef.current!.modalConfirmWithReason(...args),
 		apiFetch: (...args) => implementationRef.current!.apiFetch(...args),
 		uploadFile: (...args) => implementationRef.current!.uploadFile(...args),
 	};

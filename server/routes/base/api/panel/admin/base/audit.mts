@@ -1,5 +1,6 @@
 import type { ApiHandler } from '@server/modules/base/api-router.mjs';
 import { apiMessage, apiResponse } from '@server/modules/base/api-response.mjs';
+import { readChangeReason } from '@server/modules/base/operation.mjs';
 import { describeAuditChanges, listAuditEntries, parseAuditChanges, publicAuditChanges, readAuditEntry, revertAuditEntries, type AuditEntryRow } from '@server/modules/base/audit.mjs';
 
 const actionLabels: Record<string, string> = { update: '修改', soft_delete: '删除', restore: '恢复' };
@@ -68,9 +69,7 @@ const handler: ApiHandler = async (c, next, params) => {
 	if (c.req.method === 'POST' && c.req.query('action') === 'revert') {
 		const ids = await readIds(c, params.id);
 		if (!ids.length) return apiMessage(c, 400, '请选择要撤回的记录');
-		const body = await c.req.json<unknown>().catch(() => undefined);
-		const reason = body && typeof body === 'object' && !Array.isArray(body) && typeof (body as Record<string, unknown>)._reason === 'string' ? String((body as Record<string, unknown>)._reason).trim().slice(0, 500) : '';
-		const results = await revertAuditEntries(database, ids, reason);
+		const results = await revertAuditEntries(database, ids, readChangeReason(c));
 		const failed = results.filter((result) => !result.ok);
 		if (!failed.length) return apiMessage(c, 200, `已处理 ${results.length} 条变更`);
 		// 逐条独立判定：某一条被拒绝时其余照常执行，最后逐条返回结果（§7.4）。

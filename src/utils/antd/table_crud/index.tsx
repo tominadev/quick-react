@@ -6,7 +6,7 @@ import type { ResJSON, DataType, ResJsonTable } from '@/utils/common/api.js';
 import type { ResJsonTableOption } from '@/utils/common/api.js';
 import type { CommonApi, ResJsonTableColumn } from '@/utils/common/api.js';
 import type { TableAction, TableQueryField } from '@shared/types/table.mjs';
-import { resolveTableFormColumns } from '@shared/table-form.mjs';
+import { CHANGE_REASON_FIELD, changeReasonColumn, resolveTableFormColumns } from '@shared/table-form.mjs';
 
 import { useRef, useState, useEffect } from 'react';
 import { Table, Avatar, Button, Flex, Input, Space, Tag, Select, Progress, Typography, Modal } from 'antd';
@@ -121,11 +121,17 @@ const TableCRUD = ({ commonApi, resourcePath, initialResponse, initialQueryValue
 		columns: [],
 	});
 
-	const apiDelete = async (ids: unknown[]) => {
+	/**
+	 * 操作原因走请求头，不走请求体：删除接口的请求体是 id 数组，塞不进字段。
+	 * 头部只能放 ASCII，因此先 encodeURIComponent。留空就不发这个头。
+	 */
+	const reasonHeader = (reason?: string): Record<string, string> => reason ? { 'X-Change-Reason': encodeURIComponent(reason) } : {};
+
+	const apiDelete = async (ids: unknown[], reason?: string) => {
 		// 向后段API发送删除指令
 		try {
 			setLoading(true);
-			await commonApi.apiFetch(`${apiPath}${selectedQuerySuffix}`, { method: 'DELETE', body: JSON.stringify(ids) });
+			await commonApi.apiFetch(`${apiPath}${selectedQuerySuffix}`, { method: 'DELETE', headers: reasonHeader(reason), body: JSON.stringify(ids) });
 			await fetchData();
 		} catch (ex) {
 			console.error(ex);
@@ -138,10 +144,11 @@ const TableCRUD = ({ commonApi, resourcePath, initialResponse, initialQueryValue
 		// 点击删除按钮时，弹出提示让用户确认删除操作
 		const rowKey = tableOptionRef.current.rowKey, rowId = record[rowKey];
 		const aContentLine: string[] = [action?.confirm ? rowConfirmText(action.confirm, record) : `确定要删除 ${rowKey} = ${rowId} 吗？`];
-		if (!await commonApi.modalConfirm(aContentLine)) {
+		const reason = await commonApi.modalConfirmWithReason(aContentLine);
+		if (reason === undefined) {
 			return;
 		}
-		await apiDelete([rowId]);
+		await apiDelete([rowId], reason);
 	}
 
 	const onOpenEdit = async (value: any, record: DataType, index: number, action: TableAction): Promise<void> => {
@@ -172,7 +179,8 @@ const TableCRUD = ({ commonApi, resourcePath, initialResponse, initialQueryValue
 		}
 		const drawerForm1 = drawer.drawerForm({
 			title: action.label,
-			columns: resolveTableFormColumns(cacheResJsonTable.current.columns, 'edit'),
+			// 编辑是最典型的人工修改，表单末尾追加一个原因输入框。新增不追加：新增不留痕（§3.2）。
+			columns: [...resolveTableFormColumns(cacheResJsonTable.current.columns, 'edit'), changeReasonColumn()],
 			optionsPath: apiPath,
 		}, async (newRow) => {
 			if (!newRow) {
@@ -181,12 +189,15 @@ const TableCRUD = ({ commonApi, resourcePath, initialResponse, initialQueryValue
 			}
 			drawerForm1.setSubmitting‌(true);
 			try {
+				// 原因从请求体里摘出去改走请求头：业务路由不该看见它。
+				const { [CHANGE_REASON_FIELD]: submittedReason, ...payload } = newRow;
 				const res = await commonApi.apiFetch(url, {
 					method: 'PUT', // 指定请求方法
 					headers: {
 						'Content-Type': 'application/json', // 指定请求头，表明是 JSON 数据
+						...reasonHeader(typeof submittedReason === 'string' ? submittedReason : undefined),
 					},
-					body: JSON.stringify(newRow), // 将数据转换为 JSON 字符串
+					body: JSON.stringify(payload), // 将数据转换为 JSON 字符串
 				});
 				if (!res.ok) {
 					return;
@@ -458,12 +469,13 @@ const TableCRUD = ({ commonApi, resourcePath, initialResponse, initialQueryValue
 	};
 
 	const onDelete = async (action?: TableAction) => {
-		if (!await commonApi.modalConfirm(
+		const reason = await commonApi.modalConfirmWithReason(
 			[action?.confirm ?? `确定删除所选的 ${selectedRowKeys.length} 项吗？`]
-		)) {
+		);
+		if (reason === undefined) {
 			return;
 		}
-		await apiDelete(selectedRowKeys);
+		await apiDelete(selectedRowKeys, reason);
 	}
 
 	const onTest = async (action: TableAction, record: DataType) => {
@@ -537,12 +549,13 @@ const TableCRUD = ({ commonApi, resourcePath, initialResponse, initialQueryValue
 	};
 	const onToolbarSelectionAction = async (action: TableAction) => {
 		if (action.disabled || !selectedRowKeys.length) return;
-		if (action.confirm && !await commonApi.modalConfirm([action.confirm])) return;
+		const reason = await commonApi.modalConfirmWithReason([action.confirm ?? `确定对所选的 ${selectedRowKeys.length} 项执行「${action.label}」吗？`]);
+		if (reason === undefined) return;
 		const query = new URLSearchParams(appliedQueryValues);
 		query.set('action', action.key);
 		await commonApi.apiFetch(`${apiPath}?${query.toString()}`, {
 			method: 'POST',
-			headers: { 'Content-Type': 'application/json' },
+			headers: { 'Content-Type': 'application/json', ...reasonHeader(reason) },
 			body: JSON.stringify(selectedRowKeys),
 		});
 		setSelectedRowKeys([]);
@@ -551,10 +564,11 @@ const TableCRUD = ({ commonApi, resourcePath, initialResponse, initialQueryValue
 	const onSimpleRowAction = async (action: TableAction, record: DataType) => {
 		const rowId = String(record[tableOptionRef.current.rowKey] ?? '');
 		if (!rowId || action.disabled) return;
-		if (action.confirm && !await commonApi.modalConfirm([rowConfirmText(action.confirm, record)])) return;
+		const reason = await commonApi.modalConfirmWithReason([action.confirm ? rowConfirmText(action.confirm, record) : `确定执行「${action.label}」吗？`]);
+		if (reason === undefined) return;
 		const query = new URLSearchParams(appliedQueryValues);
 		query.set('action', action.key);
-		await commonApi.apiFetch(`${apiPath}/${encodeURIComponent(rowId)}?${query.toString()}`, { method: 'POST' });
+		await commonApi.apiFetch(`${apiPath}/${encodeURIComponent(rowId)}?${query.toString()}`, { method: 'POST', headers: reasonHeader(reason) });
 		await fetchData();
 	};
 	const onRowFormAction = async (action: TableAction, record: DataType) => {

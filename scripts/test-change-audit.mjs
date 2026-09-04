@@ -32,7 +32,8 @@ try {
 	// 后台请求拿到的适配器：绑定了主体，并且标记为人工操作。
 	const acting = withDatabaseActors(counting, { subjectRoles: ['platform_admin'], humanOperation: true });
 	// runOperation 只用请求上下文取「操作原因」，测试给一个最小桩。
-	const context = (reason) => ({ req: { json: async () => (reason === undefined ? {} : { _reason: reason }) } });
+	// 原因走 X-Change-Reason 请求头，客户端 encodeURIComponent 后再发。
+	const context = (reason) => ({ req: { header: (name) => name === 'x-change-reason' && reason !== undefined ? encodeURIComponent(reason) : undefined } });
 	const op = (statement, options) => runOperationSql(context(), acting, statement, options);
 
 	const entries = async () => (await allSql(acting, sql({ database: acting }).select({ table: 'base_audit_entries', includeAll: true, orderBy: [{ column: 'id', direction: 'ASC' }] }))).map((entry) => ({ ...entry, id: String(entry.id) }));
@@ -73,8 +74,8 @@ try {
 	assert.ok(prepared.some((query) => query.startsWith('SELECT')), '业务变更要读一次原行');
 
 	// 原因随表单一起提交时从请求体里取，业务路由因此不用改签名。
-	await runOperationSql(context('表单里填的原因'), acting, sql({ database: acting }).update('base_users', { status: 'disabled' }, { id: alice.id }));
-	assert.equal((await latestEntry()).reason, '表单里填的原因');
+	await runOperationSql(context('表单里填的原因：中文也要能过'), acting, sql({ database: acting }).update('base_users', { status: 'disabled' }, { id: alice.id }));
+	assert.equal((await latestEntry()).reason, '表单里填的原因：中文也要能过', '请求头里的原因要能正确解码');
 	await op(sql({ database: acting }).update('base_users', { status: 'enabled' }, { id: alice.id }));
 
 	// 提交未改动的字段不产生噪音，全部未变化时不产生记录。
