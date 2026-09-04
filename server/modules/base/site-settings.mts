@@ -1,11 +1,11 @@
 import type { ConfigStore } from './config-store.mjs';
 
-export type SiteSettings = { contactEmail: string; footer: string; logoutLocalEnabled: boolean; logoutPassportEnabled: boolean; logoutAllEnabled: boolean; apiBootstrapEnabled: boolean; auditRetentionDays: number; registrationEnabled: boolean; localLoginEnabled: boolean };
+export type SiteSettings = { contactEmail: string; footer: string; logoutLocalEnabled: boolean; logoutPassportEnabled: boolean; logoutAllEnabled: boolean; apiBootstrapEnabled: boolean; auditRetentionDays: number; registrationEnabled: boolean; localLoginEnabled: boolean; passwordSyncEnabled: boolean };
 
 /** 审计保留期上限十年：再长也没有取证价值，却会让表无限增长。0 表示不自动清理。 */
 export const maxAuditRetentionDays = 3650;
 export const defaultAuditRetentionDays = 365;
-export const defaultSiteSettings: SiteSettings = { contactEmail: '', footer: `Ant Design ©${new Date().getFullYear()} Created by Ant UED`, logoutLocalEnabled: false, logoutPassportEnabled: false, logoutAllEnabled: true, apiBootstrapEnabled: true, auditRetentionDays: 365, registrationEnabled: false, localLoginEnabled: false };
+export const defaultSiteSettings: SiteSettings = { contactEmail: '', footer: `Ant Design ©${new Date().getFullYear()} Created by Ant UED`, logoutLocalEnabled: false, logoutPassportEnabled: false, logoutAllEnabled: true, apiBootstrapEnabled: true, auditRetentionDays: 365, registrationEnabled: false, localLoginEnabled: false, passwordSyncEnabled: false };
 export const normalizeSiteSettings = (value: unknown): SiteSettings => {
 	const source = value && typeof value === 'object' ? value as Record<string, unknown> : {};
 	return {
@@ -20,6 +20,8 @@ export const normalizeSiteSettings = (value: unknown): SiteSettings => {
 		registrationEnabled: typeof source.registrationEnabled === 'boolean' ? source.registrationEnabled : false,
 		// 默认关闭：接入 Accounts 之后只留一个入口是今天的行为，开这个开关才两条并存。
 		localLoginEnabled: typeof source.localLoginEnabled === 'boolean' ? source.localLoginEnabled : false,
+		// 默认关闭：开着意味着本站库里多一份能直接破出 Accounts 密码的哈希。
+		passwordSyncEnabled: typeof source.passwordSyncEnabled === 'boolean' ? source.passwordSyncEnabled : false,
 	};
 };
 export const loadSiteSettings = async (store: ConfigStore) => normalizeSiteSettings(await store.get('site-settings'));

@@ -20,6 +20,7 @@ const columns = [
 	{ dataIndex: 'allowed_scopes', title: '允许 Scope', component: 'textbox' },
 	{ dataIndex: 'require_pkce', title: '要求 PKCE', component: 'switch' },
 	{ dataIndex: 'strict_redirect_uri', title: '严格校验回调地址', component: 'switch', extra: '关闭时自动允许同数据库已启用站点的标准回调；开启后只允许手工登记的完整地址。' },
+	{ dataIndex: 'password_sync', title: '下发密码', component: 'switch' as const, checkedValue: 1, uncheckedValue: 0, placeholder: '默认关闭', extra: '在 ID Token 里下发凭证哈希，让接入方的本地账号能用同一个密码登录。开着等于把口令哈希交给接入方。' },
 	{ dataIndex: 'status', title: '状态', component: 'switch', checkedValue: statusValues.enabled, uncheckedValue: statusValues.disabled, options: enabledDisabledOptions },
 ];
 
@@ -91,7 +92,7 @@ const handler: ApiHandler = async (c, next, params) => {
 		try { logoutPath = normalizeBackchannelPath(body.backchannel_logout_path); } catch (error) { return apiMessage(c, 400, error instanceof Error ? error.message : '注销路径不合法'); }
 		const name = String(body.name ?? '').trim(), id = `acct_${randomToken(18)}`, secret = randomToken(36), now = Date.now();
 		if (!name) return apiMessage(c, 400, '请输入客户端名称');
-		await runSql(database, sql({ database }).insert('passport_oidc_clients', { client_id: id, name, secret_hash: await sha256(secret), redirect_uris: JSON.stringify(redirectUris), backchannel_logout_uri: backchannelUri(redirectUris, logoutPath), allowed_scopes: String(body.allowed_scopes ?? 'openid profile email').trim() || 'openid', require_pkce: body.require_pkce === false ? 0 : 1, strict_redirect_uri: body.strict_redirect_uri === true ? 1 : 0, status: 'enabled' }));
+		await runSql(database, sql({ database }).insert('passport_oidc_clients', { client_id: id, name, secret_hash: await sha256(secret), redirect_uris: JSON.stringify(redirectUris), backchannel_logout_uri: backchannelUri(redirectUris, logoutPath), allowed_scopes: String(body.allowed_scopes ?? 'openid profile email').trim() || 'openid', require_pkce: body.require_pkce === false ? 0 : 1, strict_redirect_uri: body.strict_redirect_uri === true ? 1 : 0, password_sync: body.password_sync === true || body.password_sync === 1 ? 1 : 0, status: 'enabled' }));
 		return apiMessageData(c, 201, `客户端已创建。客户端密钥仅显示一次：${secret}`, { id, client_secret: secret });
 	}
 	if (params.id && c.req.method === 'PUT') {
@@ -100,7 +101,7 @@ const handler: ApiHandler = async (c, next, params) => {
 		try { redirectUris = parseRedirectUris(body.redirect_uris); } catch (error) { return apiMessage(c, 400, error instanceof Error ? error.message : '回调地址不合法'); }
 		let logoutPath: string;
 		try { logoutPath = normalizeBackchannelPath(body.backchannel_logout_path); } catch (error) { return apiMessage(c, 400, error instanceof Error ? error.message : '注销路径不合法'); }
-		const updated = await runOperationSql(c, database, sql({ database }).update('passport_oidc_clients', { name: String(body.name ?? '').trim(), redirect_uris: JSON.stringify(redirectUris), backchannel_logout_uri: backchannelUri(redirectUris, logoutPath), allowed_scopes: String(body.allowed_scopes ?? 'openid').trim(), require_pkce: body.require_pkce === false ? 0 : 1, strict_redirect_uri: body.strict_redirect_uri === true ? 1 : 0, status: body.status === 'disabled' ? 'disabled' : 'enabled' }, { client_id: params.id }));
+		const updated = await runOperationSql(c, database, sql({ database }).update('passport_oidc_clients', { name: String(body.name ?? '').trim(), redirect_uris: JSON.stringify(redirectUris), backchannel_logout_uri: backchannelUri(redirectUris, logoutPath), allowed_scopes: String(body.allowed_scopes ?? 'openid').trim(), require_pkce: body.require_pkce === false ? 0 : 1, strict_redirect_uri: body.strict_redirect_uri === true ? 1 : 0, password_sync: body.password_sync === true || body.password_sync === 1 ? 1 : 0, status: body.status === 'disabled' ? 'disabled' : 'enabled' }, { client_id: params.id }));
 		return Number(updated.meta?.changes ?? 0) ? apiMessage(c, 200, '保存成功') : apiMessage(c, 404, 'OIDC 客户端不存在');
 	}
 	if (params.id && c.req.method === 'POST') {

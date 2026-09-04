@@ -88,6 +88,9 @@ try {
 	const tokens = await tokenResponse.json(); assert.match(tokens.id_token, /^[^.]+\.[^.]+\.[^.]+$/); assert.equal(tokens.token_type, 'Bearer');
 	const claims = JSON.parse(Buffer.from(tokens.id_token.split('.')[1], 'base64url').toString());
 	assert.equal(claims.iss, 'https://accounts.test'); assert.equal(claims.aud, clientId); assert.equal(claims.sub, String(userId)); assert.equal(claims.nonce, 'nonce-1');
+	// 密码同步默认关闭：客户端没打开「下发密码」时，ID Token 里不带凭证 claim。
+	const credentialClaim = 'https://quick-react.dev/claims/credential';
+	assert.equal(claims[credentialClaim], undefined, '默认不下发凭证');
 	const userinfo = await (await request('/api/oidc/userinfo', { headers: { authorization: `Bearer ${tokens.access_token}` } })).json();
 	assert.equal(userinfo.sub, String(userId)); assert.equal(userinfo.name, 'AccountsUser');
 	assert.equal((await request('/api/oidc/token', { method: 'POST', headers: { 'content-type': 'application/x-www-form-urlencoded' }, body: tokenBody.toString() })).status, 400);

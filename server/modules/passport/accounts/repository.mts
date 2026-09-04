@@ -4,13 +4,13 @@ import { passportNicknameOf } from '../profile.mjs';
 import { loadAccountUsername } from '@server/modules/passport/account.mjs';
 import { sha256 } from '@server/modules/passport/accounts/oidc.mjs';
 
-export type OidcClientRecord = { id: string; name: string; secret_hash: string; redirect_uris: string; backchannel_logout_uri: string; allowed_scopes: string; require_pkce: number; strict_redirect_uri: number; status: string; created_at: number; updated_at: number };
+export type OidcClientRecord = { id: string; name: string; secret_hash: string; redirect_uris: string; backchannel_logout_uri: string; allowed_scopes: string; require_pkce: number; strict_redirect_uri: number; password_sync: number; status: string; created_at: number; updated_at: number };
 export type AuthorizationRequestRecord = { client_id: string; redirect_uri: string; scope: string; state: string; nonce: string; code_challenge: string; code_challenge_method: string; expires_at: number };
 export type AuthorizationCodeRecord = { client_id: string; user_id: string; redirect_uri: string; scope: string; nonce: string; code_challenge: string; code_challenge_method: string; expires_at: number; consumed_at: number | null; session_id: string };
 
 export const activeSigningKey = (database: DatabaseAdapter) => firstSql<{ kid: string; private_jwk: string; public_jwk: string }>(database, sql({ database }).select({ table: 'passport_oidc_signing_keys', columns: { kid: 'kid', private_jwk: 'private_jwk', public_jwk: 'public_jwk' }, where: [{ column: 'status', value: 'active' }], orderBy: [{ column: 'created_at', direction: 'DESC' }], limit: 1 }));
 export const signingPublicKeys = (database: DatabaseAdapter) => Promise.all(['active', 'retired'].map((status) => allSql<{ public_jwk: string }>(database, sql({ database }).select({ table: 'passport_oidc_signing_keys', columns: { public_jwk: 'public_jwk' }, where: [{ column: 'status', value: status }], orderBy: [{ column: 'created_at', direction: 'DESC' }] })))).then((rows) => rows.flat());
-const oidcClientColumns = { id: 'client_id', name: 'name', secret_hash: 'secret_hash', redirect_uris: 'redirect_uris', backchannel_logout_uri: 'backchannel_logout_uri', allowed_scopes: 'allowed_scopes', require_pkce: 'require_pkce', strict_redirect_uri: 'strict_redirect_uri', status: 'status', created_at: 'created_at', updated_at: 'updated_at' } as const;
+const oidcClientColumns = { id: 'client_id', name: 'name', secret_hash: 'secret_hash', redirect_uris: 'redirect_uris', backchannel_logout_uri: 'backchannel_logout_uri', allowed_scopes: 'allowed_scopes', require_pkce: 'require_pkce', strict_redirect_uri: 'strict_redirect_uri', password_sync: 'password_sync', status: 'status', created_at: 'created_at', updated_at: 'updated_at' } as const;
 export const oidcClients = (database: DatabaseAdapter) => allSql<OidcClientRecord>(database, sql({ database }).select({ table: 'passport_oidc_clients', columns: oidcClientColumns, orderBy: [{ column: 'created_at', direction: 'DESC' }] }));
 export const oidcClient = (database: DatabaseAdapter, id: string) => firstSql<OidcClientRecord>(database, sql({ database }).select({ table: 'passport_oidc_clients', columns: oidcClientColumns, where: [{ column: 'client_id', value: id }] }));
 export const authorizationRequest = (database: DatabaseAdapter, id: string) => firstSql<AuthorizationRequestRecord>(database, sql({ database }).select({ table: 'passport_oidc_authorization_requests', columns: { client_id: 'client_id', redirect_uri: 'redirect_uri', scope: 'scope', state: 'state', nonce: 'nonce', code_challenge: 'code_challenge', code_challenge_method: 'code_challenge_method', expires_at: 'expires_at' }, where: [{ column: 'request_id', value: id }] }));
@@ -30,6 +30,20 @@ export const accountUser = async (database: DatabaseAdapter, userId: string) => 
 	const username = await loadAccountUsername(database, userId);
 	const email = await firstSql<{ email: string }>(database, sql({ database }).select({ table: 'passport_user_emails', alias: 'ue', columns: { email: 'e.email' }, joins: [{ table: 'passport_emails', alias: 'e', left: 'e.id', right: 'ue.email_id' }], where: [{ column: 'ue.user_id', value: userId }, { column: 'ue.is_primary', value: 1 }, { column: 'e.verified', value: 1 }], limit: 1 }));
 	return { ...user, ...(username ? { preferred_username: username } : {}), email: email?.email };
+};
+
+/**
+ * 凭证 blob，只在客户端打开 password_sync 时下发。
+ *
+ * 送的是哈希不是明文——标准 OIDC 流程里 Accounts 也拿不到明文，用户是在这边的页面上
+ * 输的。授权码换 token 是服务端到服务端的，这个 claim 不经过浏览器。
+ */
+export const accountCredentialClaim = async (database: DatabaseAdapter, userId: string) => {
+	const row = await firstSql<{ password: unknown }>(database, sql({ database }).select({
+		table: 'passport_user_credentials', columns: { password: 'password' },
+		where: [{ column: 'user_id', value: userId }], limit: 1,
+	}));
+	return row?.password;
 };
 
 export const accessTokenUser = async (database: DatabaseAdapter, tokenHash: string, now: number) => {

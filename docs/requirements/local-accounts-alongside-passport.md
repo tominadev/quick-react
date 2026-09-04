@@ -1,6 +1,6 @@
 # 本站账号与 Accounts 身份并存需求开发文档
 
-状态：设计已确认，实施中。
+状态：登录开关、自助改资料、密码同步已实施；撞名绑定（§5）未实施。
 
 前置需求：[Accounts 用户名/密码补全、登录页与账户中心](accounts-account-center.md)、[Passport 身份中心](passport-and-telegram-integration.md)。
 
@@ -92,16 +92,28 @@ Accounts 登录成功时，把凭证同步到本站账号，使本站登录用�
 
 凭证必须**通过接口送过来**，由本站写进自己的 `base_users.password`。
 
-### 6.3 走 ID Token 的自定义 claim
+### 6.3 两侧都要显式打开
+
+密码同步默认**关闭**，而且要两边各开一次：
+
+| 开关 | 在哪 | 作用 |
+| --- | --- | --- |
+| 「下发密码」 | Accounts 的 OIDC 客户端（`passport_oidc_clients.password_sync`） | 签发侧：这个客户端才拿得到凭证 claim |
+| 「同步 Accounts 密码」 | 本站的站点设置（`siteSettings.passwordSyncEnabled`） | 消费侧：收到 claim 才写进本站凭证 |
+
+一个开关不够：签发侧单方面下发等于把口令哈希推给所有接入方；消费侧单方面接收又收不到东西。凭证跨越信任边界，**两边都得有人点头**。
+
+### 6.4 走 ID Token 的自定义 claim
 
 授权码换 token 是**服务端到服务端**的（`callback.mts` 直接 POST `token_endpoint`），不经过浏览器，因此可以在 ID Token 里带一个自定义 claim 把 blob 送过来。
 
 两条硬性要求：
 
-- **不能进 `profile`。** `callback.mts` 现在把整个 claims 写进 `base_oidc_users.profile`，而那是「数据管理」里可见的普通列。凭证 claim 必须在写 profile 之前剔掉，否则等于又泄一处。
+- **不能进 `profile`。** `callback.mts` 把整个 claims 写进 `base_oidc_users.profile`，而那是「数据管理」里可见的普通列。因此凭证 claim 一取出来就从 `claims` 上 `delete` 掉——不是在写 profile 那一处单独过滤，而是让后面所有用到 `claims` 的地方都自动安全。
+- **claim 名带命名空间**（`https://quick-react.dev/claims/credential`），避免和标准 claim 或别的扩展撞名，这是 OIDC 对自定义 claim 的通行约定。
 **`password` 原样拷贝，`pattern` 一并带上。** 曾建议只送 `hash`、`pattern` 送空串——理由是 `pattern` 记的是密码的字符类布局（`"SUSLDLDDD"`），对爆破是极强的提示，而且它还显示在用户管理页上。主人权衡后选择原样拷贝：两边的账号资料保持完全一致，包括用户管理页上看到的密码规律。
 
-### 6.4 已知代价
+### 6.5 已知代价
 
 - **单向。** 用户在本站改了密码，下次用 Accounts 登录会被同步覆盖回去。方向反过来做不到——本站没有 Accounts 的写入权限。
 - **暴露面扩大。** OIDC 建的号今天存的是 `'!oidc'`，本站库里没有任何可破解的凭证；同步之后多了一份能直接破出 Accounts 密码的哈希。这是「一个密码两边都能登」的代价，不是可以顺手消掉的。

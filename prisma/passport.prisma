@@ -590,6 +590,11 @@ model passport_oidc_clients {
   status                 PassportAccountStatus @default(enabled)
   backchannel_logout_uri String @default("")
   strict_redirect_uri    Int    @default(0)
+  /// 是否在 ID Token 里下发凭证 blob，让接入方的本地账号能用同一个密码登录。
+  ///
+  /// 默认关闭。开着等于把这个账号的口令哈希交给接入方——接入方脱库就等于拿到
+  /// Accounts 的密码。两侧都要显式打开才会真的下发：这里是签发侧。
+  password_sync          Int    @default(0)
 }
 
 model passport_oidc_authorization_requests {

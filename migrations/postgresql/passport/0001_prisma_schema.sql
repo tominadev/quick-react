@@ -577,6 +577,7 @@ CREATE TABLE "passport_oidc_clients" (
     "status" "PassportAccountStatus" NOT NULL DEFAULT 'enabled',
     "backchannel_logout_uri" TEXT NOT NULL DEFAULT '',
     "strict_redirect_uri" INTEGER NOT NULL DEFAULT 0,
+    "password_sync" INTEGER NOT NULL DEFAULT 0,
 
     CONSTRAINT "passport_oidc_clients_pkey" PRIMARY KEY ("id")
 );

@@ -491,7 +491,8 @@ CREATE TABLE "passport_oidc_clients" (
     "require_pkce" INTEGER NOT NULL DEFAULT 1,
     "status" TEXT NOT NULL DEFAULT 'enabled',
     "backchannel_logout_uri" TEXT NOT NULL DEFAULT '',
-    "strict_redirect_uri" INTEGER NOT NULL DEFAULT 0
+    "strict_redirect_uri" INTEGER NOT NULL DEFAULT 0,
+    "password_sync" INTEGER NOT NULL DEFAULT 0
 );
 
 -- CreateTable

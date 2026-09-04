@@ -586,6 +586,7 @@ CREATE TABLE `passport_oidc_clients` (
     `status` ENUM('enabled', 'disabled') NOT NULL DEFAULT 'enabled',
     `backchannel_logout_uri` VARCHAR(191) NOT NULL DEFAULT '',
     `strict_redirect_uri` INTEGER NOT NULL DEFAULT 0,
+    `password_sync` INTEGER NOT NULL DEFAULT 0,
 
     UNIQUE INDEX `passport_oidc_clients_client_id_deleted_at_key`(`client_id`, `deleted_at`),
     PRIMARY KEY (`id`)

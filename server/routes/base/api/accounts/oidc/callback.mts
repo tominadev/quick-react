@@ -5,7 +5,9 @@ import { readCookie } from '@server/modules/passport/accounts/oidc.mjs';
 import { isValidAccountUsername } from '@server/modules/passport/account.mjs';
 import { baseSessionMaxAge, createSessionCookie, hashSessionToken } from '@server/modules/base/auth/index.mjs';
 import { ensureBaseDevice } from '@server/modules/base/device.mjs';
-import { hasCredential } from '@server/modules/base/credentials.mjs';
+import { hasCredential, setCredential } from '@server/modules/base/credentials.mjs';
+import { readStoredPassword } from '@server/modules/base/auth/index.mjs';
+import { CREDENTIAL_CLAIM } from '@shared/types/oidc-claims.mjs';
 import { withDatabaseActors } from '@server/database/index.mjs';
 import { firstSql, runSql, sql } from '@server/database/sql.mjs';
 import { isSecureRequest, requestOrigin } from '@server/modules/base/request-origin.mjs';
@@ -56,6 +58,10 @@ const handler: ApiHandler = async (c) => {
 		if (!tokens.id_token) throw new Error('Accounts 未返回 ID Token');
 		const jwksResponse = await oidcFetch(c, discovery.jwks_uri); if (!jwksResponse.ok) throw new Error('Accounts 公钥请求失败');
 		const claims = await verifyIdToken(tokens.id_token, await jwksResponse.json() as { keys?: JsonWebKey[] }, { issuer: config.issuer, audience: config.clientId, nonce: request.nonce });
+		// 凭证 claim 单独取出来，**绝不能混进 profile**：那一列在「数据管理」里是可见的
+		// 普通列，写进去等于又泄一处。取出后从 claims 里删掉，后面所有用到 claims 的地方都安全。
+		const credentialClaim = claims[CREDENTIAL_CLAIM];
+		delete claims[CREDENTIAL_CLAIM];
 		const subject = String(claims.sub), now = Date.now();
 		const oidcSessionId = String(claims.sid ?? ''); if (!oidcSessionId) throw new Error('ID Token 缺少 sid');
 		// 同一个 Accounts 身份在每个租户各有一个本地账号，映射查找必须带上当前租户。
@@ -81,6 +87,11 @@ const handler: ApiHandler = async (c) => {
 			await runSql(systemDatabase, sql({ database: systemDatabase }).update('base_oidc_users', { profile: JSON.stringify(claims) }, [{ column: 'issuer', value: config.issuer }, { column: 'subject', value: subject }, tenantScope('owner_tid')]));
 		}
 		if (isValidAccountUsername(preferred)) await syncLocalUsername(systemDatabase, account.user_id, preferred, tenantId);
+		// 密码同步：两侧都要开。Accounts 那边给这个客户端打开「下发密码」才会带上 claim，
+		// 本站再打开「同步 Accounts 密码」才会写入。单向——本站改了密码，下次登录会被覆盖回去。
+		if (c.get('siteSettings').passwordSyncEnabled && readStoredPassword(credentialClaim)) {
+			await setCredential(systemDatabase, account.user_id, readStoredPassword(credentialClaim)!);
+		}
 		if (account.status !== 'enabled') return apiMessage(c, 403, '本站用户已停用');
 		const maxAge = baseSessionMaxAge;
 		const previousSession = await firstSql<{ session_id: string }>(systemDatabase, sql({ database: systemDatabase }).select({ table: 'base_oidc_sessions', columns: { session_id: 'session_id' }, where: [{ column: 'issuer', value: config.issuer }, { column: 'sid', value: oidcSessionId }] }));

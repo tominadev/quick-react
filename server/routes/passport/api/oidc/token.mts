@@ -2,7 +2,8 @@ import type { ApiHandler } from '@server/modules/base/api-router.mjs';
 import { apiMessage, apiResponse } from '@server/modules/base/api-response.mjs';
 import { oidcIssuer } from '@server/modules/passport/accounts/provider.mjs';
 import { parseFormBody, randomToken, safeEqual, sha256, sha256Base64Url, signIdToken } from '@server/modules/passport/accounts/oidc.mjs';
-import { accountUser, authorizationCode, oidcClient } from '@server/modules/passport/accounts/repository.mjs';
+import { accountCredentialClaim, accountUser, authorizationCode, oidcClient } from '@server/modules/passport/accounts/repository.mjs';
+import { CREDENTIAL_CLAIM } from '@shared/types/oidc-claims.mjs';
 import { sql } from '@server/database/sql.mjs';
 
 type Code = { client_id: string; user_id: string; redirect_uri: string; scope: string; nonce: string; code_challenge: string; code_challenge_method: string; expires_at: number; consumed_at: number | null; session_id: string };
@@ -28,7 +29,9 @@ const handler: ApiHandler = async (c) => {
 	const builder = sql({ database }), consumeCode = builder.update('passport_oidc_authorization_codes', { consumed_at: now }, [{ column: 'code_hash', value: authorizationCodeHash }, { column: 'consumed_at', operator: 'IS NULL' }]);
 	const insertToken = builder.insert('passport_oidc_access_tokens', { token_hash: await sha256(accessToken), client_id: clientId, user_id: code.user_id, scope: code.scope, expires_at: now + expiresIn * 1000, session_id: code.session_id, authorization_code_hash: authorizationCodeHash });
 	await database.batch([consumeCode, insertToken]);
-	const idToken = await signIdToken(database, { iss: issuer, sub: user.sub, aud: clientId, exp: Math.floor(now / 1000) + expiresIn, iat: Math.floor(now / 1000), sid: code.session_id, ...(code.nonce ? { nonce: code.nonce } : {}), name: user.name, ...(user.preferred_username ? { preferred_username: user.preferred_username } : {}), ...(user.email ? { email: user.email, email_verified: true } : {}) });
+	// 凭证 blob 只在这个客户端显式打开 password_sync 时下发；接入方那边还要再开一次才会写入。
+	const credential = Number(client.password_sync ?? 0) === 1 ? await accountCredentialClaim(database, code.user_id) : undefined;
+	const idToken = await signIdToken(database, { iss: issuer, sub: user.sub, aud: clientId, exp: Math.floor(now / 1000) + expiresIn, iat: Math.floor(now / 1000), sid: code.session_id, ...(code.nonce ? { nonce: code.nonce } : {}), name: user.name, ...(user.preferred_username ? { preferred_username: user.preferred_username } : {}), ...(user.email ? { email: user.email, email_verified: true } : {}), ...(credential ? { [CREDENTIAL_CLAIM]: credential } : {}) });
 	return apiResponse(c, 200, { access_token: accessToken, token_type: 'Bearer', expires_in: expiresIn, scope: code.scope, id_token: idToken });
 };
 export default handler;
