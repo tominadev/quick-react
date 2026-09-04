@@ -76,7 +76,10 @@ const handler: ApiHandler = async (c, next, params) => {
 		const rows = await listAuditEntries(database);
 		return apiResponse(c, 200, { table: {
 			// 审计记录不可修改、不可删除，接口层因此没有新增、编辑与删除入口（§7.3）。
-			option: { rowKey: 'id', actions: {
+			// 这一页的动作本身就是审批机制，不经过审批门：撤回、批准、驳回走的是
+			// runSystemSql，勾「立即生效」不改变任何行为，因此显式关掉这个勾选框。
+			// 操作原因仍然要收：它会写进审批意见、撤回理由或恢复理由。
+			option: { rowKey: 'id', canSkipApproval: false, actions: {
 				query: [{ key: 'search', label: '搜索' }],
 				// 撤回不新开记录，而是把这一条翻到另一面；已撤回的再点一次就恢复。
 				// 撤回与恢复是互斥的两个动作，一行上只显示其中适用的那个。

@@ -123,14 +123,20 @@ const withChangeControl = (c: Context<AppEnv>, payload: Record<string, unknown>)
 	const changeControl = c.req.path.startsWith('/api/panel/admin/');
 	if (!changeControl) return payload;
 	const canSkipApproval = (c.get('effectiveRoles') ?? []).some((role) => APPROVAL_SKIP_ROLES.includes(role));
+	// 路由显式声明的优先：有些后台页面的动作压根不经过审批门（审计页的撤回、批准、
+	// 驳回走的是 runSystemSql），在那里显示「立即生效」是误导——勾了不改变任何行为。
+	const fill = (target: Record<string, unknown>) => ({
+		changeControl: target.changeControl ?? changeControl,
+		canSkipApproval: target.canSkipApproval ?? canSkipApproval,
+	});
 	let result = payload;
 	const table = payload.table;
 	if (table && typeof table === 'object') {
 		const option = (table as Record<string, unknown>).option;
-		if (option && typeof option === 'object') result = { ...result, table: { ...table, option: { ...option, changeControl, canSkipApproval } } };
+		if (option && typeof option === 'object') result = { ...result, table: { ...table, option: { ...option, ...fill(option as Record<string, unknown>) } } };
 	}
 	const formPage = payload.formPage;
-	if (formPage && typeof formPage === 'object') result = { ...result, formPage: { ...formPage, changeControl, canSkipApproval } };
+	if (formPage && typeof formPage === 'object') result = { ...result, formPage: { ...formPage, ...fill(formPage as Record<string, unknown>) } };
 	return result;
 };
 
