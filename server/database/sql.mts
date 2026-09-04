@@ -376,6 +376,15 @@ export const sql = (context: SqlContext) => {
  * 记录失败时整个操作失败：不允许"审计写不进去就跳过"，那等于给了绕过审计的开关。
  */
 /**
+ * 按各方言适配器的绑定规则归一：数组一律 JSON.stringify 后入库
+ * （sqlite.mts、mysql.mts、d1.mts 三处一致）。
+ *
+ * 审计必须用同一套规则，否则前后值格式对不上：`roles` 写入的是数组、读回来的是
+ * JSON 文本，逐列比对会把「没变」判成「变了」，撤回时的值校验也永远匹配不上。
+ */
+export const normalizeBoundValue = (value: unknown) => Array.isArray(value) ? JSON.stringify(value) : value;
+
+/**
  * 执行一条语句，不做任何审计判断。两种用途：
  *
  * 1. 操作层执行已经记过账的语句；

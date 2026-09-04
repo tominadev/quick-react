@@ -91,6 +91,18 @@ try {
 	await op(sql({ database: acting }).update('base_users', { name: 'alice-2', status: 'enabled' }, { id: alice.id }));
 	assert.equal((await entries()).length, beforeNoop, '逐列一致时不应产生记录');
 
+	// 数组值要按驱动的绑定规则归一：写入的是数组，读回来的是 JSON 文本。
+	// 不归一的话同样的值再存一次会被判成「变了」，撤回时的值校验也永远匹配不上。
+	const beforeArray = (await entries()).length;
+	await op(sql({ database: acting }).update('base_users', { roles: ['tenant_admin'] }, { id: alice.id }));
+	const arrayEntry = await latestEntry();
+	assert.equal((await entries()).length, beforeArray + 1);
+	assert.deepEqual(changesOf(arrayEntry).roles, { before: '[]', after: '["tenant_admin"]' }, '数组要按入库形态记录');
+	await op(sql({ database: acting }).update('base_users', { roles: ['tenant_admin'] }, { id: alice.id }));
+	assert.equal((await entries()).length, beforeArray + 1, '同样的数组再存一次不该产生记录');
+	assert.equal((await transitionAuditEntries(acting, [arrayEntry.id], 'reverted'))[0].ok, true, '数组列必须能撤回');
+	assert.equal((await firstSql(acting, sql({ database: acting }).select({ table: 'base_users', columns: { roles: 'roles' }, where: [{ column: 'id', value: alice.id }] }))).roles, '[]');
+
 	// ---- 一次操作可以包含多条写入，它们共享同一个 operation_id 与同一条原因 ----
 	await runSql(acting, sql({ database: acting }).insert('base_users', { name: 'bob', password: 'x', roles: '[]', status: 'disabled' }));
 	const bob = await firstSql(acting, sql({ database: acting }).select({ table: 'base_users', columns: { id: 'id' }, where: [{ column: 'name', value: 'bob' }] }));

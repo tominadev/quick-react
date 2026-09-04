@@ -322,16 +322,28 @@ const renderDocument = async (c: Context<WorkerEnv>) => {
 	}), (pageStatus?.status ?? 200) as ContentfulStatusCode);
 };
 
+/**
+ * 待审批不是错误，不该出现在错误日志里。
+ *
+ * Hono 的 compose 在每一层 dispatch 里就地 catch 并交给 onError，因此这里是它的
+ * 第一落点；不接管的话会走默认处理——打一条错误日志再返回 500。
+ */
+app.onError((error, c) => {
+	if (error instanceof PendingApprovalError) {
+		return apiMessage(c, 202, error.message, { component: 'modal', showIcon: true, title: '已提交审批' });
+	}
+	console.error(error);
+	return c.text('Internal Server Error', 500);
+});
+
 app.use('*', async (c, next) => {
 	try {
 		if (!await configureForRequest(c)) return c.text('Site Not Found', 404);
 		await next();
-		// 待审批的响应在这里统一收口。
-		//
-		// 不能只靠 catch：Hono 的 compose 在**每一层** dispatch 里就地 catch 并交给 onError，
-		// 异常在深处就被转成 500 了，根本传不到这里的 await next()。业务路由自己的 catch
-		// 也可能把它吞掉。所以判据是上下文里的标记，不是异常，也不看当前状态码——
-		// 只要记成了待审批，数据就一定没动，任何别的响应都是错的。
+		// 兜底：正常路径由上面的 onError 收口，这里防的是**业务路由自己的 catch 把异常吞掉**
+		// ——那种情况下 onError 根本不会被调用，路由会照常返回「已保存」。
+		// 判据是上下文里的标记，不是异常，也不看当前状态码：只要记成了待审批，
+		// 数据就一定没动，任何别的响应都是错的。
 		// 必须直接改写 c.res：响应已经被下游 finalize 了，此时 return 出去的新响应会被
 		// compose 丢弃（它只在 finalized === false 时才采用返回值）。
 		if (c.get('pendingApproval') && c.res.status !== 202) {

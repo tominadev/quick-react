@@ -1,7 +1,7 @@
 import type { Context } from 'hono';
 import type { AppEnv } from './types.mjs';
 import type { DatabaseAdapter, DatabaseRunResult } from '@server/database/index.mjs';
-import { allSql, AUDIT_TABLE, firstSql, runSystemSql, sql, type SqlAuditAction, type SqlAuditMetadata, type SqlCondition, type SqlQuery } from '@server/database/sql.mjs';
+import { allSql, AUDIT_TABLE, firstSql, normalizeBoundValue, runSystemSql, sql, type SqlAuditAction, type SqlAuditMetadata, type SqlCondition, type SqlQuery } from '@server/database/sql.mjs';
 
 /**
  * 一次人工操作。
@@ -119,7 +119,8 @@ const recordStatement = async (database: DatabaseAdapter, metadata: SqlAuditMeta
 		const changes: Record<string, { before: unknown; after: unknown }> = {};
 		// 只记实际发生变化的列：业务表单常整体提交，照单全收会让"改了什么"失去答案。
 		for (const column of columns) {
-			const before = row[column] ?? null, after = metadata.values[column] ?? null;
+			// after 要按驱动的绑定规则归一后再比：写入的可能是数组，读回来的是 JSON 文本。
+			const before = row[column] ?? null, after = normalizeBoundValue(metadata.values[column]) ?? null;
 			if (!sameValue(before, after)) changes[column] = { before, after };
 		}
 		if (!Object.keys(changes).length) continue;
