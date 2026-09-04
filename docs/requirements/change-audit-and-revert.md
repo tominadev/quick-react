@@ -50,6 +50,8 @@ await runOperation(c, database, [sql({ database }).update('base_users', values, 
 
 唯一的表级例外是 `base_audit_entries` 自己——记录一条变更会再产生一条变更，理由是防递归，不是防噪音。
 
+**引导流程也不留痕。** 初始管理员注册（`/api/sign`）改的是 `base_bootstrap.value`，但那时还没有会话，操作者与作用账号都是空的；而 `value` 是脱敏列（§5），记下来只会得到一条「value：已变更」——既说不出谁，也说不出改了什么。「初始管理员是什么时候建的」由 `base_users.created_at` 回答，不需要再抄一遍。
+
 ### 3.2 `insert` 与物理 `delete` 仍然不审计
 
 **`insert` 不审计。** 新增没有"变更前"可留，而行本身就是"新增了什么"的完整记录——`created_at` 与 `created_duid` 已经记下谁在什么时候创建了它。为新增再存一份快照是把同一份事实抄两遍。
