@@ -4,6 +4,7 @@ import { createStoredPassword, readStoredPassword } from '@server/modules/base/a
 import { getChangedFields } from '@server/modules/base/changed-fields.mjs';
 import { allSql, firstSql, runSql, runSystemSql, sql } from '@server/database/sql.mjs';
 import { PendingApprovalError, runOperationSql } from '@server/modules/base/operation.mjs';
+import { finishUserCreation } from '@server/modules/base/registration.mjs';
 import { enabledDisabledOptions, statusValues } from '@shared/types/status.mjs';
 import { assignableRoleOptions, parseRoles, serializeRoles, unknownAssignableRoles } from '@shared/types/role.mjs';
 import { passwordError } from '@server/modules/base/auth/password-policy.mjs';
@@ -12,6 +13,7 @@ import type { TableCrudDefinition } from '@server/modules/base/table-crud.mjs';
 const columns = [
 	{ dataIndex: 'id', title: 'ID', dataType: 'int' as const },
 	{ dataIndex: 'username', title: '用户名', component: 'textbox' as const },
+	{ dataIndex: 'nickname', title: '昵称', component: 'textbox' as const, placeholder: '留空则默认与用户名相同' },
 	{ dataIndex: 'password', title: '新密码', component: 'textbox' as const, inputType: 'password' as const, placeholder: '留空表示不修改', form: { create: { title: '密码', placeholder: '至少 8 个字符', rules: [{ required: true, message: '请输入密码' }] } } },
 	{ dataIndex: 'roles', title: '角色', component: 'select' as const, multiple: true, options: assignableRoleOptions, placeholder: '留空表示仅具备登录用户权限' },
 	{ dataIndex: 'status', title: '状态', component: 'switch' as const, checkedValue: statusValues.enabled, uncheckedValue: statusValues.disabled, options: enabledDisabledOptions },
@@ -24,6 +26,7 @@ export const tableCrud: TableCrudDefinition = { table: 'base_users', rowKey: 'id
 const publicUser = (row: Record<string, unknown>) => ({
 	id: row.id,
 	username: row.username,
+	nickname: row.nickname ?? '',
 	password: readStoredPassword(row.password)?.pattern ?? '',
 	roles: parseRoles(row.roles),
 	status: row.status,
@@ -37,11 +40,11 @@ const handler: ApiHandler = async (c, next, params) => {
 	const tenantId = c.get('tenantId');
 	const tenantScope = (column = 'owner_tid') => tenantId === null ? { column, operator: 'IS NULL' as const } : { column, value: tenantId };
 	if (c.req.method === 'GET' && !params.id) {
-		const rows = await allSql<Record<string, unknown>>(database, sql({ database }).select({ table: 'base_users', columns: { id: 'id', username: 'name', roles: 'roles', status: 'status', password: 'password', created_at: 'created_at', updated_at: 'updated_at' }, orderBy: [{ column: 'id', direction: 'DESC' }] }));
+		const rows = await allSql<Record<string, unknown>>(database, sql({ database }).select({ table: 'base_users', columns: { id: 'id', username: 'name', nickname: 'nickname', roles: 'roles', status: 'status', password: 'password', created_at: 'created_at', updated_at: 'updated_at' }, orderBy: [{ column: 'id', direction: 'DESC' }] }));
 		return apiResponse(c, 200, { table: { option: { rowKey: 'id', actions: { query: [{ key: 'search', label: '搜索' }], toolbar: [{ key: 'create', label: '新增' }, { key: 'delete', label: '删除' }], row: [{ key: 'edit', label: '编辑' }, { key: 'delete', label: '删除' }] } }, columns, dataSource: rows.map(publicUser), totalRecords: rows.length } });
 	}
 	if (params.id && c.req.method === 'GET') {
-		const row = await firstSql<Record<string, unknown>>(database, sql({ database }).select({ table: 'base_users', columns: { id: 'id', username: 'name', roles: 'roles', status: 'status', password: 'password', created_at: 'created_at', updated_at: 'updated_at' }, where: [{ column: 'id', value: params.id }] }));
+		const row = await firstSql<Record<string, unknown>>(database, sql({ database }).select({ table: 'base_users', columns: { id: 'id', username: 'name', nickname: 'nickname', roles: 'roles', status: 'status', password: 'password', created_at: 'created_at', updated_at: 'updated_at' }, where: [{ column: 'id', value: params.id }] }));
 		return row ? apiResponse(c, 200, publicUser(row)) : apiMessage(c, 404, '用户不存在');
 	}
 	if (!params.id && c.req.method === 'POST') {
@@ -54,11 +57,10 @@ const handler: ApiHandler = async (c, next, params) => {
 		if (unknownRoles.length) return apiMessage(c, 400, `不支持的角色：${unknownRoles.join('、')}`);
 		try {
 			await runSql(database, sql({ database }).insert('base_users', { name: username, password: await createStoredPassword(password), roles: serializeRoles(roles), status: String(body.status ?? 'enabled') }));
-			const created = await firstSql<{ id: number | string }>(database, sql({ database }).select({ table: 'base_users', columns: { id: 'id' }, where: [{ column: 'name', value: username }, tenantScope()] }));
-			// 账号行归属账号自己，不归创建它的管理员。这是新建流程的收尾动作，不是人做的
-			// 修改——新增本就不留痕（§3.2），单独给这一步记一条只会是噪音。
-			if (created) await runSystemSql(database, sql({ database }).update('base_users', { owner_uid: created.id }, { id: created.id }));
-			return apiMessageData(c, 201, '用户已创建', { id: created?.id, username });
+			// 收尾：把行归属给账号自己，昵称留空时默认用用户名。都是新建流程的一部分，
+			// 不是人做的修改——新增本就不留痕（§3.2），单独给这几步记一条只会是噪音。
+			const createdId = await finishUserCreation(database, username, tenantId, String(body.nickname ?? ''));
+			return apiMessageData(c, 201, '用户已创建', { id: createdId, username });
 		} catch (error) {
 			if (error instanceof PendingApprovalError) throw error;
 			return apiMessage(c, 409, '用户名已存在');
@@ -68,11 +70,13 @@ const handler: ApiHandler = async (c, next, params) => {
 		const body: Record<string, unknown> = await c.req.json<Record<string, unknown>>().catch(() => ({} as Record<string, unknown>));
 		const current = await firstSql<{ id: number }>(database, sql({ database }).select({ table: 'base_users', columns: { id: 'id' }, where: [{ column: 'id', value: params.id }] }));
 		if (!current) return apiMessage(c, 404, '用户不存在');
-		const changedFields = getChangedFields(body, ['username', 'roles', 'status', 'password']);
+		const changedFields = getChangedFields(body, ['username', 'nickname', 'roles', 'status', 'password']);
 		const values: Record<string, unknown> = {};
 		for (const key of ['username', 'status']) {
 			if (changedFields.has(key)) values[key === 'username' ? 'name' : key] = String(body[key] ?? '');
 		}
+		// 昵称租户内唯一，留空存 NULL——唯一索引里 NULL 互不相等，多个空昵称才能共存。
+		if (changedFields.has('nickname')) values.nickname = String(body.nickname ?? '').trim() || null;
 		if (changedFields.has('roles')) {
 			const roles = parseRoles(body.roles);
 			const unknownRoles = unknownAssignableRoles(roles);
@@ -89,7 +93,7 @@ const handler: ApiHandler = async (c, next, params) => {
 		try {
 			await runOperationSql(c, database, sql({ database }).update('base_users', values, { id: params.id }));
 			return apiMessage(c, 200, '用户已保存');
-		} catch (error) { if (error instanceof PendingApprovalError) throw error; return apiMessage(c, 409, '用户名已存在'); }
+		} catch (error) { if (error instanceof PendingApprovalError) throw error; return apiMessage(c, 409, '用户名或昵称已被占用'); }
 	}
 	// 界面上的删除（单条与批量）一律发到集合地址、id 放在请求体里，两种形态都要接。
 	if (c.req.method === 'DELETE') {

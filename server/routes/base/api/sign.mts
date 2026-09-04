@@ -1,7 +1,7 @@
 import type { ApiHandler } from '@server/modules/base/api-router.mjs';
 import { baseSessionMaxAge, clearSessionCookie, createSessionCookie, createStoredPassword, hashSessionToken, readSessionId, verifyStoredPassword } from '@server/modules/base/auth/index.mjs';
 import { ensureBaseDevice } from '@server/modules/base/device.mjs';
-import { resolveRegistrationMode } from '@server/modules/base/registration.mjs';
+import { finishUserCreation, resolveRegistrationMode } from '@server/modules/base/registration.mjs';
 import { allowsLocalLogin } from '@server/modules/passport/accounts/client.mjs';
 import { withDatabaseActors, type DatabaseAdapter } from '@server/database/index.mjs';
 import { apiMessage, apiMessageData, apiResponse } from '@server/modules/base/api-response.mjs';
@@ -29,15 +29,6 @@ const parseCredentials = async (c: Parameters<ApiHandler>[0]) => {
  * 账号行归属账号自己，而不是创建它的人。
  * 自增 id 要插入后才知道，因此回写一次；行级判定上线后，用户读自己的账号记录靠的就是它。
  */
-const claimOwnUserRow = async (database: DatabaseAdapter, username: string, tenantId: string | null) => {
-	const scope = tenantId === null ? { column: 'owner_tid', operator: 'IS NULL' as const } : { column: 'owner_tid', value: tenantId };
-	const created = await firstSql<{ id: number | string | bigint }>(database, sql({ database }).select({ table: 'base_users', columns: { id: 'id' }, where: [{ column: 'name', value: username }, scope], limit: 1 }));
-	if (created) await runSql(database, sql({ database }).update('base_users', { owner_uid: created.id }, { id: created.id }));
-	return created?.id;
-};
-
-
-
 /** 本站账号密码登录：Accounts 登录未启用时使用，也是启用后仍保留的站点管理员入口。 */
 const localSign: ApiHandler = async (c, next) => {
 	const database = c.get('database');
@@ -76,7 +67,7 @@ const localSign: ApiHandler = async (c, next) => {
 			try {
 				await runSql(systemDatabase, sql({ database: systemDatabase }).insert('base_users', { name: credentials.username, password: storedPassword, roles: [], status: 'enabled' }));
 			} catch { return apiMessage(c, 409, '用户名已存在'); }
-			await claimOwnUserRow(systemDatabase, credentials.username, tenantId);
+			await finishUserCreation(systemDatabase, credentials.username, tenantId);
 			return apiMessage(c, 201, '注册成功，请登录');
 		}
 		// 认领本租户的引导状态：唯一键是 (key, owner_tid)，同一租户内只可能成功一次，
@@ -90,7 +81,7 @@ const localSign: ApiHandler = async (c, next) => {
 		try {
 			// 初始管理员是平台管理员：控制面与救援入口都要求它。
 			await runSql(systemDatabase, sql({ database: systemDatabase }).insert('base_users', { name: credentials.username, password: storedPassword, roles: ['platform_admin'], status: 'enabled' }));
-			await claimOwnUserRow(systemDatabase, credentials.username, tenantId);
+			await finishUserCreation(systemDatabase, credentials.username, tenantId);
 		} catch (error) {
 			// 回滚本租户的认领，让下一次注册还能重试。
 			await runSql(systemDatabase, sql({ database: systemDatabase }).update('base_bootstrap', { value: 'open' }, [{ column: 'key', value: 'initial_admin' }, { column: 'value', value: 'claimed' }, ...(tenantId === null ? [] : [{ column: 'owner_tid', value: tenantId }])]));
