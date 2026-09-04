@@ -2,7 +2,7 @@
 
 状态：已实施，2026-09-01。
 
-本文档只覆盖 `owner_uid` 的**字段与写入逻辑**。基于归属的可见性判定、分站维度 `owner_bid` 与代用户操作拆分为后续需求，见 [data-visibility-and-delegated-access](data-visibility-and-delegated-access.md)。
+本文档只覆盖 `owner_uid` 的**字段与写入逻辑**。基于归属的可见性判定、租户维度 `owner_tid` 与代用户操作拆分为后续需求，见 [data-visibility-and-delegated-access](data-visibility-and-delegated-access.md)。
 
 ## 1. 背景
 

@@ -51,7 +51,7 @@ SMS 站点集中查看多部手机收到的短信，不负责发送。手机侧�
 
 ## 4. 数据模型
 
-所有表遵循项目统一字段顺序：`id`、`created_at`、`updated_at`、`deleted_at`、`created_duid`、`updated_duid` 由公共层维护，业务 API 不提交；随后是 `owner_bid`、`owner_uid`，它们是行归属字段而非审计字段。业务唯一字段一律使用 `(字段…, deleted_at)` 形式的唯一约束。
+所有表遵循项目统一字段顺序：`id`、`created_at`、`updated_at`、`deleted_at`、`created_duid`、`updated_duid` 由公共层维护，业务 API 不提交；随后是 `owner_tid`、`owner_uid`，它们是行归属字段而非审计字段。业务唯一字段一律使用 `(字段…, deleted_at)` 形式的唯一约束。
 
 ### 4.1 `sms_integration_clients`
 
@@ -168,7 +168,7 @@ await runSql(owned, sql({ database: owned }).ignoreInsert('sms_messages', ['phon
 
 `sms_messages` 是本站唯一会持续膨胀的表，必须有保留期，否则只增不减。
 
-- 保留期由站点配置项 `sms.message_retention_days` 控制，默认 **90 天**，设为 `0` 表示不自动清理。分站级覆盖属于后续需求：`base_branches` 是 Base 层的表，不应写入 SMS 专有字段。
+- 保留期由站点配置项 `sms.message_retention_days` 控制，默认 **90 天**，设为 `0` 表示不自动清理。租户级覆盖属于后续需求：`base_tenants` 是 Base 层的表，不应写入 SMS 专有字段。
 - **到期记录物理删除，不是软删除。** 软删除只是标记，表体积照涨，起不到控制增长的作用。清理走公共层的 `delete`，按 `received_at` 判定。
 - 回收站中的软删除记录同样受保留期约束，不因已软删除而豁免。
 - 清理由定时任务执行，**分批进行且可重入**：每批限量（建议 1000 行），按 `received_at` 升序，删完一批即提交。无事务环境下不做长事务，任务中断后下次运行继续。
