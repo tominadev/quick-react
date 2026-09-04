@@ -1,4 +1,25 @@
-import { execFileSync } from 'node:child_process';
+import { execFile } from 'node:child_process';
+import { promisify } from 'node:util';
+import { availableParallelism } from 'node:os';
+
+const execFileAsync = promisify(execFile);
+
+/**
+ * 限并发地跑一批任务。每个任务都要启动一次 Prisma CLI，无上限地并行会在核数少的机器上
+ * 互相抢 CPU，还会同时驻留十几个 Node 进程；按核数限流后既有并行收益又不至于压垮机器。
+ */
+const mapLimited = async (items, worker) => {
+	const limit = Math.max(1, Math.min(4, availableParallelism?.() ?? 2));
+	const results = new Array(items.length);
+	let next = 0;
+	await Promise.all(Array.from({ length: Math.min(limit, items.length) }, async () => {
+		while (next < items.length) {
+			const index = next++;
+			results[index] = await worker(items[index], index);
+		}
+	}));
+	return results;
+};
 import { mkdir, mkdtemp, readFile, rm, writeFile } from 'node:fs/promises';
 import { join, resolve } from 'node:path';
 import { tmpdir } from 'node:os';
@@ -43,11 +64,14 @@ const generatedSql = async (schema, provider, url, temporaryDirectory, fileName)
 		.replace(provider === 'sqlite' ? /^(\s*id\s+)BigInt(\s+@id\s+@default\(autoincrement\(\)\))/gm : /$^/, '$1Int$2');
 	const schemaPath = join(temporaryDirectory, `${fileName}.${provider}.prisma`);
 	await writeFile(schemaPath, source);
-	return execFileSync(prismaBin, ['migrate', 'diff', '--from-empty', '--to-schema-datamodel', schemaPath, '--script'], {
+	// 每次调用都要启动一次 Prisma CLI（约 1 秒），因此调用方并行执行，见 main。
+	const { stdout } = await execFileAsync(prismaBin, ['migrate', 'diff', '--from-empty', '--to-schema-datamodel', schemaPath, '--script'], {
 		cwd: projectDirectory,
 		encoding: 'utf8',
+		maxBuffer: 32 * 1024 * 1024,
 		env: { ...process.env, DATABASE_URL: url },
 	});
+	return stdout;
 };
 
 const outputDirectory = (dialect, site) => dialect === 'sqlite'
@@ -57,23 +81,23 @@ const outputDirectory = (dialect, site) => dialect === 'sqlite'
 const main = async () => {
 	const temporaryDirectory = await mkdtemp(join(tmpdir(), 'quick-react-prisma-schema-'));
 	try {
-		for (const site of sites) {
-			const schema = await readFile(resolve(projectDirectory, 'prisma', `${site}.prisma`), 'utf8');
-			for (const dialect of dialects) {
-				const sql = await generatedSql(schema, dialect.provider, dialect.url, temporaryDirectory, site);
-				const directory = outputDirectory(dialect.name, site);
-				await mkdir(directory, { recursive: true });
-				await writeFile(join(directory, '0001_prisma_schema.sql'), generatedFile(site, dialect.name, sql));
-			}
-		}
+		// 站点 × 方言共十余次 Prisma CLI 调用，每次约 1 秒。串行执行会让构建、typecheck
+		// 和迁移生成各等十几秒；它们互不依赖，并行后只受 CPU 限制。
+		const schemas = new Map(await Promise.all(sites.map(async (site) =>
+			[site, await readFile(resolve(projectDirectory, 'prisma', `${site}.prisma`), 'utf8')])));
+		await mapLimited(sites.flatMap((site) => dialects.map((dialect) => ({ site, dialect }))), async ({ site, dialect }) => {
+			const sql = await generatedSql(schemas.get(site), dialect.provider, dialect.url, temporaryDirectory, site);
+			const directory = outputDirectory(dialect.name, site);
+			await mkdir(directory, { recursive: true });
+			await writeFile(join(directory, '0001_prisma_schema.sql'), generatedFile(site, dialect.name, sql));
+		});
 		// D1 consumes one flat migration directory. SQLite SQL is valid D1 SQL.
 		const d1Root = resolve(migrationsRoot, 'd1');
 		await mkdir(d1Root, { recursive: true });
-		for (const [index, site] of sites.entries()) {
-			const schema = await readFile(resolve(projectDirectory, 'prisma', `${site}.prisma`), 'utf8');
-			const sql = await generatedSql(schema, 'sqlite', 'file:./database/default.sqlite', temporaryDirectory, `d1-${site}`);
+		await mapLimited(sites, async (site, index) => {
+			const sql = await generatedSql(schemas.get(site), 'sqlite', 'file:./database/default.sqlite', temporaryDirectory, `d1-${site}`);
 			await writeFile(join(d1Root, `${String(index + 1).padStart(4, '0')}_prisma_${site}.sql`), generatedFile(site, 'd1', sql));
-		}
+		});
 		await writeFile(join(d1Root, '0005_prisma_seed.sql'), generatedFile('seed', 'd1', `INSERT INTO global_sites (key, name, base_site_key, dsn, database_binding, status, migration_status, is_default, is_system) VALUES ('global', '全局控制面', 'base', '', '', 'enabled', 'ready', 1, 1) ON CONFLICT(key, deleted_at) DO NOTHING;\nINSERT INTO base_tenants (created_at, updated_at, key, name, status) VALUES (0, 0, 'default', '默认租户', 'enabled') ON CONFLICT(key, deleted_at) DO NOTHING;\nINSERT INTO base_branches (created_at, updated_at, key, name, status) VALUES (0, 0, 'main', '主分站', 'enabled') ON CONFLICT(key, owner_tid, deleted_at) DO NOTHING;\nINSERT INTO base_bootstrap (created_at, updated_at, key, value) VALUES (0, 0, 'initial_admin', 'open') ON CONFLICT(key, owner_tid, deleted_at) DO NOTHING;`));
 	} finally {
 		await rm(temporaryDirectory, { recursive: true, force: true });
