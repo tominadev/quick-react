@@ -34,7 +34,7 @@ const rawSiteNavigation = (): MenuNode[] => [
 					] },
 					{ label: '用户管理', key: 'users', icon: 'appstore', component: 'table', title: '用户管理', description: '管理系统用户、角色和状态' },
 					// 撤回限管理员，与父级角色门一致；能看到的范围由公共层的归属判定收敛到本租户或本分站。
-					{ label: '变更审计', key: 'audit', icon: 'appstore', component: 'table', title: '变更审计', description: '查看受管表的字段变更记录，并按时间从新到旧撤回' },
+					{ label: '审计审批', key: 'audit', icon: 'appstore', component: 'table', title: '审计审批', description: '审批待生效的修改，并查看已生效变更的记录与撤回' },
 					{
 						label: '数据管理',
 						key: 'data',

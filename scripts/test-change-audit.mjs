@@ -388,6 +388,12 @@ try {
 	const byReason = await listAuditEntries(acting, [], '批量调整');
 	assert.ok(byReason.length && byReason.every((entry) => entry.reason.includes('批量调整')), '按原因模糊匹配');
 	assert.deepEqual(await listAuditEntries(acting, [], '这段文字不存在'), []);
+	// 首次进入时客户端还没带上查询默认值（它拿到 schema 之后才填，那一步刻意跳过重新
+	// 请求以避免首屏两次请求），因此「参数缺失用默认值、参数为空串才是全部」这条语义
+	// 必须由服务端认，否则下拉框显示「待审批」而列表是全部。
+	const auditRoute = await readFile(resolve(projectDirectory, 'server/routes/base/api/panel/admin/base/audit.mts'), 'utf8');
+	assert.match(auditRoute, /c\.req\.query\('status'\) \?\? DEFAULT_STATUS/, '状态过滤必须在参数缺失时回落到默认值');
+	assert.match(auditRoute, /DEFAULT_STATUS = 'pending'/);
 
 	// ---- 保留期（§10）----
 	const total = (await entries()).length;

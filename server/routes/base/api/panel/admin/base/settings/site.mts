@@ -19,7 +19,7 @@ const formPage = {
 		{ name: 'apiBootstrapEnabled', label: '启用 API 页面启动（CDN 模式）', type: 'switch', defaultValue: true },
 		// 保留期只能由平台管理员改：租户管理员能缩短自己的审计保留期，等于给了销毁证据的手段。
 		// 这个表单本就在「系统设置」下，父级角色门已限定 platform_admin。
-		{ name: 'auditRetentionDays', label: '变更审计保留天数', type: 'text', extra: '超过该天数的变更记录会被物理删除；填 0 表示不自动清理。', placeholder: '365', maxLength: 4 },
+		{ name: 'auditRetentionDays', label: '审计保留天数', type: 'text', extra: '超过该天数的变更记录会被物理删除；填 0 表示不自动清理。', placeholder: '365', maxLength: 4 },
 	],
 } satisfies FormPageConfig;
 
