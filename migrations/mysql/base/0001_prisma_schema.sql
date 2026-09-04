@@ -71,11 +71,13 @@ CREATE TABLE `base_users` (
     `owner_bid` BIGINT NOT NULL DEFAULT 1,
     `owner_uid` BIGINT NULL,
     `name` VARCHAR(191) NOT NULL,
+    `nickname` VARCHAR(191) NULL,
     `password` JSON NOT NULL,
     `roles` VARCHAR(191) NOT NULL DEFAULT '[]',
     `status` ENUM('enabled', 'disabled') NOT NULL DEFAULT 'enabled',
 
     UNIQUE INDEX `base_users_name_owner_tid_deleted_at_key`(`name`, `owner_tid`, `deleted_at`),
+    UNIQUE INDEX `base_users_nickname_owner_tid_deleted_at_key`(`nickname`, `owner_tid`, `deleted_at`),
     PRIMARY KEY (`id`)
 ) DEFAULT CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci;
 

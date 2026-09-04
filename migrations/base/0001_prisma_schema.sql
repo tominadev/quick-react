@@ -62,6 +62,7 @@ CREATE TABLE "base_users" (
     "owner_bid" BIGINT NOT NULL DEFAULT 1,
     "owner_uid" BIGINT,
     "name" TEXT NOT NULL,
+    "nickname" TEXT,
     "password" TEXT NOT NULL,
     "roles" TEXT NOT NULL DEFAULT '[]',
     "status" TEXT NOT NULL DEFAULT 'enabled'
@@ -270,6 +271,9 @@ CREATE UNIQUE INDEX "base_hosts_hostname_deleted_at_key" ON "base_hosts"("hostna
 
 -- CreateIndex
 CREATE UNIQUE INDEX "base_users_name_owner_tid_deleted_at_key" ON "base_users"("name", "owner_tid", "deleted_at");
+
+-- CreateIndex
+CREATE UNIQUE INDEX "base_users_nickname_owner_tid_deleted_at_key" ON "base_users"("nickname", "owner_tid", "deleted_at");
 
 -- CreateIndex
 CREATE UNIQUE INDEX "base_sessions_token_hash_deleted_at_key" ON "base_sessions"("token_hash", "deleted_at");

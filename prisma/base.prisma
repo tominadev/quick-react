@@ -101,6 +101,12 @@ model base_users {
   name          String
   // 用户名在租户内唯一：不同租户可以各有同名账号。
   @@unique([name, owner_tid, deleted_at])
+  /// 显示名，与用户名一样租户内唯一，但允许的字符更多（中文、空格之外的可见字符都行）。
+  ///
+  /// 可空而不是空串默认值：唯一索引里 NULL 互不相等，因此「未设置昵称」的用户不会互相撞车。
+  /// 这与 owner_tid 那次正好相反——那里需要 NULL 相等，所以必须 NOT NULL DEFAULT 1。
+  nickname      String?
+  @@unique([nickname, owner_tid, deleted_at])
   /// 存的是 { hash, pattern }：由数据库承认它是 JSON，而不是应用私下往文本列里塞。
   password      Json
   roles         String[] @default([])

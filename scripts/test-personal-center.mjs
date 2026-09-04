@@ -22,6 +22,15 @@ try {
 		if (options.body !== undefined) headers.set('content-type', 'application/json');
 		return app.request(`http://localhost${path}`, { method: options.method, headers, body: options.body === undefined ? undefined : JSON.stringify(options.body) });
 	};
+	// 先开「保留本站登录」再启用 Accounts：否则启用那一刻本地会话立即失效，后面全 401。
+	// 站点设置随请求配置一起缓存，直接写库绕不过缓存，因此必须在第一次请求之前写。
+	{
+		const setup = new DatabaseSync(process.env.DEFAULT_DATABASE_FILE);
+		const at = Date.now();
+		setup.prepare("INSERT INTO base_configs (created_at, updated_at, key, value) VALUES (?, ?, 'site-settings', ?)")
+			.run(at, at, JSON.stringify({ localLoginEnabled: true }));
+		setup.close();
+	}
 	assert.equal((await request('/api/sign.php', { method: 'PUT', body: { username: 'me_admin', password: 'test-password-123' } })).status, 201);
 	const login = await request('/api/sign.php', { method: 'POST', body: { username: 'me_admin', password: 'test-password-123' } });
 	const cookie = login.headers.get('set-cookie')?.split(';')[0];
@@ -53,6 +62,23 @@ try {
 	assert.match(linked.accountsNotice, /accounts\.test/);
 	assert.match(linked.accountsNotice, /当前页面不会离开/);
 	assert.deepEqual(linked.accountsCenter, { label: '在新页面打开账号中心', url: 'https://accounts.test/panel/accounts' });
+
+	// 自助改资料：只能改自己这一行的用户名、昵称与密码。
+	const mePath = '/api/panel/me.php';
+	assert.deepEqual(
+		(await (await request(mePath, { cookie })).json()).formPage.fields.map((field) => field.name),
+		['username', 'nickname', 'currentPassword', 'newPassword'],
+	);
+	const save = (body) => request(mePath, { method: 'PUT', cookie, body });
+	assert.equal((await save({ nickname: '小明', __changedFields: ['nickname'] })).status, 200, '昵称可以用中文');
+	assert.equal((await save({ nickname: 'a\u0000b', __changedFields: ['nickname'] })).status, 400, '昵称不能带控制字符');
+	// 昵称租户内唯一，但留空存 NULL，因此多个用户都不设昵称不会互相撞车。
+	assert.equal((await save({ nickname: '', __changedFields: ['nickname'] })).status, 200, '留空表示不设置昵称');
+	assert.equal((await save({ __changedFields: [] })).status, 400, '什么都没改要明确拒绝');
+	// 改密码必须先验当前密码：会话被盗时，能改密码就等于能永久接管账号。
+	assert.equal((await save({ newPassword: 'another-password-1', __changedFields: ['newPassword'] })).status, 403);
+	assert.equal((await save({ currentPassword: 'test-password-123', newPassword: 'another-password-1', __changedFields: ['newPassword'] })).status, 200);
+	assert.equal((await request('/api/sign.php', { method: 'POST', body: { username: 'me_admin', password: 'another-password-1' } })).status, 200, '新密码能登录');
 
 	console.log('personal center test passed');
 } finally {

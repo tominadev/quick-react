@@ -50,10 +50,12 @@
 | 字段 | 规则 |
 | --- | --- |
 | 用户名 | 与注册同一套校验；租户内唯一，冲突返回 409 |
-| 昵称 | **`base_users` 需要新增 `nickname` 列**（今天只有 `passport_users` 有） |
+| 昵称 | **`base_users` 需要新增 `nickname` 列**（今天只有 `passport_users` 有）。与用户名一样**租户内唯一**，但字符集宽得多：中文、字母、数字都行，只挡控制字符，首尾空白先 trim 掉。最长 32 字符 |
 | 密码 | 需要**先验证当前密码**，与改用户名分开提交 |
 
 改密码必须验旧密码：会话被盗时，能改密码就等于能永久接管账号。
+
+个人中心因此从「只读展示」改为「展示 + 一个表单」，同一个 `/api/panel/me` 接口既给身份信息也给表单配置，不新开页面。
 
 这三处写入走 `/api/panel/me`，不在 `/api/panel/admin/` 下，因此**照常留痕、不走审批、不问变更理由**（见[变更审计](change-audit-and-revert.md) §11.2）——用户处置自己的数据不该排队等人批。
 
@@ -106,7 +108,9 @@ Accounts 登录成功时，把凭证同步到本站账号，使本站登录用�
 
 ## 7. 数据结构变更
 
-- `base_users` 新增 `nickname String @default("")`。
+- `base_users` 新增 `nickname String?`，并加唯一索引 `(nickname, owner_tid, deleted_at)`。
+
+  **可空而不是空串默认值**：唯一索引里 NULL 互不相等，因此「未设置昵称」的用户不会互相撞车；空串默认值会让第二个不设昵称的用户直接建不出来。这与 `owner_tid` 那次正好相反——那里需要 NULL 相等，所以必须 `NOT NULL DEFAULT 1`。同一个特性，两种相反的用法。
 - `base_oidc_login_requests` 新增 `pending_bind` 状态与被绑账号 ID。
 - `site-settings` 新增 `localLoginEnabled: boolean`（默认 `false`）。
 

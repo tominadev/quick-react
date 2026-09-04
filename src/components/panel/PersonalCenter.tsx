@@ -3,11 +3,13 @@ import { useEffect, useState } from 'react';
 import type { CommonApi } from '@/utils/common/api.js';
 import type { AccountCenterLink, UserIdentity } from '@shared/types/user.mjs';
 import { roleLabel } from '@shared/types/role.mjs';
+import type { FormPageResponse } from '@shared/types/form-page.mjs';
+import FormPage from './FormPage.js';
 
 const initialData = (window as Window & { __INITIAL_DATA__?: { apiSuffix?: string } }).__INITIAL_DATA__;
 const apiSuffix = initialData?.apiSuffix ?? '';
 type PersonalCenterProps = { commonApi: CommonApi; user?: UserIdentity; title: string; initialResponse?: MeResponse };
-type MeResponse = { user?: UserIdentity; accountsNotice?: string; accountsCenter?: AccountCenterLink };
+type MeResponse = FormPageResponse & { user?: UserIdentity; accountsNotice?: string; accountsCenter?: AccountCenterLink };
 
 /** 只读展示当前登录身份；账号资料在 Accounts 账号中心维护，入口始终在新页面打开。 */
 export default function PersonalCenter({ commonApi, user: initialUser, title, initialResponse }: PersonalCenterProps) {
@@ -44,6 +46,14 @@ export default function PersonalCenter({ commonApi, user: initialUser, title, in
 				<Descriptions.Item label="用户名">{user?.username ?? '—'}</Descriptions.Item>
 				<Descriptions.Item label="角色">{user?.roles.map(roleLabel).join('、') || '—'}</Descriptions.Item>
 			</Descriptions>
+			{/* 同一个接口既给身份展示也给可编辑表单：用户名、昵称、密码都改自己这一行。 */}
+			<FormPage
+				commonApi={commonApi}
+				apiPath={`/api/panel/me${apiSuffix}`}
+				title=""
+				submitMethod="PUT"
+				initialResponse={initialResponse}
+			/>
 		</Card>
 	);
 }
