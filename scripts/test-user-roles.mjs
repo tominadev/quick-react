@@ -82,6 +82,19 @@ try {
 	assert.ok(!remaining.table.dataSource.some((row) => String(row.id) === String(created.id)), '批量删除应生效');
 	assert.equal((await request(usersPath, { method: 'DELETE', cookie, body: [] })).status, 400, '没选记录要给出明确提示');
 
+	// 注册开关：默认关闭，初始管理员那把一次性闩用掉之后就不再放行；开启后允许注册普通用户。
+	assert.equal((await request('/api/sign.php', { method: 'PUT', body: { username: 'walk_in', password: 'test-password-123' } })).status, 409, '默认不开放注册');
+	const sitePath = '/api/panel/admin/base/settings/site.php';
+	const settings = (await (await request(sitePath, { cookie })).json()).currentValues;
+	assert.equal(settings.registrationEnabled, false, '开关默认关闭');
+	assert.equal((await request(sitePath, { method: 'PUT', cookie, body: { ...settings, registrationEnabled: true, __changedFields: ['registrationEnabled'] } })).status, 200);
+	assert.equal((await request('/api/sign.php', { method: 'PUT', body: { username: 'walk_in', password: 'test-password-123' } })).status, 201, '开启后允许注册');
+	assert.equal((await request('/api/sign.php', { method: 'PUT', body: { username: 'walk_in', password: 'test-password-123' } })).status, 409, '用户名冲突要挡住');
+	const walkIn = (await (await request(usersPath, { cookie })).json()).table.dataSource.find((row) => row.username === 'walk_in');
+	assert.deepEqual(walkIn.roles, [], '自助注册出来的是普通用户，不是管理员');
+	// 页面入口与接口用同一个判定，不能出现「有入口点进去被拒绝」。
+	assert.equal((await (await request('/api/sign.php?mode=sign-up')).json()).registrationAvailable, true);
+
 	console.log('user roles test passed');
 } finally {
 	await rm(temporaryDirectory, { recursive: true, force: true });

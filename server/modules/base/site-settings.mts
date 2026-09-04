@@ -1,11 +1,11 @@
 import type { ConfigStore } from './config-store.mjs';
 
-export type SiteSettings = { contactEmail: string; footer: string; logoutLocalEnabled: boolean; logoutPassportEnabled: boolean; logoutAllEnabled: boolean; apiBootstrapEnabled: boolean; auditRetentionDays: number };
+export type SiteSettings = { contactEmail: string; footer: string; logoutLocalEnabled: boolean; logoutPassportEnabled: boolean; logoutAllEnabled: boolean; apiBootstrapEnabled: boolean; auditRetentionDays: number; registrationEnabled: boolean };
 
 /** 审计保留期上限十年：再长也没有取证价值，却会让表无限增长。0 表示不自动清理。 */
 export const maxAuditRetentionDays = 3650;
 export const defaultAuditRetentionDays = 365;
-export const defaultSiteSettings: SiteSettings = { contactEmail: '', footer: `Ant Design ©${new Date().getFullYear()} Created by Ant UED`, logoutLocalEnabled: false, logoutPassportEnabled: false, logoutAllEnabled: true, apiBootstrapEnabled: true, auditRetentionDays: 365 };
+export const defaultSiteSettings: SiteSettings = { contactEmail: '', footer: `Ant Design ©${new Date().getFullYear()} Created by Ant UED`, logoutLocalEnabled: false, logoutPassportEnabled: false, logoutAllEnabled: true, apiBootstrapEnabled: true, auditRetentionDays: 365, registrationEnabled: false };
 export const normalizeSiteSettings = (value: unknown): SiteSettings => {
 	const source = value && typeof value === 'object' ? value as Record<string, unknown> : {};
 	return {
@@ -16,6 +16,8 @@ export const normalizeSiteSettings = (value: unknown): SiteSettings => {
 		logoutAllEnabled: typeof source.logoutAllEnabled === 'boolean' ? source.logoutAllEnabled : true,
 		apiBootstrapEnabled: typeof source.apiBootstrapEnabled === 'boolean' ? source.apiBootstrapEnabled : true,
 		auditRetentionDays: Math.min(Math.max(Math.trunc(Number(source.auditRetentionDays ?? defaultAuditRetentionDays)) || 0, 0), maxAuditRetentionDays),
+		// 默认关闭：开着就等于任何人都能在本站建账号，必须是主人主动打开的。
+		registrationEnabled: typeof source.registrationEnabled === 'boolean' ? source.registrationEnabled : false,
 	};
 };
 export const loadSiteSettings = async (store: ConfigStore) => normalizeSiteSettings(await store.get('site-settings'));

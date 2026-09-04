@@ -1,5 +1,6 @@
 import type { Context } from 'hono';
 import type { AppEnv } from './types.mjs';
+import { resolveRegistrationMode } from './registration.mjs';
 import type { AuthPage, AuthState, HeaderAction, PageStatus } from '@shared/types/initial-data.mjs';
 import { findNavigationItem, normalizePagePath, stripPageSuffix } from '@shared/navigation-tree.mjs';
 import { getFullSiteNavigation, getPageDefinitions, getSiteNavigation } from './navigation.mjs';
@@ -8,16 +9,6 @@ import { firstSql, sql } from '../../database/sql.mjs';
 // 前端固定注册的第三方登录回调页面，不属于导航树。
 const callbackPagePaths = ['/accounts/external/callback', '/accounts/external/wechat'];
 
-/** 本站是否还能创建初始管理员：由本站数据库里的引导状态决定，和站点是哪个无关。 */
-const registrationAvailable = async (c: Context<AppEnv>) => {
-	// 引导状态要在未登录时也读得到，因此走系统上下文；租户由主机名解析而来。
-	const database = c.get('systemDatabase');
-	const tenantId = c.get('tenantId');
-	const where = [{ column: 'key', value: 'initial_admin' }, ...(tenantId === null ? [] : [{ column: 'owner_tid', value: tenantId }])];
-	const row = await firstSql<{ value: string }>(database, sql({ database }).select({ table: 'base_bootstrap', columns: { value: 'value' }, where }));
-	return row?.value === 'open';
-};
-
 /** 未登录时的认证入口；退出接口复用这份后端配置，前端无需刷新页面或自行推断登录方式。 */
 export const buildAnonymousAuthState = async (c: Context<AppEnv>): Promise<AuthState> => {
 	const siteConfig = c.get('techStackConfig');
@@ -25,8 +16,8 @@ export const buildAnonymousAuthState = async (c: Context<AppEnv>): Promise<AuthS
 	const accountsLoginMode = c.get('accountsLoginMode');
 	const accountsLogin = accountsLoginMode !== 'local';
 	// 启用 Accounts 登录后不能再创建本地账号，注册入口一并隐藏。
-	const signUp = !accountsLogin && await registrationAvailable(c);
-	// 公共 /sign 页面已取消；只保留初始管理员注册页和身份提供方内部认证页。
+	const signUp = !accountsLogin && await resolveRegistrationMode(c) !== 'closed';
+	// 公共 /sign 页面已取消；只保留注册页（初始管理员或开放注册）和身份提供方内部认证页。
 	const signPages: AuthPage[] = [
 		...(c.get('accountsIdentity') ? [{ path: `/accounts/sign${siteConfig.pageSuffix}`, title: 'Accounts 身份认证', description: '验证 Accounts 身份并继续 OIDC 授权', mode: 'sign' as const, apiPath: `/api/accounts/sign${siteConfig.apiSuffix}`, submitMethod: 'POST' as const, redirectPath: `/panel/accounts${siteConfig.pageSuffix}` }] : []),
 		...(signUp ? [{ path: `/sign-up${siteConfig.pageSuffix}`, title: '注册', description: '创建初始管理员', mode: 'sign-up' as const, apiPath: `/api/sign${siteConfig.apiSuffix}`, submitMethod: 'PUT' as const, redirectPath: `/` }] : []),

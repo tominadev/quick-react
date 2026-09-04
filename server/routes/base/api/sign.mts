@@ -1,6 +1,7 @@
 import type { ApiHandler } from '@server/modules/base/api-router.mjs';
 import { baseSessionMaxAge, clearSessionCookie, createSessionCookie, createStoredPassword, hashSessionToken, readSessionId, verifyStoredPassword } from '@server/modules/base/auth/index.mjs';
 import { ensureBaseDevice } from '@server/modules/base/device.mjs';
+import { resolveRegistrationMode } from '@server/modules/base/registration.mjs';
 import { withDatabaseActors, type DatabaseAdapter } from '@server/database/index.mjs';
 import { apiMessage, apiMessageData, apiResponse } from '@server/modules/base/api-response.mjs';
 import type { FormPageConfig } from '@shared/types/form-page.mjs';
@@ -34,15 +35,7 @@ const claimOwnUserRow = async (database: DatabaseAdapter, username: string, tena
 	return created?.id;
 };
 
-/**
- * 引导状态按租户独立：每个租户各自创建自己的初始管理员。
- * 先看本租户的行，没有再回落到 owner_tid 为 NULL 的平台默认值（种子写入的就是它）。
- */
-const registrationAvailable = async (database: DatabaseAdapter, tenantId: string | null) => {
-	const where = [{ column: 'key', value: 'initial_admin' }, ...(tenantId === null ? [] : [{ column: 'owner_tid', value: tenantId }])];
-	const row = await firstSql<{ value: string }>(database, sql({ database }).select({ table: 'base_bootstrap', columns: { value: 'value' }, where }));
-	return row?.value === 'open';
-};
+
 
 /** 本站账号密码登录：Accounts 登录未启用时使用，也是启用后仍保留的站点管理员入口。 */
 const localSign: ApiHandler = async (c, next) => {
@@ -63,31 +56,40 @@ const localSign: ApiHandler = async (c, next) => {
 		};
 		return apiResponse(c, 200, {
 			user: c.get('currentUser') ?? null,
-			registrationAvailable: await registrationAvailable(systemDatabase, c.get('tenantId')),
+			registrationAvailable: await resolveRegistrationMode(c) !== 'closed',
 			formPage,
 		});
 	}
 	if (c.req.method === 'PUT') {
 		const tenantId = c.get('tenantId');
-		if (!await registrationAvailable(systemDatabase, tenantId)) return apiMessage(c, 409, '初始管理员已经存在');
+		const mode = await resolveRegistrationMode(c);
+		if (mode === 'closed') return apiMessage(c, 409, '本站未开放注册');
 		const credentials = await parseCredentials(c);
 		if (!/^[a-zA-Z0-9_.-]{3,64}$/.test(credentials.username) || passwordError(credentials.password)) {
 			return apiMessage(c, 400, '用户名至少 3 个合法字符，密码至少 8 个字符');
 		}
-		const now = Date.now();
 		const storedPassword = await createStoredPassword(credentials.password);
-		// 认领本租户的引导状态：唯一键是 (key, owner_tid)，因此插入在每个租户内只可能成功一次，
-		// 影响 0 行说明已被并发请求抢先。平台默认行（owner_tid 为 NULL）保持不变，其他租户不受影响。
-		// 认领本租户的引导状态：唯一键是 (key, owner_tid)，同一租户内只可能成功一次。
+		// 开放注册：直接建普通用户，用户名冲突交给唯一索引挡。没有闩要认领，
+		// 因此也没有「认领了但没建号」的中间态需要回滚。
+		if (mode === 'open') {
+			try {
+				await runSql(systemDatabase, sql({ database: systemDatabase }).insert('base_users', { name: credentials.username, password: storedPassword, roles: [], status: 'enabled' }));
+			} catch { return apiMessage(c, 409, '用户名已存在'); }
+			await claimOwnUserRow(systemDatabase, credentials.username, tenantId);
+			return apiMessage(c, 201, '注册成功，请登录');
+		}
+		// 认领本租户的引导状态：唯一键是 (key, owner_tid)，同一租户内只可能成功一次，
+		// 影响 0 行说明已被并发请求抢先。
+		//
 		// 引导流程不留痕：那时还没有会话，操作者与作用账号都是空的，而 base_bootstrap.value
 		// 是脱敏列（§5），记下来只会是一条「value：已变更」——既说不出谁，也说不出改了什么。
 		// 「初始管理员是什么时候建的」由 base_users.created_at 回答，不需要再抄一遍。
 		const claimed = await runSql(systemDatabase, sql({ database: systemDatabase }).update('base_bootstrap', { value: 'claimed' }, [{ column: 'key', value: 'initial_admin' }, { column: 'value', value: 'open' }, ...(tenantId === null ? [] : [{ column: 'owner_tid', value: tenantId }])]));
 		if (Number(claimed.meta?.changes ?? 0) !== 1) return apiMessage(c, 409, '初始管理员已经存在');
 		try {
-			// 初始管理员是平台管理员：控制面与救援入口都要求 super。
+			// 初始管理员是平台管理员：控制面与救援入口都要求它。
 			await runSql(systemDatabase, sql({ database: systemDatabase }).insert('base_users', { name: credentials.username, password: storedPassword, roles: ['platform_admin'], status: 'enabled' }));
-			await claimOwnUserRow(systemDatabase, credentials.username, c.get('tenantId'));
+			await claimOwnUserRow(systemDatabase, credentials.username, tenantId);
 		} catch (error) {
 			// 回滚本租户的认领，让下一次注册还能重试。
 			await runSql(systemDatabase, sql({ database: systemDatabase }).update('base_bootstrap', { value: 'open' }, [{ column: 'key', value: 'initial_admin' }, { column: 'value', value: 'claimed' }, ...(tenantId === null ? [] : [{ column: 'owner_tid', value: tenantId }])]));
