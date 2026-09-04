@@ -116,15 +116,21 @@ const APPROVAL_SKIP_ROLES = ['platform_admin', 'tenant_admin', 'branch_admin'];
  * 管理员就只能走审批。服务端另有一道校验（runOperation），这里只决定渲不渲染。
  */
 const withChangeControl = (c: Context<AppEnv>, payload: Record<string, unknown>) => {
+	// 只在管理后台收集变更说明，与审批的适用范围同一条线（§11.2）。
+	//
+	// 登录与注册页压根不产生审计记录（新增不留痕）；个人中心与账户中心是用户处置
+	// 自己的数据——改个昵称还要写「变更理由」是荒谬的，那些操作照常留痕但不问理由。
+	const changeControl = c.req.path.startsWith('/api/panel/admin/');
+	if (!changeControl) return payload;
 	const canSkipApproval = (c.get('effectiveRoles') ?? []).some((role) => APPROVAL_SKIP_ROLES.includes(role));
 	let result = payload;
 	const table = payload.table;
 	if (table && typeof table === 'object') {
 		const option = (table as Record<string, unknown>).option;
-		if (option && typeof option === 'object') result = { ...result, table: { ...table, option: { ...option, canSkipApproval } } };
+		if (option && typeof option === 'object') result = { ...result, table: { ...table, option: { ...option, changeControl, canSkipApproval } } };
 	}
 	const formPage = payload.formPage;
-	if (formPage && typeof formPage === 'object') result = { ...result, formPage: { ...formPage, canSkipApproval } };
+	if (formPage && typeof formPage === 'object') result = { ...result, formPage: { ...formPage, changeControl, canSkipApproval } };
 	return result;
 };
 

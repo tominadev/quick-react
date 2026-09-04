@@ -184,7 +184,8 @@ export default function FormPage({ commonApi, apiPath, title, submitMethod = 'PU
 
 	// 「立即生效」默认不勾，且只对管理员渲染；放行与否服务端另有一道校验。
 	const canSkipApproval = Boolean(formConfig?.canSkipApproval);
-	const controlFields = [changeControlField(canSkipApproval)];
+	// 登录、注册这类不留痕的页面不注入变更说明；服务端按路径决定。
+	const controlFields = formConfig?.changeControl ? [changeControlField(canSkipApproval)] : [];
 	const controlHeaders = (values: Record<string, unknown>) => changeControlHeaders(values[CHANGE_CONTROL_FIELD], canSkipApproval);
 	const controlNames = [CHANGE_CONTROL_FIELD];
 
@@ -313,7 +314,7 @@ export default function FormPage({ commonApi, apiPath, title, submitMethod = 'PU
 				setDirty(changedFields.current.size > 0);
 			}}
 		>
-			{[...(formConfig?.fields ?? []), ...(formConfig ? controlFields : [])].filter((field) => !isSystemField(field.name)).map((field) => field.type === 'hidden' ? (
+			{[...(formConfig?.fields ?? []), ...controlFields].filter((field) => !isSystemField(field.name)).map((field) => field.type === 'hidden' ? (
 				<Form.Item key={field.name} name={field.name} hidden><Input /></Form.Item>
 			) : (() => {
 				const sourceOptions = field.readOnlyWhen ? formConfig?.fields.find((candidate) => candidate.name === field.readOnlyWhen?.field)?.options as FieldLinkOption[] | undefined : undefined;

@@ -25,6 +25,8 @@ export type FormPageField = {
 export type FormPageExternalLogin = { key: string; label: string; recommended?: boolean; hint?: string };
 
 export type FormPageConfig = {
+	/** 这个页面要不要收集「变更说明」；由服务端按请求路径注入，登录与注册页不需要。 */
+	changeControl?: boolean;
 	/** 当前用户能不能跳过审批；由服务端在 apiResponse 里统一注入，见 TableOption.canSkipApproval。 */
 	canSkipApproval?: boolean;
 	/** 需要前往 Accounts 完成登录的页面：只在用户点击后弹出登录窗口，本页既不自动跳转也不整页跳走。 */

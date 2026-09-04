@@ -137,7 +137,9 @@ const TableCRUD = ({ commonApi, resourcePath, initialResponse, initialQueryValue
 	/** 确认框收集到的控制信息转成请求头，与表单那条路径同一套语义。 */
 	const confirmHeaders = (control: ChangeControlValues) => changeControlHeaders(control, canSkipApproval());
 	const confirmChange = (lines: string[]) => commonApi.modalConfirmWithReason(lines, { allowImmediate: canSkipApproval() });
-	const controlColumns = () => [changeControlColumn(canSkipApproval())];
+	/** 登录、注册这类不留痕的页面不注入变更说明；服务端按路径决定。 */
+	const showChangeControl = () => Boolean(tableOptionRef.current.changeControl);
+	const controlColumns = () => showChangeControl() ? [changeControlColumn(canSkipApproval())] : [];
 	const withoutControls = (values: Record<string, unknown>) => {
 		const { [CHANGE_CONTROL_FIELD]: _control, ...rest } = values;
 		return rest;

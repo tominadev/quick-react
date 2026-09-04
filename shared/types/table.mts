@@ -70,6 +70,8 @@ export type TableOption = {
 	rowKey: string;
 	actions?: TableActions;
 	queryFields?: TableQueryField[];
+	/** 这个页面要不要收集「变更说明」；由服务端按请求路径注入，登录与注册页不需要。 */
+	changeControl?: boolean;
 	/**
 	 * 当前用户能不能跳过审批。由服务端在 apiResponse 里统一注入，前端据此决定
 	 * 渲不渲染「立即生效」勾选框；放行与否服务端另有一道校验，不看这个字段。
