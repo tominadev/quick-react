@@ -156,10 +156,13 @@ const recordStatement = async (database: DatabaseAdapter, metadata: SqlAuditMeta
 			changes: JSON.stringify(changes),
 			status,
 		};
-		// 同一个人对同一条记录反复提交时，覆盖他自己那条待审批记录而不是再排一条：
-		// 队列里堆着同一个人对同一行的多份申请，审批人只能逐条批过去，而先批的那几条
-		// 会因为值校验（§7.2）全部失败——它们的 before 是更早的值。改一次留一条最新的。
-		const existing = status === 'pending' ? await findPendingEntry(database, builder, metadata.table, row.id) : undefined;
+		// 覆盖这个人自己挂在这一行上的待审批记录，不管新提交是继续排队还是立即生效。
+		//
+		// 排队的情况：队列里堆着同一个人对同一行的多份申请，审批人只能逐条批过去，
+		// 而先批的那几条会因为值校验（§7.2）全部失败——它们的 before 是更早的值。
+		// 立即生效的情况：他已经自己把这一行改掉了，原先那条申请随之作废，留着就是
+		// 一条谁也批不动的孤儿记录（before 已经对不上）。两种情况都是同一件事的最新版本。
+		const existing = await findPendingEntry(database, builder, metadata.table, row.id);
 		if (existing) await runSystemSql(database, builder.update(AUDIT_TABLE, values, [{ column: 'id', value: existing.id }, { column: 'status', value: 'pending' }]));
 		else await runSystemSql(database, builder.insert(AUDIT_TABLE, values));
 		recorded += 1;

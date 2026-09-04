@@ -2,7 +2,7 @@ import type { ApiHandler } from '@server/modules/base/api-router.mjs';
 import { apiMessage, apiMessageData, apiResponse } from '@server/modules/base/api-response.mjs';
 import { createStoredPassword, readStoredPassword } from '@server/modules/base/auth/index.mjs';
 import { getChangedFields } from '@server/modules/base/changed-fields.mjs';
-import { allSql, firstSql, runSql, sql } from '@server/database/sql.mjs';
+import { allSql, firstSql, runSql, runSystemSql, sql } from '@server/database/sql.mjs';
 import { PendingApprovalError, runOperationSql } from '@server/modules/base/operation.mjs';
 import { enabledDisabledOptions, statusValues } from '@shared/types/status.mjs';
 import { assignableRoleOptions, parseRoles, serializeRoles, unknownAssignableRoles } from '@shared/types/role.mjs';
@@ -55,8 +55,9 @@ const handler: ApiHandler = async (c, next, params) => {
 		try {
 			await runSql(database, sql({ database }).insert('base_users', { name: username, password: await createStoredPassword(password), roles: serializeRoles(roles), status: String(body.status ?? 'enabled') }));
 			const created = await firstSql<{ id: number | string }>(database, sql({ database }).select({ table: 'base_users', columns: { id: 'id' }, where: [{ column: 'name', value: username }, tenantScope()] }));
-			// 账号行归属账号自己，不归创建它的管理员。
-			if (created) await runOperationSql(c, database, sql({ database }).update('base_users', { owner_uid: created.id }, { id: created.id }));
+			// 账号行归属账号自己，不归创建它的管理员。这是新建流程的收尾动作，不是人做的
+			// 修改——新增本就不留痕（§3.2），单独给这一步记一条只会是噪音。
+			if (created) await runSystemSql(database, sql({ database }).update('base_users', { owner_uid: created.id }, { id: created.id }));
 			return apiMessageData(c, 201, '用户已创建', { id: created?.id, username });
 		} catch (error) {
 			if (error instanceof PendingApprovalError) throw error;

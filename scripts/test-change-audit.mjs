@@ -151,7 +151,14 @@ try {
 	assert.equal(String(delegatedEntry.owner_bid), '5');
 
 	// ---- 审计写入失败时，业务写入一并失败（§6.2）----
-	const failing = withDatabaseActors({ ...database, prepare: (query) => query.includes('base_audit_entries') ? { bind: () => ({ run: async () => { throw new Error('audit write failed'); } }) } : database.prepare(query) }, { subjectRoles: ['platform_admin'], humanOperation: true });
+	// 只让写入失败：读要照常，操作层现在会先查一次这个人有没有挂着的待审批记录。
+	const failWrite = async () => { throw new Error('audit write failed'); };
+	const failing = withDatabaseActors({
+		...database,
+		prepare: (query) => query.startsWith('INSERT INTO "base_audit_entries"') || query.startsWith('UPDATE "base_audit_entries"')
+			? { bind: () => ({ run: failWrite, first: failWrite, all: failWrite }) }
+			: database.prepare(query),
+	}, { subjectRoles: ['platform_admin'], humanOperation: true });
 	await assert.rejects(
 		() => runOperationSql(context(), failing, sql({ database: failing }).update('base_users', { name: 'alice-4' }, { id: alice.id })),
 		/audit write failed/,
@@ -288,7 +295,7 @@ try {
 		(error) => error instanceof PendingApprovalError,
 		'不勾立即生效就该走审批，而不是直接写库',
 	);
-	const pendingEntry = await latestEntry();
+	let pendingEntry = await latestEntry();
 	assert.equal((await entries()).length, beforePending + 1, '待审批也要留记录');
 	assert.equal(pendingEntry.status, 'pending');
 	assert.equal(pendingEntry.reason, '申请调整角色');
@@ -310,6 +317,20 @@ try {
 	await transitionAuditEntries(acting, [(await latestEntry()).id], 'rejected', '清理测试数据');
 	// 把这条改回原先的值，后面的断言接得上。
 	await assert.rejects(() => runOperationSql(context('申请调整角色', false), acting, sql({ database: acting }).update('base_users', { roles: '["tenant_admin"]' }, { id: alice.id })));
+
+	// 先提交待审批、再用「立即生效」改同一行：作废的申请被覆盖，不留孤儿记录。
+	const beforeSupersede = (await entries()).length;
+	await runOperationSql(context('这次直接生效', true), acting, sql({ database: acting }).update('base_users', { roles: '["platform_support"]' }, { id: alice.id }));
+	assert.equal((await entries()).length, beforeSupersede, '立即生效应覆盖自己那条待审批记录，而不是再插一条');
+	const superseded = await entryById(pendingEntry.id);
+	assert.equal(superseded.status, 'applied');
+	assert.equal(superseded.reason, '这次直接生效');
+	assert.equal(superseded.reviewed_at, null, '立即生效不是审批，不该伪造审批时间');
+	assert.equal(await rolesOf(), '["platform_support"]');
+	// 复位，后面的断言接得上。
+	await runOperationSql(context('复位', true), acting, sql({ database: acting }).update('base_users', { roles: originalRoles }, { id: alice.id }));
+	await assert.rejects(() => runOperationSql(context('申请调整角色', false), acting, sql({ database: acting }).update('base_users', { roles: '["tenant_admin"]' }, { id: alice.id })));
+	pendingEntry = await latestEntry();
 
 	// 待审批的记录不能撤回，只能批准或驳回。
 	assert.equal((await revert([pendingEntry.id]))[0].message, '当前状态是「待审批」，不能执行这个操作');
