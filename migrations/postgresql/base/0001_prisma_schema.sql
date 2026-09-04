@@ -87,7 +87,6 @@ CREATE TABLE "base_users" (
     "owner_uid" BIGINT,
     "name" TEXT NOT NULL,
     "nickname" TEXT,
-    "password" JSONB NOT NULL,
     "roles" TEXT[] DEFAULT ARRAY[]::TEXT[],
     "status" "BaseUserStatus" NOT NULL DEFAULT 'enabled',
 
@@ -306,6 +305,23 @@ CREATE TABLE "base_audit_entries" (
     CONSTRAINT "base_audit_entries_pkey" PRIMARY KEY ("id")
 );
 
+-- CreateTable
+CREATE TABLE "base_user_credentials" (
+    "id" BIGSERIAL NOT NULL,
+    "created_at" BIGINT NOT NULL,
+    "updated_at" BIGINT NOT NULL,
+    "deleted_at" BIGINT NOT NULL DEFAULT 0,
+    "created_duid" BIGINT,
+    "updated_duid" BIGINT,
+    "owner_tid" BIGINT NOT NULL DEFAULT 1,
+    "owner_bid" BIGINT NOT NULL DEFAULT 1,
+    "owner_uid" BIGINT,
+    "user_id" BIGINT NOT NULL,
+    "password" JSONB NOT NULL,
+
+    CONSTRAINT "base_user_credentials_pkey" PRIMARY KEY ("id")
+);
+
 -- CreateIndex
 CREATE UNIQUE INDEX "base_tenants_key_deleted_at_key" ON "base_tenants"("key", "deleted_at");
 
@@ -368,3 +384,6 @@ CREATE INDEX "base_audit_entries_operation_id_idx" ON "base_audit_entries"("oper
 
 -- CreateIndex
 CREATE INDEX "base_audit_entries_status_created_at_idx" ON "base_audit_entries"("status", "created_at");
+
+-- CreateIndex
+CREATE UNIQUE INDEX "base_user_credentials_user_id_deleted_at_key" ON "base_user_credentials"("user_id", "deleted_at");

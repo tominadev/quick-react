@@ -108,6 +108,10 @@ Accounts 登录成功时，把凭证同步到本站账号，使本站登录用�
 
 ## 7. 数据结构变更
 
+- **凭证从 `base_users` 拆到 `base_user_credentials`**，与 `passport_user_credentials` 同构。
+
+  收益不只是对称：**没有行就是没有本地密码**，`'!oidc'` 那个哨兵值随之消失——`callback.mts` 里「这是不是占位号」的判断从字符串比较变成「有没有凭证行」，而这正是 §5 撞名绑定要判断的东西。顺带列表查询不再捎带凭证（今天 `users.mts` 把凭证捞出来只为显示 pattern，改成 LEFT JOIN 只取需要的那一列），改密码的审计也落在凭证表上，不和资料变更混在一起。
+
 - `base_users` 新增 `nickname String?`，并加唯一索引 `(nickname, owner_tid, deleted_at)`。
 
   **可空而不是空串默认值**：唯一索引里 NULL 互不相等，因此「未设置昵称」的用户不会互相撞车；空串默认值会让第二个不设昵称的用户直接建不出来。这与 `owner_tid` 那次正好相反——那里需要 NULL 相等，所以必须 `NOT NULL DEFAULT 1`。同一个特性，两种相反的用法。

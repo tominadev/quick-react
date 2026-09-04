@@ -74,14 +74,16 @@ try {
 	try {
 		await Promise.all([applyBaseSchema(source), applyBaseSchema(target), applyBaseSchema(rollbackTarget)]);
 		const userId = 9007199254740993n;
-		await runSql(source, sql({ database: source }).insert('base_users', { id: userId, name: 'portable', password: 'hash', roles: '[]', status: 'enabled' }));
+		await runSql(source, sql({ database: source }).insert('base_users', { id: userId, name: 'portable', roles: '[]', status: 'enabled' }));
+		// 凭证与账号资料分表，搬迁清单要覆盖两张表。
+		await runSql(source, sql({ database: source }).insert('base_user_credentials', { user_id: userId, password: { hash: 'hash', pattern: 'LLLL' } }));
 		await runSql(source, sql({ database: source }).insert('base_devices', { id: 101n, user_id: userId, key: '00000000-0000-4000-8000-000000000001', fingerprint: JSON.stringify({ canvas_cyrb53: '4b5a6c7d8e9f', audio_cyrb53: '1a2b3c4d5e6f' }), status: 'active', last_seen_at: 1n }));
 		await runSql(source, sql({ database: source }).insert('base_device_users', { id: 102n, device_id: 101n, user_id: userId, status: 'active', last_seen_at: 1n }));
 		await runSql(source, sql({ database: source }).insert('base_sessions', { token_hash: 'session-token-hash', user_id: userId, device_id: 101n, expires_at: 2n }));
 		await runSql(source, sql({ database: source }).insert('base_configs', { key: 'site_title', value: 'Accounts' }));
 
 		const progress = await transferPortableDatabase(source, mysqlFacade(target), ['base']);
-		assert.equal(progress.length, 14);
+		assert.equal(progress.length, 15);
 		assert.equal((await firstSql(target, sql({ database: target }).select({ table: 'base_users', columns: { id: 'id' }, limit: 1 }))).id, userId);
 		assert.equal((await firstSql(target, sql({ database: target }).count('base_sessions'))).count, 1n);
 		assert.equal((await firstSql(target, sql({ database: target }).select({ table: 'base_bootstrap', columns: { value: 'value' }, where: [{ column: 'key', value: 'initial_admin' }] }))).value, 'open');

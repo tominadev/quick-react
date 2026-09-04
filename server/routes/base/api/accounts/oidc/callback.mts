@@ -5,6 +5,7 @@ import { readCookie } from '@server/modules/passport/accounts/oidc.mjs';
 import { isValidAccountUsername } from '@server/modules/passport/account.mjs';
 import { baseSessionMaxAge, createSessionCookie, hashSessionToken } from '@server/modules/base/auth/index.mjs';
 import { ensureBaseDevice } from '@server/modules/base/device.mjs';
+import { hasCredential } from '@server/modules/base/credentials.mjs';
 import { withDatabaseActors } from '@server/database/index.mjs';
 import { firstSql, runSql, sql } from '@server/database/sql.mjs';
 import { isSecureRequest, requestOrigin } from '@server/modules/base/request-origin.mjs';
@@ -65,10 +66,11 @@ const handler: ApiHandler = async (c) => {
 		if (!account) {
 			// 先用占位用户名建号，再按 Accounts 用户名改写，避免撞上本站已有的同名账号。
 			const username = placeholderUsername(subject);
-			await runSql(systemDatabase, sql({ database: systemDatabase }).ignoreInsert('base_users', ['name', 'owner_tid'], { name: username, password: '!oidc', roles: [], status: 'enabled' }));
-			const user = await firstSql<{ id: number; status: string; password: string }>(systemDatabase, sql({ database: systemDatabase }).select({ table: 'base_users', columns: { id: 'id', status: 'status', password: 'password' }, where: [{ column: 'name', value: username }, tenantScope('owner_tid')] }));
+			await runSql(systemDatabase, sql({ database: systemDatabase }).ignoreInsert('base_users', ['name', 'owner_tid'], { name: username, roles: [], status: 'enabled' }));
+			const user = await firstSql<{ id: number; status: string }>(systemDatabase, sql({ database: systemDatabase }).select({ table: 'base_users', columns: { id: 'id', status: 'status' }, where: [{ column: 'name', value: username }, tenantScope('owner_tid')] }));
 			if (!user) throw new Error('无法创建本站 Accounts 用户');
-			if (user.password !== '!oidc') throw new Error('本站已存在同名用户，无法绑定 Accounts 身份');
+			// 凭证分表之后，「有没有本地密码」就是「有没有凭证行」——不用再拿 '!oidc' 当哨兵。
+			if (await hasCredential(systemDatabase, user.id)) throw new Error('本站已存在同名用户，无法绑定 Accounts 身份');
 			// 账号行归属账号自己。
 			await runSql(systemDatabase, sql({ database: systemDatabase }).update('base_users', { owner_uid: user.id }, { id: user.id }));
 			// 身份绑定归属账号本人；OIDC 回调没有本站会话，不显式绑定则 owner_uid 为 NULL。

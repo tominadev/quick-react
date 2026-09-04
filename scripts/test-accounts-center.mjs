@@ -71,7 +71,7 @@ try {
 	// 同时存在站点本地会话时，仍以 Accounts 昵称为准，两个中心入口和两套独立退出动作都给出。
 	const localDatabase = new DatabaseSync(process.env.DEFAULT_DATABASE_FILE);
 	const localNow = Date.now();
-	localDatabase.prepare("INSERT INTO base_users (id, name, password, roles, status, created_at, updated_at) VALUES (9, 'admin', '!local', '[\"tenant_admin\"]', 'enabled', ?, ?)").run(localNow, localNow);
+	localDatabase.prepare("INSERT INTO base_users (id, name, roles, status, created_at, updated_at) VALUES (9, 'admin', '[\"tenant_admin\"]', 'enabled', ?, ?)").run(localNow, localNow);
 	localDatabase.prepare("INSERT INTO base_devices (id, user_id, key, fingerprint, status, last_seen_at, created_at, updated_at) VALUES (42, 9, ?, ?, 'active', ?, ?, ?)").run(deviceKey, fingerprintData, localNow, localNow, localNow);
 	localDatabase.prepare("INSERT INTO base_device_users (device_id, user_id, status, last_seen_at, created_at, updated_at) VALUES (42, 9, 'active', ?, ?, ?)").run(localNow, localNow, localNow);
 	localDatabase.prepare('INSERT INTO base_sessions (created_at, updated_at, token_hash, user_id, expires_at, device_id) VALUES (?, ?, ?, 9, ?, 42)').run(localNow, localNow, localSessionHash, localNow + 3600_000);

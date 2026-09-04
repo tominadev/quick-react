@@ -48,7 +48,7 @@ try {
 	const changesOf = (entry) => JSON.parse(entry.changes);
 	const latestEntry = async () => (await entries()).at(-1);
 
-	await runSql(acting, sql({ database: acting }).insert('base_users', { name: 'alice', password: { hash: 'hash-1', pattern: 'LLLL' }, roles: '[]', status: 'enabled' }));
+	await runSql(acting, sql({ database: acting }).insert('base_users', { name: 'alice', roles: '[]', status: 'enabled' }));
 	const alice = await firstSql(acting, sql({ database: acting }).select({ table: 'base_users', columns: { id: 'id' }, where: [{ column: 'name', value: 'alice' }] }));
 
 	// 新增不产生审计条目（§3.0）：insert 不带元信息，因此 runSql 也不会拦它。
@@ -111,7 +111,7 @@ try {
 	assert.equal((await firstSql(acting, sql({ database: acting }).select({ table: 'base_users', columns: { roles: 'roles' }, where: [{ column: 'id', value: alice.id }] }))).roles, '[]');
 
 	// ---- 一次操作可以包含多条写入，它们共享同一个 operation_id 与同一条原因 ----
-	await runSql(acting, sql({ database: acting }).insert('base_users', { name: 'bob', password: 'x', roles: '[]', status: 'disabled' }));
+	await runSql(acting, sql({ database: acting }).insert('base_users', { name: 'bob', roles: '[]', status: 'disabled' }));
 	const bob = await firstSql(acting, sql({ database: acting }).select({ table: 'base_users', columns: { id: 'id' }, where: [{ column: 'name', value: 'bob' }] }));
 	const beforeMulti = (await entries()).length;
 	const { runOperation } = await import(pathToFileURL(moduleFile));
@@ -142,7 +142,7 @@ try {
 	assert.equal(Number(changesOf(all.at(-1)).deleted_at.after), 0);
 
 	// 物理删除不产生记录。
-	await runSql(acting, sql({ database: acting }).insert('base_users', { name: 'temp', password: 'x', roles: '[]', status: 'enabled' }));
+	await runSql(acting, sql({ database: acting }).insert('base_users', { name: 'temp', roles: '[]', status: 'enabled' }));
 	const beforePurgeRow = (await entries()).length;
 	await runSql(acting, sql({ database: acting }).delete('base_users', { name: 'temp' }));
 	assert.equal((await entries()).length, beforePurgeRow, '物理删除不应产生记录');
@@ -274,14 +274,15 @@ try {
 	assert.equal(Number(await deletedAtOf()), 0);
 
 	// ---- 凭证列：照常记录、照常撤回，只是接口不返回值（§5）----
-	// password 是 JSON 列（存 { hash, pattern }），因此前后值都记成对象而不是转义文本。
-	await op(sql({ database: acting }).update('base_users', { password: { hash: 'hash-2', pattern: 'LLLL' } }, { id: alice.id }));
+	// 凭证与账号资料分表；password 是 JSON 列（存 { hash, pattern }），前后值都记成对象。
+	await runSql(acting, sql({ database: acting }).insert('base_user_credentials', { user_id: alice.id, password: { hash: 'hash-1', pattern: 'LLLL' } }));
+	await op(sql({ database: acting }).update('base_user_credentials', { password: { hash: 'hash-2', pattern: 'LLLL' } }, { user_id: alice.id }));
 	const passwordEntry = await latestEntry();
 	const storedChanges = parseAuditChanges(passwordEntry.changes);
 	assert.deepEqual(storedChanges.password, { before: { hash: 'hash-1', pattern: 'LLLL' }, after: { hash: 'hash-2', pattern: 'LLLL' } }, '存储层照常记录凭证前后值，且按 JSON 列的形态记');
 	assert.deepEqual(publicAuditChanges(storedChanges), { password: { hidden: true } }, '接口不得返回凭证值');
 	assert.equal((await revert([passwordEntry.id]))[0].ok, true, '凭证列仍然可以撤回');
-	assert.equal((await firstSql(acting, sql({ database: acting }).select({ table: 'base_users', columns: { password: 'password' }, where: [{ column: 'id', value: alice.id }] }))).password, '{"hash":"hash-1","pattern":"LLLL"}', '撤回后凭证应还原');
+	assert.equal((await firstSql(acting, sql({ database: acting }).select({ table: 'base_user_credentials', columns: { password: 'password' }, where: [{ column: 'user_id', value: alice.id }] }))).password, '{"hash":"hash-1","pattern":"LLLL"}', '撤回后凭证应还原');
 
 	// 多列一起改时，摘要一列一行，不挤在一行里。
 	const { describeAuditChanges } = await import(pathToFileURL(moduleFile));

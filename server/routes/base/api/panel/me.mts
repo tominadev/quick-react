@@ -1,10 +1,11 @@
 import type { ApiHandler } from '@server/modules/base/api-router.mjs';
 import { apiMessage, apiMessageData, apiResponse } from '@server/modules/base/api-response.mjs';
-import { createStoredPassword, verifyStoredPassword } from '@server/modules/base/auth/index.mjs';
+
 import { passwordError } from '@server/modules/base/auth/password-policy.mjs';
 import { getChangedFields } from '@server/modules/base/changed-fields.mjs';
 import { firstSql, sql } from '@server/database/sql.mjs';
-import { runOperationSql } from '@server/modules/base/operation.mjs';
+import { runOperation } from '@server/modules/base/operation.mjs';
+import { credentialStatement, verifyCredential } from '@server/modules/base/credentials.mjs';
 import { loadAccountsOidcConfig } from '@server/modules/passport/accounts/client.mjs';
 import type { AccountCenterLink } from '@shared/types/user.mjs';
 import type { FormPageConfig } from '@shared/types/form-page.mjs';
@@ -80,17 +81,20 @@ const handler: ApiHandler = async (c, next) => {
 			values.nickname = nickname || null;
 		}
 		const newPassword = String(body.newPassword ?? '');
-		if (changed.has('newPassword') && newPassword) {
+		const changingPassword = changed.has('newPassword') && Boolean(newPassword);
+		if (changingPassword) {
 			// 改密码必须先验当前密码：会话被盗时，能改密码就等于能永久接管账号。
-			const stored = await firstSql<{ password: unknown }>(database, sql({ database }).select({ table: 'base_users', columns: { password: 'password' }, where: [{ column: 'id', value: currentUser.id }] }));
-			if (!await verifyStoredPassword(String(body.currentPassword ?? ''), stored?.password)) return apiMessage(c, 403, '当前密码不正确');
+			if (!await verifyCredential(database, currentUser.id, String(body.currentPassword ?? ''))) return apiMessage(c, 403, '当前密码不正确');
 			const error = passwordError(newPassword);
 			if (error) return apiMessage(c, 400, error);
-			values.password = await createStoredPassword(newPassword);
 		}
-		if (!Object.keys(values).length) return apiMessage(c, 400, '没有可修改的字段');
+		if (!Object.keys(values).length && !changingPassword) return apiMessage(c, 400, '没有可修改的字段');
 		try {
-			await runOperationSql(c, database, sql({ database }).update('base_users', values, { id: currentUser.id }));
+			// 资料与凭证分表，一次操作里两条写入——operation_id 会把它们归到同一组。
+			await runOperation(c, database, [
+				...(Object.keys(values).length ? [sql({ database }).update('base_users', values, { id: currentUser.id })] : []),
+				...(changingPassword ? [await credentialStatement(database, currentUser.id, newPassword)] : []),
+			]);
 		} catch { return apiMessage(c, 409, '用户名或昵称已被占用'); }
 		return apiMessageData(c, 200, '已保存', {}, { component: 'inline', showIcon: true, title: '保存结果' });
 	}

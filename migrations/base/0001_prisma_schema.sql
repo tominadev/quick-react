@@ -63,7 +63,6 @@ CREATE TABLE "base_users" (
     "owner_uid" BIGINT,
     "name" TEXT NOT NULL,
     "nickname" TEXT,
-    "password" TEXT NOT NULL,
     "roles" TEXT NOT NULL DEFAULT '[]',
     "status" TEXT NOT NULL DEFAULT 'enabled'
 );
@@ -260,6 +259,21 @@ CREATE TABLE "base_audit_entries" (
     "restore_reason" TEXT NOT NULL DEFAULT ''
 );
 
+-- CreateTable
+CREATE TABLE "base_user_credentials" (
+    "id" INTEGER NOT NULL PRIMARY KEY AUTOINCREMENT,
+    "created_at" BIGINT NOT NULL,
+    "updated_at" BIGINT NOT NULL,
+    "deleted_at" BIGINT NOT NULL DEFAULT 0,
+    "created_duid" BIGINT,
+    "updated_duid" BIGINT,
+    "owner_tid" BIGINT NOT NULL DEFAULT 1,
+    "owner_bid" BIGINT NOT NULL DEFAULT 1,
+    "owner_uid" BIGINT,
+    "user_id" BIGINT NOT NULL,
+    "password" TEXT NOT NULL
+);
+
 -- CreateIndex
 CREATE UNIQUE INDEX "base_tenants_key_deleted_at_key" ON "base_tenants"("key", "deleted_at");
 
@@ -322,3 +336,6 @@ CREATE INDEX "base_audit_entries_operation_id_idx" ON "base_audit_entries"("oper
 
 -- CreateIndex
 CREATE INDEX "base_audit_entries_status_created_at_idx" ON "base_audit_entries"("status", "created_at");
+
+-- CreateIndex
+CREATE UNIQUE INDEX "base_user_credentials_user_id_deleted_at_key" ON "base_user_credentials"("user_id", "deleted_at");

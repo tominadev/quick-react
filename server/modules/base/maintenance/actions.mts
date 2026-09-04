@@ -3,6 +3,7 @@ import { firstSql, runSql, sql } from '@server/database/sql.mjs';
 import { createDatabaseConfigStore } from '@server/modules/base/config-store.mjs';
 import { passwordError } from '@server/modules/base/auth/password-policy.mjs';
 import { createStoredPassword } from '@server/modules/base/auth/index.mjs';
+import { setCredential } from '../credentials.mjs';
 import { accountsOidcConfigKey, defaultAccountsOidcConfig, normalizeAccountsOidcConfig } from '@server/modules/passport/accounts/client.mjs';
 import { parseRoles, serializeRoles } from '@shared/types/role.mjs';
 
@@ -45,9 +46,10 @@ const ensureAdmin = async (database: DatabaseAdapter, input: MaintenanceInput) =
 	if (!existing && !password) throw new Error('base_users.id = 1 不存在，重建管理员时必须提供密码');
 	if (existing?.deleted_at && String(existing.deleted_at) !== '0') await runSql(database, sql({ database }).restore('base_users', { id: 1 }));
 	const values: Record<string, unknown> = { name: username, roles: serializeRoles([...new Set([...parseRoles(existing?.roles), 'platform_admin'])]), status: 'enabled' };
-	if (password) values.password = await createStoredPassword(password);
 	if (existing) await runSql(database, sql({ database }).update('base_users', values, { id: 1 }));
-	else await runSql(database, sql({ database }).insert('base_users', { id: 1, ...values, password: await createStoredPassword(password) }));
+	else await runSql(database, sql({ database }).insert('base_users', { id: 1, ...values }));
+	// 凭证分表：救援时只在给了密码的情况下重设，没给就保留原有凭证。
+	if (password) await setCredential(database, 1, password);
 	return `基础管理员 id=1 已恢复：用户名 ${username}，角色已包含 platform_admin，状态已启用`;
 };
 
@@ -65,7 +67,7 @@ const setAdminPassword = async (database: DatabaseAdapter, input: MaintenanceInp
 	const error = passwordError(password);
 	if (error) throw new Error(error);
 	if (!await readAdmin(database)) throw new Error('base_users.id = 1 不存在，请先执行基础管理员恢复');
-	await runSql(database, sql({ database }).update('base_users', { password: await createStoredPassword(password) }, { id: 1 }));
+	await setCredential(database, 1, password);
 	return '基础管理员 id=1 的密码已重设；本站 Base 会话将在下次请求时按现有规则重新校验';
 };
 

@@ -138,7 +138,7 @@ const fingerprintData = JSON.stringify({ canvas_cyrb53: '4b5a6c7d8e9f', audio_cy
 	assert.equal((await request('/api/sign.php?logout=local', { method: 'DELETE', cookie: passportCookie })).status, 200);
 	assert.equal((await (await request('/api/accounts/sign.php', { cookie: passportCookie })).json()).user.id, userId);
 	const localSessionDatabase = new DatabaseSync(process.env.DEFAULT_DATABASE_FILE);
-	localSessionDatabase.prepare("INSERT INTO base_users (id, name, password, roles, status, created_at, updated_at) VALUES (99, 'local_user', '!local', '[]', 'enabled', ?, ?)").run(Date.now(), Date.now());
+	localSessionDatabase.prepare("INSERT INTO base_users (id, name, roles, status, created_at, updated_at) VALUES (99, 'local_user', '[]', 'enabled', ?, ?)").run(Date.now(), Date.now());
 	localSessionDatabase.prepare("INSERT INTO base_devices (id, user_id, key, fingerprint, status, last_seen_at, created_at, updated_at) VALUES (301, 99, ?, ?, 'active', ?, ?, ?)").run(deviceKey, fingerprintData, Date.now(), Date.now(), Date.now());
 	localSessionDatabase.prepare("INSERT INTO base_device_users (device_id, user_id, status, last_seen_at, created_at, updated_at) VALUES (301, 99, 'active', ?, ?, ?)").run(Date.now(), Date.now(), Date.now());
 	const localSessionToken = 'local-passport-session';

@@ -107,8 +107,6 @@ model base_users {
   /// 这与 owner_tid 那次正好相反——那里需要 NULL 相等，所以必须 NOT NULL DEFAULT 1。
   nickname      String?
   @@unique([owner_tid, nickname, deleted_at])
-  /// 存的是 { hash, pattern }：由数据库承认它是 JSON，而不是应用私下往文本列里塞。
-  password      Json
   roles         String[] @default([])
   status        BaseUserStatus @default(enabled)
 }
@@ -328,4 +326,28 @@ model base_audit_entries {
   @@index([table_name, row_id, created_at])
   @@index([operation_id])
   @@index([status, created_at])
+}
+
+/// 本站账号的登录凭证。
+///
+/// 与账号资料分表，和 passport_user_credentials 同构：
+/// - **没有行就是没有本地密码**，不需要 '!oidc' 这类哨兵值；
+/// - 列表查询不会捎带凭证；
+/// - 改密码的审计落在这张表上，不和资料变更混在一起。
+model base_user_credentials {
+  id           BigInt @id @default(autoincrement())
+  created_at   BigInt
+  updated_at   BigInt
+  deleted_at   BigInt @default(0)
+  created_duid BigInt?
+  updated_duid BigInt?
+  owner_tid    BigInt @default(1)
+  owner_bid    BigInt @default(1)
+  owner_uid    BigInt?
+  user_id      BigInt
+  /// 存的是 { hash, pattern }。
+  password     Json
+
+  /// 一个账号一份当前凭证；user_id 本身全局唯一，不必再按租户划分。
+  @@unique([user_id, deleted_at])
 }

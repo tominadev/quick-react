@@ -2,6 +2,7 @@ import type { ApiHandler } from '@server/modules/base/api-router.mjs';
 import { baseSessionMaxAge, clearSessionCookie, createSessionCookie, createStoredPassword, hashSessionToken, readSessionId, verifyStoredPassword } from '@server/modules/base/auth/index.mjs';
 import { ensureBaseDevice } from '@server/modules/base/device.mjs';
 import { finishUserCreation, resolveRegistrationMode } from '@server/modules/base/registration.mjs';
+import { setCredential, verifyCredential } from '@server/modules/base/credentials.mjs';
 import { allowsLocalLogin } from '@server/modules/passport/accounts/client.mjs';
 import { withDatabaseActors, type DatabaseAdapter } from '@server/database/index.mjs';
 import { apiMessage, apiMessageData, apiResponse } from '@server/modules/base/api-response.mjs';
@@ -65,9 +66,10 @@ const localSign: ApiHandler = async (c, next) => {
 		// 因此也没有「认领了但没建号」的中间态需要回滚。
 		if (mode === 'open') {
 			try {
-				await runSql(systemDatabase, sql({ database: systemDatabase }).insert('base_users', { name: credentials.username, password: storedPassword, roles: [], status: 'enabled' }));
+				await runSql(systemDatabase, sql({ database: systemDatabase }).insert('base_users', { name: credentials.username, roles: [], status: 'enabled' }));
 			} catch { return apiMessage(c, 409, '用户名已存在'); }
-			await finishUserCreation(systemDatabase, credentials.username, tenantId);
+			const userId = await finishUserCreation(systemDatabase, credentials.username, tenantId);
+			if (userId !== undefined) await setCredential(systemDatabase, userId, storedPassword);
 			return apiMessage(c, 201, '注册成功，请登录');
 		}
 		// 认领本租户的引导状态：唯一键是 (key, owner_tid)，同一租户内只可能成功一次，
@@ -80,8 +82,10 @@ const localSign: ApiHandler = async (c, next) => {
 		if (Number(claimed.meta?.changes ?? 0) !== 1) return apiMessage(c, 409, '初始管理员已经存在');
 		try {
 			// 初始管理员是平台管理员：控制面与救援入口都要求它。
-			await runSql(systemDatabase, sql({ database: systemDatabase }).insert('base_users', { name: credentials.username, password: storedPassword, roles: ['platform_admin'], status: 'enabled' }));
-			await finishUserCreation(systemDatabase, credentials.username, tenantId);
+			await runSql(systemDatabase, sql({ database: systemDatabase }).insert('base_users', { name: credentials.username, roles: ['platform_admin'], status: 'enabled' }));
+			const userId = await finishUserCreation(systemDatabase, credentials.username, tenantId);
+			if (userId === undefined) throw new Error('无法创建初始管理员');
+			await setCredential(systemDatabase, userId, storedPassword);
 		} catch (error) {
 			// 回滚本租户的认领，让下一次注册还能重试。
 			await runSql(systemDatabase, sql({ database: systemDatabase }).update('base_bootstrap', { value: 'open' }, [{ column: 'key', value: 'initial_admin' }, { column: 'value', value: 'claimed' }, ...(tenantId === null ? [] : [{ column: 'owner_tid', value: tenantId }])]));
@@ -93,8 +97,10 @@ const localSign: ApiHandler = async (c, next) => {
 		const credentials = await parseCredentials(c);
 		// 用户名只在租户内唯一，登录必须按当前请求租户过滤：否则跨租户同名账号会被验到别人头上。
 		const tenantId = c.get('tenantId');
-		const user = await firstSql<{ id: number; username: string; password: string; roles: string }>(systemDatabase, sql({ database: systemDatabase }).select({ table: 'base_users', columns: { id: 'id', username: 'name', password: 'password', roles: 'roles' }, where: [{ column: 'name', value: credentials.username }, { column: 'status', value: 'enabled' }, tenantId === null ? { column: 'owner_tid', operator: 'IS NULL' as const } : { column: 'owner_tid', value: tenantId }] }));
-		if (!user || !await verifyStoredPassword(credentials.password, user.password)) return apiMessage(c, 401, '用户名或密码错误', { component: 'modal', type: 'error' });
+		const user = await firstSql<{ id: number; username: string; roles: string }>(systemDatabase, sql({ database: systemDatabase }).select({ table: 'base_users', columns: { id: 'id', username: 'name', roles: 'roles' }, where: [{ column: 'name', value: credentials.username }, { column: 'status', value: 'enabled' }, tenantId === null ? { column: 'owner_tid', operator: 'IS NULL' as const } : { column: 'owner_tid', value: tenantId }] }));
+		// 凭证分表存放：没有凭证行就是没有本地密码（例如 OIDC 建出来的账号）。
+		// 提示统一成「用户名或密码错误」，不区分「无此用户」「没有本地密码」与「密码错」。
+		if (!user || !await verifyCredential(systemDatabase, user.id, credentials.password)) return apiMessage(c, 401, '用户名或密码错误', { component: 'modal', type: 'error' });
 		const sessionToken = crypto.randomUUID();
 		const maxAge = baseSessionMaxAge;
 		const now = Date.now();
