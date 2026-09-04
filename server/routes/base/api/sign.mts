@@ -5,6 +5,7 @@ import { withDatabaseActors, type DatabaseAdapter } from '@server/database/index
 import { apiMessage, apiMessageData, apiResponse } from '@server/modules/base/api-response.mjs';
 import type { FormPageConfig } from '@shared/types/form-page.mjs';
 import { firstSql, runSql, sql } from '@server/database/sql.mjs';
+import { runOperationSql } from '@server/modules/base/operation.mjs';
 import { accountsLoginCookie, loadAccountsOidcConfig, loadDiscovery, oidcFetch } from '@server/modules/passport/accounts/client.mjs';
 import { randomToken, sha256Base64Url } from '@server/modules/passport/accounts/oidc.mjs';
 import { isSecureRequest, requestOrigin, requestPagePath } from '@server/modules/base/request-origin.mjs';
@@ -79,7 +80,9 @@ const localSign: ApiHandler = async (c, next) => {
 		// 认领本租户的引导状态：唯一键是 (key, owner_tid)，因此插入在每个租户内只可能成功一次，
 		// 影响 0 行说明已被并发请求抢先。平台默认行（owner_tid 为 NULL）保持不变，其他租户不受影响。
 		// 认领本租户的引导状态：唯一键是 (key, owner_tid)，同一租户内只可能成功一次。
-		const claimed = await runSql(systemDatabase, sql({ database: systemDatabase }).update('base_bootstrap', { value: 'claimed' }, [{ column: 'key', value: 'initial_admin' }, { column: 'value', value: 'open' }, ...(tenantId === null ? [] : [{ column: 'owner_tid', value: tenantId }])]));
+		// 认领初始管理员是一次性的人工操作，显式声明成操作——它不在 /api/panel/ 下，
+		// 路径推断认不出来，但它恰恰是最该留证据的事之一。
+		const claimed = await runOperationSql(c, systemDatabase, sql({ database: systemDatabase }).update('base_bootstrap', { value: 'claimed' }, [{ column: 'key', value: 'initial_admin' }, { column: 'value', value: 'open' }, ...(tenantId === null ? [] : [{ column: 'owner_tid', value: tenantId }])]), { reason: '创建初始管理员' });
 		if (Number(claimed.meta?.changes ?? 0) !== 1) return apiMessage(c, 409, '初始管理员已经存在');
 		try {
 			// 初始管理员是平台管理员：控制面与救援入口都要求 super。
