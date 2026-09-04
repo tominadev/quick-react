@@ -1,7 +1,7 @@
 import type { Context } from 'hono';
 import type { AppEnv } from './types.mjs';
 import type { DatabaseAdapter, DatabaseRunResult } from '@server/database/index.mjs';
-import { allSql, AUDIT_TABLE, firstSql, normalizeBoundValue, runSystemSql, sql, type SqlAuditAction, type SqlAuditMetadata, type SqlCondition, type SqlQuery } from '@server/database/sql.mjs';
+import { allSql, AUDIT_TABLE, firstSql, runSystemSql, sql, type SqlAuditAction, type SqlAuditMetadata, type SqlCondition, type SqlQuery } from '@server/database/sql.mjs';
 
 /**
  * 一次人工操作。
@@ -68,11 +68,34 @@ const skipsApproval = (c: Context<AppEnv>, options: OperationOptions) => {
 	return (c.get('effectiveRoles') ?? []).some((role) => APPROVAL_SKIP_ROLES.includes(role));
 };
 
-/** 驱动对 BIGINT 的返回类型不一致（number / string / bigint），归一成字符串再比。 */
-const sameValue = (left: unknown, right: unknown) => {
-	if (left === null || left === undefined) return right === null || right === undefined;
-	if (right === null || right === undefined) return false;
-	return String(left) === String(right);
+/**
+ * 比较用的归一形式。
+ *
+ * BIGINT 各驱动返回的类型不一致（number / string / bigint），一律按字符串比；
+ * 数组与对象要按 JSON 比，`String(['a','b'])` 会得到 `a,b`，两个不同的数组可能撞上。
+ */
+const compareKey = (value: unknown) => {
+	if (value === null || value === undefined) return null;
+	return typeof value === 'object' ? JSON.stringify(value) : String(value);
+};
+const sameValue = (left: unknown, right: unknown) => compareKey(left) === compareKey(right);
+
+/**
+ * 把从库里读回的原值还原成**逻辑类型**。
+ *
+ * SQLite 没有 JSON 类型，`roles` 这类列以文本存储、读回来也是文本，而写入侧传的是
+ * 数组。审计不该把这个存储细节漏出去——`{"before":"[\"a\"]","after":["a","b"]}`
+ * 两边类型都对不上。判据取自写入侧：待写入的值是数组或对象，就说明这一列的逻辑
+ * 类型是 JSON，把读回的文本解析回去，两边就都是数组了。
+ *
+ * 撤回时写回数组同样正确：各方言的适配器都会把数组 JSON.stringify 后入库，
+ * WHERE 里的条件值也走同一条路径，因此和存储的文本能匹配上。
+ */
+const logicalValue = (stored: unknown, written: unknown) => {
+	if (stored === null || stored === undefined) return null;
+	if (typeof written !== 'object' || written === null) return stored;
+	if (typeof stored !== 'string') return stored;
+	try { return JSON.parse(stored); } catch { return stored; }
 };
 
 /** 三种动作都是 UPDATE，按写入的列区分：碰了 deleted_at 就是删除或恢复。 */
@@ -119,8 +142,8 @@ const recordStatement = async (database: DatabaseAdapter, metadata: SqlAuditMeta
 		const changes: Record<string, { before: unknown; after: unknown }> = {};
 		// 只记实际发生变化的列：业务表单常整体提交，照单全收会让"改了什么"失去答案。
 		for (const column of columns) {
-			// after 要按驱动的绑定规则归一后再比：写入的可能是数组，读回来的是 JSON 文本。
-			const before = row[column] ?? null, after = normalizeBoundValue(metadata.values[column]) ?? null;
+			const after = metadata.values[column] ?? null;
+			const before = logicalValue(row[column], after);
 			if (!sameValue(before, after)) changes[column] = { before, after };
 		}
 		if (!Object.keys(changes).length) continue;

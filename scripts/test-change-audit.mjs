@@ -97,7 +97,8 @@ try {
 	await op(sql({ database: acting }).update('base_users', { roles: ['tenant_admin'] }, { id: alice.id }));
 	const arrayEntry = await latestEntry();
 	assert.equal((await entries()).length, beforeArray + 1);
-	assert.deepEqual(changesOf(arrayEntry).roles, { before: '[]', after: '["tenant_admin"]' }, '数组要按入库形态记录');
+	// 两边都是数组：SQLite 没有 JSON 类型是存储细节，不该漏进审计记录。
+	assert.deepEqual(changesOf(arrayEntry).roles, { before: [], after: ['tenant_admin'] }, '数组列两边都记成数组');
 	await op(sql({ database: acting }).update('base_users', { roles: ['tenant_admin'] }, { id: alice.id }));
 	assert.equal((await entries()).length, beforeArray + 1, '同样的数组再存一次不该产生记录');
 	assert.equal((await transitionAuditEntries(acting, [arrayEntry.id], 'reverted'))[0].ok, true, '数组列必须能撤回');
@@ -275,6 +276,7 @@ try {
 		'name：a → b\nstatus：enabled → disabled',
 	);
 	assert.equal(describeAuditChanges({ password: { before: 'x', after: 'y' } }), 'password：已变更', '凭证列只说已变更');
+	assert.equal(describeAuditChanges({ roles: { before: [], after: ['a', 'b'] } }), 'roles：[] → ["a","b"]', '数组按 JSON 显示');
 
 	// ---- 审批（§11）----
 	// 默认不勾「立即生效」：记录成待审批，数据一条都不动。

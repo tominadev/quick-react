@@ -60,7 +60,9 @@ export const parseAuditChanges = (value: unknown): AuditChanges => {
 	} catch { return {}; }
 };
 
-const displayValue = (value: unknown) => value === null || value === undefined ? '空' : String(value);
+/** 数组与对象按 JSON 显示：`String(['a','b'])` 得到 `a,b`，看不出它本来是个数组。 */
+const displayValue = (value: unknown) => value === null || value === undefined ? '空'
+	: typeof value === 'object' ? JSON.stringify(value) : String(value);
 
 /**
  * 凭证列照常记录、照常撤回，只是**接口不返回它的前后值**：撤回由服务端直接写回，

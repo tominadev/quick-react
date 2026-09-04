@@ -98,7 +98,17 @@ await runOperation(c, database, [sql({ database }).update('base_users', values, 
 
 因此更新前读一次原行，与将写入的值逐列比对，**没有任何列变化时不产生记录**。
 
-比对前要按**驱动的绑定规则**把待写入的值归一：数组一律 `JSON.stringify` 后入库（`sqlite.mts`、`mysql.mts`、`d1.mts` 三处一致）。不归一的话，`roles` 这类列写进去的是数组、读回来的是 JSON 文本，逐列比对会把「没变」判成「变了」，撤回与批准时的值校验（§7.2）也永远匹配不上。
+**`changes` 里记的是逻辑值，不是存储形态。** SQLite 没有 JSON 类型，`roles` 这类列以文本存储、读回来也是文本，而写入侧传的是数组。直接记录会得到两边类型都对不上的结果：
+
+```json
+{"roles": {"before": "[\"platform_admin\"]", "after": ["platform_admin"]}}
+```
+
+判据取自**写入侧**：待写入的值是数组或对象，就说明这一列的逻辑类型是 JSON，把读回的文本解析回去，两边就都是数组。存储细节不漏进审计记录。
+
+撤回时写回数组同样正确：各方言的适配器都会把数组 `JSON.stringify` 后入库（`sqlite.mts`、`mysql.mts`、`d1.mts` 三处一致），WHERE 里的条件值走同一条路径，因此和存储的文本能匹配上。
+
+比对本身也要按类型来：BIGINT 各驱动返回的类型不一致（number / string / bigint），一律按字符串比；数组与对象按 JSON 比——`String(['a','b'])` 得到 `a,b`，两个不同的数组可能撞上。
 
 ## 5. 凭证列：存值，但不显示
 
