@@ -40,6 +40,8 @@ npm run typecheck
 
 后续架构和工程优化事项请参阅[项目优化清单](requirements/optimization-checklist.md)。
 
+业务模块身份边界：业务站点只使用当前请求上下文中的 Base 用户、会话和设备信息，不读取 Passport 数据库，不查询 `passport_users`，不接收 `passport_user_id` 作为业务归属。Accounts OIDC 与本地密码登录由 Base 认证层统一适配；Passport ID 只在 Passport 模块和受信任的全局注销/设备控制事件中使用。
+
 ## API 请求与响应反馈规范
 
 前端业务代码必须通过 `useCommonApi()` 提供的 `commonApi.apiFetch()` 发起 API 请求。禁止在业务组件中直接使用原生 `fetch`，否则请求不会经过统一的加载状态、错误处理和响应反馈拦截器。登录、注册、表格 CRUD、配置表单等页面同样适用此规范。浏览器向预签名对象存储地址直传文件时使用 `commonApi.uploadFile()`；该方法基于 `XMLHttpRequest` 提供上传进度、取消操作以及对象存储错误解析，文件内容不经过应用后端。

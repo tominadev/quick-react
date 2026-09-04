@@ -2,7 +2,7 @@
 
 状态：已实施，2026-09-01。
 
-本文档只覆盖数据行的**归属字段与写入逻辑**。基于归属的可见性判定（用户权限等级、同级互不可见、admin 全见）拆分为后续需求，见 [data-visibility-by-permission-level](data-visibility-by-permission-level.md)。
+本文档只覆盖 `owner_uid` 的**字段与写入逻辑**。基于归属的可见性判定、分站维度 `owner_bid` 与代用户操作拆分为后续需求，见 [data-visibility-and-delegated-access](data-visibility-and-delegated-access.md)。
 
 ## 1. 背景
 
@@ -113,7 +113,9 @@ const timestamped: Values = {
 
 ### 5.5 `owner_uid` 的可写性与过户
 
-**`owner_uid` 没有加入 `SYSTEM_FIELD_NAMES`**，因此 `assertBusinessWriteFields` 不拦截它；同时 `insert` 中 `...values` 排在 `owner_uid` 之后，业务传入的值会覆盖公共层填充的值。
+**`owner_uid` 是带默认值的可写字段，不是只读字段。** 它没有加入 `SYSTEM_FIELD_NAMES`，`assertBusinessWriteFields` 不拦截它；`insert` 中 `...values` 排在 `owner_uid` 之后，业务传入的值会覆盖公共层填充的值。
+
+但**业务层不需要、也不应该关心写什么值**：公共层填的就是当前请求的 `base_user_id`，正是归属应有的值。业务代码在 `values` 里出现 `owner_uid` 只有两种可能——写了个一样的值（多余），或写了别的账号（多半是错的）。因此这是"约定不写"，不是"写不了"。
 
 这是主人确认的设计，不是遗漏：AGENTS.md 已写明"`owner_uid` 不属于审计系统字段……后续允许通过业务过户操作修改"，`scripts/test-sql-builder.mjs` 也有对应断言 `assert.doesNotThrow(() => ownerSql.update('users', { owner_uid: '24' }, { id: 1 }))`。过户能力因此不需要新增公共层 API，直接由业务操作写字段即可。
 
@@ -122,7 +124,7 @@ const timestamped: Values = {
 **方向一：把不属于自己的行改成自己所有。** 这一点不由 `owner_uid` 的可写性决定，而由是否存在写谓词决定：
 
 - 现状：公共层没有任何写判定，理论上任何能到达 `update` 的路径都能改任意行的 `owner_uid`。但目前 `server/` 下没有任何路由把 `owner_uid` 放进可写字段清单，实际暴露面为零。通用后台 CRUD 只写 `config.writable` 列出的字段（`server/modules/pve/admin-crud.mts:38`），用户表单提交的 `owner_uid` 不会被透传。
-- [data-visibility-by-permission-level](data-visibility-by-permission-level.md) 落地后：`update` 会带上归属谓词，能改的行本就是有权改的行，在这些行上改 `owner_uid` 与改其他任何业务字段没有区别，该方向的问题自然消失。
+- [data-visibility-and-delegated-access](data-visibility-and-delegated-access.md) 落地后：`update` 会带上归属谓词，能改的行本就是有权改的行，在这些行上改 `owner_uid` 与改其他任何业务字段没有区别，该方向的问题自然消失。
 
 **方向二：把自己的行让给别人。** 单看数据可见性，这属于自愿分享，不是泄露。但只要出现任何**按 `owner_uid` 计的限额**，它就变成配额规避手段：
 
@@ -187,9 +189,10 @@ const timestamped: Values = {
 
 ## 9. 已知限制
 
-- **`owner_uid` 不受公共层保护**：为了给过户留口子，它没有进 `SYSTEM_FIELD_NAMES`，公共层允许业务写入和更新。把他人的行改为自己所有由写谓词约束，可见性判定落地后自然解决；把自己的行让给别人则会绕过按属主计的配额，必须由显式过户操作校验接收方，属于长期约束。见 §5.5。
+- **`owner_uid` 是带默认值的可写字段，不是受保护的只读字段**：为了给过户留口子，它没有进 `SYSTEM_FIELD_NAMES`，业务层按约定不写它。把他人的行改为自己所有由写谓词约束，可见性判定落地后自然解决；把自己的行让给别人则会绕过按属主计的配额，必须由显式过户操作校验接收方，属于长期约束。见 §5.5。
 - **配额与归属耦合**：任何按 `owner_uid` 计的限额（套餐条数、计费用量、速率限制）都不能只在 INSERT 处校验，过户同样会改变双方计数。本需求不提供该校验，只确立约束。
-- **归属只是标记，尚不产生任何约束**：本需求只写不读，`owner_uid` 目前不影响任何查询结果。约束能力由 [data-visibility-by-permission-level](data-visibility-by-permission-level.md) 提供。
+- **归属只是标记，尚不产生任何约束**：本需求只写不读，`owner_uid` 目前不影响任何查询结果。约束能力由 [data-visibility-and-delegated-access](data-visibility-and-delegated-access.md) 提供。
+- **`NULL` 归属在判定上线后对普通账号一律不可见**（只有系统上下文与 `admin` 可读）。因此登录流程中创建的记录必须显式绑定归属上下文，否则记录的主人自己也看不到自己的数据，见可见性文档 §5.2。
 - **归属不跨库**：账号 id 在不同库之间不通用，因此分库部署时 Global 库需要另查一次账号（`server/worker.mts:162`）。跨库比较 `owner_uid` 没有意义。
 - **放弃 POSIX 三字段**：`owner_gid`、`perm_mode` 不再引入。代价是账号无法自行设置某条记录的可见性（原 `chmod`）。
 - **放弃容器表**：新增记录不做行级判定，准入完全由路由层 `roles` 控制。

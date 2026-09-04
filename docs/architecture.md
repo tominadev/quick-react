@@ -154,9 +154,17 @@ Provider 在后端代码中注册控制面 API 规则、Bucket Endpoint 推导�
 
 Passport 是统一身份中心，并维护自己的 Passport 设备、`passport_device_users` 和 Accounts 会话；各业务站点维护自己的 Base 设备、`base_device_users`、`duid` 和本地会话，不直接跨库读取其他站点的业务数据。站点注销通过签名事件携带 `passport_user_id` 与设备指纹通知各站点，各站点解析并注销自己的本地会话。
 
+#### 业务模块与 Passport 身份边界
+
+Passport 是认证控制面，不是业务模块的用户表。业务站点的页面、API、Repository 和业务表不得直接读取 Passport 数据库、导入 Passport 身份模块、查询 `passport_users`，也不得接收 `passport_user_id` 作为业务归属或权限依据。业务代码只从当前请求上下文获取本站 `base_users`、`base_sessions`、`base_user_id`、`owner_uid` 和 `device_user_id`。
+
+本地密码登录与 Accounts OIDC 登录均在 Base 认证边界内转换为本站 Base 会话；业务模块不需要知道登录来源，也不得根据 Passport、OIDC 或站点名称复制登录分支。`issuer + sub` 等外部身份映射只属于 Base 认证适配层，业务模块不能使用它们替代本地用户。
+
+`passport_user_id` 只允许出现在 Passport 内部身份流程，以及全局注销、设备拉黑等受信任控制事件中。控制事件到达业务站点后，必须在认证边界解析为本站设备或会话操作，再将本地结果交给业务模块；业务模块本身不处理 Passport ID。未来分库时，业务站点只能通过 OIDC、签名服务 API 或控制事件通信，禁止跨库读取 Passport 表。
+
 PostgreSQL 是设备关系、会话和撤销状态的权威存储，依靠事务、唯一索引和外键保证一致性。Redis 等缓存只保存可重建的会话或撤销加速数据，事件总线（Redis Streams、NATS 或 Kafka）负责跨站点传播登录、注销和风险变更；CouchDB 或对象存储仅用于长期审计历史与事件归档，不作为当前会话的唯一事实来源。业务 API 通过统一数据库上下文获取 `duid`，不得在各业务表重复实现设备解析。
 
-所有 Prisma 业务表统一包含 `deleted_at` 软删除字段，SQL 公共层的 `select` 和 `count` 默认只返回 `deleted_at = 0` 的记录。固定系统字段 `id`、`created_at`、`updated_at`、`deleted_at`、`created_duid`、`updated_duid` 由公共层统一维护，后台和用户表单只能展示，禁止业务写入。业务归属字段 `owner_uid` 不属于审计字段：新增时由公共层按当前站点用户自动填充，系统或无用户上下文时为 `NULL`，后续允许通过过户等业务操作修改。回收站查询必须显式使用 `deleted: 'deleted'`，全量迁移或审计读取使用 `deleted: 'all'`；业务代码不得通过手写条件绕过默认删除范围。
+所有 Prisma 业务表统一包含 `deleted_at` 软删除字段，SQL 公共层的 `select` 和 `count` 默认只返回 `deleted_at = 0` 的记录。固定系统字段 `id`、`created_at`、`updated_at`、`deleted_at`、`created_duid`、`updated_duid` 由公共层统一维护，后台和用户表单只能展示，禁止业务写入。业务归属字段 `owner_bid`、`owner_uid` 不属于审计字段：新增时由公共层按当前作用账号及其分站自动填充，系统或无用户上下文时为 `NULL`，后续允许通过过户等业务操作修改。`bid` 指分站（`base_branches.id`），与 `global_sites` 的代码站点是两回事。回收站查询必须显式使用 `deleted: 'deleted'`，全量迁移或审计读取使用 `deleted: 'all'`；业务代码不得通过手写条件绕过默认删除范围。
 
 ## 安全策略定位
 

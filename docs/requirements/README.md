@@ -12,9 +12,11 @@
 | [cloud-capability-management](cloud-capability-management.md) | 云凭据与云能力管理 |
 | [object-storage-management](object-storage-management.md) | 对象存储桶、绑定与对象管理 |
 | [row-level-data-ownership](row-level-data-ownership.md) | 数据行归属字段与写入逻辑（owner_uid） |
-| [data-visibility-by-permission-level](data-visibility-by-permission-level.md) | 用户权限等级与数据可见性判定（perm_level） |
+| [data-visibility-and-delegated-access](data-visibility-and-delegated-access.md) | 数据可见性、分站归属与代用户操作（owner_bid） |
 | [optimization-checklist](optimization-checklist.md) | 持续优化清单 |
 | [maintenance-toolbox](maintenance-toolbox.md) | 维护工具箱、救援入口与配置恢复 |
+| [sms-site-and-ed25519-binding](sms-site-and-ed25519-binding.md) | SMS 站点、数据模型、Ed25519 绑定协议与接收流程 |
+| [sms-shortcut-generator](sms-shortcut-generator.md) | Mac Shortcut 生成器：令牌预生成、上传与入库 |
 
 ## 写作约定
 
