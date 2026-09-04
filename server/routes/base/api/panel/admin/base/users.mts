@@ -90,8 +90,12 @@ const handler: ApiHandler = async (c, next, params) => {
 			return apiMessage(c, 200, '用户已保存');
 		} catch (error) { if (error instanceof PendingApprovalError) throw error; return apiMessage(c, 409, '用户名已存在'); }
 	}
-	if (params.id && c.req.method === 'DELETE') {
-		await runOperationSql(c, database, sql({ database }).softDelete('base_users', { id: params.id }));
+	// 界面上的删除（单条与批量）一律发到集合地址、id 放在请求体里，两种形态都要接。
+	if (c.req.method === 'DELETE') {
+		const body = await c.req.json<unknown>().catch(() => []);
+		const ids = params.id ? [params.id] : (Array.isArray(body) ? body.map((value) => String(value)).filter(Boolean) : []);
+		if (!ids.length) return apiMessage(c, 400, '请选择要删除的用户');
+		for (const id of ids) await runOperationSql(c, database, sql({ database }).softDelete('base_users', { id }));
 		return apiMessage(c, 200, '删除成功，可在回收站找回或彻底删除');
 	}
 	return next();

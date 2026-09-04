@@ -108,8 +108,12 @@ const handler: ApiHandler = async (c, next, params) => {
 		const updated = await runOperationSql(c, database, sql({ database }).update('passport_oidc_clients', { secret_hash: await sha256(secret) }, { client_id: params.id }));
 		return Number(updated.meta?.changes ?? 0) ? apiMessageData(c, 200, `密钥已重置，仅显示一次：${secret}`, { client_secret: secret }) : apiMessage(c, 404, 'OIDC 客户端不存在');
 	}
-	if (params.id && c.req.method === 'DELETE') {
-		await runOperationSql(c, database, sql({ database }).softDelete('passport_oidc_clients', { client_id: params.id }));
+	// 界面上的删除（单条与批量）一律发到集合地址、id 放在请求体里，两种形态都要接。
+	if (c.req.method === 'DELETE') {
+		const body = await c.req.json<unknown>().catch(() => []);
+		const ids = params.id ? [params.id] : (Array.isArray(body) ? body.map((value) => String(value)).filter(Boolean) : []);
+		if (!ids.length) return apiMessage(c, 400, '请选择要删除的客户端');
+		for (const id of ids) await runOperationSql(c, database, sql({ database }).softDelete('passport_oidc_clients', { client_id: id }));
 		return apiMessage(c, 200, '删除成功，可在回收站找回或彻底删除');
 	}
 	return next();

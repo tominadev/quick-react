@@ -75,6 +75,13 @@ try {
 	const promoted = await (await request(`${usersPath}/${created.id}`, { cookie })).json();
 	assert.deepEqual(promoted.roles, ['tenant_admin']);
 
+	// 界面上的删除（单条与批量）一律发到集合地址、id 放在请求体里，不带路径参数。
+	// 这一条曾经返回「API route did not return a response」。
+	assert.equal((await request(usersPath, { method: 'DELETE', cookie, body: [created.id] })).status, 200);
+	const remaining = await (await request(usersPath, { cookie })).json();
+	assert.ok(!remaining.table.dataSource.some((row) => String(row.id) === String(created.id)), '批量删除应生效');
+	assert.equal((await request(usersPath, { method: 'DELETE', cookie, body: [] })).status, 400, '没选记录要给出明确提示');
+
 	console.log('user roles test passed');
 } finally {
 	await rm(temporaryDirectory, { recursive: true, force: true });
