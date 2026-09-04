@@ -296,10 +296,11 @@ model base_audit_entries {
   changes      Json @default("{}")
   /// applied ↔ reverted 可以来回翻：撤回不新开记录，而是把这一条翻到另一面。
   status       BaseAuditStatus @default(applied)
-  /// 最后一次翻转的时间、操作者与理由。原记录的 created_* 属于原操作者，不能复用。
-  status_changed_at   BigInt?
-  status_changed_duid BigInt?
-  status_reason       String @default("")
+  /// 最后一次撤回/恢复的时间、操作者与理由。原记录的 created_* 属于原操作者，不能复用。
+  /// 审批用另一组 reviewed_*：合用一组会让撤回信息覆盖掉「谁批准的」。
+  reverted_at   BigInt?
+  reverted_duid BigInt?
+  revert_reason String @default("")
   @@index([owner_tid, created_at])
   @@index([owner_bid, created_at])
   @@index([owner_uid, created_at])

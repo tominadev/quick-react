@@ -248,9 +248,9 @@ CREATE TABLE "base_audit_entries" (
     "action" TEXT NOT NULL,
     "changes" TEXT NOT NULL DEFAULT '{}',
     "status" TEXT NOT NULL DEFAULT 'applied',
-    "status_changed_at" BIGINT,
-    "status_changed_duid" BIGINT,
-    "status_reason" TEXT NOT NULL DEFAULT ''
+    "reverted_at" BIGINT,
+    "reverted_duid" BIGINT,
+    "revert_reason" TEXT NOT NULL DEFAULT ''
 );
 
 -- CreateIndex

@@ -16,9 +16,9 @@ const columns = [
 	{ dataIndex: 'created_duid', title: '操作者' },
 	{ dataIndex: 'owner_uid', title: '作用账号' },
 	{ dataIndex: 'status', title: '状态' },
-	{ dataIndex: 'status_changed_at', title: '撤回时间', dataType: 'js_timestamp' as const, dayjsFormat: 'YYYY-MM-DD HH:mm:ss' },
-	{ dataIndex: 'status_changed_duid', title: '撤回人' },
-	{ dataIndex: 'status_reason', title: '撤回理由' },
+	{ dataIndex: 'reverted_at', title: '撤回时间', dataType: 'js_timestamp' as const, dayjsFormat: 'YYYY-MM-DD HH:mm:ss' },
+	{ dataIndex: 'reverted_duid', title: '撤回人' },
+	{ dataIndex: 'revert_reason', title: '撤回理由' },
 ];
 
 const publicEntry = (row: AuditEntryRow) => ({
@@ -32,9 +32,9 @@ const publicEntry = (row: AuditEntryRow) => ({
 	created_duid: row.created_duid ?? '',
 	owner_uid: row.owner_uid ?? '',
 	status: statusLabels[row.status] ?? row.status,
-	status_changed_at: row.status_changed_at ?? '',
-	status_changed_duid: row.status_changed_duid ?? '',
-	status_reason: row.status_reason ?? '',
+	reverted_at: row.reverted_at ?? '',
+	reverted_duid: row.reverted_duid ?? '',
+	revert_reason: row.revert_reason ?? '',
 });
 
 const readIds = async (c: Parameters<ApiHandler>[0], routeId?: string) => {

@@ -15,9 +15,9 @@ export type AuditEntryRow = {
 	action: SqlAuditAction;
 	changes: string;
 	status: 'applied' | 'reverted';
-	status_changed_at: number | null;
-	status_changed_duid: string | null;
-	status_reason: string;
+	reverted_at: number | null;
+	reverted_duid: string | null;
+	revert_reason: string;
 	created_at: number;
 	created_duid: string | null;
 	owner_uid: string | null;
@@ -32,9 +32,9 @@ const entryColumns = {
 	action: 'action',
 	changes: 'changes',
 	status: 'status',
-	status_changed_at: 'status_changed_at',
-	status_changed_duid: { column: 'status_changed_duid', cast: 'text' as const },
-	status_reason: 'status_reason',
+	reverted_at: 'reverted_at',
+	reverted_duid: { column: 'reverted_duid', cast: 'text' as const },
+	revert_reason: 'revert_reason',
 	created_at: 'created_at',
 	created_duid: { column: 'created_duid', cast: 'text' as const },
 	owner_uid: { column: 'owner_uid', cast: 'text' as const },
@@ -88,7 +88,7 @@ export type AuditRevertResult = { id: string; ok: boolean; message: string };
  * 撤回错了就再翻回来（reverted → applied），不会堆出一串互相指向的记录。
  *
  * 但只翻 status 不够：原记录的 created_duid、created_at、reason 属于**原操作者**，
- * 不能拿来表示"谁在什么时候把它撤了"。翻转的操作者、时间与理由另存三列。
+ * 不能拿来表示"谁在什么时候把它撤了"。撤回的操作者、时间与理由另存三列；审批用另一组 reviewed_*。
  *
  * 代价是**只留最后一次翻转**：反复撤回又恢复的过程不保留，见需求文档 §14。
  */
@@ -118,9 +118,9 @@ const flipOne = async (database: DatabaseAdapter, entry: AuditEntryRow, reason: 
 	// 带上原状态做条件：并发下只有一个请求能翻成功。
 	await runSql(database, sql({ database }).update(AUDIT_TABLE, {
 		status: reverting ? 'reverted' : 'applied',
-		status_changed_at: Date.now(),
-		status_changed_duid: database.actorUidForTable?.(AUDIT_TABLE) ?? database.actorUid ?? null,
-		status_reason: reason,
+		reverted_at: Date.now(),
+		reverted_duid: database.actorUidForTable?.(AUDIT_TABLE) ?? database.actorUid ?? null,
+		revert_reason: reason,
 	}, [{ column: 'id', value: entry.id }, { column: 'status', value: entry.status }]));
 	return { id: entry.id, ok: true, message: reverting ? '已撤回' : '已恢复' };
 };

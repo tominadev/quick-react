@@ -153,8 +153,8 @@ try {
 	assert.equal((await entries()).length, beforeRevert, '撤回不产生新的审计记录');
 	// 翻转的操作者、时间与理由另存三列：原记录的 created_* 属于原操作者，不能复用。
 	const flipped = await entryById(daveEntry.id);
-	assert.equal(flipped.status_reason, '撤回理由：改错了');
-	assert.ok(Number(flipped.status_changed_at) > 0, '要记下什么时候撤的');
+	assert.equal(flipped.revert_reason, '撤回理由：改错了');
+	assert.ok(Number(flipped.reverted_at) > 0, '要记下什么时候撤的');
 	assert.equal(flipped.reason, daveEntry.reason, '原操作的理由不应被覆盖');
 
 	// 撤回错了就再翻回来，不会堆出一串互相指向的记录。
@@ -162,7 +162,7 @@ try {
 	assert.equal(await nameOf(alice.id), 'dave', '恢复后应回到变更后的值');
 	assert.equal(await statusOf(daveEntry.id), 'applied');
 	assert.equal((await entries()).length, beforeRevert, '恢复同样不产生新记录');
-	assert.equal((await entryById(daveEntry.id)).status_reason, '恢复：撤错了', '只留最后一次翻转');
+	assert.equal((await entryById(daveEntry.id)).revert_reason, '恢复：撤错了', '只留最后一次翻转');
 	// 再撤回一次，把数据放回后面用例期望的位置。
 	assert.equal((await revert([daveEntry.id]))[0].ok, true);
 	assert.equal(await nameOf(alice.id), 'alice-3');
