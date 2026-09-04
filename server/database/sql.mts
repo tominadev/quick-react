@@ -42,7 +42,9 @@ const assertBusinessWriteFields = (values: Values, options: { allowId?: boolean;
  * 它绕过 quoteIdentifier 的标识符校验，业务传入等于开了一个拼 SQL 的口子。
  */
 export type SqlCondition =
-	| { column: string; value?: SqlValue; operator?: '=' | '!=' | '<' | '<=' | '>' | '>=' | 'IS NULL' | 'IS NOT NULL'; raw?: undefined }
+	// LIKE 的通配符与转义字符由调用方自己拼进 value，这里不做加工——
+	// 加工就得替调用方猜「%」是想匹配任意串还是想匹配一个百分号。
+	| { column: string; value?: SqlValue; operator?: '=' | '!=' | '<' | '<=' | '>' | '>=' | 'LIKE' | 'IS NULL' | 'IS NOT NULL'; raw?: undefined }
 	| { raw: string; column?: undefined; value?: undefined; operator?: undefined };
 
 /** 该条件是否需要绑定一个参数值。raw 与 IS NULL 系列都不绑定。 */

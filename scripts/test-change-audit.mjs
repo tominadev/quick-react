@@ -371,6 +371,17 @@ try {
 	assert.equal(await nameOf(alice.id), 'frank');
 	await transitionAuditEntries(acting, [(await latestEntry()).id], 'rejected', '清理测试数据');
 
+	// 列表支持按状态、数据表、记录与原因关键字筛选。
+	const { listAuditEntries } = await import(pathToFileURL(moduleFile));
+	const pendingOnly = await listAuditEntries(acting, [{ column: 'status', value: 'pending' }]);
+	assert.ok(pendingOnly.every((entry) => entry.status === 'pending'), '按状态筛选');
+	const byTable = await listAuditEntries(acting, [{ column: 'table_name', value: 'base_users' }]);
+	assert.ok(byTable.length && byTable.every((entry) => entry.table_name === 'base_users'), '按数据表筛选');
+	// 匹配的是提交时填的「操作原因」，不含撤回理由与审批意见——那两个各有自己的列。
+	const byReason = await listAuditEntries(acting, [], '批量调整');
+	assert.ok(byReason.length && byReason.every((entry) => entry.reason.includes('批量调整')), '按原因模糊匹配');
+	assert.deepEqual(await listAuditEntries(acting, [], '这段文字不存在'), []);
+
 	// ---- 保留期（§10）----
 	const total = (await entries()).length;
 	assert.equal(await purgeExpiredAuditEntries(database, 0), 0, '保留期为 0 表示不自动清理');

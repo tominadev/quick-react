@@ -1,6 +1,7 @@
 import type { ApiHandler } from '@server/modules/base/api-router.mjs';
 import { apiMessage, apiResponse } from '@server/modules/base/api-response.mjs';
 import { readChangeReason } from '@server/modules/base/operation.mjs';
+import type { SqlCondition } from '@server/database/sql.mjs';
 import { STATUS_LABELS, describeAuditChanges, listAuditEntries, parseAuditChanges, publicAuditChanges, readAuditEntry, transitionAuditEntries, type AuditEntryRow } from '@server/modules/base/audit.mjs';
 
 const actionLabels: Record<string, string> = { update: '修改', soft_delete: '删除', restore: '恢复' };
@@ -11,6 +12,17 @@ const statusOptions = [
 	{ value: 'rejected', text: STATUS_LABELS.rejected, color: 'red' },
 	{ value: 'reverted', text: STATUS_LABELS.reverted, color: 'default' },
 ];
+/**
+ * 查询条件。**状态默认「待审批」**：进这一页最常做的事是处理积压的申请，
+ * 而不是翻历史；要看全部把它清空即可。
+ */
+const queryFields = [
+	{ dataIndex: 'status', label: '状态', component: 'select' as const, defaultValue: 'pending', options: [{ value: '', text: '全部' }, ...statusOptions] },
+	{ dataIndex: 'table_name', label: '数据表', component: 'textbox' as const, placeholder: '例如 base_users' },
+	{ dataIndex: 'row_id', label: '记录 ID', component: 'textbox' as const },
+	{ dataIndex: 'reason', label: '操作原因', component: 'textbox' as const, placeholder: '模糊匹配，% 与 _ 是通配符' },
+];
+
 /** 每个动作对应一次状态迁移，并且只对处在起点状态的行显示。 */
 const flipActions = [
 	{ key: 'approve', label: '批准', to: 'applied' as const, from: 'pending', confirm: '确认批准这条修改吗？批准后立即生效。' },
@@ -73,13 +85,20 @@ const readIds = async (c: Parameters<ApiHandler>[0], routeId?: string) => {
 const handler: ApiHandler = async (c, next, params) => {
 	const database = c.get('database');
 	if (c.req.method === 'GET' && !params.id) {
-		const rows = await listAuditEntries(database);
+		const filters: SqlCondition[] = [];
+		const status = c.req.query('status')?.trim();
+		if (status && statusOptions.some((option) => option.value === status)) filters.push({ column: 'status', value: status });
+		const tableFilter = c.req.query('table_name')?.trim();
+		if (tableFilter) filters.push({ column: 'table_name', value: tableFilter });
+		const rowFilter = c.req.query('row_id')?.trim();
+		if (rowFilter) filters.push({ column: 'row_id', value: rowFilter });
+		const rows = await listAuditEntries(database, filters, c.req.query('reason')?.trim());
 		return apiResponse(c, 200, { table: {
 			// 审计记录不可修改、不可删除，接口层因此没有新增、编辑与删除入口（§7.3）。
 			// 这一页的动作本身就是审批机制，不经过审批门：撤回、批准、驳回走的是
 			// runSystemSql，勾「立即生效」不改变任何行为，因此显式关掉这个勾选框。
 			// 操作原因仍然要收：它会写进审批意见、撤回理由或恢复理由。
-			option: { rowKey: 'id', canSkipApproval: false, actions: {
+			option: { rowKey: 'id', canSkipApproval: false, queryFields, actions: {
 				query: [{ key: 'search', label: '搜索' }],
 				// 撤回不新开记录，而是把这一条翻到另一面；已撤回的再点一次就恢复。
 				// 撤回与恢复是互斥的两个动作，一行上只显示其中适用的那个。

@@ -78,11 +78,17 @@ export const describeAuditChanges = (changes: AuditChanges) => Object.entries(ch
 	.map(([column, change]) => isHiddenValueColumn(column) ? `${column}：已变更` : `${column}：${displayValue(change.before)} → ${displayValue(change.after)}`)
 	.join('\n');
 
-/** 可见性由公共层的归属判定自动收敛，这里不再叠加条件。 */
-export const listAuditEntries = async (database: DatabaseAdapter, where: SqlCondition[] = [], limit = 200) => allSql<AuditEntryRow>(database, sql({ database }).select({
+/**
+ * 可见性由公共层的归属判定自动收敛，这里不再叠加条件。
+ *
+ * `reasonKeyword` 走模糊匹配：操作原因是人写的自由文本，等值匹配没有意义。
+ */
+export const listAuditEntries = async (database: DatabaseAdapter, where: SqlCondition[] = [], reasonKeyword?: string, limit = 200) => allSql<AuditEntryRow>(database, sql({ database }).select({
 	table: AUDIT_TABLE,
 	columns: entryColumns,
-	where,
+	// 关键字直接当模式片段用：`%` 与 `_` 在这里就是通配符。转义需要 ESCAPE 子句，
+	// 三种方言的默认转义字符并不一致，为一个搜索框引入那套规则不划算。
+	where: [...where, ...(reasonKeyword ? [{ column: 'reason', operator: 'LIKE' as const, value: `%${reasonKeyword}%` }] : [])],
 	// 审计列表最常看的是"刚刚发生了什么"；升序分页还会因新记录插入头部而错位（§8）。
 	orderBy: [{ column: 'created_at', direction: 'DESC' }, { column: 'id', direction: 'DESC' }],
 	limit,
