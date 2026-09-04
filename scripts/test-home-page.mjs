@@ -13,6 +13,9 @@ try {
 	const { app } = await import(`../dist/server.mjs?home-page=${Date.now()}`);
 	const database = new DatabaseSync(process.env.DEFAULT_DATABASE_FILE);
 	database.prepare("INSERT INTO global_site_hosts (hostname, site_key, status, created_at) VALUES ('accounts.test','passport','enabled',?)").run(Date.now());
+	// 联系邮箱来自站点设置；没配置时首页只显示“站点管理员”，Google 应用验证要求给出可联系的方式。
+	database.prepare('INSERT INTO base_configs (created_at, updated_at, key, value) VALUES (?, ?, ?, ?)')
+		.run(Date.now(), Date.now(), 'site-settings', JSON.stringify({ contactEmail: 'contact@example.com' }));
 	database.close();
 
 	// 站点首页说明由后端下发，未登录也能读取。
@@ -23,10 +26,12 @@ try {
 	// Accounts 站点覆盖成账号服务的用途说明，覆盖登录方式、账号管理、统一登录和数据使用。
 	const accounts = await (await app.request('http://accounts.test/api/home.php')).json();
 	// 首页显示的应用名称必须唯一且等于站点名称，Google 同意屏幕要配置同一个名字。
-	const accountsDocument = await (await app.request('http://accounts.test/', { headers: { accept: 'text/html' } })).text();
-	const accountsSiteName = JSON.parse(accountsDocument.match(/__INITIAL_DATA__=(\{.*?\});<\/script>/s)[1]).siteName;
+	// 站点名称从站点记录读取：accounts.test 的公开文档由 wwwroot/passport/index.html 静态覆盖，
+	// 品牌文案手工维护，不再经过通用外壳，因此不能从文档里取 siteName。
+	const siteNameDatabase = new DatabaseSync(process.env.DEFAULT_DATABASE_FILE);
+	const accountsSiteName = siteNameDatabase.prepare("SELECT name FROM global_sites WHERE key = 'passport'").get()?.name;
+	siteNameDatabase.close();
 	assert.equal(accounts.home.title, accountsSiteName);
-	assert.match(accountsDocument, new RegExp(`<noscript>\\s*<h1>${accountsSiteName}</h1>`));
 	assert.match(accounts.home.summary, /统一账号服务/);
 	assert.deepEqual(accounts.home.sections.map((section) => section.key), ['sign-in', 'account', 'sso', 'privacy', 'contact']);
 	assert.match(accounts.home.sections.find((section) => section.key === 'privacy').body, /Google API 服务用户数据政策/);
@@ -38,19 +43,22 @@ try {
 		['terms', '/page/terms.html'],
 	]);
 	// 初始管理员还没创建时，任何站点都给出创建入口，这条规则对所有站点一致。
-	const accountsAuth = JSON.parse(accountsDocument.match(/__INITIAL_DATA__=(\{.*?\});<\/script>/s)[1]).auth;
+	// API 页面启动（CDN 模式）下 auth 不嵌在文档里，与客户端一样从上下文接口取。
+	const readAuth = async () => (await (await app.request('http://accounts.test/api/home.php?include=auth', { headers: { accept: 'application/json' } })).json()).context.auth;
+	const accountsAuth = await readAuth();
 	assert.deepEqual(accountsAuth.actions.map((action) => [action.key, action.action]), [['/sign', 'local-login'], ['/sign-up', 'navigate']]);
 	// 建好初始管理员后入口消失：判断依据是本站数据库的引导状态，不是站点标识。
 	assert.equal((await app.request('http://localhost/api/sign.php', { method: 'PUT', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ username: 'home_admin', password: 'test-password-123' }) })).status, 201);
-	const claimedDocument = await (await app.request('http://accounts.test/', { headers: { accept: 'text/html' } })).text();
-	const claimedAuth = JSON.parse(claimedDocument.match(/__INITIAL_DATA__=(\{.*?\});<\/script>/s)[1]).auth;
+	const claimedAuth = await readAuth();
 	assert.deepEqual(claimedAuth.actions.map((action) => [action.key, action.action]), [['/sign', 'local-login']]);
 
 	// 不执行脚本时也能读到用途说明和隐私政策链接。
+	// accounts.test 的公开文档由 wwwroot/passport/index.html 静态覆盖，用途说明写在 meta 与正文里，
+	// 不再使用通用外壳的 noscript 兜底。描述以品牌名开头，用途说明紧随其后。
 	const html = await (await app.request('http://accounts.test/', { headers: { accept: 'text/html' } })).text();
-	assert.match(html, /<meta name="description" content="统一账号服务：/);
-	assert.match(html, /<noscript>[\s\S]*统一账号服务[\s\S]*<\/noscript>/);
-	assert.match(html, /<noscript>[\s\S]*\/page\/privacy\.html[\s\S]*<\/noscript>/);
+	assert.match(html, /<meta name="description" content="[^"]*统一账号服务：/);
+	assert.match(html, /统一账号服务/);
+	assert.match(html, /\/page\/privacy\.html/);
 
 	// 首页不需要登录即可访问。
 	const anonymous = await app.request('http://accounts.test/', { headers: { accept: 'text/html' } });

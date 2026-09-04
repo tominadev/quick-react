@@ -1,4 +1,5 @@
 import assert from 'node:assert/strict';
+import { readPageContext } from './page-context.mjs';
 import { mkdtemp, rm } from 'node:fs/promises';
 import { join } from 'node:path';
 import { tmpdir } from 'node:os';
@@ -124,8 +125,8 @@ try {
 	assert.equal(invalidResponse.status, 400);
 	assert.equal(invalidMessage.match(/https:\/\/site1\.test\/api\/accounts\/oidc\/callback/g)?.length, 1, '手工地址与自动地址重合时只显示一次');
 	// 启用 Accounts 登录的业务站点：需要登录的页面直接弹窗，不再跳登录页，也不给本地注册入口。
-	const businessDocument = await (await app.request('https://site1.test/panel/admin/base/users.html', { headers: { accept: 'text/html' } })).text();
-	const businessInitial = JSON.parse(businessDocument.match(/__INITIAL_DATA__=(\{.*?\});<\/script>/s)[1]);
+	// API 页面启动（CDN 模式）下 auth 与 pageStatus 不嵌在文档里，与客户端一样从上下文接口取。
+	const businessInitial = (await readPageContext(app, 'https://site1.test', '/panel/admin/base/users.html')).context;
 	assert.deepEqual(businessInitial.auth.actions.map((action) => [action.key, action.action]), [['/sign', 'accounts-login']]);
 	assert.equal(businessInitial.pageStatus.status, 401);
 	assert.deepEqual(businessInitial.pageStatus.actions.map((action) => [action.label, action.action]), [['登录', 'accounts-login'], ['返回首页', 'navigate']]);

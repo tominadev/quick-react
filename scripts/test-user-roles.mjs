@@ -37,11 +37,15 @@ try {
 	const rolesColumn = list.table.columns.find((column) => column.dataIndex === 'roles');
 	assert.equal(rolesColumn.component, 'select');
 	assert.equal(rolesColumn.multiple, true);
-	assert.deepEqual(rolesColumn.options, [{ value: 'admin', text: '管理员(admin)' }]);
+	assert.deepEqual(rolesColumn.options, [
+		{ value: 'super', text: '平台管理员(super)' },
+		{ value: 'admin', text: '租户管理员(admin)' },
+		{ value: 'support', text: '客服(support)' },
+	]);
 
 	// 历史 JSON 文本按数组返回，前端可以直接回填多选。
 	const bootstrap = list.table.dataSource.find((row) => row.username === 'role_admin');
-	assert.deepEqual(bootstrap.roles, ['admin']);
+	assert.deepEqual(bootstrap.roles, ['super']);
 
 	// 新建用户接受数组角色。
 	assert.equal((await request(usersPath, { method: 'POST', cookie, body: { username: 'role_member', password: 'test-password-123', roles: [], status: 'enabled' } })).status, 201);

@@ -72,7 +72,8 @@ const fingerprintData = JSON.stringify({ canvas_cyrb53: '4b5a6c7d8e9f', audio_cy
 
 	// 和其它站点同一个开关：关掉账号登录就回到本站账号密码登录，重新开启又变回账号登录。
 	const switchDatabase = new DatabaseSync(process.env.DEFAULT_DATABASE_FILE);
-	const writeAccountsLogin = (enabled) => switchDatabase.prepare('INSERT INTO base_configs (created_at, updated_at, key, value) VALUES (?, ?, ?, ?) ON CONFLICT(key, deleted_at) DO UPDATE SET value = excluded.value, updated_at = excluded.updated_at')
+	// owner_tid 是 NOT NULL DEFAULT 1，两次写入落在同一个默认租户上，ON CONFLICT 正常命中。
+	const writeAccountsLogin = (enabled) => switchDatabase.prepare('INSERT INTO base_configs (created_at, updated_at, key, value) VALUES (?, ?, ?, ?) ON CONFLICT(key, owner_tid, deleted_at) DO UPDATE SET value = excluded.value, updated_at = excluded.updated_at')
 		.run(Date.now(), Date.now(), 'accounts-oidc-client', JSON.stringify({ enabled, issuer: 'https://passport.test', clientId: 'shared-client', clientSecret: 'shared-secret' }));
 	writeAccountsLogin(false);
 	for (const host of ['passport.test', 'global.test', 'business.test']) {

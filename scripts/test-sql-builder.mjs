@@ -12,16 +12,23 @@ try {
 	const { SqliteSqlBuilder, MysqlSqlBuilder, PostgresqlSqlBuilder, addColumn, renameColumn, compileSqlPlaceholders, createSqliteAdapter, synchronizePostgresqlIdentity } = await import(pathToFileURL(file));
 	const sqlite = new SqliteSqlBuilder(), mysql = new MysqlSqlBuilder(), postgres = new PostgresqlSqlBuilder();
 	const sqliteInsert = sqlite.insert('users', { name: 'Alice', status: 'enabled' });
+	// 没有租户上下文时不写 owner_tid：该列是 NOT NULL DEFAULT 1，交给数据库默认值兜到默认租户。
 	assert.match(sqliteInsert.query, /^INSERT INTO "users" \("created_at", "updated_at", "owner_uid", "name", "status"\) VALUES \(\?, \?, \?, \?, \?\)$/);
 	assert.deepEqual(sqliteInsert.values.slice(3), ['Alice', 'enabled']);
 	const actorSql = new SqliteSqlBuilder('17');
 	const actorInsert = actorSql.insert('users', { name: 'Alice' });
 	assert.match(actorInsert.query, /^INSERT INTO "users" \("created_at", "updated_at", "created_duid", "updated_duid", "owner_uid", "name"\)/);
 	assert.deepEqual(actorInsert.values.slice(2, 4), ['17', '17']);
-	const ownerSql = new SqliteSqlBuilder(null, 'active', '23');
+	const ownerSql = new SqliteSqlBuilder(null, 'active', '23', '7');
 	const ownerInsert = ownerSql.insert('users', { name: 'Alice' });
-	assert.equal(ownerInsert.values[2], '23');
+	// 绑定了租户就写进去，排在 owner_uid 之前。
+	assert.match(ownerInsert.query, /"owner_tid", "owner_uid"/);
+	assert.equal(ownerInsert.values[2], '7');
+	assert.equal(ownerInsert.values[3], '23');
 	assert.doesNotThrow(() => ownerSql.update('users', { owner_uid: '24' }, { id: 1 }));
+	const tenantTables = new SqliteSqlBuilder(null, 'active', null, (table) => table.startsWith('passport_') ? 'p-tid' : 'b-tid');
+	assert.equal(tenantTables.insert('passport_users', { name: 'A' }).values[2], 'p-tid');
+	assert.equal(tenantTables.insert('base_users', { name: 'A' }).values[2], 'b-tid');
 	const actorUpdate = actorSql.update('users', { name: 'Bob' }, { id: 1 });
 	assert.match(actorUpdate.query, /^UPDATE "users" SET "updated_at" = \?, "updated_duid" = \?, "name" = \?/);
 	const tableActors = new SqliteSqlBuilder((table) => table.startsWith('passport_') ? 'passport-duid' : 'base-duid');

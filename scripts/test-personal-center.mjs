@@ -1,4 +1,5 @@
 import assert from 'node:assert/strict';
+import { readPageContext } from './page-context.mjs';
 import { mkdtemp, rm } from 'node:fs/promises';
 import { join } from 'node:path';
 import { tmpdir } from 'node:os';
@@ -26,15 +27,15 @@ try {
 	const cookie = login.headers.get('set-cookie')?.split(';')[0];
 
 	// 导航里个人中心只有一个页面，没有子菜单。
-	const html = await (await request('/', { cookie, headers: { accept: 'text/html' } })).text();
-	const navigation = JSON.parse(html.match(/__INITIAL_DATA__=(\{.*?\});<\/script>/s)[1]).siteNavigation;
+	// CDN 模式下导航不嵌在文档里，从上下文接口取。
+	const navigation = (await readPageContext(app, 'localhost', '/', { cookie, headers: { 'x-device-key': deviceKey, 'x-device-fingerprint': fingerprintData } })).context.siteNavigation;
 	const me = navigation.find((item) => item.key === '/panel/me');
 	assert.ok(me, '个人中心应该存在');
 	assert.deepEqual(me.children ?? [], [], '个人中心不应该再有子页面');
 	assert.equal(me.dashboardPath, undefined);
-	// 原来的子页面路径不再存在。
-	const removed = await request('/panel/me/security.html', { cookie, headers: { accept: 'text/html' } });
-	assert.equal(removed.status, 404);
+	// 原来的子页面路径不再存在。CDN 模式下文档一律 200（可缓存的壳），404 由上下文的 pageStatus 下发。
+	const removed = await readPageContext(app, 'localhost', '/panel/me/security.html', { cookie, headers: { 'x-device-key': deviceKey, 'x-device-fingerprint': fingerprintData } });
+	assert.equal(removed.context.pageStatus.status, 404);
 
 	// 未启用 Accounts 登录时只有身份信息，没有任何外站入口。
 	const plain = await (await request('/api/panel/me.php', { cookie })).json();

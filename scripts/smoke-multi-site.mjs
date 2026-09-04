@@ -3,6 +3,7 @@ import { mkdtemp, rm } from 'node:fs/promises';
 import { join } from 'node:path';
 import { tmpdir } from 'node:os';
 import { DatabaseSync } from 'node:sqlite';
+import { readPageContext } from './page-context.mjs';
 
 const temporaryDirectory = await mkdtemp(join(tmpdir(), 'quick-react-smoke-'));
 process.env.DEFAULT_DATABASE_FILE = join(temporaryDirectory, 'default.sqlite');
@@ -144,21 +145,21 @@ try {
 	const adminRootSlash = await app.request('http://localhost/panel/admin/', { headers: { accept: 'text/html', cookie } });
 	assert.equal(adminRootSlash.status, 200);
 	assert.equal(adminRootSlash.headers.get('location'), null);
-	assert.match(await adminRootSlash.text(), /panelRoot/);
+	const deviceHeaders = { 'x-device-key': deviceKey, 'x-device-fingerprint': fingerprintData };
+	assert.equal((await readPageContext(app, 'localhost', '/panel/admin/', { cookie, headers: deviceHeaders })).context.siteNavigation.find((item) => item.key === '/panel/admin')?.component, 'panelRoot');
 	for (const adminEntry of ['/panel/admin/index.html']) {
 		const response = await app.request(`http://localhost${adminEntry}`, { headers: { accept: 'text/html', cookie } });
 		assert.equal(response.status, 200, `${adminEntry} 应直接返回管理后台入口`);
 		assert.equal(response.headers.get('location'), null, `${adminEntry} 不应通过重定向进入管理后台`);
 	}
-	const adminRoot = await app.request('http://localhost/panel/admin.html', { headers: { accept: 'text/html', cookie } });
-	assert.equal(adminRoot.status, 200);
-	const rootInitial = JSON.parse((await adminRoot.text()).match(/__INITIAL_DATA__=(\{.*?\});<\/script>/s)[1]);
+	const adminRootPage = await readPageContext(app, 'localhost', '/panel/admin.html', { cookie, headers: deviceHeaders });
+	assert.equal(adminRootPage.response.status, 200);
+	const rootInitial = adminRootPage.context;
 	const rootNavigation = rootInitial.siteNavigation.find((item) => item.key === '/panel/admin');
 	assert.equal(rootNavigation?.component, 'panelRoot');
 	assert.equal(rootNavigation?.dashboardPath, '/panel/admin/global/dashboard');
-	const globalDashboard = await app.request('http://localhost/panel/admin/global/dashboard.html', { headers: { accept: 'text/html', cookie } });
-	const globalInitial = JSON.parse((await globalDashboard.text()).match(/__INITIAL_DATA__=(\{.*?\});<\/script>/s)[1]);
-	assert.equal(globalInitial.siteNavigation.find((item) => item.key === '/panel/admin')?.dashboardPath, '/panel/admin/global/dashboard');
+	const globalDashboardPage = await readPageContext(app, 'localhost', '/panel/admin/global/dashboard.html', { cookie, headers: deviceHeaders });
+	assert.equal(globalDashboardPage.context.siteNavigation.find((item) => item.key === '/panel/admin')?.dashboardPath, '/panel/admin/global/dashboard');
 	const globalDashboardNoSuffix = await app.request('http://localhost/panel/admin/global/dashboard', { headers: { accept: 'text/html', cookie } });
 	assert.equal(globalDashboardNoSuffix.status, 200, '普通页面无后缀访问应直接返回 200');
 	assert.equal(globalDashboardNoSuffix.headers.get('location'), null, '普通页面无后缀访问不应重定向');
@@ -245,19 +246,27 @@ try {
 	assert.equal(secretColumn.form.create.rules[0].required, true);
 	assert.match(secretColumn.title, /微信 AppSecret/);
 	assert.equal(secretColumn.hideInTable, true);
-	assert.equal(externalProviders.table.columns.find((column) => column.dataIndex === 'id').form.edit, false);
+	// id 是系统字段，resolveTableFormColumns 统一把系统字段从表单中剔除，不再逐列声明 form.edit。
+	assert.equal(externalProviders.table.columns.find((column) => column.dataIndex === 'id').form, undefined);
+	assert.equal(externalProviders.table.columns.find((column) => column.dataIndex === 'provider').form.edit, false);
 	assert.equal((await request('passport.test', externalProvidersPath, {
-		method: 'POST', cookie, body: { id: 'wechat', display_name: '微信', client_id: 'wechat-app-id', client_secret: 'wechat-app-secret', status: 'enabled' },
+		// 身份源由 provider 指定；id 已按项目约定改为自增主键，不再承载业务键。
+		method: 'POST', cookie, body: { provider: 'wechat', display_name: '微信', client_id: 'wechat-app-id', client_secret: 'wechat-app-secret', status: 'enabled' },
 	})).status, 201);
 	const createdProvider = await (await request('passport.test', `${externalProvidersPath}/wechat`, { cookie })).json();
 	assert.equal(createdProvider.client_secret, '');
 	assert.equal(createdProvider.secret_configured, '已配置');
 	const localSiteSign = await (await request('site1.test', '/api/sign.php')).json();
 	assert.equal(localSiteSign.formPage.fields[0].name, 'username');
-	assert.match(await (await request('site1.test', '/')).text(), /<title>首页 \| site1<\/title>/);
+	// API 页面启动（CDN 模式）下文档对所有页面一致以便缓存，标题回落到站点级；
+	// 页面标题由客户端取到上下文后再设置。
+	assert.match(await (await request('site1.test', '/')).text(), /<title>site1 \| site1<\/title>/);
 	const accountsSettings = await (await request('site1.test', '/api/panel/admin/base/settings/accounts-oidc.php', { cookie })).json();
 	assert.equal(accountsSettings.formPage.fields[0].name, 'enabled');
-	assert.deepEqual(accountsSettings.formPage.actions, [{ key: 'test', label: '测试配置' }]);
+	assert.deepEqual(accountsSettings.formPage.actions, [
+		{ key: 'test', label: '测试配置' },
+		{ key: 'restore-defaults', label: '恢复默认', confirm: '确认恢复 Accounts OIDC 设置的默认值吗？恢复后需要点击“保存配置”才会生效。' },
+	]);
 	const techStackSave = await request('localhost', '/api/panel/admin/base/settings/tech-stack.php', { method: 'PUT', cookie, body: { nginx: false } });
 	assert.equal(techStackSave.status, 200);
 	assert.equal((await techStackSave.json()).feedback.redirectAfter, 2);
@@ -668,11 +677,12 @@ try {
 	assert.equal(linkedUsers[0].user_id, linkedUsers[1].user_id);
 	linkedDatabase.close();
 
-	const publicDocument = await (await request('localhost', '/')).text();
-	assert.equal(publicDocument.includes('站点管理'), false);
-	const adminDocument = await (await request('localhost', '/', { cookie })).text();
-	assert.equal(adminDocument.includes('站点管理'), true);
-	assert.equal(adminDocument.includes('邮件推送'), true);
+	// CDN 模式下文档对所有访客一致，导航不在 HTML 里；按角色过滤的结果要从页面上下文断言。
+	const publicNavigation = JSON.stringify((await readPageContext(app, 'localhost', '/', { headers: deviceHeaders })).context.siteNavigation ?? []);
+	assert.equal(publicNavigation.includes('站点管理'), false);
+	const adminNavigation = JSON.stringify((await readPageContext(app, 'localhost', '/', { cookie, headers: deviceHeaders })).context.siteNavigation ?? []);
+	assert.equal(adminNavigation.includes('站点管理'), true);
+	assert.equal(adminNavigation.includes('邮件推送'), true);
 	console.log('multi-site smoke test passed');
 } finally {
 	globalThis.fetch = originalFetch;

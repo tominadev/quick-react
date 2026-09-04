@@ -1,4 +1,5 @@
 import assert from 'node:assert/strict';
+import { readPageContext } from './page-context.mjs';
 import { mkdtemp, rm } from 'node:fs/promises';
 import { join } from 'node:path';
 import { tmpdir } from 'node:os';
@@ -18,10 +19,8 @@ const deviceKey = '00000000-0000-4000-8000-000000000001';
 		headers: { 'x-device-key': deviceKey, 'x-device-fingerprint': fingerprintData, ...(options.body === undefined ? {} : { 'content-type': 'application/json' }), ...options.headers },
 		body: options.body === undefined ? undefined : JSON.stringify(options.body),
 	});
-	const initialData = async (path) => {
-		const html = await (await request(path, { headers: { accept: 'text/html' } })).text();
-		return JSON.parse(html.match(/__INITIAL_DATA__=(\{.*?\});<\/script>/s)[1]);
-	};
+	// API 页面启动（CDN 模式）下 auth、siteNavigation、pageStatus 不嵌在文档里，从上下文接口取。
+	const initialData = async (path) => (await readPageContext(app, 'localhost', path, { headers: { 'x-device-key': deviceKey, 'x-device-fingerprint': fingerprintData } })).context;
 
 	// 头部登录按钮在当前页弹出本站账号密码表单，不走 Accounts 登录窗口。
 	const home = await initialData('/');
@@ -33,8 +32,8 @@ const deviceKey = '00000000-0000-4000-8000-000000000001';
 	assert.deepEqual(blocked.pageStatus.actions.map((action) => action.action), ['local-login', 'navigate']);
 
 	// 公开登录页已经取消，直接访问旧地址得到确定的 404；登录 API 仍供弹窗使用。
-	const removedSignPage = await request('/sign.html', { headers: { accept: 'text/html' } });
-	assert.equal(removedSignPage.status, 404);
+	// CDN 模式下文档一律 200（可缓存的壳），页面状态由上下文下发、客户端渲染。
+	assert.equal((await initialData('/sign.html')).pageStatus.status, 404);
 
 	// 登录页是本站账号密码表单，不下发 Accounts 登录入口。
 	const signForm = await (await request('/api/sign.php')).json();
@@ -69,9 +68,8 @@ const deviceKey = '00000000-0000-4000-8000-000000000001';
 	assert.deepEqual(globalSettings.formPage.fields.map((field) => field.name), expectedSettingsFields);
 	assert.deepEqual(passportSettings.formPage.fields.map((field) => field.name), expectedSettingsFields);
 	assert.deepEqual(businessSettings.formPage.fields.map((field) => field.name), expectedSettingsFields);
-	assert.deepEqual(passportSettings.formPage.actions.map((action) => action.key), ['test']);
-	const passportPanel = await (await app.request('http://accounts.test/panel/admin/passport/dashboard.html', { headers: { ...siteHeaders, accept: 'text/html' } })).text();
-	const passportInitial = JSON.parse(passportPanel.match(/__INITIAL_DATA__=(\{.*?\});<\/script>/s)[1]);
+	assert.deepEqual(passportSettings.formPage.actions.map((action) => action.key), ['test', 'restore-defaults']);
+	const passportInitial = (await readPageContext(app, 'accounts.test', '/panel/admin/passport/dashboard.html', { headers: siteHeaders })).context;
 	const navigationKeys = (items) => items.flatMap((item) => [String(item.key), ...navigationKeys(item.children ?? [])]);
 	assert.ok(navigationKeys(passportInitial.siteNavigation).includes('/panel/admin/base/settings/accounts-oidc'));
 

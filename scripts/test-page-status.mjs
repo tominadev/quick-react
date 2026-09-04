@@ -1,4 +1,5 @@
 import assert from 'node:assert/strict';
+import { readPageContext } from './page-context.mjs';
 import { mkdtemp, rm } from 'node:fs/promises';
 import { join } from 'node:path';
 import { tmpdir } from 'node:os';
@@ -24,51 +25,54 @@ try {
 			redirect: 'manual',
 		});
 	};
+	// API 页面启动（CDN 模式）下文档对所有访客一致以便缓存：HTTP 一律 200，
+	// 404 / 401 等页面状态改由上下文接口下发，客户端据此渲染。断言因此看 pageStatus 而不是状态码。
 	const document = async (path, options = {}) => {
 		const response = await request(path, { ...options, headers: { ...options.headers, accept: 'text/html' } });
-		const body = response.status === 302 ? '' : await response.text();
-		const initialData = body.match(/__INITIAL_DATA__=(\{.*?\});<\/script>/s);
-		return { response, body, pageStatus: initialData ? JSON.parse(initialData[1]).pageStatus : undefined };
+		if (response.status === 302) return { response, body: '', pageStatus: undefined };
+		const page = await readPageContext(app, 'localhost', path, { cookie: options.cookie, headers: { 'x-device-key': deviceKey, 'x-device-fingerprint': fingerprintData } });
+		return { response, body: page.document, pageStatus: page.context.pageStatus };
 	};
 
 	// 未登录访问不存在的路径。
 	const missing = await document('/no-such-page.html');
-	assert.equal(missing.response.status, 404);
+	assert.equal(missing.pageStatus.status, 404);
 	assert.equal(missing.pageStatus.status, 404);
 	assert.equal(missing.pageStatus.title, '页面不存在');
-	assert.match(missing.body, /页面不存在/);
+	// 文案不再嵌在文档里（CDN 模式的壳对所有页面一致），由上面的 pageStatus.title 断言覆盖。
+	assert.match(missing.pageStatus.description, /no-such-page/);
 
 	// 未登录访问需要登录的路径。
 	const anonymousPanel = await document('/panel/admin/global/dashboard.html');
-	assert.equal(anonymousPanel.response.status, 401);
+	assert.equal(anonymousPanel.pageStatus.status, 401);
 	assert.equal(anonymousPanel.pageStatus.title, '请先登录');
 	assert.deepEqual(anonymousPanel.pageStatus.actions.map((action) => action.key), ['/sign', '/']);
 	assert.deepEqual(anonymousPanel.pageStatus.actions.map((action) => action.action), ['local-login', 'navigate']);
 
 	// /sign 只保留 API，公开页面入口已移除。
 	const removedSignPage = await document('/sign.html');
-	assert.equal(removedSignPage.response.status, 404);
+	assert.equal(removedSignPage.pageStatus.status, 404);
 	assert.equal(removedSignPage.pageStatus.status, 404);
 
-	// 公开页面正常渲染，不返回状态提示。
-	const about = await document('/about.html');
-	assert.equal(about.response.status, 200);
-	assert.equal(about.pageStatus, undefined);
+	// 公开页面正常渲染，不返回状态提示。原来的 /about 页面已经不存在，改用现有的公开页面。
+	const publicPage = await document('/page/privacy.html');
+	assert.equal(publicPage.response.status, 200);
+	assert.equal(publicPage.pageStatus, undefined);
 
-	// 缺少页面后缀的合法路径跳转到规范地址。
-	const withoutSuffix = await document('/about?from=test');
-	assert.equal(withoutSuffix.response.status, 302);
-	assert.equal(new URL(withoutSuffix.response.headers.get('location')).pathname, '/about.html');
-	assert.equal(new URL(withoutSuffix.response.headers.get('location')).search, '?from=test');
+	// 无后缀路径是同一页面的访问别名，直接返回页面内容而不是重定向（见 AGENTS.md 的目录与别名约定）。
+	const withoutSuffix = await document('/panel/me?from=test');
+	assert.equal(withoutSuffix.response.status, 200);
+	assert.equal(withoutSuffix.response.headers.get('location'), null);
+	assert.equal(withoutSuffix.pageStatus.status, 401, '未登录访问个人中心仍然给出登录提示');
 
 	// JSON 接口给出同样的提示，供前端路由兜底使用。
 	const anonymousStatus = await (await request('/api/page-status.php?path=/panel/admin/global/dashboard')).json();
 	assert.equal(anonymousStatus.pageStatus.status, 401);
 	const unknownStatus = await (await request('/api/page-status.php?path=/no-such-page')).json();
 	assert.equal(unknownStatus.pageStatus.status, 404);
-	const allowedStatus = await (await request('/api/page-status.php?path=/about')).json();
-	assert.equal(allowedStatus.pageStatus.status, 500);
-	assert.equal(allowedStatus.pageStatus.title, '页面暂不可用');
+	// 原来用 /about 验证"角色允许但无法渲染 → 500 页面暂不可用"。该页面已被移除，
+	// 当前导航里也没有其它这类节点（分组节点按 404 处理），暂时没有可用的 fixture。
+	// 恢复该覆盖需要先造一个有角色、无组件的导航节点。
 
 	assert.equal((await request('/api/sign.php', { method: 'PUT', body: { username: 'page_admin', password: 'test-password-123' } })).status, 201);
 	const adminLogin = await request('/api/sign.php', { method: 'POST', body: { username: 'page_admin', password: 'test-password-123' } });
@@ -89,7 +93,7 @@ try {
 
 	// 已登录但角色不足。
 	const forbidden = await document('/panel/admin/global/dashboard.html', { cookie: userCookie });
-	assert.equal(forbidden.response.status, 403);
+	assert.equal(forbidden.pageStatus.status, 403);
 	assert.equal(forbidden.pageStatus.title, '无权访问');
 	assert.match(forbidden.pageStatus.description, /page_user/);
 	const forbiddenStatus = await (await request('/api/page-status.php?path=/panel/admin/global/dashboard', { cookie: userCookie })).json();
@@ -97,7 +101,7 @@ try {
 
 	// 已登录用户访问不存在的路径仍然是 404。
 	const userMissing = await document('/panel/admin/nope.html', { cookie: userCookie });
-	assert.equal(userMissing.response.status, 404);
+	assert.equal(userMissing.pageStatus.status, 404);
 	assert.equal(userMissing.pageStatus.status, 404);
 
 	// 个人中心对普通用户开放。
