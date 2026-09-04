@@ -16,6 +16,9 @@ const columns = [
 	{ dataIndex: 'created_duid', title: '操作者' },
 	{ dataIndex: 'owner_uid', title: '作用账号' },
 	{ dataIndex: 'status', title: '状态' },
+	{ dataIndex: 'status_changed_at', title: '撤回时间', dataType: 'js_timestamp' as const, dayjsFormat: 'YYYY-MM-DD HH:mm:ss' },
+	{ dataIndex: 'status_changed_duid', title: '撤回人' },
+	{ dataIndex: 'status_reason', title: '撤回理由' },
 ];
 
 const publicEntry = (row: AuditEntryRow) => ({
@@ -29,6 +32,9 @@ const publicEntry = (row: AuditEntryRow) => ({
 	created_duid: row.created_duid ?? '',
 	owner_uid: row.owner_uid ?? '',
 	status: statusLabels[row.status] ?? row.status,
+	status_changed_at: row.status_changed_at ?? '',
+	status_changed_duid: row.status_changed_duid ?? '',
+	status_reason: row.status_reason ?? '',
 });
 
 const readIds = async (c: Parameters<ApiHandler>[0], routeId?: string) => {
@@ -45,8 +51,9 @@ const handler: ApiHandler = async (c, next, params) => {
 			// 审计记录不可修改、不可删除，接口层因此没有新增、编辑与删除入口（§7.3）。
 			option: { rowKey: 'id', actions: {
 				query: [{ key: 'search', label: '搜索' }],
-				toolbar: [{ key: 'revert', label: '撤回选中记录', confirm: '确认撤回选中的变更吗？将按时间从新到旧逐条还原。' }],
-				row: [{ key: 'revert', label: '撤回', confirm: '确认撤回这条变更吗？' }],
+				// 撤回不新开记录，而是把这一条翻到另一面；已撤回的再点一次就恢复。
+				toolbar: [{ key: 'revert', label: '撤回 / 恢复选中记录', confirm: '确认翻转选中的变更吗？撤回按时间从新到旧、恢复从旧到新逐条执行。' }],
+				row: [{ key: 'revert', label: '撤回 / 恢复', confirm: '确认翻转这条变更吗？' }],
 			} },
 			columns,
 			dataSource: rows.map(publicEntry),
@@ -61,9 +68,11 @@ const handler: ApiHandler = async (c, next, params) => {
 	if (c.req.method === 'POST' && c.req.query('action') === 'revert') {
 		const ids = await readIds(c, params.id);
 		if (!ids.length) return apiMessage(c, 400, '请选择要撤回的记录');
-		const results = await revertAuditEntries(c, database, ids);
+		const body = await c.req.json<unknown>().catch(() => undefined);
+		const reason = body && typeof body === 'object' && !Array.isArray(body) && typeof (body as Record<string, unknown>)._reason === 'string' ? String((body as Record<string, unknown>)._reason).trim().slice(0, 500) : '';
+		const results = await revertAuditEntries(database, ids, reason);
 		const failed = results.filter((result) => !result.ok);
-		if (!failed.length) return apiMessage(c, 200, `已撤回 ${results.length} 条变更`);
+		if (!failed.length) return apiMessage(c, 200, `已处理 ${results.length} 条变更`);
 		// 逐条独立判定：某一条被拒绝时其余照常执行，最后逐条返回结果（§7.4）。
 		const detail = failed.map((result) => `#${result.id} ${result.message}`).join('；');
 		return apiMessage(c, results.length === failed.length ? 409 : 200, `成功 ${results.length - failed.length} 条，失败 ${failed.length} 条：${detail}`);

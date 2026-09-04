@@ -140,18 +140,32 @@ try {
 	// ---- 撤回（§7）----
 	const nameOf = async (id) => (await firstSql(acting, sql({ database: acting }).select({ table: 'base_users', columns: { name: 'name' }, where: [{ column: 'id', value: id }], deleted: 'all' }))).name;
 	const statusOf = async (entryId) => (await firstSql(acting, sql({ database: acting }).select({ table: 'base_audit_entries', columns: { status: 'status' }, where: [{ column: 'id', value: entryId }] }))).status;
-	const revert = (ids) => revertAuditEntries(context(), acting, ids);
+	const revert = (ids, reason = '') => revertAuditEntries(acting, ids, reason);
+	const entryById = async (id) => (await entries()).find((entry) => entry.id === id);
 
+	// 撤回不新开记录，而是把这一条翻到另一面。
 	await op(sql({ database: acting }).update('base_users', { name: 'dave' }, { id: alice.id }));
 	const daveEntry = await latestEntry();
 	const beforeRevert = (await entries()).length;
-	assert.deepEqual(await revert([daveEntry.id]), [{ id: daveEntry.id, ok: true, message: '已撤回：update' }]);
+	assert.deepEqual(await revert([daveEntry.id], '撤回理由：改错了'), [{ id: daveEntry.id, ok: true, message: '已撤回' }]);
 	assert.equal(await nameOf(alice.id), 'alice-3', '撤回后字段应恢复原值');
 	assert.equal(await statusOf(daveEntry.id), 'reverted');
-	assert.equal((await entries()).length, beforeRevert + 1, '撤回本身也要留一条记录');
-	assert.match((await latestEntry()).reason, /撤回审计记录/, '撤回记录要写明它是一次撤回');
+	assert.equal((await entries()).length, beforeRevert, '撤回不产生新的审计记录');
+	// 翻转的操作者、时间与理由另存三列：原记录的 created_* 属于原操作者，不能复用。
+	const flipped = await entryById(daveEntry.id);
+	assert.equal(flipped.status_reason, '撤回理由：改错了');
+	assert.ok(Number(flipped.status_changed_at) > 0, '要记下什么时候撤的');
+	assert.equal(flipped.reason, daveEntry.reason, '原操作的理由不应被覆盖');
 
-	assert.deepEqual(await revert([daveEntry.id]), [{ id: daveEntry.id, ok: false, message: '该记录已经撤回过' }]);
+	// 撤回错了就再翻回来，不会堆出一串互相指向的记录。
+	assert.deepEqual(await revert([daveEntry.id], '恢复：撤错了'), [{ id: daveEntry.id, ok: true, message: '已恢复' }]);
+	assert.equal(await nameOf(alice.id), 'dave', '恢复后应回到变更后的值');
+	assert.equal(await statusOf(daveEntry.id), 'applied');
+	assert.equal((await entries()).length, beforeRevert, '恢复同样不产生新记录');
+	assert.equal((await entryById(daveEntry.id)).status_reason, '恢复：撤错了', '只留最后一次翻转');
+	// 再撤回一次，把数据放回后面用例期望的位置。
+	assert.equal((await revert([daveEntry.id]))[0].ok, true);
+	assert.equal(await nameOf(alice.id), 'alice-3');
 
 	// 要还原的列在变更之后又被改过时，撤回被拒绝且数据不变。
 	await op(sql({ database: acting }).update('base_users', { name: 'erin' }, { id: alice.id }));
@@ -179,6 +193,13 @@ try {
 	assert.deepEqual(chained.map((r) => r.ok), [true, true], '链式变更倒序撤回应全部成功');
 	assert.equal(chained[0].id, stepC.id, '执行顺序必须是从新到旧，不沿用传入顺序');
 	assert.equal(await nameOf(alice.id), 'frank', '连续撤回后应回到最初值');
+	// 恢复方向相反：从旧到新才走得通。
+	const restored = await revert([stepC.id, stepB.id]);
+	assert.deepEqual(restored.map((r) => r.ok), [true, true], '链式恢复应全部成功');
+	assert.equal(restored[0].id, stepB.id, '恢复必须从旧到新');
+	assert.equal(await nameOf(alice.id), 'step-c', '连续恢复后应回到最后的值');
+	assert.deepEqual((await revert([stepB.id, stepC.id])).map((r) => r.ok), [true, true]);
+	assert.equal(await nameOf(alice.id), 'frank');
 
 	// 多选中某一条被拒绝时，其余条目照常执行。
 	await op(sql({ database: acting }).update('base_users', { name: 'mixed' }, { id: alice.id }));
@@ -190,18 +211,22 @@ try {
 
 	assert.deepEqual(await revert(['999999']), [{ id: '999999', ok: false, message: '审计记录不存在或无权访问' }]);
 
-	// 撤回软删除后回到未删除；撤回恢复后写回**原时间戳**而不是当前时间。
+	// 撤回软删除后回到未删除；再翻回来时 deleted_at 写回**原时间戳**而不是当前时间。
+	const deletedAtOf = async () => (await firstSql(acting, sql({ database: acting }).select({ table: 'base_users', columns: { deleted_at: 'deleted_at' }, where: [{ column: 'id', value: alice.id }], deleted: 'all' }))).deleted_at;
 	await op(sql({ database: acting }).softDelete('base_users', { id: alice.id }));
 	const deleteEntry = await latestEntry();
-	const deletedAt = (await firstSql(acting, sql({ database: acting }).select({ table: 'base_users', columns: { deleted_at: 'deleted_at' }, where: [{ column: 'id', value: alice.id }], deleted: 'all' }))).deleted_at;
+	const deletedAt = await deletedAtOf();
+	assert.equal(deleteEntry.action, 'soft_delete');
 	assert.ok(Number(deletedAt) > 0);
+	const beforeFlip = (await entries()).length;
 	assert.equal((await revert([deleteEntry.id]))[0].ok, true);
-	assert.equal(Number((await firstSql(acting, sql({ database: acting }).select({ table: 'base_users', columns: { deleted_at: 'deleted_at' }, where: [{ column: 'id', value: alice.id }], deleted: 'all' }))).deleted_at), 0);
-	const undeleteEntry = await latestEntry();
-	assert.equal(undeleteEntry.action, 'restore');
-	assert.equal((await revert([undeleteEntry.id]))[0].ok, true);
-	assert.equal(String((await firstSql(acting, sql({ database: acting }).select({ table: 'base_users', columns: { deleted_at: 'deleted_at' }, where: [{ column: 'id', value: alice.id }], deleted: 'all' }))).deleted_at), String(deletedAt), '撤回恢复应写回原时间戳');
-	await op(sql({ database: acting }).restore('base_users', { id: alice.id }));
+	assert.equal(Number(await deletedAtOf()), 0, '撤回软删除后记录应回到未删除');
+	assert.equal((await entries()).length, beforeFlip, '撤回软删除不产生新记录');
+	assert.equal(await statusOf(deleteEntry.id), 'reverted');
+	assert.equal((await revert([deleteEntry.id]))[0].ok, true);
+	assert.equal(String(await deletedAtOf()), String(deletedAt), '恢复删除应写回原时间戳，而不是当前时间');
+	assert.equal((await revert([deleteEntry.id]))[0].ok, true);
+	assert.equal(Number(await deletedAtOf()), 0);
 
 	// ---- 凭证列：照常记录、照常撤回，只是接口不返回值（§5）----
 	await op(sql({ database: acting }).update('base_users', { password: 'hash-2' }, { id: alice.id }));

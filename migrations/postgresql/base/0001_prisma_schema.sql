@@ -292,6 +292,9 @@ CREATE TABLE "base_audit_entries" (
     "action" "BaseAuditAction" NOT NULL,
     "changes" JSONB NOT NULL DEFAULT '{}',
     "status" "BaseAuditStatus" NOT NULL DEFAULT 'applied',
+    "status_changed_at" BIGINT,
+    "status_changed_duid" BIGINT,
+    "status_reason" TEXT NOT NULL DEFAULT '',
 
     CONSTRAINT "base_audit_entries_pkey" PRIMARY KEY ("id")
 );

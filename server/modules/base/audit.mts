@@ -1,10 +1,7 @@
-import type { Context } from 'hono';
-import type { AppEnv } from './types.mjs';
-import { runOperation } from './operation.mjs';
 import { withDatabaseActors, type DatabaseAdapter } from '@server/database/index.mjs';
 import { createDatabaseConfigStore } from './config-store.mjs';
 import { normalizeSiteSettings } from './site-settings.mjs';
-import { allSql, AUDIT_TABLE, firstSql, runSql, sql, type SqlAuditAction, type SqlCondition } from '@server/database/sql.mjs';
+import { allSql, AUDIT_TABLE, firstSql, runSql, runSystemSql, sql, type SqlAuditAction, type SqlCondition } from '@server/database/sql.mjs';
 import { isHiddenValueColumn } from '@shared/audit-tables.mjs';
 
 export type AuditChange = { before: unknown; after: unknown };
@@ -18,6 +15,9 @@ export type AuditEntryRow = {
 	action: SqlAuditAction;
 	changes: string;
 	status: 'applied' | 'reverted';
+	status_changed_at: number | null;
+	status_changed_duid: string | null;
+	status_reason: string;
 	created_at: number;
 	created_duid: string | null;
 	owner_uid: string | null;
@@ -32,6 +32,9 @@ const entryColumns = {
 	action: 'action',
 	changes: 'changes',
 	status: 'status',
+	status_changed_at: 'status_changed_at',
+	status_changed_duid: { column: 'status_changed_duid', cast: 'text' as const },
+	status_reason: 'status_reason',
 	created_at: 'created_at',
 	created_duid: { column: 'created_duid', cast: 'text' as const },
 	owner_uid: { column: 'owner_uid', cast: 'text' as const },
@@ -76,41 +79,60 @@ export const readAuditEntry = (database: DatabaseAdapter, id: string) => firstSq
 	where: [{ column: 'id', value: id }],
 }));
 
-/** update 的逆操作是把前值写回；软删除与恢复只是碰的列恰好是 deleted_at（§7.1）。 */
-const inverseAction = (action: SqlAuditAction): SqlAuditAction => action === 'soft_delete' ? 'restore' : action === 'restore' ? 'soft_delete' : 'update';
-
 export type AuditRevertResult = { id: string; ok: boolean; message: string };
 
-const revertOne = async (c: Context<AppEnv>, database: DatabaseAdapter, entry: AuditEntryRow): Promise<AuditRevertResult> => {
-	if (entry.status !== 'applied') return { id: entry.id, ok: false, message: '该记录已经撤回过' };
+/**
+ * 撤回**不产生新的审计记录**，而是把这一条翻到另一面。
+ *
+ * 一次变更永远只有一条记录：`changes` 里同时有前值和后值，`status` 说明当前停在哪一边。
+ * 撤回错了就再翻回来（reverted → applied），不会堆出一串互相指向的记录。
+ *
+ * 但只翻 status 不够：原记录的 created_duid、created_at、reason 属于**原操作者**，
+ * 不能拿来表示"谁在什么时候把它撤了"。翻转的操作者、时间与理由另存三列。
+ *
+ * 代价是**只留最后一次翻转**：反复撤回又恢复的过程不保留，见需求文档 §14。
+ */
+const flipOne = async (database: DatabaseAdapter, entry: AuditEntryRow, reason: string): Promise<AuditRevertResult> => {
 	const changes = parseAuditChanges(entry.changes);
 	const columns = Object.keys(changes);
 	if (!columns.length) return { id: entry.id, ok: false, message: '该记录没有可还原的字段' };
-	const values = Object.fromEntries(columns.map((column) => [column, changes[column].before ?? null]));
-	// 每一列都要求"当前值仍等于变更后的值"，也就是这一列自那次变更之后没有被人动过（§7.2）。
-	// after 为 NULL 时必须写成 IS NULL：SQL 里 col = NULL 求值为 unknown，永远不匹配。
+	const reverting = entry.status === 'applied';
+	// 撤回写回 before、校验 after；恢复正好相反。除了方向，两者是同一段代码。
+	const target = (column: string) => reverting ? changes[column].before : changes[column].after;
+	const expected = (column: string) => reverting ? changes[column].after : changes[column].before;
+	const values = Object.fromEntries(columns.map((column) => [column, target(column) ?? null]));
+	// 每一列都要求"当前值仍等于翻转前那一侧的值"，也就是这一列之后没有被人动过（§7.2）。
+	// 期望值为 NULL 时必须写成 IS NULL：SQL 里 col = NULL 求值为 unknown，永远不匹配。
 	const where: SqlCondition[] = [
 		{ column: 'id', value: entry.row_id },
 		...columns.map((column): SqlCondition => {
-			const after = changes[column].after;
-			return after === null || after === undefined ? { column, operator: 'IS NULL' } : { column, value: after };
+			const value = expected(column);
+			return value === null || value === undefined ? { column, operator: 'IS NULL' } : { column, value };
 		}),
 	];
-	// 撤回本身也是一次人工操作，因此走操作层——它会为这次撤回记下一条新的审计记录（§7.3）。
-	const [result] = await runOperation(c, database, [sql({ database }).revert(entry.table_name, values, where)], { reason: `撤回审计记录 #${entry.id}` });
-	if (Number(result.meta?.changes ?? 0) === 0) return { id: entry.id, ok: false, message: '该记录已被后续修改覆盖，无法撤回' };
-	// status 是审计记录上唯一可变的字段，且只能从 applied 变成 reverted 一次。
-	await runSql(database, sql({ database }).update(AUDIT_TABLE, { status: 'reverted' }, [{ column: 'id', value: entry.id }, { column: 'status', value: 'applied' }]));
-	return { id: entry.id, ok: true, message: `已撤回：${inverseAction(entry.action)}` };
+	// 不走 runOperation：这次翻转的留痕就是原记录上的 status，不该再开一条。
+	const result = await runSystemSql(database, sql({ database }).revert(entry.table_name, values, where));
+	if (Number(result.meta?.changes ?? 0) === 0) {
+		return { id: entry.id, ok: false, message: `该记录已被后续修改覆盖，无法${reverting ? '撤回' : '恢复'}` };
+	}
+	// 带上原状态做条件：并发下只有一个请求能翻成功。
+	await runSql(database, sql({ database }).update(AUDIT_TABLE, {
+		status: reverting ? 'reverted' : 'applied',
+		status_changed_at: Date.now(),
+		status_changed_duid: database.actorUidForTable?.(AUDIT_TABLE) ?? database.actorUid ?? null,
+		status_reason: reason,
+	}, [{ column: 'id', value: entry.id }, { column: 'status', value: entry.status }]));
+	return { id: entry.id, ok: true, message: reverting ? '已撤回' : '已恢复' };
 };
 
 /**
  * 多选撤回是逐条执行的批量入口，**不是原子的级联回滚**——无事务环境下做不到。
  *
- * 执行顺序必须按 created_at 降序重排，不能沿用列表的显示顺序（§8）：同一列经历
- * A → B → C 后当前值是 C，只有先撤 B→C 才能接着撤 A→B。某一条被拒绝时其余照常执行。
+ * 执行顺序必须在实现里重排，不能沿用列表的显示顺序（§8）：同一列经历 A → B → C 后
+ * 当前值是 C，只有先撤 B→C 才能接着撤 A→B。恢复方向相反，因此按时间升序走。
+ * 某一条被拒绝时其余照常执行，最后逐条返回结果。
  */
-export const revertAuditEntries = async (c: Context<AppEnv>, database: DatabaseAdapter, ids: readonly string[]): Promise<AuditRevertResult[]> => {
+export const revertAuditEntries = async (database: DatabaseAdapter, ids: readonly string[], reason = ''): Promise<AuditRevertResult[]> => {
 	const entries: AuditEntryRow[] = [];
 	const missing: AuditRevertResult[] = [];
 	for (const id of ids) {
@@ -118,9 +140,11 @@ export const revertAuditEntries = async (c: Context<AppEnv>, database: DatabaseA
 		if (entry) entries.push(entry);
 		else missing.push({ id, ok: false, message: '审计记录不存在或无权访问' });
 	}
-	entries.sort((left, right) => Number(right.created_at) - Number(left.created_at) || Number(right.id) - Number(left.id));
+	const newestFirst = (left: AuditEntryRow, right: AuditEntryRow) => Number(right.created_at) - Number(left.created_at) || Number(right.id) - Number(left.id);
+	const reverting = entries.filter((entry) => entry.status === 'applied').sort(newestFirst);
+	const restoring = entries.filter((entry) => entry.status === 'reverted').sort((left, right) => newestFirst(right, left));
 	const results: AuditRevertResult[] = [];
-	for (const entry of entries) results.push(await revertOne(c, database, entry));
+	for (const entry of [...reverting, ...restoring]) results.push(await flipOne(database, entry, reason));
 	return [...results, ...missing];
 };
 
