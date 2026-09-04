@@ -2,6 +2,7 @@ import type { ApiHandler } from '@server/modules/base/api-router.mjs';
 import { baseSessionMaxAge, clearSessionCookie, createSessionCookie, createStoredPassword, hashSessionToken, readSessionId, verifyStoredPassword } from '@server/modules/base/auth/index.mjs';
 import { ensureBaseDevice } from '@server/modules/base/device.mjs';
 import { resolveRegistrationMode } from '@server/modules/base/registration.mjs';
+import { allowsLocalLogin } from '@server/modules/passport/accounts/client.mjs';
 import { withDatabaseActors, type DatabaseAdapter } from '@server/database/index.mjs';
 import { apiMessage, apiMessageData, apiResponse } from '@server/modules/base/api-response.mjs';
 import type { FormPageConfig } from '@shared/types/form-page.mjs';
@@ -133,12 +134,16 @@ const localSign: ApiHandler = async (c, next) => {
 /** 登录入口：站点在系统设置里启用 Accounts 登录后走 OIDC，否则回落到本站账号密码登录。 */
 const handler: ApiHandler = async (c, next) => {
 	const config = await loadAccountsOidcConfig(c);
-	if (c.get('accountsLoginMode') === 'local') {
-		// 未启用 Accounts 登录时，SDK 的登录请求不能被当成本地账号密码登录，否则会报"用户名或密码错误"。
+	if (allowsLocalLogin(c.get('accountsLoginMode'))) {
+		// Accounts 登录不可用时，SDK 的登录请求不能被当成本地账号密码登录，否则会报"用户名或密码错误"。
 		if (c.req.method === 'POST') {
 			const body = await c.req.json<Record<string, unknown>>().catch(() => ({} as Record<string, unknown>));
-			if (body.action === 'login') return apiMessage(c, 409, '本站未启用 Accounts 登录，请使用本站账号密码登录');
-			if (typeof body.step === 'string' || 'email' in body) return apiMessage(c, 409, '登录方式已切换为本地账号密码，请刷新页面后重试');
+			// both 模式两条路径并存，Accounts 的请求要放行给下游处理。
+			const accountsRequest = body.action === 'login' || typeof body.step === 'string' || 'email' in body;
+			if (accountsRequest && c.get('accountsLoginMode') === 'local') {
+				return apiMessage(c, 409, body.action === 'login' ? '本站未启用 Accounts 登录，请使用本站账号密码登录' : '登录方式已切换为本地账号密码，请刷新页面后重试');
+			}
+			if (accountsRequest) return next();
 		}
 		return localSign(c, next, {});
 	}

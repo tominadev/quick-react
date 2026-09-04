@@ -3,7 +3,12 @@ import type { AppEnv } from '@server/modules/base/types.mjs';
 import { base64Url, decodeBase64Url, safeEqual, utf8 } from '@server/modules/passport/accounts/oidc.mjs';
 
 export type AccountsOidcClientConfig = { enabled: boolean; issuer: string; clientId: string; clientSecret: string };
-export type AccountsLoginMode = 'local' | 'oidc';
+/**
+ * - `local`：未接入 Accounts，只有本站账号密码登录。
+ * - `oidc`：已接入，只允许 Accounts 登录。
+ * - `both`：已接入，但站点设置里开了「保留本站登录」，两条路径并存。
+ */
+export type AccountsLoginMode = 'local' | 'oidc' | 'both';
 export const accountsOidcConfigKey = 'accounts-oidc-client';
 export const defaultAccountsOidcConfig: AccountsOidcClientConfig = { enabled: false, issuer: '', clientId: '', clientSecret: '' };
 
@@ -20,7 +25,13 @@ export const normalizeAccountsOidcConfig = (value: unknown, previous = defaultAc
 };
 
 /** 所有站点共用同一条登录策略；只有 Accounts 凭据处理器按站点能力分流。 */
-export const resolveAccountsLoginMode = (config: AccountsOidcClientConfig): AccountsLoginMode => config.enabled ? 'oidc' : 'local';
+export const resolveAccountsLoginMode = (config: AccountsOidcClientConfig, localLoginEnabled = false): AccountsLoginMode =>
+	config.enabled ? (localLoginEnabled ? 'both' : 'oidc') : 'local';
+
+/** 本站账号密码登录是否可用：未接入 Accounts，或接入了但保留了本站登录。 */
+export const allowsLocalLogin = (mode: AccountsLoginMode) => mode !== 'oidc';
+/** Accounts 登录是否可用。 */
+export const allowsAccountsLogin = (mode: AccountsLoginMode) => mode !== 'local';
 
 export const loadAccountsOidcConfig = async (c: Context<AppEnv>) => normalizeAccountsOidcConfig(await c.get('configStore').get(accountsOidcConfigKey));
 export const oidcFetch = (c: Context<AppEnv>, input: RequestInfo | URL, init?: RequestInit) => c.env.OIDC_FETCH ? c.env.OIDC_FETCH(input, init) : fetch(input, init);

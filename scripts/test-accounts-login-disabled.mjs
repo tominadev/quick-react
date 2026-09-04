@@ -73,6 +73,24 @@ const deviceKey = '00000000-0000-4000-8000-000000000001';
 	const navigationKeys = (items) => items.flatMap((item) => [String(item.key), ...navigationKeys(item.children ?? [])]);
 	assert.ok(navigationKeys(passportInitial.siteNavigation).includes('/panel/admin/base/settings/accounts-oidc'));
 
+	// 「保留本站登录」开关：接入 Accounts 之后两条登录路径并存。
+	// 必须先开这个开关再启用 Accounts——启用那一刻本地会话立即失效，之后就进不来改它了。
+	const sitePath = '/api/panel/admin/base/settings/site.php';
+	const siteSettings = (await (await request(sitePath, { headers: { cookie } })).json()).currentValues;
+	assert.equal(siteSettings.localLoginEnabled, false, '开关默认关闭');
+	assert.equal((await request(sitePath, { method: 'PUT', headers: { cookie }, body: { ...siteSettings, localLoginEnabled: true, __changedFields: ['localLoginEnabled'] } })).status, 200);
+	const oidcSettings = (await (await request(settingsPath, { headers: { cookie } })).json()).currentValues;
+	assert.equal((await request(settingsPath, { method: 'PUT', headers: { cookie }, body: { ...oidcSettings, enabled: true, issuer: 'https://accounts.test', clientId: 'cid', clientSecret: 'sec', __changedFields: ['enabled', 'issuer', 'clientId', 'clientSecret'] } })).status, 200);
+	const bothHome = await initialData('/');
+	assert.deepEqual(
+		bothHome.auth.actions.map((action) => action.action),
+		['local-login', 'accounts-login'],
+		'both 模式下两个登录入口都要出现',
+	);
+	assert.equal((await request('/api/sign.php', { method: 'POST', body: { username: 'local_admin', password: 'test-password-123' } })).status, 200, 'both 模式下本站密码登录仍然可用');
+	// Accounts 那条路径的请求要放行给下游，不能被当成本地登录挡掉。
+	assert.notEqual((await request('/api/sign.php', { method: 'POST', body: { action: 'login' } })).status, 409);
+
 	console.log('accounts login disabled test passed');
 } finally {
 	await rm(temporaryDirectory, { recursive: true, force: true });

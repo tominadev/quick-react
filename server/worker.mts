@@ -134,14 +134,14 @@ const configureForRequest = async (c: Context<WorkerEnv>) => {
 	c.set('transportIp', getTransportIp(c));
 	c.set('accountsIdentity', accountsIdentity);
 	const accountsConfig = await loadAccountsOidcConfig(c);
-	const accountsLoginMode = resolveAccountsLoginMode(accountsConfig);
+	const accountsLoginMode = resolveAccountsLoginMode(accountsConfig, configuration.siteSettings.localLoginEnabled);
 	c.set('accountsLoginMode', accountsLoginMode);
 	const storedCurrentUser = await loadCurrentUser(database, c.req.raw);
 	const oidcSession = storedCurrentUser && await sessionUsesAccountsOidc(database, c.req.raw);
-	// 开关切换后不继续接受上一种登录方式遗留的 Cookie。
-	const currentUser = storedCurrentUser && (accountsLoginMode === 'oidc' ? oidcSession : accountsLoginMode === 'local' && !oidcSession)
-		? storedCurrentUser
-		: undefined;
+	// 开关切换后不继续接受上一种登录方式遗留的 Cookie；both 模式两种会话都认。
+	const sessionMatchesMode = accountsLoginMode === 'both'
+		|| (accountsLoginMode === 'oidc' ? oidcSession : !oidcSession);
+	const currentUser = storedCurrentUser && sessionMatchesMode ? storedCurrentUser : undefined;
 	if (currentUser) c.set('currentUser', currentUser);
 	const apiBootstrapDocument = configuration.siteSettings.apiBootstrapEnabled
 		&& c.req.method === 'GET'

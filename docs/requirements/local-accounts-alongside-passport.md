@@ -39,6 +39,8 @@
 
 由站点设置里的开关控制（`siteSettings.localLoginEnabled`，默认关闭）。关闭时行为与今天完全一致，因此这是一个纯增量的改动。
 
+**必须先开这个开关，再启用 Accounts 登录。** 启用那一刻本地会话立即失效（`worker.mts` 里「开关切换后不继续接受上一种登录方式遗留的 Cookie」那条判定），顺序反了就进不去后台改这个开关，只能走维护工具箱。设置项的说明里写明了这一点。
+
 登录页在 `both` 模式下同时显示 Accounts 按钮与本站表单；`page-context.mts` 里 `!accountsLogin && …` 那条判断随之改成按模式判定。
 
 ## 4. 本站账号自助改资料
@@ -95,7 +97,7 @@ Accounts 登录成功时，把凭证同步到本站账号，使本站登录用�
 两条硬性要求：
 
 - **不能进 `profile`。** `callback.mts` 现在把整个 claims 写进 `base_oidc_users.profile`，而那是「数据管理」里可见的普通列。凭证 claim 必须在写 profile 之前剔掉，否则等于又泄一处。
-- **只送 `hash`，`pattern` 送空串。** `pattern` 记的是密码的字符类布局（`"SUSLDLDDD"`），对爆破是极强的提示，而且它还显示在用户管理页上（`users.mts` 的 `readStoredPassword(row.password)?.pattern`）。空串匹配 `[DULS]*`，是合法值。
+**`password` 原样拷贝，`pattern` 一并带上。** 曾建议只送 `hash`、`pattern` 送空串——理由是 `pattern` 记的是密码的字符类布局（`"SUSLDLDDD"`），对爆破是极强的提示，而且它还显示在用户管理页上。主人权衡后选择原样拷贝：两边的账号资料保持完全一致，包括用户管理页上看到的密码规律。
 
 ### 6.4 已知代价
 

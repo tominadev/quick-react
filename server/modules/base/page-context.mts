@@ -1,6 +1,7 @@
 import type { Context } from 'hono';
 import type { AppEnv } from './types.mjs';
 import { resolveRegistrationMode } from './registration.mjs';
+import { allowsAccountsLogin, allowsLocalLogin } from '@server/modules/passport/accounts/client.mjs';
 import type { AuthPage, AuthState, HeaderAction, PageStatus } from '@shared/types/initial-data.mjs';
 import { findNavigationItem, normalizePagePath, stripPageSuffix } from '@shared/navigation-tree.mjs';
 import { getFullSiteNavigation, getPageDefinitions, getSiteNavigation } from './navigation.mjs';
@@ -12,11 +13,11 @@ const callbackPagePaths = ['/accounts/external/callback', '/accounts/external/we
 /** 未登录时的认证入口；退出接口复用这份后端配置，前端无需刷新页面或自行推断登录方式。 */
 export const buildAnonymousAuthState = async (c: Context<AppEnv>): Promise<AuthState> => {
 	const siteConfig = c.get('techStackConfig');
-	// 启用 Accounts 登录的站点不跳转登录页，直接在当前页弹出登录窗口。
+	// 只有 Accounts 登录的站点不跳转登录页，直接在当前页弹出登录窗口；
+	// both 模式保留本站登录页，Accounts 入口另开一个按钮。
 	const accountsLoginMode = c.get('accountsLoginMode');
-	const accountsLogin = accountsLoginMode !== 'local';
-	// 启用 Accounts 登录后不能再创建本地账号，注册入口一并隐藏。
-	const signUp = !accountsLogin && await resolveRegistrationMode(c) !== 'closed';
+	// 本站注册要在本站登录可用时才有意义：只有 Accounts 入口的话，注册出来的账号登不进来。
+	const signUp = allowsLocalLogin(accountsLoginMode) && await resolveRegistrationMode(c) !== 'closed';
 	// 公共 /sign 页面已取消；只保留注册页（初始管理员或开放注册）和身份提供方内部认证页。
 	const signPages: AuthPage[] = [
 		...(c.get('accountsIdentity') ? [{ path: `/accounts/sign${siteConfig.pageSuffix}`, title: 'Accounts 身份认证', description: '验证 Accounts 身份并继续 OIDC 授权', mode: 'sign' as const, apiPath: `/api/accounts/sign${siteConfig.apiSuffix}`, submitMethod: 'POST' as const, redirectPath: `/panel/accounts${siteConfig.pageSuffix}` }] : []),
@@ -25,7 +26,9 @@ export const buildAnonymousAuthState = async (c: Context<AppEnv>): Promise<AuthS
 	return {
 		component: 'buttons',
 		actions: [
-			{ key: '/sign', label: '登录', action: accountsLoginMode === 'oidc' ? 'accounts-login' : 'local-login', icon: 'login' },
+			// both 模式两个入口都给：本站登录走登录页，Accounts 登录在当前页弹窗。
+			...(allowsLocalLogin(accountsLoginMode) ? [{ key: '/sign', label: '登录', action: 'local-login' as const, icon: 'login' as const }] : []),
+			...(allowsAccountsLogin(accountsLoginMode) ? [{ key: '/sign', label: accountsLoginMode === 'both' ? 'Accounts 登录' : '登录', action: 'accounts-login' as const, icon: 'login' as const }] : []),
 			...(signUp ? [{ key: '/sign-up', label: '注册', action: 'navigate' as const, icon: 'register' as const }] : []),
 		],
 		pages: signPages,
@@ -95,7 +98,7 @@ export const resolvePageStatus = async (
 	const signPath = signIn.find((page) => page.apiPath.startsWith('/api/accounts/'))?.path ?? `/accounts/sign${pageSuffix}`;
 	if (!c.get('currentUser') || needsAccounts) {
 		// 业务站点用弹窗登录，不再把用户送到登录页。
-		const loginAction = needsAccounts ? 'navigate' as const : c.get('accountsLoginMode') === 'oidc' ? 'accounts-login' as const : 'local-login' as const;
+		const loginAction = needsAccounts ? 'navigate' as const : allowsLocalLogin(c.get('accountsLoginMode')) ? 'local-login' as const : 'accounts-login' as const;
 		return {
 			path: requestPath,
 			status: 401,
