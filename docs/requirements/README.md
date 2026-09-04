@@ -15,6 +15,7 @@
 | [data-visibility-and-delegated-access](data-visibility-and-delegated-access.md) | 租户与分站归属、可见性判定与代用户操作（owner_tid / owner_bid） |
 | [agent-tenants-and-management-views](agent-tenants-and-management-views.md) | 代理用户关系、管理视图、受限代查与计费归集 |
 | [change-audit-and-revert](change-audit-and-revert.md) | 变更留痕、撤回与审计保留期 |
+| [local-accounts-alongside-passport](local-accounts-alongside-passport.md) | 本站账号与 Accounts 身份并存：登录开关、自助改资料、撞名绑定与密码同步 |
 | [optimization-checklist](optimization-checklist.md) | 持续优化清单 |
 | [maintenance-toolbox](maintenance-toolbox.md) | 维护工具箱、救援入口与配置恢复 |
 | [sms-site-and-ed25519-binding](sms-site-and-ed25519-binding.md) | SMS 站点、数据模型、Ed25519 绑定协议与接收流程 |
