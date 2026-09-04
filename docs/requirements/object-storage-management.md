@@ -35,7 +35,6 @@
 一期不实现：
 
 - Redis 依赖
-- 凭据加密
 - 本地文件落盘
 - 服务端中转大文件
 - 分块上传（当前使用单次 PUT 直传，单文件上限为 5GB）
@@ -137,7 +136,7 @@ Endpoint 属于 Bucket 接入配置，不属于凭据。已知 Provider 根据�
 - Provider 没有独立校验目标时仍可点击测试，由后端返回“该自定义凭据暂不支持独立测试，请在 Bucket 配置中测试”的提示。前端不硬编码 Provider key，也不增加 `visible` 或条件字段；默认的 `other` Provider 因凭据中没有 Endpoint，属于这种情况。
 - 每个已保存 Bucket 始终提供 Bucket 测试，组合凭据、Endpoint、Region 和 Bucket 验证真实访问能力。
 
-一期内置的 AWS、Cloudflare、阿里云和腾讯云 Provider 都必须实现凭据测试。已知 Provider 应优先使用身份接口或稳定的控制面最小请求验证签名，不依赖某个已保存 Bucket；若只能使用资源发现接口，必须在 Provider 定义中明确所需最小权限。测试成功只返回必要反馈，不返回资源名称、Secret 或签名。后续可增加凭据加密、Secret 引用和密钥轮换，不改变 Bucket 及站点绑定模型。
+一期内置的 AWS、Cloudflare、阿里云和腾讯云 Provider 都必须实现凭据测试。已知 Provider 应优先使用身份接口或稳定的控制面最小请求验证签名，不依赖某个已保存 Bucket；若只能使用资源发现接口，必须在 Provider 定义中明确所需最小权限。测试成功只返回必要反馈，不返回资源名称、Secret 或签名。云凭据**明文入库，不做应用层加密**：解密密钥与数据库在同一台机器上，能脱库的人一样能拿到它，加密只增加复杂度而不增加安全性。云厂商的 access key 本来就以定期轮换为前提，防护应落在库的访问控制和轮换频率上。后续可增加 Secret 引用（把凭据换成外部密钥服务的句柄）和轮换提醒，不改变 Bucket 及站点绑定模型。
 
 腾讯云使用 CAM `GetUserAppId` 作为凭据测试请求，不传 Region；成功反馈显示 UIN、OwnerUin 和 AppId，便于管理员确认密钥所属账号。
 

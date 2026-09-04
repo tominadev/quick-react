@@ -107,22 +107,23 @@ export const NON_AUDITED_COLUMNS = [
 
 因此更新前读一次原行，与将写入的值逐列比对，**没有任何列变化时不产生记录**。
 
-## 5. 敏感值脱敏
+## 5. 凭证列：存值，但不显示
 
-`changes` 会原样捕获被改动的列值，其中包含凭证。**审计表绝不能存凭证**——否则它自己成为系统里最集中的泄露面：一张表里有全部账号的密码哈希与全部密钥的历史值。
+审计**原样记录所有列**的前后值，凭证列也不例外。它在活表里是什么形态，审计里就是什么形态——密码是哈希、外部 access key 是明文——**不额外加密**：解密密钥和数据库在同一台机器上，能脱库的人一样拿得到，应用层加密只增加复杂度，不增加安全性。
 
-按列名脱敏，跨表统一：
+因此**撤回对所有列都有效**。改错了云凭据、误改了密码，都能还原，而这恰恰是最需要撤回的场景。写回旧哈希，旧密码就恢复了；服务端全程不需要知道原文。
+
+限制只在**读取**这一侧：
 
 ```ts
-export const REDACTED_COLUMNS = [
-  'password', 'token_hash', 'secret_hash', 'secret_prefix', 'secret_encrypted',
-  'client_secret', 'public_key', 'private_key', 'value',
+// 存，但接口不返回值——只显示"该列已变更"
+export const HIDDEN_VALUE_COLUMNS = [
+  'password', 'token_hash', 'secret_hash', 'secret_prefix',
+  'access_key_secret', 'client_secret', 'private_key', 'value',
 ] as const;
 ```
 
-命中的列只记录"已变更"这一事实，不记录前后值。`base_configs.value` 一并脱敏——配置值里混着 OIDC 客户端密钥，无法逐条区分。
-
-代价是这些列的变更**不可撤回**（没有原值可还原），这是刻意的取舍：能撤回一个密码意味着能读出它。
+审计的列表与详情接口对这些列只返回"已变更"这一事实。撤回是服务端把记录里的值直接写回去，不经过接口，**不需要任何人看见它**。`base_configs.value` 整块 JSON 里混着 OIDC 客户端密钥、无法逐列区分，因此整列不显示。
 
 ## 6. 钩子落点与记录顺序
 
@@ -239,7 +240,7 @@ WHERE id = ? AND name = ?          -- after
 ## 12. 实施步骤
 
 1. 新建 `base_audit_entries`，补四个迁移组 × 四种方言的迁移文件。
-2. `shared/audit-tables.mts` 定义 `AUDITED_TABLES`、`UNAUDITED_TABLES`、`NON_AUDITED_COLUMNS` 与 `REDACTED_COLUMNS`，并加上 §3.4 的覆盖性测试。
+2. `shared/audit-tables.mts` 定义 `AUDITED_TABLES`、`UNAUDITED_TABLES`、`NON_AUDITED_COLUMNS` 与 `HIDDEN_VALUE_COLUMNS`，并加上 §3.4 的覆盖性测试。
 3. 在 `update` 上记录变更（`softDelete`、`restore` 自动覆盖）：先按表白名单过滤，再按写入的列名判断是否只碰了排除列（不读行即可短路），确认可能有业务列变化后才读原行逐列比对，逐列一致时同样不记录。
 
    钩子落点见 §6.1。
@@ -257,7 +258,7 @@ WHERE id = ? AND name = ?          -- after
 - 软删除与恢复各产生一条记录，`action` 分别为 `soft_delete` 与 `restore`。
 - 新增与物理删除不产生记录。
 - `update` 记录里只包含实际变化的列；提交未改动的字段不产生噪音，全部未变化时不产生记录。
-- 脱敏列的变更只记录"已变更"，`changes` 中不出现密码哈希、令牌哈希或密钥值。
+- 凭证列的值不出现在审计列表与详情的接口响应里，只显示"已变更"；撤回这些列仍然有效。
 - 代用户操作产生的记录中，`created_duid` 是客服的 device-user，`owner_uid` 是被代查的账号。
 - 新增记录不产生审计条目。
 - 撤回 `update` 后字段恢复原值；撤回 `delete` 后整行还原；撤回 `soft_delete` 后记录回到未删除状态。
@@ -278,7 +279,7 @@ WHERE id = ? AND name = ?          -- after
 
 - **不覆盖新增与物理删除。** 见 §3.0。三处后台的物理删除在改用软删除之前是审计盲区。
 - **只覆盖经过公共层的写入。** 裸 SQL 与迁移脚本不产生记录，这是有意的（数据搬迁不是业务变更）。
-- **脱敏列不可撤回。** 没有原值可还原，见 §5。
+- **凭证的历史值会在审计表里多留一段时间。** 存储形态与活表一致（§5），但保留期更长——已经轮换掉的密钥要等保留期到了才清除。
 - **多选撤回不是原子回滚。** 逐条独立执行，见 §7.4。
 - **业务变更每次多一次读。** 这是记录变更前值的代价；心跳写入按 §3.3 短路，不承担该成本。
 - **审计表本身不被审计。** 否则会无限递归；它靠不可修改与保留期保证完整性。
