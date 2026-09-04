@@ -67,7 +67,7 @@ try {
 	const mePath = '/api/panel/me.php';
 	assert.deepEqual(
 		(await (await request(mePath, { cookie })).json()).formPage.fields.map((field) => field.name),
-		['username', 'nickname', 'currentPassword', 'newPassword'],
+		['username', 'nickname', 'qq', 'wechat', 'email', 'currentPassword', 'newPassword'],
 	);
 	const save = (body) => request(mePath, { method: 'PUT', cookie, body });
 	assert.equal((await save({ nickname: '小明', __changedFields: ['nickname'] })).status, 200, '昵称可以用中文');
@@ -77,6 +77,15 @@ try {
 	// 没设资料时昵称回落到用户名，因此不能把别的账号的用户名占成自己的昵称，
 	// 否则两个账号会显示成同一个名字——这一条数据库约束管不了，只能查。
 	assert.equal((await save({ nickname: 'me_admin', __changedFields: ['nickname'] })).status, 200, '自己的用户名可以');
+	// 联系方式与昵称同在一张资料表，可以单独改；只清昵称不该把联系方式一起删掉。
+	assert.equal((await save({ qq: '10001', wechat: 'wx_me', email: 'me@example.test', __changedFields: ['qq', 'wechat', 'email'] })).status, 200);
+	const withContact = await (await request(mePath, { cookie })).json();
+	assert.deepEqual(
+		[withContact.formPage.initialValues.qq, withContact.formPage.initialValues.wechat, withContact.formPage.initialValues.email],
+		['10001', 'wx_me', 'me@example.test'],
+	);
+	assert.equal((await save({ nickname: '', __changedFields: ['nickname'] })).status, 200);
+	assert.equal((await (await request(mePath, { cookie })).json()).formPage.initialValues.qq, '10001', '清空昵称不该带走联系方式');
 	assert.equal((await save({ __changedFields: [] })).status, 400, '什么都没改要明确拒绝');
 	// 改密码必须先验当前密码：会话被盗时，能改密码就等于能永久接管账号。
 	assert.equal((await save({ newPassword: 'another-password-1', __changedFields: ['newPassword'] })).status, 403);

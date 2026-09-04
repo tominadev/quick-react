@@ -25,7 +25,8 @@ export const readProfileNickname = async (database: DatabaseAdapter, userId: str
 	return row?.nickname ?? undefined;
 };
 
-export type NicknameCheck = { error: string } | { statement: SqlQuery } | { clear: SqlQuery };
+export type ProfileFields = { nickname?: string; qq?: string; wechat?: string; email?: string };
+export type ProfileCheck = { error: string } | { statement: SqlQuery } | { clear: SqlQuery };
 
 /**
  * 校验并生成昵称写入语句。
@@ -33,20 +34,30 @@ export type NicknameCheck = { error: string } | { statement: SqlQuery } | { clea
  * 除了资料表自身的唯一索引，还要挡住「把别人的用户名占成自己的昵称」：昵称在没设时
  * 回落到用户名，不查这一条的话，A 把昵称设成 B 的用户名，两个人显示出来就一模一样。
  */
-export const nicknameStatement = async (
+export const profileStatement = async (
 	database: DatabaseAdapter,
 	userId: string | number | bigint,
-	rawNickname: string,
+	fields: ProfileFields,
 	tenantScope: { column: string; value?: unknown; operator?: 'IS NULL' },
-): Promise<NicknameCheck> => {
-	const nickname = rawNickname.trim();
-	if (!nickname) return { clear: sql({ database }).softDelete('base_user_profiles', { user_id: userId }) };
-	if (nickname.length > maxNicknameLength) return { error: `昵称最长 ${maxNicknameLength} 个字符` };
-	if (!nicknamePattern.test(nickname)) return { error: '昵称不能包含控制字符' };
-	const takenAsUsername = await firstSql(database, sql({ database }).select({
-		table: 'base_users', columns: { id: 'id' },
-		where: [{ column: 'name', value: nickname }, { column: 'id', operator: '!=', value: userId }, tenantScope], limit: 1,
-	}));
-	if (takenAsUsername) return { error: '该昵称与其他账号的用户名相同，请更换' };
-	return { statement: sql({ database }).upsert('base_user_profiles', ['user_id'], { user_id: userId, nickname }, ['nickname', 'updated_at']) };
+): Promise<ProfileCheck> => {
+	const values: Record<string, string> = Object.fromEntries(Object.entries(fields)
+		.filter(([, value]) => value !== undefined)
+		.map(([key, value]) => [key, String(value).trim()]));
+	if (!Object.keys(values).length) return { clear: sql({ database }).softDelete('base_user_profiles', { user_id: userId }) };
+	const nickname = values.nickname;
+	if (nickname !== undefined && nickname) {
+		if (nickname.length > maxNicknameLength) return { error: `昵称最长 ${maxNicknameLength} 个字符` };
+		if (!nicknamePattern.test(nickname)) return { error: '昵称不能包含控制字符' };
+		// 昵称没设时回落到用户名，所以不能占用别的账号的用户名——否则两个账号显示成同一个名字。
+		// 跨表的约束数据库管不了，只能写入前查。
+		const takenAsUsername = await firstSql(database, sql({ database }).select({
+			table: 'base_users', columns: { id: 'id' },
+			where: [{ column: 'name', value: nickname }, { column: 'id', operator: '!=', value: userId }, tenantScope], limit: 1,
+		}));
+		if (takenAsUsername) return { error: '该昵称与其他账号的用户名相同，请更换' };
+	}
+	// 昵称清空写 NULL 而不是空串：唯一索引里空串互相相等，第二个不设昵称的账号就建不出来。
+	// 也不删整行——只清昵称不该把联系方式一起带走，而留一行全空的资料是无害的。
+	const writable = { ...values, ...(values.nickname === '' ? { nickname: null } : {}) };
+	return { statement: sql({ database }).upsert('base_user_profiles', ['user_id'], { user_id: userId, ...writable }, [...Object.keys(writable), 'updated_at']) };
 };

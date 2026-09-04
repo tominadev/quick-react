@@ -336,7 +336,7 @@ CREATE TABLE `base_user_profiles` (
     `owner_bid` BIGINT NOT NULL DEFAULT 1,
     `owner_uid` BIGINT NULL,
     `user_id` BIGINT NOT NULL,
-    `nickname` VARCHAR(191) NOT NULL,
+    `nickname` VARCHAR(191) NULL,
     `qq` VARCHAR(191) NOT NULL DEFAULT '',
     `wechat` VARCHAR(191) NOT NULL DEFAULT '',
     `email` VARCHAR(191) NOT NULL DEFAULT '',

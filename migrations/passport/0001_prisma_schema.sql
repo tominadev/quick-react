@@ -590,7 +590,7 @@ CREATE TABLE "passport_user_profiles" (
     "owner_bid" BIGINT NOT NULL DEFAULT 1,
     "owner_uid" BIGINT,
     "user_id" BIGINT NOT NULL,
-    "nickname" TEXT NOT NULL,
+    "nickname" TEXT,
     "qq" TEXT NOT NULL DEFAULT '',
     "wechat" TEXT NOT NULL DEFAULT ''
 );

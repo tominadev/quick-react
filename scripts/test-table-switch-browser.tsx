@@ -145,4 +145,39 @@ await user.keyboard('{Enter}');
 await waitFor(() => assert.ok(requests.length > requestCountBeforeEnter, '回车必须发起搜索请求'));
 assert.ok(requests.at(-1)?.includes('keyword=abc'), `回车后的请求要带上输入的条件：${requests.at(-1)}`);
 
+// 列带 group 时编辑抽屉分 Tab；两组的字段都要提交上去。
+// Tab 默认懒渲染，没渲染过的 Form.Item 不会注册到表单——不 forceRender 的话
+// 另一组会整个丢掉，而用户根本察觉不到自己漏填了什么。
+cleanup();
+requests.length = 0;
+const grouped = {
+	option: { rowKey: 'id', actions: { row: [{ key: 'edit', label: '编辑' }] } },
+	columns: [
+		{ dataIndex: 'name', title: '名称', component: 'textbox', group: '基础设置' },
+		{ dataIndex: 'note', title: '备注', component: 'textbox', group: '个人简介' },
+	],
+	dataSource: [{ id: 'acct_string_id', name: 'A 行', note: '备注内容' }],
+	totalRecords: 1,
+};
+const groupedApi = {
+	...commonApi,
+	apiFetch: async (url: string, init?: RequestInit) => {
+		requests.push(String(url));
+		if (init?.method === 'PUT') { requests.push(`PUT-BODY ${String(init.body)}`); return new Response('{}', { headers: { 'content-type': 'application/json' } }); }
+		if (String(url).includes('/acct_string_id')) return new Response(JSON.stringify({ id: 'acct_string_id', name: 'A 行', note: '备注内容' }), { headers: { 'content-type': 'application/json' } });
+		return new Response(JSON.stringify({ table: grouped }), { headers: { 'content-type': 'application/json' } });
+	},
+};
+render(React.createElement(MemoryRouter, null, React.createElement(TableCRUD, { commonApi: groupedApi, resourcePath: '/panel/admin/base/users', initialResponse: { table: grouped } })));
+await waitFor(() => assert.ok(screen.getByText('A 行')));
+await user.click(screen.getByText('编辑'));
+await waitFor(() => assert.ok(screen.getByRole('tab', { name: '基础设置' })));
+assert.ok(screen.getByRole('tab', { name: '个人简介' }), '第二个分组要渲染成 Tab');
+// antd 会给两个汉字的按钮插一个空格，无障碍名是「确 定」而不是「确定」。
+await user.click(screen.getByRole('button', { name: /确\s*定/ }));
+await waitFor(() => assert.ok(requests.some((entry) => entry.startsWith('PUT-BODY'))));
+const submitted = JSON.parse(requests.find((entry) => entry.startsWith('PUT-BODY'))!.slice('PUT-BODY '.length)) as Record<string, unknown>;
+assert.equal(submitted.name, 'A 行');
+assert.equal(submitted.note, '备注内容', '未激活分组的字段也必须提交上去');
+
 console.log('table switch browser test passed');

@@ -7,7 +7,7 @@ import type { ChangeControlValue } from '@shared/table-form.mjs';
 import { changedFieldsKey, type ChangedFieldsPayload } from '@shared/types/changed-fields.mjs';
 
 import { ClearOutlined, InboxOutlined, RollbackOutlined } from '@ant-design/icons';
-import { Button, Checkbox, Col, DatePicker, Drawer, Form, Input, Row, Select, Space, Switch } from 'antd';
+import { Button, Checkbox, Col, DatePicker, Drawer, Form, Input, Row, Select, Space, Switch, Tabs } from 'antd';
 import { Upload } from 'antd';
 import { InputNumber } from 'antd';
 import { useEffect, useRef, useState } from 'react';
@@ -361,8 +361,11 @@ export default ({
 				initialValues={row}
 				disabled={submitting‌}
 			>
-				<Row gutter={16}>
-					{columns.map((item) => {
+				{(() => {
+					// 任一列带 group 就把表单分成可切换的 Tab；没带 group 的列归到第一个分组。
+					const groups = [...new Set(columns.map((item) => item.group).filter(Boolean))] as string[];
+					const renderFields = (list: ResJsonTableColumn[]) => (<Row gutter={16}>
+					{list.map((item) => {
 						if (!item.component) {
 							return;
 						}
@@ -416,7 +419,18 @@ export default ({
 							</Col>
 						);
 					})}
-				</Row>
+					</Row>);
+					if (!groups.length) return renderFields(columns);
+					const fallbackGroup = groups[0];
+					return <Tabs items={groups.map((group) => ({
+						key: group,
+						label: group,
+						// forceRender 是必须的：Tab 默认懒渲染，没渲染过的 Form.Item 不会注册到表单，
+						// 提交时那一组字段会整个丢掉——而用户根本没察觉自己漏填了什么。
+						forceRender: true,
+						children: renderFields(columns.filter((item) => (item.group ?? fallbackGroup) === group)),
+					}))} />;
+				})()}
 				{/* 确定按钮在抽屉标题栏里，在 <form> 之外，因此表单里没有可提交的按钮，
 				    回车不会触发浏览器的隐式提交。补一个隐藏的 submit 按钮把这条路接上——
 				    它同时保留了原生语义：多行文本框里的回车仍然是换行，不会误提交。 */}

@@ -700,7 +700,8 @@ model passport_user_profiles {
   owner_bid    BigInt @default(1)
   owner_uid    BigInt?
   user_id      BigInt
-  nickname     String
+  /// 可空：NULL 表示没设昵称，显示时回落到用户名。
+  nickname     String?
   /// 联系方式，都不唯一也不校验格式：它们是给人看的，不是登录凭据。
   qq           String @default("")
   wechat       String @default("")

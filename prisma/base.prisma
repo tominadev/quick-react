@@ -362,7 +362,10 @@ model base_user_profiles {
   owner_uid    BigInt?
   user_id      BigInt
   /// 显示名，租户内唯一，但允许的字符比用户名多（中文都行）。
-  nickname     String
+  ///
+  /// 可空：NULL 表示没设昵称，显示时回落到用户名。不能用空串——唯一索引里空串互相相等，
+  /// 第二个不设昵称的账号就建不出来了；NULL 互不相等，正好是这里要的语义。
+  nickname     String?
   /// 联系方式，都不唯一也不校验格式：它们是给人看的，不是登录凭据。
   qq           String @default("")
   wechat       String @default("")

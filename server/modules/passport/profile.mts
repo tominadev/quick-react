@@ -25,10 +25,9 @@ export const passportProfileStatement = (database: DatabaseAdapter, userId: stri
 	const values = Object.fromEntries(Object.entries(fields)
 		.filter(([, value]) => value !== undefined)
 		.map(([key, value]) => [key, String(value).trim()]));
-	const clearing = values.nickname === '' && Object.values(values).every((value) => value === '');
-	return clearing
-		? sql({ database }).softDelete('passport_user_profiles', { user_id: userId })
-		: sql({ database }).upsert('passport_user_profiles', ['user_id'], { user_id: userId, ...values }, [...Object.keys(values), 'updated_at']);
+	// 昵称清空写 NULL 而不是空串：与 base 一致，NULL 才是「没设昵称」，显示时回落到用户名。
+	const writable = { ...values, ...(values.nickname === '' ? { nickname: null } : {}) };
+	return sql({ database }).upsert('passport_user_profiles', ['user_id'], { user_id: userId, ...writable }, [...Object.keys(writable), 'updated_at']);
 };
 
 /** 建号时与 passport_users 一起写入的语句，交给同一个 batch 执行。 */

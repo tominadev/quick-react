@@ -20,6 +20,11 @@ export type TableColumnFormProperties = {
 	dataType?: TableDataType;
 	/** 仅 change-control 组件使用：要不要渲染「立即生效」勾选。 */
 	allowImmediate?: boolean;
+	/**
+	 * 表单里的分组名。任一列带上它，编辑抽屉就按分组渲染成可切换的 Tab；
+	 * 没带的列归到第一个分组。只影响表单，不影响列表。
+	 */
+	group?: string;
 	dayjsFormat?: string;
 };
 export type TableColumnFormOverride = TableColumnFormProperties & { title?: string };
