@@ -18,6 +18,17 @@ enum BaseTenantStatus {
   disabled
 }
 
+enum BaseAuditAction {
+  update
+  soft_delete
+  restore
+}
+
+enum BaseAuditStatus {
+  applied
+  reverted
+}
+
 /// 业务站点内部的租户。与 global_sites 的代码站点无关，命名一律不使用 site。
 model base_tenants {
   id           BigInt @id @default(autoincrement())
@@ -260,4 +271,28 @@ model base_device_snapshots {
   screen_width  Int    @default(0)
   screen_height Int    @default(0)
   captured_at   BigInt
+}
+
+/// 变更留痕：受管表上每一次业务字段变更的前后值，同时用作操作日志与撤回依据。
+/// 只覆盖 update（软删除与恢复同为 UPDATE），不覆盖 insert 与物理 delete。
+model base_audit_entries {
+  id           BigInt @id @default(autoincrement())
+  created_at   BigInt
+  updated_at   BigInt
+  deleted_at   BigInt @default(0)
+  created_duid BigInt?
+  updated_duid BigInt?
+  owner_tid    BigInt @default(1)
+  owner_bid    BigInt @default(1)
+  owner_uid    BigInt?
+  table_name   String
+  row_id       BigInt
+  action       BaseAuditAction
+  /// JSON 对象：列名 -> { before, after }，只含实际发生变化的列。
+  changes      Json @default("{}")
+  status       BaseAuditStatus @default(applied)
+  @@index([owner_tid, created_at])
+  @@index([owner_bid, created_at])
+  @@index([owner_uid, created_at])
+  @@index([table_name, row_id, created_at])
 }

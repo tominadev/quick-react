@@ -1,10 +1,17 @@
 import type { DatabaseAdapter, DatabaseActorResolver, DatabaseActorUid, DatabaseRunResult } from './index.mjs';
 import { isSystemField, SYSTEM_FIELD_NAMES } from '@shared/system-fields.mjs';
+import { hasAuditableColumns, isAuditedTable, isNonAuditedColumn } from '@shared/audit-tables.mjs';
 
 export type SqlDialect = 'sqlite' | 'mysql' | 'postgresql';
 export type SqlActorContext = DatabaseActorUid | DatabaseActorResolver;
 export type SqlContext = { database: DatabaseAdapter; actorUid?: DatabaseActorUid; actorUidForTable?: DatabaseActorResolver; ownerUid?: DatabaseActorUid; ownerUidForTable?: DatabaseActorResolver; ownerTid?: DatabaseActorUid; ownerTidForTable?: DatabaseActorResolver; ownerBid?: DatabaseActorUid; ownerBidForTable?: DatabaseActorResolver; subjectRoles?: readonly string[] | null; deletedScope?: DeletedScope };
-export type SqlQuery = { query: string; values: unknown[] };
+/**
+ * update 附带的变更留痕元信息，由 runSql 消费：读原行、比对、记录，然后才执行。
+ * SqlBuilder 保持纯函数，多步副作用放不进去（见需求文档 §6.1）。业务代码不构造也不读取它。
+ */
+export type SqlAuditOwnership = { tid?: DatabaseActorUid; bid?: DatabaseActorUid; uid: DatabaseActorUid | null; actor: DatabaseActorUid | null };
+export type SqlAuditMetadata = { table: string; values: Values; where: SqlCondition[]; owner: SqlAuditOwnership };
+export type SqlQuery = { query: string; values: unknown[]; audit?: SqlAuditMetadata };
 type SqlValue = unknown;
 type Values = Record<string, SqlValue | undefined>;
 type InsertSelectValue = SqlValue | { column: string };
@@ -40,6 +47,26 @@ export type SqlCondition =
 	| { raw: string; column?: undefined; value?: undefined; operator?: undefined };
 
 /** 该条件是否需要绑定一个参数值。raw 与 IS NULL 系列都不绑定。 */
+/** 审计表与它自己的动作常量。审计表自身不被审计，否则记录一条变更会再产生一条变更。 */
+export const AUDIT_TABLE = 'base_audit_entries';
+export type SqlAuditAction = 'update' | 'soft_delete' | 'restore';
+export type SqlAuditChange = { before: SqlValue; after: SqlValue };
+export type SqlAuditChanges = Record<string, SqlAuditChange>;
+
+/**
+ * 两层过滤（需求文档 §3.1、§3.2）都只看表名和写入的列名，**不需要读原行**：
+ * 白名单外的表、只碰心跳列的更新，在这里就短路，代价为零。
+ * 确实可能有业务列变化时才附上元信息，由 runSql 去读原行逐列比对。
+ */
+const auditMetadata = (table: string, values: Values, where: SqlCondition[], owner: SqlAuditOwnership): { audit?: SqlAuditMetadata } => {
+	if (!isAuditedTable(table)) return {};
+	const audited = definedEntries(values).filter(([column]) => !isNonAuditedColumn(column));
+	if (!audited.length || !hasAuditableColumns(audited.map(([column]) => column))) return {};
+	// where 是**完整**条件（含可见性判定），归属也在这里定死：调用方可能用显式上下文
+	// 覆盖适配器（系统写入就是这么做的），事后从适配器重新推导会得到另一套判定。
+	return { audit: { table, values: Object.fromEntries(audited), where, owner } };
+};
+
 const bindsValue = (condition: SqlCondition) => condition.raw === undefined && !['IS NULL', 'IS NOT NULL'].includes(condition.operator ?? '');
 const renderCondition = (condition: SqlCondition, dialect: SqlDialect, nextPlaceholder: () => string) => {
 	if (condition.raw !== undefined) return condition.raw;
@@ -202,13 +229,15 @@ export abstract class SqlBuilder {
 		assertBusinessWriteFields(values, { allowDeletedAt });
 		const actorUid = this.actorUidFor(table);
 		const entries = definedEntries({ updated_at: Date.now(), ...(actorUid !== null ? { updated_duid: actorUid } : {}), ...values });
+		const businessConditions: SqlCondition[] = Array.isArray(where) ? where : definedEntries(where).map(([column, value]) => ({ column, value }));
 		// 写入与读取用同一套判定：能改的行本就是能看到的行。影响 0 行统一表示"不存在或无权限"。
-		const conditions: SqlCondition[] = [...this.visibilityConditions(table), ...(Array.isArray(where) ? where : definedEntries(where).map(([column, value]) => ({ column, value })))];
+		const conditions: SqlCondition[] = [...this.visibilityConditions(table), ...businessConditions];
 		if (!entries.length || !conditions.length) throw new Error('UPDATE values and where cannot be empty');
 		let parameterIndex = entries.length;
 		return {
 			query: `UPDATE ${quoteIdentifier(table, this.dialect)} SET ${entries.map(([key], index) => `${quoteIdentifier(key, this.dialect)} = ${this.placeholder(index + 1)}`).join(', ')} WHERE ${conditions.map((condition) => renderCondition(condition, this.dialect, () => this.placeholder(++parameterIndex))).join(' AND ')}`,
 			values: [...entries.map(([, value]) => value), ...conditions.filter(bindsValue).map((condition) => condition.value as SqlValue)],
+			...auditMetadata(table, values, conditions, { tid: this.ownerTidFor(AUDIT_TABLE), bid: this.ownerBidFor(AUDIT_TABLE), uid: this.ownerUidFor(AUDIT_TABLE), actor: this.actorUidFor(AUDIT_TABLE) }),
 		};
 	}
 
@@ -292,7 +321,65 @@ export const sql = (context: SqlContext) => {
 	const deletedScope = context.deletedScope ?? context.database.deletedScope ?? 'active';
 	return dialect === 'mysql' ? new MysqlSqlBuilder(actorContext, deletedScope, ownerContext, tenantContext, branchContext, subjectRoles) : dialect === 'postgresql' ? new PostgresqlSqlBuilder(actorContext, deletedScope, ownerContext, tenantContext, branchContext, subjectRoles) : new SqliteSqlBuilder(actorContext, deletedScope, ownerContext, tenantContext, branchContext, subjectRoles);
 };
-export const runSql = (database: DatabaseAdapter, statement: SqlQuery): Promise<DatabaseRunResult> => database.prepare(statement.query).bind(...statement.values).run();
+/**
+ * 记录变更后再执行。无事务可用，因此**顺序是强制的：先记录，后应用**——
+ * 中断留下"记了但没做"可被发现和核对，"做了但没记"则事后无法察觉（见需求文档 §6.2）。
+ * 记录失败时整个操作失败：不允许"审计写不进去就跳过"，那等于给了绕过审计的开关。
+ */
+/**
+ * 跨方言比较：驱动对 BIGINT 的返回类型不一致（number / string / bigint），
+ * 直接用 !== 会把"没变"误判成"变了"。归一成字符串比较，null 与 undefined 同义。
+ */
+const sameAuditValue = (left: SqlValue, right: SqlValue) => {
+	if (left === null || left === undefined) return right === null || right === undefined;
+	if (right === null || right === undefined) return false;
+	return String(left) === String(right);
+};
+
+/** 三种动作都是 UPDATE，按写入的列区分：碰了 deleted_at 就是删除或恢复。 */
+const auditActionOf = (changes: SqlAuditChanges): SqlAuditAction => {
+	const deletedAt = changes.deleted_at;
+	if (!deletedAt) return 'update';
+	return Number(deletedAt.after ?? 0) === 0 ? 'restore' : 'soft_delete';
+};
+
+const recordAuditEntries = async (database: DatabaseAdapter, metadata: SqlAuditMetadata) => {
+	// subjectRoles 为 null：可见性判定已经算进 metadata.where 了，再算一遍会重复追加条件。
+	// 归属取自生成语句时的上下文，保证审计记录与被改动的行落在同一租户、同一分站。
+	const builder = sql({ database, subjectRoles: null, ownerTid: metadata.owner.tid, ownerBid: metadata.owner.bid, ownerUid: metadata.owner.uid, actorUid: metadata.owner.actor });
+	const columns = Object.keys(metadata.values);
+	// deleted: 'all' 与 update 的行为对齐——updateManaged 不追加删除状态条件，
+	// 因此恢复操作要能读到已删除的原行，否则 restore 永远记不出变更。
+	const rows = await allSql<Record<string, SqlValue>>(database, builder.select({
+		table: metadata.table,
+		// 一律 cast 成文本：BIGINT 是雪花号，按数字读会溢出（服务端适配器没开 readBigInts）。
+		// 项目里读 ID 本就是这个写法，写回时由列的类型亲和性还原成整数。
+		columns: Object.fromEntries(['id', ...columns].map((column) => [column, { column, cast: 'text' as const }])),
+		where: metadata.where,
+		deleted: 'all',
+	}));
+	for (const row of rows) {
+		const changes: SqlAuditChanges = {};
+		// 只记实际发生变化的列：业务表单常整体提交，照单全收会让"改了什么"失去答案。
+		for (const column of columns) {
+			const before = row[column] ?? null, after = metadata.values[column] ?? null;
+			if (!sameAuditValue(before, after)) changes[column] = { before, after };
+		}
+		if (!Object.keys(changes).length) continue;
+		await runSql(database, builder.insert(AUDIT_TABLE, {
+			table_name: metadata.table,
+			row_id: row.id,
+			action: auditActionOf(changes),
+			changes: JSON.stringify(changes),
+			status: 'applied',
+		}));
+	}
+};
+
+export const runSql = async (database: DatabaseAdapter, statement: SqlQuery): Promise<DatabaseRunResult> => {
+	if (statement.audit) await recordAuditEntries(database, statement.audit);
+	return database.prepare(statement.query).bind(...statement.values).run();
+};
 export const firstSql = <T,>(database: DatabaseAdapter, statement: SqlQuery) => database.prepare(statement.query).bind(...statement.values).first<T>();
 export const allSql = async <T,>(database: DatabaseAdapter, statement: SqlQuery) => (await database.prepare(statement.query).bind(...statement.values).all<T>()).results;
 export { compileSqlPlaceholders } from './placeholders.mjs';

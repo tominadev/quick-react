@@ -42,6 +42,8 @@
 		"test:table-switch-browser": "node scripts/test-table-switch-browser.mjs",
 		"test:menu-revisit-browser": "node scripts/test-menu-revisit-browser.mjs",
 		"test:recycle-bin": "node scripts/test-recycle-bin.mjs",
+		"test:audit-tables": "node scripts/test-audit-tables.mjs",
+		"test:change-audit": "node scripts/test-change-audit.mjs",
 		"import:legacy-passport": "node scripts/import-legacy-passport.mjs",
 		"migrate:sqlite": "node scripts/migrate-sqlite.mjs",
 		"prisma:migrations": "node scripts/generate-prisma-migrations.mjs && npm run schema:verify",

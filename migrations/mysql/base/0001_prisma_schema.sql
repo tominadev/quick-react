@@ -269,3 +269,27 @@ CREATE TABLE `base_device_snapshots` (
 
     PRIMARY KEY (`id`)
 ) DEFAULT CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci;
+
+-- CreateTable
+CREATE TABLE `base_audit_entries` (
+    `id` BIGINT NOT NULL AUTO_INCREMENT,
+    `created_at` BIGINT NOT NULL,
+    `updated_at` BIGINT NOT NULL,
+    `deleted_at` BIGINT NOT NULL DEFAULT 0,
+    `created_duid` BIGINT NULL,
+    `updated_duid` BIGINT NULL,
+    `owner_tid` BIGINT NOT NULL DEFAULT 1,
+    `owner_bid` BIGINT NOT NULL DEFAULT 1,
+    `owner_uid` BIGINT NULL,
+    `table_name` VARCHAR(191) NOT NULL,
+    `row_id` BIGINT NOT NULL,
+    `action` ENUM('update', 'soft_delete', 'restore') NOT NULL,
+    `changes` JSON NOT NULL,
+    `status` ENUM('applied', 'reverted') NOT NULL DEFAULT 'applied',
+
+    INDEX `base_audit_entries_owner_tid_created_at_idx`(`owner_tid`, `created_at`),
+    INDEX `base_audit_entries_owner_bid_created_at_idx`(`owner_bid`, `created_at`),
+    INDEX `base_audit_entries_owner_uid_created_at_idx`(`owner_uid`, `created_at`),
+    INDEX `base_audit_entries_table_name_row_id_created_at_idx`(`table_name`, `row_id`, `created_at`),
+    PRIMARY KEY (`id`)
+) DEFAULT CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci;

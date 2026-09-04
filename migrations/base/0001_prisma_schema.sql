@@ -230,6 +230,24 @@ CREATE TABLE "base_device_snapshots" (
     "captured_at" BIGINT NOT NULL
 );
 
+-- CreateTable
+CREATE TABLE "base_audit_entries" (
+    "id" INTEGER NOT NULL PRIMARY KEY AUTOINCREMENT,
+    "created_at" BIGINT NOT NULL,
+    "updated_at" BIGINT NOT NULL,
+    "deleted_at" BIGINT NOT NULL DEFAULT 0,
+    "created_duid" BIGINT,
+    "updated_duid" BIGINT,
+    "owner_tid" BIGINT NOT NULL DEFAULT 1,
+    "owner_bid" BIGINT NOT NULL DEFAULT 1,
+    "owner_uid" BIGINT,
+    "table_name" TEXT NOT NULL,
+    "row_id" BIGINT NOT NULL,
+    "action" TEXT NOT NULL,
+    "changes" TEXT NOT NULL DEFAULT '{}',
+    "status" TEXT NOT NULL DEFAULT 'applied'
+);
+
 -- CreateIndex
 CREATE UNIQUE INDEX "base_tenants_key_deleted_at_key" ON "base_tenants"("key", "deleted_at");
 
@@ -271,3 +289,15 @@ CREATE UNIQUE INDEX "base_devices_key_deleted_at_key" ON "base_devices"("key", "
 
 -- CreateIndex
 CREATE UNIQUE INDEX "base_device_users_device_id_user_id_deleted_at_key" ON "base_device_users"("device_id", "user_id", "deleted_at");
+
+-- CreateIndex
+CREATE INDEX "base_audit_entries_owner_tid_created_at_idx" ON "base_audit_entries"("owner_tid", "created_at");
+
+-- CreateIndex
+CREATE INDEX "base_audit_entries_owner_bid_created_at_idx" ON "base_audit_entries"("owner_bid", "created_at");
+
+-- CreateIndex
+CREATE INDEX "base_audit_entries_owner_uid_created_at_idx" ON "base_audit_entries"("owner_uid", "created_at");
+
+-- CreateIndex
+CREATE INDEX "base_audit_entries_table_name_row_id_created_at_idx" ON "base_audit_entries"("table_name", "row_id", "created_at");
