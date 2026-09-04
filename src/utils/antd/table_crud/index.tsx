@@ -6,7 +6,7 @@ import type { ChangeControlValues, DataType, ResJSON, ResJsonTable } from '@/uti
 import type { ResJsonTableOption } from '@/utils/common/api.js';
 import type { CommonApi, ResJsonTableColumn } from '@/utils/common/api.js';
 import type { TableAction, TableQueryField } from '@shared/types/table.mjs';
-import { CHANGE_IMMEDIATE_FIELD, CHANGE_REASON_FIELD, changeImmediateColumn, changeReasonColumn, resolveTableFormColumns } from '@shared/table-form.mjs';
+import { CHANGE_CONTROL_FIELD, changeControlColumn, changeControlHeaders, resolveTableFormColumns } from '@shared/table-form.mjs';
 
 import { useRef, useState, useEffect } from 'react';
 import { Table, Avatar, Button, Flex, Input, Space, Tag, Select, Progress, Typography, Modal } from 'antd';
@@ -133,27 +133,19 @@ const TableCRUD = ({ commonApi, resourcePath, initialResponse, initialQueryValue
 	 */
 	const canSkipApproval = () => Boolean(tableOptionRef.current.canSkipApproval);
 	/** 提交时把两个控制字段摘出去改走请求头：它们不是业务字段。 */
-	const controlHeaders = (values: Record<string, unknown>) => ({
-		...reasonHeader(typeof values[CHANGE_REASON_FIELD] === 'string' ? values[CHANGE_REASON_FIELD] as string : undefined),
-		...(canSkipApproval() && values[CHANGE_IMMEDIATE_FIELD] ? { 'X-Change-Immediate': '1' } : {}),
-	});
+	const controlHeaders = (values: Record<string, unknown>) => changeControlHeaders(values[CHANGE_CONTROL_FIELD], canSkipApproval());
 	/** 确认框收集到的控制信息转成请求头，与表单那条路径同一套语义。 */
-	const confirmHeaders = (control: ChangeControlValues): Record<string, string> => ({
-		...reasonHeader(control.reason),
-		...(canSkipApproval() && control.immediate ? { 'X-Change-Immediate': '1' } : {}),
-	});
+	const confirmHeaders = (control: ChangeControlValues) => changeControlHeaders(control, canSkipApproval());
 	const confirmChange = (lines: string[]) => commonApi.modalConfirmWithReason(lines, { allowImmediate: canSkipApproval() });
-	const controlColumns = () => canSkipApproval() ? [changeReasonColumn(), changeImmediateColumn()] : [changeReasonColumn()];
+	const controlColumns = () => [changeControlColumn(canSkipApproval())];
 	const withoutControls = (values: Record<string, unknown>) => {
-		const { [CHANGE_REASON_FIELD]: _reason, [CHANGE_IMMEDIATE_FIELD]: _immediate, ...rest } = values;
+		const { [CHANGE_CONTROL_FIELD]: _control, ...rest } = values;
 		return rest;
 	};
 
 	/** 按行过滤互斥动作：撤回只对已生效的行有意义，恢复只对已撤回的行有意义。 */
 	const actionVisibleForRow = (action: TableAction, record: DataType) =>
 		!action.visibleWhen || action.visibleWhen.values.includes(String(record[action.visibleWhen.field] ?? ''));
-
-	const reasonHeader = (reason?: string): Record<string, string> => reason ? { 'X-Change-Reason': encodeURIComponent(reason) } : {};
 
 	const apiDelete = async (ids: unknown[], headers: Record<string, string> = {}) => {
 		// 向后段API发送删除指令

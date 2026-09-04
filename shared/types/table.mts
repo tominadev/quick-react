@@ -1,5 +1,5 @@
 export type TableData = Record<string, unknown>;
-export type TableColumnComponent = 'textbox' | 'url' | 'avatar' | 'avatar_text' | 'textarea' | 'select' | 'switch' | 'datepicker' | 'datepicker_rangepicker' | 'inputnumber' | 'upload';
+export type TableColumnComponent = 'textbox' | 'url' | 'avatar' | 'avatar_text' | 'textarea' | 'select' | 'switch' | 'datepicker' | 'datepicker_rangepicker' | 'inputnumber' | 'upload' | 'change-control';
 export type TableDataType = 'js_timestamp' | 'int' | 'float' | 'string' | 'datetime';
 export type TableColumnRule = { required: boolean; message: string };
 export type TableColumnRemoteOptions = { action: string; dependencies: string[]; clearFields?: string[] };
@@ -18,6 +18,8 @@ export type TableColumnFormProperties = {
 	checkedValue?: string | boolean;
 	uncheckedValue?: string | boolean;
 	dataType?: TableDataType;
+	/** 仅 change-control 组件使用：要不要渲染「立即生效」勾选。 */
+	allowImmediate?: boolean;
 	dayjsFormat?: string;
 };
 export type TableColumnFormOverride = TableColumnFormProperties & { title?: string };

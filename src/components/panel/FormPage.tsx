@@ -3,8 +3,9 @@ import { Alert, Button, Card, Divider, Form, Input, message, Modal, Select, Spac
 import { ClearOutlined, GoogleCircleFilled, RollbackOutlined, SendOutlined, UserOutlined, WechatFilled } from '@ant-design/icons';
 import type { CommonApi } from '@/utils/common/api.js';
 import type { FormPageField, FormPageResponse } from '@shared/types/form-page.mjs';
-import { changeImmediateField, changeReasonField } from '@shared/types/form-page.mjs';
-import { CHANGE_IMMEDIATE_FIELD, CHANGE_REASON_FIELD } from '@shared/table-form.mjs';
+import { changeControlField } from '@shared/types/form-page.mjs';
+import { ChangeControlInput } from '@/utils/antd/table_crud/drawer.js';
+import { CHANGE_CONTROL_FIELD, changeControlHeaders } from '@shared/table-form.mjs';
 import { isFieldReadOnly, type FieldLinkOption } from '@shared/field-linkage.mjs';
 import { changedFieldsKey, type ChangedFieldsPayload } from '@shared/types/changed-fields.mjs';
 import { CountdownDisplay, formatCountdown } from '@/components/common/Countdown.js';
@@ -56,6 +57,7 @@ const isRecord = (value: unknown): value is Record<string, unknown> => (
 );
 
 const fieldControl = (field: FormPageField, readOnly: boolean) => {
+	if (field.type === 'change-control') return <ChangeControlInput allowImmediate={Boolean(field.allowImmediate)} placeholder={field.placeholder} />;
 	if (field.type === 'switch') return <Switch checkedChildren={field.checkedChildren} unCheckedChildren={field.unCheckedChildren} />;
 	if (field.type === 'select') return <Select options={field.options?.map((option) => ({ value: option.value, label: option.text }))} placeholder={field.placeholder} />;
 	return <Input type={field.type === 'password' ? 'password' : 'text'} placeholder={field.placeholder} maxLength={field.maxLength} readOnly={readOnly} disabled={readOnly} />;
@@ -180,16 +182,11 @@ export default function FormPage({ commonApi, apiPath, title, submitMethod = 'PU
 		}
 	};
 
-	/** 原因走请求头，头部只能放 ASCII，因此先 encodeURIComponent。留空就不发。 */
-	const reasonHeader = (reason?: string): Record<string, string> => reason ? { 'X-Change-Reason': encodeURIComponent(reason) } : {};
 	// 「立即生效」默认不勾，且只对管理员渲染；放行与否服务端另有一道校验。
 	const canSkipApproval = Boolean(formConfig?.canSkipApproval);
-	const controlFields = canSkipApproval ? [changeReasonField(), changeImmediateField()] : [changeReasonField()];
-	const controlHeaders = (values: Record<string, unknown>): Record<string, string> => ({
-		...reasonHeader(typeof values[CHANGE_REASON_FIELD] === 'string' ? values[CHANGE_REASON_FIELD] as string : undefined),
-		...(canSkipApproval && values[CHANGE_IMMEDIATE_FIELD] ? { 'X-Change-Immediate': '1' } : {}),
-	});
-	const controlNames = [CHANGE_REASON_FIELD, CHANGE_IMMEDIATE_FIELD];
+	const controlFields = [changeControlField(canSkipApproval)];
+	const controlHeaders = (values: Record<string, unknown>) => changeControlHeaders(values[CHANGE_CONTROL_FIELD], canSkipApproval);
+	const controlNames = [CHANGE_CONTROL_FIELD];
 
 	const onFinish = async (values: Record<string, unknown>) => {
 		if (!dirty && formConfig?.confirmOnUnchangedSubmit) {
@@ -199,7 +196,7 @@ export default function FormPage({ commonApi, apiPath, title, submitMethod = 'PU
 		setSaving(true);
 		try {
 			// 控制字段摘出去改走请求头：它们不是配置项，不该混进保存的值里。
-			const { [CHANGE_REASON_FIELD]: _reason, [CHANGE_IMMEDIATE_FIELD]: _immediate, ...submitted } = values;
+			const { [CHANGE_CONTROL_FIELD]: _control, ...submitted } = values;
 			const payload = { ...submitted, [changedFieldsKey]: [...changedFields.current].filter((name) => !controlNames.includes(name)), ...(restoreDefaultsPending.current ? { restoreDefaults: true } : {}) };
 			const response = await commonApi.apiFetch(apiPath, {
 				method: submitMethod,
@@ -238,7 +235,7 @@ export default function FormPage({ commonApi, apiPath, title, submitMethod = 'PU
 		}
 		setRunningAction(key);
 		const values = form.getFieldsValue(true) as Record<string, unknown>;
-		const { [CHANGE_REASON_FIELD]: _actionReason, [CHANGE_IMMEDIATE_FIELD]: _actionImmediate, ...actionValues } = values;
+		const { [CHANGE_CONTROL_FIELD]: _actionControl, ...actionValues } = values;
 		try {
 			const response = await commonApi.apiFetch(actionPath(apiPath, key), {
 				method: 'POST',
