@@ -702,28 +702,33 @@ const TableCRUD = ({ commonApi, resourcePath, initialResponse, initialQueryValue
 		onClick={() => action.modalPath && setModalAction({ path: action.modalPath, title: action.label, component: action.modalComponent })}
 	>{action.label}</Button>;
 	const queryActionHandlers: Record<string, (action: TableAction) => React.ReactNode> = {
-		// 普通搜索只更新当前表的数据；只有后端标记结构依赖的查询值变化时才清空结构。
-		search: (action) => <Button key={action.key} onClick={() => {
-			requestSequence.current += 1;
-			setDataSource([]);
-			const schemaChanged = queryFields.some((field) => field.reloadSchema && queryValues[field.dataIndex] !== appliedQueryValues[field.dataIndex]);
-			if (schemaChanged) {
-				setTableColumns(undefined);
-				setResJsonColumns([]);
-				setResJsonTableOption({ rowKey: 'key' });
-				tableOptionRef.current = { rowKey: 'key' };
-				setQueryActions([]);
-				cacheResJsonTable.current = { columns: [] };
-				tableSchemaLoaded.current = false;
-			}
-			cursorsByPage.current = { 1: undefined };
-			setSelectedRowKeys([]);
-			setFilters({});
-			setAppliedQueryValues(queryValues);
-			setSearchRequestKey((previous) => previous + 1);
-			setPagination((prev) => ({ ...prev, current: 1, total: 0 }));
-		}} icon={<SearchOutlined />} disabled={loading || action.disabled}>{action.label}</Button>,
+		search: (action) => <Button key={action.key} onClick={applySearch} icon={<SearchOutlined />} disabled={loading || action.disabled}>{action.label}</Button>,
 	};
+
+	// 普通搜索只更新当前表的数据；只有后端标记结构依赖的查询值变化时才清空结构。
+	const applySearch = () => {
+		requestSequence.current += 1;
+		setDataSource([]);
+		const schemaChanged = queryFields.some((field) => field.reloadSchema && queryValues[field.dataIndex] !== appliedQueryValues[field.dataIndex]);
+		if (schemaChanged) {
+			setTableColumns(undefined);
+			setResJsonColumns([]);
+			setResJsonTableOption({ rowKey: 'key' });
+			tableOptionRef.current = { rowKey: 'key' };
+			setQueryActions([]);
+			cacheResJsonTable.current = { columns: [] };
+			tableSchemaLoaded.current = false;
+		}
+		cursorsByPage.current = { 1: undefined };
+		setSelectedRowKeys([]);
+		setFilters({});
+		setAppliedQueryValues(queryValues);
+		setSearchRequestKey((previous) => previous + 1);
+		setPagination((prev) => ({ ...prev, current: 1, total: 0 }));
+	};
+	// 查询区是裸的输入框，不在 form 里，没有默认提交行为可拦。用 antd 自带的
+	// onPressEnter，而不是为此套一层 form——嵌套 form 还要处理默认提交与冒泡。
+	const canSearch = queryActions.some((action) => action.key === 'search' && !action.disabled) && !loading;
 
 	return (<Flex vertical gap="small">
 		{contextHolderDrawer}
@@ -733,7 +738,7 @@ const TableCRUD = ({ commonApi, resourcePath, initialResponse, initialQueryValue
 					<span>{field.label}</span>
 					{field.component === 'select'
 						? <Select style={{ minWidth: 190 }} value={queryValues[field.dataIndex] || undefined} options={field.options?.map((item) => ({ value: item.value, label: item.text }))} onChange={(value) => setQueryValues((previous) => ({ ...previous, [field.dataIndex]: value }))} placeholder={field.placeholder} allowClear />
-						: <Input value={queryValues[field.dataIndex] ?? ''} onChange={(event) => setQueryValues((previous) => ({ ...previous, [field.dataIndex]: event.target.value }))} placeholder={field.placeholder} />}
+						: <Input value={queryValues[field.dataIndex] ?? ''} onChange={(event) => setQueryValues((previous) => ({ ...previous, [field.dataIndex]: event.target.value }))} onPressEnter={() => canSearch && applySearch()} placeholder={field.placeholder} />}
 				</Space>
 			))}
 			{queryActions.map((action) => queryActionHandlers[action.key]?.(action) ?? null)}

@@ -126,4 +126,23 @@ await waitFor(() => assert.ok(requests.some((url) => url.includes('/acct_string_
 const editRequest = requests.find((url) => url.includes('/acct_string_id'))!;
 assert.ok(editRequest.includes('table=table_a'), `编辑请求必须带上已生效的查询条件：${editRequest}`);
 
+// 查询输入框里按回车应该等同于点搜索：查询区不在 form 里，没有默认提交行为可拦，
+// 所以必须显式接 onPressEnter。
+cleanup();
+requests.length = 0;
+render(React.createElement(MemoryRouter, null, React.createElement(TableCRUD, {
+	commonApi,
+	resourcePath: '/panel/admin/base/data/rows',
+	initialResponse: { table: { ...tableA, option: { ...tableA.option, queryFields: [...queryFields, { dataIndex: 'keyword', label: '关键字', component: 'textbox', placeholder: '输入关键字' }] } } },
+})));
+await waitFor(() => assert.ok(screen.getByText('A 行')));
+// antd 的 Select 自己也渲染一个 input，按 placeholder 精确定位关键字框。
+const keyword = screen.getByPlaceholderText('输入关键字');
+await user.click(keyword);
+await user.keyboard('abc');
+const requestCountBeforeEnter = requests.length;
+await user.keyboard('{Enter}');
+await waitFor(() => assert.ok(requests.length > requestCountBeforeEnter, '回车必须发起搜索请求'));
+assert.ok(requests.at(-1)?.includes('keyword=abc'), `回车后的请求要带上输入的条件：${requests.at(-1)}`);
+
 console.log('table switch browser test passed');
