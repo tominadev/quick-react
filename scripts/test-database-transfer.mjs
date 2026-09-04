@@ -83,7 +83,7 @@ try {
 		await runSql(source, sql({ database: source }).insert('base_configs', { key: 'site_title', value: 'Accounts' }));
 
 		const progress = await transferPortableDatabase(source, mysqlFacade(target), ['base']);
-		assert.equal(progress.length, 15);
+		assert.equal(progress.length, 16);
 		assert.equal((await firstSql(target, sql({ database: target }).select({ table: 'base_users', columns: { id: 'id' }, limit: 1 }))).id, userId);
 		assert.equal((await firstSql(target, sql({ database: target }).count('base_sessions'))).count, 1n);
 		assert.equal((await firstSql(target, sql({ database: target }).select({ table: 'base_bootstrap', columns: { value: 'value' }, where: [{ column: 'key', value: 'initial_admin' }] }))).value, 'open');

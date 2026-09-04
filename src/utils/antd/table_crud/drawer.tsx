@@ -417,6 +417,10 @@ export default ({
 						);
 					})}
 				</Row>
+				{/* 确定按钮在抽屉标题栏里，在 <form> 之外，因此表单里没有可提交的按钮，
+				    回车不会触发浏览器的隐式提交。补一个隐藏的 submit 按钮把这条路接上——
+				    它同时保留了原生语义：多行文本框里的回车仍然是换行，不会误提交。 */}
+				<button type="submit" hidden aria-hidden="true" tabIndex={-1} />
 			</Form>
 		</Drawer>
 	</>);

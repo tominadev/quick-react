@@ -71,12 +71,10 @@ CREATE TABLE `base_users` (
     `owner_bid` BIGINT NOT NULL DEFAULT 1,
     `owner_uid` BIGINT NULL,
     `name` VARCHAR(191) NOT NULL,
-    `nickname` VARCHAR(191) NULL,
     `roles` VARCHAR(191) NOT NULL DEFAULT '[]',
     `status` ENUM('enabled', 'disabled') NOT NULL DEFAULT 'enabled',
 
     UNIQUE INDEX `base_users_owner_tid_name_deleted_at_key`(`owner_tid`, `name`, `deleted_at`),
-    UNIQUE INDEX `base_users_owner_tid_nickname_deleted_at_key`(`owner_tid`, `nickname`, `deleted_at`),
     PRIMARY KEY (`id`)
 ) DEFAULT CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci;
 
@@ -323,5 +321,24 @@ CREATE TABLE `base_user_credentials` (
     `password` JSON NOT NULL,
 
     UNIQUE INDEX `base_user_credentials_user_id_deleted_at_key`(`user_id`, `deleted_at`),
+    PRIMARY KEY (`id`)
+) DEFAULT CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci;
+
+-- CreateTable
+CREATE TABLE `base_user_profiles` (
+    `id` BIGINT NOT NULL AUTO_INCREMENT,
+    `created_at` BIGINT NOT NULL,
+    `updated_at` BIGINT NOT NULL,
+    `deleted_at` BIGINT NOT NULL DEFAULT 0,
+    `created_duid` BIGINT NULL,
+    `updated_duid` BIGINT NULL,
+    `owner_tid` BIGINT NOT NULL DEFAULT 1,
+    `owner_bid` BIGINT NOT NULL DEFAULT 1,
+    `owner_uid` BIGINT NULL,
+    `user_id` BIGINT NOT NULL,
+    `nickname` VARCHAR(191) NOT NULL,
+
+    UNIQUE INDEX `base_user_profiles_user_id_deleted_at_key`(`user_id`, `deleted_at`),
+    UNIQUE INDEX `base_user_profiles_owner_tid_nickname_deleted_at_key`(`owner_tid`, `nickname`, `deleted_at`),
     PRIMARY KEY (`id`)
 ) DEFAULT CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci;

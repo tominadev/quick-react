@@ -11,7 +11,7 @@ export const portableTableGroups = {
 	],
 	base: [
 		'base_tenants', 'base_branches', 'base_hosts',
-		'base_users', 'base_user_credentials', 'base_sessions', 'base_configs', 'base_bootstrap',
+		'base_users', 'base_user_credentials', 'base_user_profiles', 'base_sessions', 'base_configs', 'base_bootstrap',
 		'base_oidc_login_requests', 'base_oidc_users', 'base_oidc_sessions',
 		'base_devices', 'base_device_users', 'base_device_snapshots',
 		'base_audit_entries',

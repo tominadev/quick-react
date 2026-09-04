@@ -101,12 +101,6 @@ model base_users {
   name          String
   // 用户名在租户内唯一：不同租户可以各有同名账号。
   @@unique([owner_tid, name, deleted_at])
-  /// 显示名，与用户名一样租户内唯一，但允许的字符更多（中文、空格之外的可见字符都行）。
-  ///
-  /// 可空而不是空串默认值：唯一索引里 NULL 互不相等，因此「未设置昵称」的用户不会互相撞车。
-  /// 这与 owner_tid 那次正好相反——那里需要 NULL 相等，所以必须 NOT NULL DEFAULT 1。
-  nickname      String?
-  @@unique([owner_tid, nickname, deleted_at])
   roles         String[] @default([])
   status        BaseUserStatus @default(enabled)
 }
@@ -350,4 +344,27 @@ model base_user_credentials {
 
   /// 一个账号一份当前凭证；user_id 本身全局唯一，不必再按租户划分。
   @@unique([user_id, deleted_at])
+}
+
+/// 本站账号的资料。
+///
+/// 与凭证一样从 base_users 拆出来：**没有行就是没设过资料**，昵称回落到用户名，
+/// 不需要在建号时把用户名抄一份进昵称列（抄过去还会撞上别人挑走的昵称）。
+model base_user_profiles {
+  id           BigInt @id @default(autoincrement())
+  created_at   BigInt
+  updated_at   BigInt
+  deleted_at   BigInt @default(0)
+  created_duid BigInt?
+  updated_duid BigInt?
+  owner_tid    BigInt @default(1)
+  owner_bid    BigInt @default(1)
+  owner_uid    BigInt?
+  user_id      BigInt
+  /// 显示名，租户内唯一，但允许的字符比用户名多（中文都行）。
+  nickname     String
+
+  /// 一个账号一份资料；user_id 本身全局唯一，不必再按租户划分。
+  @@unique([user_id, deleted_at])
+  @@unique([owner_tid, nickname, deleted_at])
 }

@@ -157,12 +157,17 @@ export abstract class SqlBuilder {
 		if (options.includeAll || !selectedColumns.length) selectedColumns.push('*');
 		const columns = selectedColumns.join(', ');
 		let query = `SELECT${options.distinct ? ' DISTINCT' : ''} ${columns} FROM ${quoteIdentifier(options.table, this.dialect)}${options.alias ? ` AS ${quoteIdentifier(options.alias, this.dialect)}` : ''}`;
-		for (const join of options.joins ?? []) query += ` ${join.type ?? 'INNER'} JOIN ${quoteIdentifier(join.table, this.dialect)}${join.alias ? ` AS ${quoteIdentifier(join.alias, this.dialect)}` : ''} ON ${quoteIdentifier(join.left, this.dialect)} = ${quoteIdentifier(join.right, this.dialect)}`;
 		const deletedScope = options.deleted ?? this.defaultDeletedScope;
+		// 关联表的删除状态写进 ON，不写进 WHERE。写进 WHERE 会让 LEFT JOIN 退化成 INNER JOIN：
+		// 没有匹配行时关联表的 deleted_at 是 NULL，而 NULL = 0 求值为 unknown，整行被过滤掉——
+		// 没有资料或没有凭证的账号会从列表里凭空消失。放进 ON 对 INNER JOIN 等价。
+		for (const join of options.joins ?? []) {
+			const joinScope = quoteIdentifier(`${join.alias ?? join.table}.deleted_at`, this.dialect);
+			const activeOnly = deletedScope !== 'all' && deletedScope !== 'deleted';
+			query += ` ${join.type ?? 'INNER'} JOIN ${quoteIdentifier(join.table, this.dialect)}${join.alias ? ` AS ${quoteIdentifier(join.alias, this.dialect)}` : ''} ON ${quoteIdentifier(join.left, this.dialect)} = ${quoteIdentifier(join.right, this.dialect)}${activeOnly ? ` AND ${joinScope} = 0` : ''}`;
+		}
 		const deletedConditions: SqlCondition[] = deletedScope === 'all' ? [] : [
 			{ column: `${options.alias ?? options.table}.deleted_at`, operator: deletedScope === 'deleted' ? '!=' as const : '=' as const, value: 0 },
-			// 回收站查看主表的已删除记录；关联表保持正常可见，避免主表记录因仍 active 的关系数据而消失。
-			...(deletedScope === 'deleted' ? [] : (options.joins ?? []).map((join) => ({ column: `${join.alias ?? join.table}.deleted_at`, operator: '=' as const, value: 0 }))),
 		];
 		const conditions = [...deletedConditions, ...this.visibilityConditions(options.table, options.alias), ...(options.where ?? [])], boundConditions = conditions.filter(bindsValue);
 		let parameterIndex = 0;

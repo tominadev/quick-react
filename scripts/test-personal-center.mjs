@@ -74,6 +74,9 @@ try {
 	assert.equal((await save({ nickname: 'a\u0000b', __changedFields: ['nickname'] })).status, 400, '昵称不能带控制字符');
 	// 昵称租户内唯一，但留空存 NULL，因此多个用户都不设昵称不会互相撞车。
 	assert.equal((await save({ nickname: '', __changedFields: ['nickname'] })).status, 200, '留空表示不设置昵称');
+	// 没设资料时昵称回落到用户名，因此不能把别的账号的用户名占成自己的昵称，
+	// 否则两个账号会显示成同一个名字——这一条数据库约束管不了，只能查。
+	assert.equal((await save({ nickname: 'me_admin', __changedFields: ['nickname'] })).status, 200, '自己的用户名可以');
 	assert.equal((await save({ __changedFields: [] })).status, 400, '什么都没改要明确拒绝');
 	// 改密码必须先验当前密码：会话被盗时，能改密码就等于能永久接管账号。
 	assert.equal((await save({ newPassword: 'another-password-1', __changedFields: ['newPassword'] })).status, 403);

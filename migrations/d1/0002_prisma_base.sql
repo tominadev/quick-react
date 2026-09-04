@@ -62,7 +62,6 @@ CREATE TABLE "base_users" (
     "owner_bid" BIGINT NOT NULL DEFAULT 1,
     "owner_uid" BIGINT,
     "name" TEXT NOT NULL,
-    "nickname" TEXT,
     "roles" TEXT NOT NULL DEFAULT '[]',
     "status" TEXT NOT NULL DEFAULT 'enabled'
 );
@@ -274,6 +273,21 @@ CREATE TABLE "base_user_credentials" (
     "password" TEXT NOT NULL
 );
 
+-- CreateTable
+CREATE TABLE "base_user_profiles" (
+    "id" INTEGER NOT NULL PRIMARY KEY AUTOINCREMENT,
+    "created_at" BIGINT NOT NULL,
+    "updated_at" BIGINT NOT NULL,
+    "deleted_at" BIGINT NOT NULL DEFAULT 0,
+    "created_duid" BIGINT,
+    "updated_duid" BIGINT,
+    "owner_tid" BIGINT NOT NULL DEFAULT 1,
+    "owner_bid" BIGINT NOT NULL DEFAULT 1,
+    "owner_uid" BIGINT,
+    "user_id" BIGINT NOT NULL,
+    "nickname" TEXT NOT NULL
+);
+
 -- CreateIndex
 CREATE UNIQUE INDEX "base_tenants_key_deleted_at_key" ON "base_tenants"("key", "deleted_at");
 
@@ -285,9 +299,6 @@ CREATE UNIQUE INDEX "base_hosts_hostname_deleted_at_key" ON "base_hosts"("hostna
 
 -- CreateIndex
 CREATE UNIQUE INDEX "base_users_owner_tid_name_deleted_at_key" ON "base_users"("owner_tid", "name", "deleted_at");
-
--- CreateIndex
-CREATE UNIQUE INDEX "base_users_owner_tid_nickname_deleted_at_key" ON "base_users"("owner_tid", "nickname", "deleted_at");
 
 -- CreateIndex
 CREATE UNIQUE INDEX "base_sessions_token_hash_deleted_at_key" ON "base_sessions"("token_hash", "deleted_at");
@@ -339,3 +350,9 @@ CREATE INDEX "base_audit_entries_status_created_at_idx" ON "base_audit_entries"(
 
 -- CreateIndex
 CREATE UNIQUE INDEX "base_user_credentials_user_id_deleted_at_key" ON "base_user_credentials"("user_id", "deleted_at");
+
+-- CreateIndex
+CREATE UNIQUE INDEX "base_user_profiles_user_id_deleted_at_key" ON "base_user_profiles"("user_id", "deleted_at");
+
+-- CreateIndex
+CREATE UNIQUE INDEX "base_user_profiles_owner_tid_nickname_deleted_at_key" ON "base_user_profiles"("owner_tid", "nickname", "deleted_at");
