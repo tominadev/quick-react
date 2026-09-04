@@ -10,7 +10,8 @@ import { firstSql, sql } from '@server/database/sql.mjs';
 
 const handler: ApiHandler = async (c) => {
 	if (!['GET', 'POST'].includes(c.req.method)) return apiMessage(c, 404);
-	const database = c.get('passportDatabase'); if (!database) return apiMessage(c, 503);
+	// OIDC 协议端点是机器对机器的匿名请求，没有用户会话，必须走未绑定主体的适配器。
+	const database = c.get('systemPassportDatabase'); if (!database) return apiMessage(c, 503);
 	if (c.req.method === 'POST') {
 		const body = await parseFormBody(c.req.raw), clientId = String(body.client_id ?? ''), clientSecret = String(body.client_secret ?? ''), sid = String(body.sid ?? '');
 		const client = await oidcClient(database, clientId);

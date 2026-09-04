@@ -38,6 +38,11 @@ export type DatabaseAdapter = {
 	ownerTid?: DatabaseActorUid;
 	/** Optional table-aware owner tenant, needed when Base and Passport share a DB. */
 	ownerTidForTable?: DatabaseActorResolver;
+	/**
+	 * 当前主体的角色。`null` 或缺省表示系统上下文，完全跳过行级判定；
+	 * 绑定了数组（哪怕为空）就受判定约束。
+	 */
+	subjectRoles?: readonly string[] | null;
 	/** Request-scoped branch that owns a newly inserted row. */
 	ownerBid?: DatabaseActorUid;
 	/** Optional table-aware owner branch, needed when Base and Passport share a DB. */
@@ -59,6 +64,8 @@ export const withDatabaseDeletedScope = (database: DatabaseAdapter, deletedScope
 };
 
 export type DatabaseActors = {
+	/** 主体角色；绑定后该适配器上的读写都受行级判定约束。 */
+	subjectRoles?: readonly string[] | null;
 	base?: DatabaseActorUid;
 	passport?: DatabaseActorUid;
 	baseUserId?: DatabaseActorUid;
@@ -89,6 +96,7 @@ export const withDatabaseActors = (database: DatabaseAdapter, actors: DatabaseAc
 	const inheritedBranch = (table: string) => database.ownerBidForTable?.(table) ?? database.ownerBid ?? null;
 	const bound: DatabaseAdapter = {
 		...database,
+		...(Object.prototype.hasOwnProperty.call(actors, 'subjectRoles') ? { subjectRoles: actors.subjectRoles ?? null } : {}),
 		actorUidForTable: (table) => {
 			if (table.startsWith('passport_') && hasPassport) return actors.passport ?? null;
 			if (!table.startsWith('passport_') && hasBase) return actors.base ?? null;

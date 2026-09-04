@@ -5,7 +5,8 @@ import { signingPublicKeys } from '@server/modules/passport/accounts/repository.
 
 const handler: ApiHandler = async (c) => {
 	if (c.req.method !== 'GET') return apiMessage(c, 404);
-	const database = c.get('passportDatabase'); if (!database) return apiMessage(c, 503);
+	// OIDC 协议端点是机器对机器的匿名请求，没有用户会话，必须走未绑定主体的适配器。
+	const database = c.get('systemPassportDatabase'); if (!database) return apiMessage(c, 503);
 	await ensureSigningKey(database);
 	const rows = await signingPublicKeys(database);
 	return apiResponse(c, 200, { keys: rows.map((row) => JSON.parse(row.public_jwk)) });

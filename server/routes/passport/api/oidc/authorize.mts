@@ -19,7 +19,8 @@ const browserError = (c: Parameters<ApiHandler>[0], status: 400 | 404 | 503, mes
 
 const handler: ApiHandler = async (c) => {
 	if (c.req.method !== 'GET') return browserError(c, 404, '授权端点仅支持 GET 请求');
-	const database = c.get('passportDatabase');
+	// OIDC 协议端点是机器对机器的匿名请求，没有用户会话，必须走未绑定主体的适配器。
+	const database = c.get('systemPassportDatabase');
 	if (!database) return browserError(c, 503, 'Passport 数据库暂不可用');
 	let values: RequestRow;
 	const requestId = c.req.query('request_id')?.trim();

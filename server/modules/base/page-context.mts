@@ -10,8 +10,11 @@ const callbackPagePaths = ['/accounts/external/callback', '/accounts/external/we
 
 /** 本站是否还能创建初始管理员：由本站数据库里的引导状态决定，和站点是哪个无关。 */
 const registrationAvailable = async (c: Context<AppEnv>) => {
-	const database = c.get('database');
-	const row = await firstSql<{ value: string }>(database, sql({ database }).select({ table: 'base_bootstrap', columns: { value: 'value' }, where: [{ column: 'key', value: 'initial_admin' }] }));
+	// 引导状态要在未登录时也读得到，因此走系统上下文；租户由主机名解析而来。
+	const database = c.get('systemDatabase');
+	const tenantId = c.get('tenantId');
+	const where = [{ column: 'key', value: 'initial_admin' }, ...(tenantId === null ? [] : [{ column: 'owner_tid', value: tenantId }])];
+	const row = await firstSql<{ value: string }>(database, sql({ database }).select({ table: 'base_bootstrap', columns: { value: 'value' }, where }));
 	return row?.value === 'open';
 };
 

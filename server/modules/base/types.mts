@@ -27,6 +27,12 @@ export type AppEnv = {
 		globalDatabase: DatabaseAdapter;
 		passportDatabase?: DatabaseAdapter;
 		database: DatabaseAdapter;
+		/** 未绑定主体的适配器，跳过行级判定。仅供鉴权、登录前查询与系统任务使用。 */
+		systemDatabase: DatabaseAdapter;
+		/** 未绑定主体的 Passport 适配器，供 OIDC 等机器对机器的协议端点使用。 */
+		systemPassportDatabase?: DatabaseAdapter;
+		/** 未绑定主体的控制面适配器，供 webhook 等机器对机器的端点使用。 */
+		systemGlobalDatabase: DatabaseAdapter;
 		/** 当前请求所属租户，由主机名解析（base_hosts），未绑定时落到默认租户。 */
 		tenantId: string | null;
 		/** 当前请求所属分站；每个域名都绑定分站，未绑定时落到默认租户的主分站。 */

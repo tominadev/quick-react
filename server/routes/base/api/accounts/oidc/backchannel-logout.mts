@@ -14,7 +14,8 @@ const handler: ApiHandler = async (c) => {
 		const claims = await verifyIdToken(token, await jwksResponse.json() as { keys?: JsonWebKey[] }, { issuer: config.issuer, audience: config.clientId, nonce: '' });
 		const events = claims.events as Record<string, unknown> | undefined, sid = String(claims.sid ?? '');
 		if (!sid || !events?.['http://schemas.openid.net/event/backchannel-logout']) throw new Error('Logout Token 声明不合法');
-		const database = c.get('database');
+		// Accounts 发起的后台注销是机器对机器请求，没有本站会话。
+		const database = c.get('systemDatabase');
 		const session = await firstSql<{ session_id: string }>(database, sql({ database }).select({ table: 'base_oidc_sessions', columns: { session_id: 'session_id' }, where: [{ column: 'issuer', value: config.issuer }, { column: 'sid', value: sid }] }));
 		if (session) { await runSql(database, sql({ database }).delete('base_sessions', { id: session.session_id })); await runSql(database, sql({ database }).delete('base_oidc_sessions', { issuer: config.issuer, sid })); }
 		return apiMessage(c, 200, '会话已注销');

@@ -27,23 +27,25 @@ const generatedUsername = (username: string) => username.startsWith('passport_')
 
 /** Accounts 设置用户名后同步改写本站占位用户名；管理员手工改过的名字不覆盖。 */
 const syncLocalUsername = async (database: Parameters<typeof runSql>[0], userId: number, username: string, tenantId: string | null) => {
-	const current = await firstSql<{ username: string }>(database, sql({ database }).select({ table: 'base_users', columns: { username: 'name' }, where: [{ column: 'id', value: userId }] }));
+	const current = await firstSql<{ username: string }>(database, sql({ database: database }).select({ table: 'base_users', columns: { username: 'name' }, where: [{ column: 'id', value: userId }] }));
 	if (!current || current.username === username || !generatedUsername(current.username)) return;
 	// 用户名租户内唯一，占用检查同样限本租户。
-	const taken = await firstSql(database, sql({ database }).select({ table: 'base_users', columns: { id: 'id' }, where: [{ column: 'name', value: username }, tenantId === null ? { column: 'owner_tid', operator: 'IS NULL' as const } : { column: 'owner_tid', value: tenantId }] }));
+	const taken = await firstSql(database, sql({ database: database }).select({ table: 'base_users', columns: { id: 'id' }, where: [{ column: 'name', value: username }, tenantId === null ? { column: 'owner_tid', operator: 'IS NULL' as const } : { column: 'owner_tid', value: tenantId }] }));
 	if (taken) return;
-	await runSql(database, sql({ database }).update('base_users', { name: username }, { id: userId }));
+	await runSql(database, sql({ database: database }).update('base_users', { name: username }, { id: userId }));
 };
 
 const handler: ApiHandler = async (c) => {
 	if (c.req.method !== 'GET') return apiMessage(c, 405, '只允许 GET 请求');
 	const database = c.get('database'), config = await loadAccountsOidcConfig(c);
+	// OIDC 回调整个发生在本站会话建立之前，所有读写都要走系统上下文，否则被自身判定挡住。
+	const systemDatabase = c.get('systemDatabase');
 	if (!config.enabled) return apiMessage(c, 404, '本站未启用 Accounts OIDC 登录');
 	const requestId = readCookie(c.req.raw, accountsLoginCookieName), state = c.req.query('state') ?? '', code = c.req.query('code') ?? '';
 	const requestColumns = { id: 'request_id', issuer: 'issuer', state: 'state', nonce: 'nonce', code_verifier: 'code_verifier', return_path: 'return_path', expires_at: 'expires_at' } as const;
 	const request = requestId
-		? await firstSql<LoginRequest>(database, sql({ database }).select({ table: 'base_oidc_login_requests', columns: requestColumns, where: [{ column: 'request_id', value: requestId }] }))
-		: state ? await firstSql<LoginRequest>(database, sql({ database }).select({ table: 'base_oidc_login_requests', columns: requestColumns, where: [{ column: 'state', value: state }] })) : undefined;
+		? await firstSql<LoginRequest>(systemDatabase, sql({ database: systemDatabase }).select({ table: 'base_oidc_login_requests', columns: requestColumns, where: [{ column: 'request_id', value: requestId }] }))
+		: state ? await firstSql<LoginRequest>(systemDatabase, sql({ database: systemDatabase }).select({ table: 'base_oidc_login_requests', columns: requestColumns, where: [{ column: 'state', value: state }] })) : undefined;
 	if (!request || request.expires_at <= Date.now() || request.issuer !== config.issuer || !state || state !== request.state || !code) return apiMessage(c, 400, 'Accounts 登录回调状态无效或已过期');
 	try {
 		const discovery = await loadDiscovery(c, config.issuer), callback = `${requestOrigin(c)}/api/accounts/oidc/callback`;
@@ -58,47 +60,47 @@ const handler: ApiHandler = async (c) => {
 		// 同一个 Accounts 身份在每个租户各有一个本地账号，映射查找必须带上当前租户。
 		const tenantId = c.get('tenantId');
 		const tenantScope = (column: string) => tenantId === null ? { column, operator: 'IS NULL' as const } : { column, value: tenantId };
-		let account = await firstSql<{ user_id: number; status: string }>(database, sql({ database }).select({ table: 'base_oidc_users', alias: 'a', columns: { user_id: 'a.user_id', status: 'u.status' }, joins: [{ table: 'base_users', alias: 'u', left: 'u.id', right: 'a.user_id' }], where: [{ column: 'a.issuer', value: config.issuer }, { column: 'a.subject', value: subject }, tenantScope('a.owner_tid')] }));
+		let account = await firstSql<{ user_id: number; status: string }>(systemDatabase, sql({ database: systemDatabase }).select({ table: 'base_oidc_users', alias: 'a', columns: { user_id: 'a.user_id', status: 'u.status' }, joins: [{ table: 'base_users', alias: 'u', left: 'u.id', right: 'a.user_id' }], where: [{ column: 'a.issuer', value: config.issuer }, { column: 'a.subject', value: subject }, tenantScope('a.owner_tid')] }));
 		const preferred = typeof claims.preferred_username === 'string' ? claims.preferred_username : '';
 		if (!account) {
 			// 先用占位用户名建号，再按 Accounts 用户名改写，避免撞上本站已有的同名账号。
 			const username = placeholderUsername(subject);
-			await runSql(database, sql({ database }).ignoreInsert('base_users', ['name', 'owner_tid'], { name: username, password: '!oidc', roles: [], status: 'enabled' }));
-			const user = await firstSql<{ id: number; status: string; password: string }>(database, sql({ database }).select({ table: 'base_users', columns: { id: 'id', status: 'status', password: 'password' }, where: [{ column: 'name', value: username }, tenantScope('owner_tid')] }));
+			await runSql(systemDatabase, sql({ database: systemDatabase }).ignoreInsert('base_users', ['name', 'owner_tid'], { name: username, password: '!oidc', roles: [], status: 'enabled' }));
+			const user = await firstSql<{ id: number; status: string; password: string }>(systemDatabase, sql({ database: systemDatabase }).select({ table: 'base_users', columns: { id: 'id', status: 'status', password: 'password' }, where: [{ column: 'name', value: username }, tenantScope('owner_tid')] }));
 			if (!user) throw new Error('无法创建本站 Accounts 用户');
 			if (user.password !== '!oidc') throw new Error('本站已存在同名用户，无法绑定 Accounts 身份');
 			// 账号行归属账号自己。
-			await runSql(database, sql({ database }).update('base_users', { owner_uid: user.id }, { id: user.id }));
+			await runSql(systemDatabase, sql({ database: systemDatabase }).update('base_users', { owner_uid: user.id }, { id: user.id }));
 			// 身份绑定归属账号本人；OIDC 回调没有本站会话，不显式绑定则 owner_uid 为 NULL。
-			const ownedUser = withDatabaseActors(database, { baseUserId: user.id });
+			const ownedUser = withDatabaseActors(systemDatabase, { baseUserId: user.id });
 			await runSql(ownedUser, sql({ database: ownedUser }).insert('base_oidc_users', { issuer: config.issuer, subject, user_id: user.id, profile: JSON.stringify(claims) }));
 			account = { user_id: user.id, status: user.status };
 		} else {
-			await runSql(database, sql({ database }).update('base_oidc_users', { profile: JSON.stringify(claims) }, [{ column: 'issuer', value: config.issuer }, { column: 'subject', value: subject }, tenantScope('owner_tid')]));
+			await runSql(systemDatabase, sql({ database: systemDatabase }).update('base_oidc_users', { profile: JSON.stringify(claims) }, [{ column: 'issuer', value: config.issuer }, { column: 'subject', value: subject }, tenantScope('owner_tid')]));
 		}
-		if (isValidAccountUsername(preferred)) await syncLocalUsername(database, account.user_id, preferred, tenantId);
+		if (isValidAccountUsername(preferred)) await syncLocalUsername(systemDatabase, account.user_id, preferred, tenantId);
 		if (account.status !== 'enabled') return apiMessage(c, 403, '本站用户已停用');
 		const maxAge = baseSessionMaxAge;
-		const previousSession = await firstSql<{ session_id: string }>(database, sql({ database }).select({ table: 'base_oidc_sessions', columns: { session_id: 'session_id' }, where: [{ column: 'issuer', value: config.issuer }, { column: 'sid', value: oidcSessionId }] }));
+		const previousSession = await firstSql<{ session_id: string }>(systemDatabase, sql({ database: systemDatabase }).select({ table: 'base_oidc_sessions', columns: { session_id: 'session_id' }, where: [{ column: 'issuer', value: config.issuer }, { column: 'sid', value: oidcSessionId }] }));
 		const sessionToken = crypto.randomUUID(), sessionHash = await hashSessionToken(sessionToken);
-		const deviceId = await ensureBaseDevice(database, String(account.user_id), c.req.raw, c.get('clientIp'), c.get('transportIp'));
+		const deviceId = await ensureBaseDevice(systemDatabase, String(account.user_id), c.req.raw, c.get('clientIp'), c.get('transportIp'));
 		// 会话与 OIDC 会话映射同样归属账号本人。
-		const owned = withDatabaseActors(database, { baseUserId: account.user_id });
+		const owned = withDatabaseActors(systemDatabase, { baseUserId: account.user_id });
 		let sessionId: string;
 		if (previousSession) {
 			sessionId = previousSession.session_id;
-			await runSql(database, sql({ database }).update('base_sessions', { token_hash: sessionHash, user_id: account.user_id, device_id: deviceId, expires_at: now + maxAge * 1000 }, { id: sessionId }));
+			await runSql(systemDatabase, sql({ database: systemDatabase }).update('base_sessions', { token_hash: sessionHash, user_id: account.user_id, device_id: deviceId, expires_at: now + maxAge * 1000 }, { id: sessionId }));
 		} else {
 			await runSql(owned, sql({ database: owned }).insert('base_sessions', { token_hash: sessionHash, user_id: account.user_id, device_id: deviceId, expires_at: now + maxAge * 1000 }));
-			const created = await firstSql<{ id: number | string | bigint }>(database, sql({ database }).select({ table: 'base_sessions', columns: { id: 'id' }, where: [{ column: 'token_hash', value: sessionHash }], limit: 1 }));
+			const created = await firstSql<{ id: number | string | bigint }>(systemDatabase, sql({ database: systemDatabase }).select({ table: 'base_sessions', columns: { id: 'id' }, where: [{ column: 'token_hash', value: sessionHash }], limit: 1 }));
 			if (!created) throw new Error('本站会话创建失败');
 			sessionId = String(created.id);
 		}
 		await runSql(owned, sql({ database: owned }).upsert('base_oidc_sessions', ['issuer', 'sid'], { issuer: config.issuer, sid: oidcSessionId, session_id: sessionId }, ['session_id', 'updated_at']));
-		await runSql(database, sql({ database }).delete('base_oidc_login_requests', { request_id: request.id }));
+		await runSql(systemDatabase, sql({ database: systemDatabase }).delete('base_oidc_login_requests', { request_id: request.id }));
 		const secure = isSecureRequest(c);
 		c.header('Set-Cookie', clearAccountsLoginCookie(secure)); c.header('Set-Cookie', createSessionCookie(sessionToken, secure, maxAge), { append: true });
-		const localUser = await firstSql<{ id: number; username: string; roles: string }>(database, sql({ database }).select({ table: 'base_users', columns: { id: 'id', username: 'name', roles: 'roles' }, where: [{ column: 'id', value: account.user_id }] }));
+		const localUser = await firstSql<{ id: number; username: string; roles: string }>(systemDatabase, sql({ database: systemDatabase }).select({ table: 'base_users', columns: { id: 'id', username: 'name', roles: 'roles' }, where: [{ column: 'id', value: account.user_id }] }));
 		if (localUser) c.set('currentUser', { id: localUser.id, username: localUser.username, roles: parseRoles(localUser.roles) });
 		const context = await c.get('apiContext')?.(request.return_path);
 		// 登录只在弹窗里完成：直接返回关闭窗口的页面，不再中转到额外的回调页面。

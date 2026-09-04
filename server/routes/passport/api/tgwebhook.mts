@@ -54,17 +54,18 @@ const handler: ApiHandler = async (c) => {
 	const botId = c.req.query('bot_id')?.trim() ?? '';
 	if (!decimalPattern.test(botId)) return jsonStatus(c, 400, 'bad_request');
 	const hostname = new URL(c.req.url).hostname.toLowerCase();
-	const bot = await loadBot(c.get('globalDatabase'), botId, hostname);
+	const bot = await loadBot(c.get('systemGlobalDatabase'), botId, hostname);
 	if (!bot) return jsonStatus(c, 404, 'bot_not_found');
 	const suppliedSecret = c.req.header('x-telegram-bot-api-secret-token') ?? '';
 	if (!await constantTimeEqual(suppliedSecret, bot.secret_token)) return jsonStatus(c, 403, 'forbidden');
 	const update = parseUpdate(await c.req.json<unknown>().catch(() => undefined));
 	if (!update) return jsonStatus(c, 400, 'bad_request');
-	const database = c.get('passportDatabase');
+	// Telegram webhook 是机器对机器请求（靠 secret token 认证），没有用户会话。
+	const database = c.get('systemPassportDatabase');
 	if (!database) return jsonStatus(c, 500, 'error');
 	if (!await claimUpdate(database, botId, update.update_id)) return jsonStatus(c, 200, 'ok');
 	try {
-		await handlePassportTelegramUpdate(database, c.get('globalDatabase'), c.get('site').siteKey, c.env.SNOWFLAKE_WORKER_ID, {
+		await handlePassportTelegramUpdate(database, c.get('systemGlobalDatabase'), c.get('site').siteKey, c.env.SNOWFLAKE_WORKER_ID, {
 			id: String(bot.id),
 			botToken: bot.bot_token,
 		}, update);

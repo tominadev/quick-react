@@ -160,6 +160,13 @@ const configureForRequest = async (c: Context<WorkerEnv>) => {
 	// layer then fills created/updated audit fields for every route uniformly.
 	const baseDeviceUserId = currentUser ? await loadBaseDeviceUserId(database, c.req.raw) : null;
 	const passportDeviceUserId = passportUser && passportDatabase ? await loadPassportDeviceUserId(passportDatabase, c.req.raw) : null;
+	// 行级判定的主体角色必须在建适配器之前算好：绑定了角色的适配器才受判定约束，
+	// 未绑定的（database 本身）是系统上下文，供鉴权、迁移、配置读取等使用。
+	const subjectRoles = [
+		'public',
+		...(currentUser ? ['user', ...currentUser.roles] : []),
+		...(passportUser ? ['accounts'] : []),
+	];
 	const baseUserId = currentUser?.id ?? null;
 	const passportUserId = passportUser?.id ?? null;
 	// Passport administration is authorized by the site's Base admin session.
@@ -171,6 +178,7 @@ const configureForRequest = async (c: Context<WorkerEnv>) => {
 		baseUserId,
 		baseTenantId,
 		baseBranchId,
+		subjectRoles,
 		...(passportDatabase === database ? { passportUserId } : {}),
 		...(passportDatabase === database ? { passport: passportActor } : {}),
 	});
@@ -186,16 +194,23 @@ const configureForRequest = async (c: Context<WorkerEnv>) => {
 			const globalScope = await resolveHostScope(defaultDatabase, site.hostname).catch(() => ({ tenantId: null, branchId: null }));
 			return withDatabaseActors(defaultDatabase, { base: globalDeviceUserId, baseUserId: globalUserId, baseTenantId: globalScope.tenantId, baseBranchId: globalScope.branchId });
 		})();
-	const scopedConfigStore = createDatabaseConfigStore(scopedDatabase);
+	// 配置读取不参与行级判定：配置行没有账号归属，绑定主体后普通账号一条都读不到，
+	// 登录表单、站点设置这些未登录也要用的东西会全部失效。读走未绑定适配器（configDatabase
+	// 只绑了租户与分站，没有主体角色），写仍走绑定适配器以维护审计字段。
+	const scopedConfigWriter = createDatabaseConfigStore(withDatabaseActors(scopedDatabase, { baseTenantId, baseBranchId }), baseTenantId);
 	c.set('globalDatabase', scopedGlobalDatabase);
 	c.set('passportDatabase', scopedPassportDatabase);
+	// 登录、注册、OIDC 回调等发生在会话建立之前的读取必须用它，否则会被自己的判定挡住。
+	c.set('systemDatabase', database);
+	if (passportDatabase) c.set('systemPassportDatabase', passportDatabase);
+	c.set('systemGlobalDatabase', defaultDatabase);
 	c.set('database', scopedDatabase);
 	c.set('tenantId', baseTenantId);
 	c.set('branchId', baseBranchId);
 	c.set('configStore', {
-		get: scopedConfigStore.get,
+		get: baseConfigStore.get,
 		put: async (key: string, value: unknown) => {
-			await scopedConfigStore.put(key, value);
+			await scopedConfigWriter.put(key, value);
 			configurationBucket(database as object).delete(tenantCacheKey);
 		},
 	});

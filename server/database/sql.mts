@@ -3,7 +3,7 @@ import { isSystemField, SYSTEM_FIELD_NAMES } from '@shared/system-fields.mjs';
 
 export type SqlDialect = 'sqlite' | 'mysql' | 'postgresql';
 export type SqlActorContext = DatabaseActorUid | DatabaseActorResolver;
-export type SqlContext = { database: DatabaseAdapter; actorUid?: DatabaseActorUid; actorUidForTable?: DatabaseActorResolver; ownerUid?: DatabaseActorUid; ownerUidForTable?: DatabaseActorResolver; ownerTid?: DatabaseActorUid; ownerTidForTable?: DatabaseActorResolver; ownerBid?: DatabaseActorUid; ownerBidForTable?: DatabaseActorResolver; deletedScope?: DeletedScope };
+export type SqlContext = { database: DatabaseAdapter; actorUid?: DatabaseActorUid; actorUidForTable?: DatabaseActorResolver; ownerUid?: DatabaseActorUid; ownerUidForTable?: DatabaseActorResolver; ownerTid?: DatabaseActorUid; ownerTidForTable?: DatabaseActorResolver; ownerBid?: DatabaseActorUid; ownerBidForTable?: DatabaseActorResolver; subjectRoles?: readonly string[] | null; deletedScope?: DeletedScope };
 export type SqlQuery = { query: string; values: unknown[] };
 type SqlValue = unknown;
 type Values = Record<string, SqlValue | undefined>;
@@ -31,14 +31,62 @@ const assertBusinessWriteFields = (values: Values, options: { allowId?: boolean;
 	if (protectedFields.length) throw new Error(`系统字段由 SQL 公共层维护，业务代码不得传入：${protectedFields.join('、')}（固定字段：${SYSTEM_FIELD_NAMES.join('、')}）`);
 };
 
-export type SqlCondition = { column: string; value?: SqlValue; operator?: '=' | '!=' | '<' | '<=' | '>' | '>=' | 'IS NULL' | 'IS NOT NULL' };
+/**
+ * `raw` 变体只供公共层内部构造（行级判定的常量条件），不对业务代码开放：
+ * 它绕过 quoteIdentifier 的标识符校验，业务传入等于开了一个拼 SQL 的口子。
+ */
+export type SqlCondition =
+	| { column: string; value?: SqlValue; operator?: '=' | '!=' | '<' | '<=' | '>' | '>=' | 'IS NULL' | 'IS NOT NULL'; raw?: undefined }
+	| { raw: string; column?: undefined; value?: undefined; operator?: undefined };
+
+/** 该条件是否需要绑定一个参数值。raw 与 IS NULL 系列都不绑定。 */
+const bindsValue = (condition: SqlCondition) => condition.raw === undefined && !['IS NULL', 'IS NOT NULL'].includes(condition.operator ?? '');
+const renderCondition = (condition: SqlCondition, dialect: SqlDialect, nextPlaceholder: () => string) => {
+	if (condition.raw !== undefined) return condition.raw;
+	const operator = condition.operator ?? '=';
+	return ['IS NULL', 'IS NOT NULL'].includes(operator)
+		? `${quoteIdentifier(condition.column, dialect)} ${operator}`
+		: `${quoteIdentifier(condition.column, dialect)} ${operator} ${nextPlaceholder()}`;
+};
 export type SqlJoin = { type?: 'INNER' | 'LEFT'; table: string; alias?: string; left: string; right: string };
 export type SqlColumn = string | { column: string; cast?: 'text' };
 /** Normal queries see active rows; recycle-bin code must explicitly request deleted/all rows. */
 export type SqlSelectOptions = { table: string; alias?: string; distinct?: boolean; columns?: Record<string, SqlColumn>; includeAll?: boolean; sqliteRowIdAlias?: string; joins?: SqlJoin[]; where?: SqlCondition[]; orderBy?: Array<{ column: string; direction?: 'ASC' | 'DESC' }>; limit?: number; offset?: number; deleted?: DeletedScope };
 
 export abstract class SqlBuilder {
-	constructor(readonly dialect: SqlDialect, readonly actorContext: SqlActorContext = null, readonly defaultDeletedScope: DeletedScope = 'active', readonly ownerContext: SqlActorContext = null, readonly tenantContext: SqlActorContext = null, readonly branchContext: SqlActorContext = null) {}
+	constructor(readonly dialect: SqlDialect, readonly actorContext: SqlActorContext = null, readonly defaultDeletedScope: DeletedScope = 'active', readonly ownerContext: SqlActorContext = null, readonly tenantContext: SqlActorContext = null, readonly branchContext: SqlActorContext = null, readonly subjectRoles: readonly string[] | null = null) {}
+
+	/**
+	 * 行级可见性判定。返回要追加到 WHERE 的条件，空数组表示不限制。
+	 *
+	 * subjectRoles 为 null 表示**系统上下文**（未绑定主体）：迁移、种子、鉴权自身、
+	 * 清理任务都走这条路，完全跳过判定。绑定了主体才受限，哪怕角色数组是空的。
+	 *
+	 * 四种情况都是单个索引等值，没有 OR、子查询或 JOIN。
+	 */
+	protected visibilityConditions(table: string, alias?: string): SqlCondition[] {
+		const roles = this.subjectRoles;
+		if (roles === null) return [];
+		// Passport 是跨站点跨租户的统一身份中心，它的数据不属于任何租户、分站或本站账号，
+		// 而且大多在匿名流程（登录、绑定、OIDC 协议）中创建，owner_uid 本就为空。
+		// 它的访问控制在协议层与查询层：会话令牌、客户端认证，以及查询里显式的 user_id 过滤。
+		// 后台管理由路由层角色门限制。行级归属判定对它既不适用也会把正常流程挡死。
+		if (table.startsWith('passport_')) return [];
+		if (roles.includes('platform_admin')) return [];
+		const prefix = alias ?? table;
+		if (roles.includes('tenant_admin')) {
+			const tenantId = this.ownerTidFor(table);
+			return tenantId === undefined ? [{ raw: '1 = 0' }] : [{ column: `${prefix}.owner_tid`, value: tenantId }];
+		}
+		if (roles.includes('branch_admin')) {
+			const branchId = this.ownerBidFor(table);
+			return branchId === undefined ? [{ raw: '1 = 0' }] : [{ column: `${prefix}.owner_bid`, value: branchId }];
+		}
+		const actingUid = this.ownerUidFor(table);
+		// 已绑定主体但没有账号（例如只有 Accounts 身份的访客）：什么都看不到。
+		// 显式写成 1 = 0 而不是依赖 owner_uid = NULL 求值为 unknown——后者是巧合不是语义。
+		return actingUid === null ? [{ raw: '1 = 0' }] : [{ column: `${prefix}.owner_uid`, value: actingUid }];
+	}
 	protected actorUidFor(table: string): DatabaseActorUid | null {
 		const value = typeof this.actorContext === 'function' ? this.actorContext(table) : this.actorContext;
 		return value ?? null;
@@ -86,12 +134,9 @@ export abstract class SqlBuilder {
 			// 回收站查看主表的已删除记录；关联表保持正常可见，避免主表记录因仍 active 的关系数据而消失。
 			...(deletedScope === 'deleted' ? [] : (options.joins ?? []).map((join) => ({ column: `${join.alias ?? join.table}.deleted_at`, operator: '=' as const, value: 0 }))),
 		];
-		const conditions = [...deletedConditions, ...(options.where ?? [])], boundConditions = conditions.filter((condition) => !['IS NULL', 'IS NOT NULL'].includes(condition.operator ?? ''));
+		const conditions = [...deletedConditions, ...this.visibilityConditions(options.table, options.alias), ...(options.where ?? [])], boundConditions = conditions.filter(bindsValue);
 		let parameterIndex = 0;
-		if (conditions.length) query += ` WHERE ${conditions.map((condition) => {
-			const operator = condition.operator ?? '=';
-			return ['IS NULL', 'IS NOT NULL'].includes(operator) ? `${quoteIdentifier(condition.column, this.dialect)} ${operator}` : `${quoteIdentifier(condition.column, this.dialect)} ${operator} ${this.placeholder(++parameterIndex)}`;
-		}).join(' AND ')}`;
+		if (conditions.length) query += ` WHERE ${conditions.map((condition) => renderCondition(condition, this.dialect, () => this.placeholder(++parameterIndex))).join(' AND ')}`;
 		if (options.orderBy?.length) query += ` ORDER BY ${options.orderBy.map((order) => `${quoteIdentifier(order.column, this.dialect)} ${order.direction ?? 'ASC'}`).join(', ')}`;
 		if (options.limit !== undefined) { query += ` LIMIT ${this.placeholder(boundConditions.length + 1)}`; if (options.offset !== undefined) query += ` OFFSET ${this.placeholder(boundConditions.length + 2)}`; }
 		return { query, values: [...boundConditions.map((condition) => condition.value as SqlValue), ...(options.limit !== undefined ? [options.limit, ...(options.offset !== undefined ? [options.offset] : [])] : [])] };
@@ -100,12 +145,13 @@ export abstract class SqlBuilder {
 	count(table: string, where: SqlCondition[] = [], deleted: DeletedScope = 'active'): SqlQuery {
 		let query = `SELECT COUNT(*) AS ${quoteIdentifier('count', this.dialect)} FROM ${quoteIdentifier(table, this.dialect)}`;
 		let parameterIndex = 0;
-		const conditions: SqlCondition[] = deleted === 'all' ? where : [{ column: 'deleted_at', operator: deleted === 'deleted' ? '!=' : '=', value: 0 }, ...where];
-		if (conditions.length) query += ` WHERE ${conditions.map((condition) => {
-			const operator = condition.operator ?? '=';
-			return ['IS NULL', 'IS NOT NULL'].includes(operator) ? `${quoteIdentifier(condition.column, this.dialect)} ${operator}` : `${quoteIdentifier(condition.column, this.dialect)} ${operator} ${this.placeholder(++parameterIndex)}`;
-		}).join(' AND ')}`;
-		return { query, values: conditions.filter((condition) => !['IS NULL', 'IS NOT NULL'].includes(condition.operator ?? '')).map((condition) => condition.value) };
+		const conditions: SqlCondition[] = [
+			...(deleted === 'all' ? [] : [{ column: 'deleted_at', operator: deleted === 'deleted' ? '!=' as const : '=' as const, value: 0 }]),
+			...this.visibilityConditions(table),
+			...where,
+		];
+		if (conditions.length) query += ` WHERE ${conditions.map((condition) => renderCondition(condition, this.dialect, () => this.placeholder(++parameterIndex))).join(' AND ')}`;
+		return { query, values: conditions.filter(bindsValue).map((condition) => condition.value) };
 	}
 
 	insert(table: string, values: Values): SqlQuery {
@@ -145,28 +191,24 @@ export abstract class SqlBuilder {
 		const selected = entries.map(([, value]) => value && typeof value === 'object' && 'column' in value
 			? quoteIdentifier(String(value.column), this.dialect)
 			: this.placeholder(++parameterIndex));
-		const conditions = where.map((condition) => {
-			const operator = condition.operator ?? '=';
-			return ['IS NULL', 'IS NOT NULL'].includes(operator) ? `${quoteIdentifier(condition.column, this.dialect)} ${operator}` : `${quoteIdentifier(condition.column, this.dialect)} ${operator} ${this.placeholder(++parameterIndex)}`;
-		});
+		const conditions = where.map((condition) => renderCondition(condition, this.dialect, () => this.placeholder(++parameterIndex)));
 		return {
 			query: `INSERT INTO ${quoteIdentifier(table, this.dialect)} (${entries.map(([key]) => quoteIdentifier(key, this.dialect)).join(', ')}) SELECT ${selected.join(', ')} FROM ${quoteIdentifier(from, this.dialect)} WHERE ${conditions.join(' AND ')}`,
-			values: [...entries.filter(([, value]) => !(value && typeof value === 'object' && 'column' in value)).map(([, value]) => value), ...where.filter((condition) => !['IS NULL', 'IS NOT NULL'].includes(condition.operator ?? '')).map((condition) => condition.value)],
+			values: [...entries.filter(([, value]) => !(value && typeof value === 'object' && 'column' in value)).map(([, value]) => value), ...where.filter(bindsValue).map((condition) => condition.value)],
 		};
 	}
 
 	private updateManaged(table: string, values: Values, where: Values | SqlCondition[], allowDeletedAt = false): SqlQuery {
 		assertBusinessWriteFields(values, { allowDeletedAt });
 		const actorUid = this.actorUidFor(table);
-		const entries = definedEntries({ updated_at: Date.now(), ...(actorUid !== null ? { updated_duid: actorUid } : {}), ...values }), conditions: SqlCondition[] = Array.isArray(where) ? where : definedEntries(where).map(([column, value]) => ({ column, value }));
+		const entries = definedEntries({ updated_at: Date.now(), ...(actorUid !== null ? { updated_duid: actorUid } : {}), ...values });
+		// 写入与读取用同一套判定：能改的行本就是能看到的行。影响 0 行统一表示"不存在或无权限"。
+		const conditions: SqlCondition[] = [...this.visibilityConditions(table), ...(Array.isArray(where) ? where : definedEntries(where).map(([column, value]) => ({ column, value })))];
 		if (!entries.length || !conditions.length) throw new Error('UPDATE values and where cannot be empty');
 		let parameterIndex = entries.length;
 		return {
-			query: `UPDATE ${quoteIdentifier(table, this.dialect)} SET ${entries.map(([key], index) => `${quoteIdentifier(key, this.dialect)} = ${this.placeholder(index + 1)}`).join(', ')} WHERE ${conditions.map((condition) => {
-				const operator = condition.operator ?? '=';
-				return ['IS NULL', 'IS NOT NULL'].includes(operator) ? `${quoteIdentifier(condition.column, this.dialect)} ${operator}` : `${quoteIdentifier(condition.column, this.dialect)} ${operator} ${this.placeholder(++parameterIndex)}`;
-			}).join(' AND ')}`,
-			values: [...entries.map(([, value]) => value), ...conditions.filter((condition) => !['IS NULL', 'IS NOT NULL'].includes(condition.operator ?? '')).map((condition) => condition.value as SqlValue)],
+			query: `UPDATE ${quoteIdentifier(table, this.dialect)} SET ${entries.map(([key], index) => `${quoteIdentifier(key, this.dialect)} = ${this.placeholder(index + 1)}`).join(', ')} WHERE ${conditions.map((condition) => renderCondition(condition, this.dialect, () => this.placeholder(++parameterIndex))).join(' AND ')}`,
+			values: [...entries.map(([, value]) => value), ...conditions.filter(bindsValue).map((condition) => condition.value as SqlValue)],
 		};
 	}
 
@@ -186,19 +228,15 @@ export abstract class SqlBuilder {
 
 	/** 物理删除，仅供清理任务和明确的不可恢复操作使用。 */
 	delete(table: string, where: Values | SqlCondition[]): SqlQuery {
-		const conditions: SqlCondition[] = Array.isArray(where)
+		const businessConditions: SqlCondition[] = Array.isArray(where)
 			? where
 			: definedEntries(where).map(([column, value]) => ({ column, value }));
-		if (!conditions.length) throw new Error('DELETE where cannot be empty');
+		if (!businessConditions.length) throw new Error('DELETE where cannot be empty');
+		const conditions: SqlCondition[] = [...this.visibilityConditions(table), ...businessConditions];
 		let parameterIndex = 0;
 		return {
-			query: `DELETE FROM ${quoteIdentifier(table, this.dialect)} WHERE ${conditions.map((condition) => {
-				const operator = condition.operator ?? '=';
-				return ['IS NULL', 'IS NOT NULL'].includes(operator)
-					? `${quoteIdentifier(condition.column, this.dialect)} ${operator}`
-					: `${quoteIdentifier(condition.column, this.dialect)} ${operator} ${this.placeholder(++parameterIndex)}`;
-			}).join(' AND ')}`,
-			values: conditions.filter((condition) => !['IS NULL', 'IS NOT NULL'].includes(condition.operator ?? '')).map((condition) => condition.value),
+			query: `DELETE FROM ${quoteIdentifier(table, this.dialect)} WHERE ${conditions.map((condition) => renderCondition(condition, this.dialect, () => this.placeholder(++parameterIndex))).join(' AND ')}`,
+			values: conditions.filter(bindsValue).map((condition) => condition.value),
 		};
 	}
 
@@ -236,9 +274,9 @@ export abstract class SqlBuilder {
 	castText(expression: string) { const quoted = quoteIdentifier(expression, this.dialect); return this.dialect === 'mysql' ? `CAST(${quoted} AS CHAR)` : `CAST(${quoted} AS TEXT)`; }
 }
 
-export class SqliteSqlBuilder extends SqlBuilder { constructor(actorContext: SqlActorContext = null, deletedScope: DeletedScope = 'active', ownerContext: SqlActorContext = null, tenantContext: SqlActorContext = null, branchContext: SqlActorContext = null) { super('sqlite', actorContext, deletedScope, ownerContext, tenantContext, branchContext); } protected placeholder() { return '?'; } }
-export class MysqlSqlBuilder extends SqlBuilder { constructor(actorContext: SqlActorContext = null, deletedScope: DeletedScope = 'active', ownerContext: SqlActorContext = null, tenantContext: SqlActorContext = null, branchContext: SqlActorContext = null) { super('mysql', actorContext, deletedScope, ownerContext, tenantContext, branchContext); } protected placeholder() { return '?'; } }
-export class PostgresqlSqlBuilder extends SqlBuilder { constructor(actorContext: SqlActorContext = null, deletedScope: DeletedScope = 'active', ownerContext: SqlActorContext = null, tenantContext: SqlActorContext = null, branchContext: SqlActorContext = null) { super('postgresql', actorContext, deletedScope, ownerContext, tenantContext, branchContext); } protected placeholder(index: number) { return `$${index}`; } }
+export class SqliteSqlBuilder extends SqlBuilder { constructor(actorContext: SqlActorContext = null, deletedScope: DeletedScope = 'active', ownerContext: SqlActorContext = null, tenantContext: SqlActorContext = null, branchContext: SqlActorContext = null, subjectRoles: readonly string[] | null = null) { super('sqlite', actorContext, deletedScope, ownerContext, tenantContext, branchContext, subjectRoles); } protected placeholder() { return '?'; } }
+export class MysqlSqlBuilder extends SqlBuilder { constructor(actorContext: SqlActorContext = null, deletedScope: DeletedScope = 'active', ownerContext: SqlActorContext = null, tenantContext: SqlActorContext = null, branchContext: SqlActorContext = null, subjectRoles: readonly string[] | null = null) { super('mysql', actorContext, deletedScope, ownerContext, tenantContext, branchContext, subjectRoles); } protected placeholder() { return '?'; } }
+export class PostgresqlSqlBuilder extends SqlBuilder { constructor(actorContext: SqlActorContext = null, deletedScope: DeletedScope = 'active', ownerContext: SqlActorContext = null, tenantContext: SqlActorContext = null, branchContext: SqlActorContext = null, subjectRoles: readonly string[] | null = null) { super('postgresql', actorContext, deletedScope, ownerContext, tenantContext, branchContext, subjectRoles); } protected placeholder(index: number) { return `$${index}`; } }
 
 export const sql = (context: SqlContext) => {
 	const dialect = dialectOf(context.database);
@@ -250,8 +288,9 @@ export const sql = (context: SqlContext) => {
 		?? (Object.prototype.hasOwnProperty.call(context, 'ownerTid') ? context.ownerTid ?? null : context.database.ownerTidForTable ?? context.database.ownerTid ?? null);
 	const branchContext: SqlActorContext = context.ownerBidForTable
 		?? (Object.prototype.hasOwnProperty.call(context, 'ownerBid') ? context.ownerBid ?? null : context.database.ownerBidForTable ?? context.database.ownerBid ?? null);
+	const subjectRoles = Object.prototype.hasOwnProperty.call(context, 'subjectRoles') ? context.subjectRoles ?? null : context.database.subjectRoles ?? null;
 	const deletedScope = context.deletedScope ?? context.database.deletedScope ?? 'active';
-	return dialect === 'mysql' ? new MysqlSqlBuilder(actorContext, deletedScope, ownerContext, tenantContext, branchContext) : dialect === 'postgresql' ? new PostgresqlSqlBuilder(actorContext, deletedScope, ownerContext, tenantContext, branchContext) : new SqliteSqlBuilder(actorContext, deletedScope, ownerContext, tenantContext, branchContext);
+	return dialect === 'mysql' ? new MysqlSqlBuilder(actorContext, deletedScope, ownerContext, tenantContext, branchContext, subjectRoles) : dialect === 'postgresql' ? new PostgresqlSqlBuilder(actorContext, deletedScope, ownerContext, tenantContext, branchContext, subjectRoles) : new SqliteSqlBuilder(actorContext, deletedScope, ownerContext, tenantContext, branchContext, subjectRoles);
 };
 export const runSql = (database: DatabaseAdapter, statement: SqlQuery): Promise<DatabaseRunResult> => database.prepare(statement.query).bind(...statement.values).run();
 export const firstSql = <T,>(database: DatabaseAdapter, statement: SqlQuery) => database.prepare(statement.query).bind(...statement.values).first<T>();

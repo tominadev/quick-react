@@ -5,7 +5,8 @@ import { accessTokenUser } from '@server/modules/passport/accounts/repository.mj
 
 const handler: ApiHandler = async (c) => {
 	if (c.req.method !== 'GET') return apiMessage(c, 404);
-	const database = c.get('passportDatabase'); if (!database) return apiMessage(c, 503);
+	// OIDC 协议端点是机器对机器的匿名请求，没有用户会话，必须走未绑定主体的适配器。
+	const database = c.get('systemPassportDatabase'); if (!database) return apiMessage(c, 503);
 	const authorization = c.req.header('authorization') ?? '';
 	if (!authorization.startsWith('Bearer ')) return apiMessage(c, 401, '缺少 Bearer Token');
 	const user = await accessTokenUser(database, await sha256(authorization.slice(7)), Date.now());
