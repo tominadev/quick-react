@@ -209,22 +209,31 @@ const auditRouteFilter = async () => {
 		assert.equal(Number(rejectedRow.pended_at), 0, '并且是一条普通的已删除记录');
 		leftovers.close();
 
-		// 删除与修改是两个意图，谁也不该把谁抹掉。
+		// **存在性还没定下来之前，不接受别的申请。**
 		//
-		// 「后一次提交作废前一次」说的是同一件事被重说了一遍（改完再改）。不按动作分的话，
-		// 后提交的修改会把前面那条删除申请**静悄悄改写**：提交人以为两件都在队列里排着，
-		// 实际只剩一件。
+		// 新增、删除、恢复决定的是「这一行在不在」，修改决定的是「它是什么样」。一行同时
+		// 挂着两类申请时，审批人得在脑子里合并几条记录才知道批准之后是什么样，而「驳回新增 +
+		// 批准修改」这类组合根本没人想要——那条修改作用在一行已经进了回收站的记录上。
 		const mixApi = 'http://localhost/api/panel/admin/base/users.php';
-		const mixTarget = (await (await app.request(`${mixApi}?include=data`, { headers: { ...headers, cookie } })).json())
-			.table.dataSource.find((row) => row.user_name === 'pendingbob');
+		const mixList = async () => (await (await app.request(`${mixApi}?include=schema,data`, { headers: { ...headers, cookie } })).json()).table;
+		const mixTarget = (await mixList()).dataSource.find((row) => row.user_name === 'pendingbob');
 		const mixQueue = async () => (await (await app.request(`http://localhost/api/panel/admin/base/audit.php?include=data&review_status=pending&table_name=base_users&row_id=${mixTarget.id}`, { headers: { ...headers, cookie } })).json())
 			.table.dataSource.map((row) => row.action).sort();
 		assert.equal((await app.request(mixApi, { method: 'DELETE', headers: { ...headers, cookie }, body: JSON.stringify([String(mixTarget.id)]) })).status, 202);
 		assert.deepEqual(await mixQueue(), ['soft_delete']);
-		assert.equal((await app.request(`${mixApi}/${mixTarget.id}`, { method: 'PUT', headers: { ...headers, cookie }, body: JSON.stringify({ status: 'enabled', __changedFields: ['status'] }) })).status, 202);
-		assert.deepEqual(await mixQueue(), ['soft_delete', 'update'], '删除与修改并存');
-		assert.equal((await app.request(`${mixApi}/${mixTarget.id}`, { method: 'PUT', headers: { ...headers, cookie }, body: JSON.stringify({ user_name: 'pendingbob2', __changedFields: ['user_name'] }) })).status, 202);
-		assert.deepEqual(await mixQueue(), ['soft_delete', 'update'], '同一动作才互相覆盖：还是两条，不是三条');
+		// 界面上先收起按钮：这一行只剩撤回/批准。
+		const lockedTable = await mixList();
+		const lockedRow = lockedTable.dataSource.find((row) => row.user_name === 'pendingbob');
+		assert.equal(lockedRow._pending, 'soft_delete-mine');
+		const lockedLabels = lockedTable.option.actions.row.filter((action) => !action.visibleWhen || action.visibleWhen.values.includes(lockedRow._pending)).map((action) => action.label);
+		assert.deepEqual(lockedLabels, ['撤回删除', '批准删除'], '待删除的行不给编辑和删除按钮');
+		// 服务端再挡一次：按钮不出现只是不引诱人去点。
+		const locked = await app.request(`${mixApi}/${mixTarget.id}`, { method: 'PUT', headers: { ...headers, cookie }, body: JSON.stringify({ status: 'enabled', __changedFields: ['status'] }) });
+		assert.equal(locked.status, 409, '待删除的行不接受修改申请');
+		assert.match((await locked.json()).feedback?.message ?? '', /「删除」申请正在等待审批/);
+		// 同一个动作重新提交仍然照旧覆盖——那是「重说一遍」，不是叠加。
+		assert.equal((await app.request(mixApi, { method: 'DELETE', headers: { ...headers, cookie }, body: JSON.stringify([String(mixTarget.id)]) })).status, 202);
+		assert.deepEqual(await mixQueue(), ['soft_delete'], '还是一条');
 		// 收拾干净，别影响后面的用例。
 		assert.equal((await decide('withdraw', await pendingIds())).status, 200);
 
@@ -261,18 +270,19 @@ const auditRouteFilter = async () => {
 		assert.equal('option' in dataOnly.table, false, '只请求数据时不该下发结构');
 		assert.equal(dataOnly.table.dataSource.find((row) => row.user_name === 'rejectme')?._pending, 'insert-mine', '只取数据也要带标记');
 
-		// 建号进队列之后再改一次:那条 insert 不能被 update 覆盖。
+		// 待审批的新行同样锁着：改它、删它都不接受，界面上也只剩撤回/批准。
 		//
-		// 覆盖掉的后果是行永远隐身:批准时没有人再去把 pended_at 归零,账号登不进去,
-		// 而审批列表显示一切正常。这条路是「管理列表看得见待审批的新行」之后才走得到的
-		// ——看不见就点不到编辑。
+		// 不锁的话那条 insert 会被随后的 update 覆盖，批准时就没有人再去把 pended_at 归零
+		// ——行永远隐身、账号登不进去，而审批列表显示一切正常。这条路是「管理列表看得见
+		// 待审批的新行」之后才走得到的：看不见就点不到编辑。
 		const draft = pendingList.table.dataSource.find((row) => row.user_name === 'rejectme');
-		assert.equal((await app.request(`${usersApi}/${draft.id}`, { method: 'PUT', headers: { ...headers, cookie }, body: JSON.stringify({ status: 'disabled', __changedFields: ['status'] }) })).status, 202);
-		const draftQueue = await (await app.request('http://localhost/api/panel/admin/base/audit.php?include=data&review_status=pending', { headers: { ...headers, cookie } })).json();
-		const draftEntries = draftQueue.table.dataSource.filter((row) => String(row.row_id) === String(draft.id) && row.table_name === 'base_users');
-		assert.deepEqual(draftEntries.map((row) => row.action).sort(), ['insert', 'update'], '新建与随后的修改并存,是两条');
+		const draftLabels = pendingList.table.option.actions.row.filter((action) => !action.visibleWhen || action.visibleWhen.values.includes(draft._pending)).map((action) => action.label);
+		assert.deepEqual(draftLabels, ['撤回新增', '批准新增'], '待审批的新行不给编辑和删除按钮');
+		const draftEdit = await app.request(`${usersApi}/${draft.id}`, { method: 'PUT', headers: { ...headers, cookie }, body: JSON.stringify({ status: 'disabled', __changedFields: ['status'] }) });
+		assert.equal(draftEdit.status, 409, '待审批的新行不接受修改申请');
+		assert.match((await draftEdit.json()).feedback?.message ?? '', /「新增」申请正在等待审批/);
+		assert.equal((await app.request(usersApi, { method: 'DELETE', headers: { ...headers, cookie }, body: JSON.stringify([String(draft.id)]) })).status, 409, '也不接受删除申请');
 		const queuedInsert = await (await app.request('http://localhost/api/panel/admin/base/audit.php?include=data&review_status=pending', { headers: { ...headers, cookie } })).json();
-		// 只数新建那几条：队列里还躺着上面那次改草稿的 update。
 		const queuedInserts = queuedInsert.table.dataSource.filter((row) => row.action === 'insert');
 		assert.equal(queuedInserts.length, 3, '建号写三行：账号、凭证、资料');
 		assert.equal(new Set(queuedInserts.map((row) => row.operation_id)).size, 1, '三条共享一个操作号');

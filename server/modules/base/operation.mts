@@ -41,6 +41,23 @@ export type OperationOptions = {
  * 抛异常而不是返回状态码：路由后面那句 `return apiMessage(c, 200, '已保存')` 不能执行，
  * 否则会告诉用户改好了。异常一抛，业务路由一行都不用改（见需求文档 §11.5）。
  */
+/**
+ * 这一行的**存在性**还在等审批，不接受别的申请。
+ *
+ * 新增、删除、恢复决定的是「这一行在不在」；在那件事定下来之前再叠一条修改（或另一种
+ * 存在性申请），审批人就得在脑子里合并几条记录才知道批准之后是什么样，而「驳回新增 +
+ * 批准修改」这类组合根本没人想要——那条修改作用在一行已经进了回收站的记录上。
+ *
+ * 界面上会把编辑与删除按钮一并收起来，这一句是挡伪造请求的那道门：按钮不出现只是不
+ * 引诱人去点。要改就先撤回。
+ */
+export class PendingLockError extends Error {
+	constructor(readonly table: string, readonly action: string) {
+		super(`这一行有一条「${action}」申请正在等待审批，请先撤回或等它审批完再操作`);
+		this.name = 'PendingLockError';
+	}
+}
+
 export class PendingApprovalError extends Error {
 	constructor(readonly operationId: string, readonly entries: number) {
 		super('修改已提交审批，通过后才会生效');
@@ -179,6 +196,27 @@ const findPendingEntry = async (database: DatabaseAdapter, builder: ReturnType<t
 		deleted: 'active',
 		orderBy: [{ column: 'id', direction: 'DESC' }], limit: 1,
 	}));
+};
+
+/**
+ * 这一行上有没有一条**别的**存在性申请在等审批；有就返回它的动作名。
+ *
+ * 不看是谁提的：一行的去留没定下来，谁来改都一样要等——挡的是「叠加」，不是「越权」。
+ */
+const EXISTENCE_ACTIONS: Record<string, string> = { insert: '新增', soft_delete: '删除', restore: '恢复' };
+
+const findExistenceLock = async (database: DatabaseAdapter, builder: ReturnType<typeof sql>, table: string, rowId: unknown, action: SqlAuditAction) => {
+	const rows = await allSql<{ action: string }>(database, builder.select({
+		table: AUDIT_TABLE, columns: { action: 'action' },
+		where: [
+			{ column: 'table_name', value: table },
+			{ column: 'row_id', value: rowId },
+			{ column: 'review_status', value: 'pending' },
+		],
+		deleted: 'active',
+	}));
+	const blocking = rows.map((row) => String(row.action)).find((pending) => pending !== action && EXISTENCE_ACTIONS[pending]);
+	return blocking ? EXISTENCE_ACTIONS[blocking] : undefined;
 };
 
 type RequestOrigin = { hostname: string; path: string };
@@ -362,6 +400,15 @@ const recordStatement = async (database: DatabaseAdapter, metadata: SqlAuditMeta
 		// 而先批的那几条会因为值校验（§7.2）全部失败——它们的 before 是更早的值。
 		// 立即生效的情况：他已经自己把这一行改掉了，原先那条申请随之作废，留着就是
 		// 一条谁也批不动的孤儿记录（before 已经对不上）。两种情况都是同一件事的最新版本。
+		/**
+		 * 存在性申请挂着的时候，只接受同一个动作的重新提交（那是「重说一遍」，照旧覆盖）。
+		 *
+		 * 只在走审批的路径上判：立即生效的自助操作不排队，也不该被后台的待审批申请挡住。
+		 */
+		if (!immediate) {
+			const blocking = await findExistenceLock(database, builder, metadata.table, row.id, values.action);
+			if (blocking) throw new PendingLockError(metadata.table, blocking);
+		}
 		const existing = await findPendingEntry(database, builder, metadata.table, row.id, values.action);
 		if (existing) await runSystemSql(database, builder.update(AUDIT_TABLE, values, [{ column: 'id', value: existing.id }, { column: 'review_status', value: 'pending' }]));
 		else await runSystemSql(database, builder.insert(AUDIT_TABLE, values));

@@ -92,6 +92,23 @@ export const pendingRowStates = async (c: Context<AppEnv>, database: DatabaseAda
 	return states;
 };
 
+/**
+ * **存在性申请**：新增、删除、恢复决定的是「这一行在不在」；修改决定的是「它是什么样」。
+ *
+ * 存在性还没定下来之前不接受内容申请——一行同时挂着「要不要有它」和「把它改成什么样」，
+ * 审批人得在脑子里合并两条记录才知道批准之后是什么样，而批一条驳一条的组合里有好几种
+ * 根本没人想要（驳回新增再批准修改，那条修改作用在一行已经进了回收站的记录上）。
+ */
+export const EXISTENCE_KINDS: readonly PendingRowKind[] = ['insert', 'soft_delete', 'restore'];
+
+/**
+ * 内容动作（编辑、删除）在这些取值上才出现。
+ *
+ * `visibleWhen` 是白名单，因此这里列的是**允许**的取值：没有待审批，或者挂着的是一条
+ * 内容申请。挂着存在性申请时，编辑与删除按钮一并收起来。
+ */
+export const CONTENT_ACTION_VALUES = ['', 'update-mine', 'update-other'];
+
 /** 行上那一列的取值：`insert-mine`、`soft_delete-other` 之类；没有待审批就是空串。 */
 export const pendingRowToken = (state: PendingRowState | undefined) => state ? `${state.kind}-${state.mine ? 'mine' : 'other'}` : '';
 

@@ -4,7 +4,7 @@ import { readChangeReason } from '@server/modules/base/operation.mjs';
 import { allSql, AUDIT_TABLE, sql, type SqlCondition } from '@server/database/sql.mjs';
 import { DATA_LABELS, REVIEW_LABELS, countAuditEntries, describeAuditChanges, listAuditEntries, parseAuditChanges, publicAuditChanges, readAuditEntry, transitionAuditEntries, type AuditEntryRow } from '@server/modules/base/audit.mjs';
 import { tableSort } from '@server/modules/base/query-options.mjs';
-import { assertNotSelfApproval } from '@server/modules/base/super-users.mjs';
+import { assertNotSelfApproval, isSuperUser, submitterIdsOf } from '@server/modules/base/super-users.mjs';
 import type { TableCrudDefinition } from '@server/modules/base/table-crud.mjs';
 
 /**
@@ -67,14 +67,30 @@ const queryFields = [
  * 审批类动作看审批状态，数据类动作看数据状态——两列各管各的：一条「无需审批」的自助
  * 操作照样能回滚，而它压根没有可批准的申请。
  */
-const flipActions = [
-	{ key: 'approve' as const, label: '批准', field: 'review_status', from: ['pending'], confirm: '确认批准这条修改吗？批准后立即生效。' },
-	{ key: 'reject' as const, label: '驳回', field: 'review_status', from: ['pending'], confirm: '确认驳回这条修改吗？数据不会被改动。' },
+/**
+ * 行上那一列的取值：待审批的分「我提的」和「别人提的」，其余按数据状态。
+ *
+ * `visibleWhen` 只看一个字段，而「批准/驳回/撤销该不该出现」同时取决于审批状态**和**
+ * 是谁提的，因此把两根轴折成一列。待审批时数据状态恒为 unwritten，折起来不丢信息。
+ */
+const STAGE_FIELD = '_stage';
+
+/**
+ * **撤销与驳回互斥**：自己提的叫撤销，别人提的叫驳回，同一条记录上不会同时出现两个。
+ *
+ * 原先三个按钮对每一条待审批记录都出现，而提交人往往自己就有审批权，于是「撤销申请」和
+ * 「驳回」并排摆着，读的人分不清该点哪个——它们本来就作用在不同的记录上。
+ *
+ * 批准自己提的那一份只给超级用户：其余人受四眼原则限制，点了必然被服务端挡回来（§13.5）。
+ */
+const flipActions = (superUser: boolean) => [
+	{ key: 'approve' as const, label: '批准', from: superUser ? ['pending-other', 'pending-mine'] : ['pending-other'], confirm: '确认批准这条修改吗？批准后立即生效。' },
+	{ key: 'reject' as const, label: '驳回', from: ['pending-other'], confirm: '确认驳回这条修改吗？数据不会被改动。' },
 	// 「撤销申请」动的是还没生效的申请，「回滚」动的是已经生效的数据。不用「撤回」——
 	// 它和「撤销」太近，读的人分不清哪个会改到数据。
-	{ key: 'withdraw' as const, label: '撤销申请', field: 'review_status', from: ['pending'], confirm: '确认撤销这条还没生效的申请吗？数据不会被改动。' },
-	{ key: 'revert' as const, label: '回滚', field: 'data_status', from: ['applied'], confirm: '确认把这条已经生效的变更改回去吗？' },
-	{ key: 'restore' as const, label: '恢复', field: 'data_status', from: ['reverted'], confirm: '确认恢复这条变更吗？' },
+	{ key: 'withdraw' as const, label: '撤销申请', from: ['pending-mine'], confirm: '确认撤销这条还没生效的申请吗？数据不会被改动。' },
+	{ key: 'revert' as const, label: '回滚', from: ['applied'], confirm: '确认把这条已经生效的变更改回去吗？' },
+	{ key: 'restore' as const, label: '恢复', from: ['reverted'], confirm: '确认恢复这条变更吗？' },
 ];
 
 const columns = [
@@ -170,6 +186,13 @@ const handler: ApiHandler = async (c, next, params) => {
 		if (rowFilter) filters.push({ column: 'row_id', value: rowFilter });
 		const reason = c.req.query('reason')?.trim();
 		const rows = await listAuditEntries(database, filters, reason, undefined, tableSort(c));
+		// 待审批的那几条要分出「我提的」和「别人提的」——比到人不比到设备，同一个人换台
+		// 设备不该变成两个人（与四眼原则用同一把尺子）。
+		const submitters = await submitterIdsOf(database, rows.map((row) => String(row.created_duid ?? '')));
+		const me = String(c.get('currentUser')?.id ?? '');
+		const stageOf = (row: AuditEntryRow) => row.review_status === 'pending'
+			? (me && submitters.get(String(row.created_duid ?? '')) === me ? 'pending-mine' : 'pending-other')
+			: row.data_status;
 		// 列表有条数上限，总数单独计一次——拿列表长度当总数会在超过上限时谎报。
 		const totalRecords = await countAuditEntries(database, filters, reason);
 		return apiResponse(c, 200, { table: {
@@ -181,11 +204,11 @@ const handler: ApiHandler = async (c, next, params) => {
 				query: [{ key: 'search', label: '搜索' }],
 				// 撤回不新开记录，而是把这一条翻到另一面；已撤回的再点一次就恢复。
 				// 撤回与恢复是互斥的两个动作，一行上只显示其中适用的那个。
-				toolbar: flipActions.map((action) => ({ key: action.key, label: `${action.label}选中记录`, confirm: action.confirm, selection: true })),
-				row: flipActions.map((action) => ({ key: action.key, label: action.label, confirm: action.confirm, visibleWhen: { field: action.field, values: action.from } })),
+				toolbar: flipActions(isSuperUser(c)).map((action) => ({ key: action.key, label: `${action.label}选中记录`, confirm: action.confirm, selection: true })),
+				row: flipActions(isSuperUser(c)).map((action) => ({ key: action.key, label: action.label, confirm: action.confirm, visibleWhen: { field: STAGE_FIELD, values: action.from } })),
 			} },
 			columns,
-			dataSource: rows.map(publicEntry),
+			dataSource: rows.map((row) => ({ ...publicEntry(row), [STAGE_FIELD]: stageOf(row) })),
 			totalRecords,
 		} });
 	}
@@ -194,21 +217,30 @@ const handler: ApiHandler = async (c, next, params) => {
 		if (!row) return apiMessage(c, 404, '审计记录不存在');
 		return apiResponse(c, 200, { ...publicEntry(row), changes: publicAuditChanges(parseAuditChanges(row.changes)) });
 	}
-	const flip = c.req.method === 'POST' ? flipActions.find((action) => action.key === c.req.query('action')) : undefined;
+	const flip = c.req.method === 'POST' ? flipActions(isSuperUser(c)).find((action) => action.key === c.req.query('action')) : undefined;
 	if (flip) {
 		const ids = await readIds(c, params.id);
 		if (!ids.length) return apiMessage(c, 400, `请选择要${flip.label}的记录`);
 		// 批准与驳回是替别人的申请做决定，不能自己批自己；撤销申请与回滚不受这道判定管——
 		// 前者是收回自己提的东西，后者动的是已经生效的数据，两者都另有各自的权限门。
-		if (flip.key === 'approve' || flip.key === 'reject') {
+		if (flip.key === 'approve' || flip.key === 'reject' || flip.key === 'withdraw') {
 			const entries = await allSql<{ id: string; created_duid: string | null }>(database, sql({ database }).select({
 				table: AUDIT_TABLE,
 				columns: { id: { column: 'id', cast: 'text' }, created_duid: { column: 'created_duid', cast: 'text' } },
 				where: [{ column: 'review_status', value: 'pending' }],
 			}));
 			const selected = entries.filter((entry) => ids.includes(String(entry.id)));
-			const selfApproval = await assertNotSelfApproval(c, database, selected);
-			if (selfApproval) return apiMessage(c, 403, selfApproval);
+			// 撤销是把**自己**提的东西收回去。替别人撤等于替别人做决定，那是驳回该干的事——
+			// 原先这一页谁都能撤谁的，与「撤销/驳回互斥」那条规则正好相反。
+			if (flip.key === 'withdraw') {
+				const submitters = await submitterIdsOf(database, selected.map((entry) => String(entry.created_duid ?? '')));
+				const me = String(c.get('currentUser')?.id ?? '');
+				const others = selected.filter((entry) => submitters.get(String(entry.created_duid ?? '')) !== me);
+				if (others.length) return apiMessage(c, 403, `只能撤销自己提交的申请（选中的有 ${others.length} 条是别人提的，请用驳回）`);
+			} else {
+				const selfApproval = await assertNotSelfApproval(c, database, selected);
+				if (selfApproval) return apiMessage(c, 403, selfApproval);
+			}
 		}
 		const results = await transitionAuditEntries(database, ids, flip.key, readChangeReason(c));
 		const failed = results.filter((result) => !result.ok);

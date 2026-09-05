@@ -16,7 +16,7 @@ import { primeSnowflake } from './modules/base/snowflake.mjs';
 import { SiteRouter } from './modules/base/site-router.mjs';
 import { baseSessionMaxAge, createSessionCookie, loadBaseDeviceUserId, loadCurrentUser, readSessionId, sessionUsesAccountsOidc } from './modules/base/auth/index.mjs';
 import { loadAccountsOidcConfig, resolveAccountsLoginMode } from './modules/passport/accounts/client.mjs';
-import { PendingApprovalError } from './modules/base/operation.mjs';
+import { PendingApprovalError, PendingLockError } from './modules/base/operation.mjs';
 import { clearPassportSessionCookie, loadPassportDeviceUserId, loadPassportSession, readPassportSessionId } from './modules/passport/session.mjs';
 import { loadSystemConfigFromStore } from './modules/base/system-config.mjs';
 import { applyTechStackHeaders, loadTechStackConfigFromStore } from './modules/base/tech-stack.mjs';
@@ -336,6 +336,9 @@ app.onError((error, c) => {
 		// 东西和刚出现的待审批提示一起没了。提交审批不是需要用户决策的事，一条轻提示就够。
 		return apiMessage(c, 202, error.message, { component: 'message', type: 'warning', title: '已提交审批' });
 	}
+	// 这一行的去留还没定下来，不接受别的申请（见 PendingLockError）。409：请求本身没错，
+	// 只是当下这一行的状态不允许——和撞唯一索引同一类。
+	if (error instanceof PendingLockError) return apiMessage(c, 409, error.message);
 	console.error(error);
 	return c.text('Internal Server Error', 500);
 });
