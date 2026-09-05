@@ -64,7 +64,7 @@ const handler: ApiHandler = async (c, next, params) => {
 		if (protectedNames.length) return apiMessage(c, 400, `系统字段不可修改：${protectedNames.join('、')}`);
 		const values = editableFields(source, names);
 		if (!values.length) return apiMessage(c, 400, '没有可写入的字段');
-		await runSql(database, sql({ database }).insert(tableName, Object.fromEntries(values)));
+		await runOperationSql(c, database, sql({ database }).insert(tableName, Object.fromEntries(values)));
 		return apiMessageData(c, 201, '新增成功', {});
 	}
 	if (c.req.method === 'DELETE') {

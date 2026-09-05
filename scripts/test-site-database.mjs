@@ -70,7 +70,7 @@ try {
 	}
 
 	// 用结构化字段创建 MySQL 站点，密码不回显但保存在 DSN 里。
-	assert.equal((await request(sitePath, { method: 'POST', cookie, body: { site_key: 'shop', name: '商城', db_kind: 'mysql', db_host: 'db.internal', db_name: 'shop', db_user: 'shop_user', db_password: 'p@ss word' } })).status, 201);
+	assert.equal((await request(sitePath, { method: 'POST', cookie, body: { site_key: 'shop', name: '商城', db_kind: 'mysql', db_host: 'db.internal', db_name: 'shop', db_user: 'shop_user', db_password: 'p@ss word' } })).status, 200);
 	const shop = await (await request(`${sitePath}/shop`, { cookie })).json();
 	assert.equal(shop.database_target, 'MySQL db.internal:3306/shop');
 	assert.equal(shop.db_password, '', '密码不能回显');
@@ -88,7 +88,7 @@ try {
 
 	// 连接测试：跟随默认库无需测试；独立 SQLite 能连上并报告表数量。
 	assert.match(await message(await request(`${sitePath}/passport?action=test`, { method: 'POST', cookie })), /跟随默认库/);
-	assert.equal((await request(sitePath, { method: 'POST', cookie, body: { site_key: 'blog', name: '博客', db_kind: 'sqlite', db_file: join(temporaryDirectory, 'blog.sqlite') } })).status, 201);
+	assert.equal((await request(sitePath, { method: 'POST', cookie, body: { site_key: 'blog', name: '博客', db_kind: 'sqlite', db_file: join(temporaryDirectory, 'blog.sqlite') } })).status, 200);
 	const tested = await request(`${sitePath}/blog?action=test`, { method: 'POST', cookie });
 	assert.equal(tested.status, 200);
 	assert.match(await message(tested), /连接成功，目标库当前有 \d+ 张表/);

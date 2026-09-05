@@ -59,7 +59,7 @@ const handler: ApiHandler = async (c, next, params) => {
 		if (!isCredentialContextValid(provider, accountId)) return apiMessage(c, 400, 'Cloudflare Account ID 必须是 32 位十六进制字符串');
 		try {
 			const now = Date.now();
-			await runSql(database, sql({ database }).insert('global_cloud_credentials', { title: name, provider, account_id: accountId, access_key_id: accessKeyId, access_key_secret: accessKeySecret, status: body.status === statusValues.disabled ? statusValues.disabled : statusValues.enabled }));
+			await runOperationSql(c, database, sql({ database }).insert('global_cloud_credentials', { title: name, provider, account_id: accountId, access_key_id: accessKeyId, access_key_secret: accessKeySecret, status: body.status === statusValues.disabled ? statusValues.disabled : statusValues.enabled }));
 		} catch (error) { if (error instanceof PendingApprovalError) throw error; return apiMessage(c, 409, '凭据名称已经存在'); }
 		return apiMessageData(c, 201, '云凭据创建成功', {});
 	}

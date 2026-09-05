@@ -1,7 +1,7 @@
 import type { Context } from 'hono';
 import type { AppEnv } from './types.mjs';
 import type { DatabaseAdapter, DatabaseRunResult } from '@server/database/index.mjs';
-import { allSql, AUDIT_TABLE, firstSql, runSystemSql, sql, type SqlAuditAction, type SqlAuditMetadata, type SqlCondition, type SqlQuery } from '@server/database/sql.mjs';
+import { allSql, AUDIT_TABLE, firstSql, runSystemSql, sql, type SqlAuditAction, type SqlAuditMetadata, type SqlCondition, type SqlInsertAuditMetadata, type SqlQuery } from '@server/database/sql.mjs';
 
 /**
  * 一次人工操作。
@@ -167,6 +167,44 @@ const jsonKeyDiff = (before: unknown, after: unknown) => {
 	};
 };
 
+/**
+ * 记一条「新建了这一行」。
+ *
+ * **不抄列值**：值就在行上，批准只是让它可见、驳回只是把它删掉，用不着前后值。抄进来
+ * 反而要把 password、client_secret 这类隐藏列一并搬进审批表，在那里躺满保留期。
+ * `changes` 因此留空，页面上显示成「新增记录」。
+ *
+ * 定位靠 `row_key`：它在建语句时就生成好了，所以这条记录能在**写行之前**落地，
+ * 与 update 那边「先记录、后应用」是同一条顺序（§6.2）。
+ */
+const recordInsert = async (
+	database: DatabaseAdapter,
+	metadata: SqlInsertAuditMetadata,
+	operationId: string,
+	reason: string,
+	origin: RequestOrigin,
+	scope: 'admin' | 'self',
+	immediate: boolean,
+) => {
+	const builder = sql({ database, subjectRoles: null, ownerTid: metadata.owner.tid, ownerBid: metadata.owner.bid, ownerUid: metadata.owner.uid, actorUid: metadata.owner.actor });
+	await runSystemSql(database, builder.insert(AUDIT_TABLE, {
+		operation_id: operationId,
+		reason,
+		scope,
+		request_hostname: origin.hostname,
+		request_path: origin.path,
+		table_name: metadata.table,
+		// 行还没写进去，自增主键无从谈起；定位一律走 row_key。
+		row_id: 0,
+		row_key: metadata.rowKey,
+		action: 'insert',
+		changes: '{}',
+		review_status: immediate ? 'none' : 'pending',
+		data_status: immediate ? 'applied' : 'unwritten',
+	}));
+	return 1;
+};
+
 const recordStatement = async (database: DatabaseAdapter, metadata: SqlAuditMetadata, operationId: string, reason: string, origin: RequestOrigin, scope: 'admin' | 'self', immediate: boolean) => {
 	// 归属与可见性条件都在生成语句时定死了：调用方可能用显式上下文覆盖适配器。
 	const builder = sql({ database, subjectRoles: null, ownerTid: metadata.owner.tid, ownerBid: metadata.owner.bid, ownerUid: metadata.owner.uid, actorUid: metadata.owner.actor });
@@ -237,9 +275,11 @@ export const runOperation = async (
 	options: OperationOptions = {},
 ): Promise<DatabaseRunResult[]> => {
 	const audited = statements.filter((statement): statement is SqlQuery & { audit: SqlAuditMetadata } => statement.audit !== undefined);
-	const immediate = audited.length === 0 || skipsApproval(c, options);
+	// 新建单独一路：它没有前值可读，靠 row_key 定位，待审批时把行写成不可见的。
+	const inserts = statements.filter((statement): statement is SqlQuery & { insertAudit: SqlInsertAuditMetadata } => statement.insertAudit !== undefined);
+	const immediate = audited.length + inserts.length === 0 || skipsApproval(c, options);
 	let recorded = 0, operationId = '';
-	if (audited.length) {
+	if (audited.length || inserts.length) {
 		operationId = crypto.randomUUID();
 		const reason = options.reason?.trim().slice(0, MAX_REASON_LENGTH) ?? readChangeReason(c);
 		// 域名与接口路径都由服务端自己看到，不听客户端的：页面路径要靠 referer 推断，
@@ -258,11 +298,21 @@ export const runOperation = async (
 				return { hostname: url.hostname, path };
 			} catch { return { hostname: '', path: '' }; }
 		})();
-		for (const statement of audited) recorded += await recordStatement(database, statement.audit, operationId, reason, origin, operationScope(c), immediate);
+		const scope = operationScope(c);
+		for (const statement of audited) recorded += await recordStatement(database, statement.audit, operationId, reason, origin, scope, immediate);
+		for (const statement of inserts) recorded += await recordInsert(database, statement.insertAudit, operationId, reason, origin, scope, immediate);
 	}
 	// 待审批：记录已写，数据一条都不动。逐列比对下来没有任何变化时 recorded 为 0，
 	// 那本来就不是一次修改，不该拦下来让人去批一个空操作。
 	if (!immediate && recorded > 0) {
+		// 新建的行照写，只是带上 pended_at 让它不可见——批准就是把它归零。
+		// 值因此不必抄进审批表，凭证也就不会在那里躺满保留期。
+		for (const statement of inserts) {
+			const builder = sql({ database, subjectRoles: null, ownerTid: statement.insertAudit.owner.tid, ownerBid: statement.insertAudit.owner.bid, ownerUid: statement.insertAudit.owner.uid, actorUid: statement.insertAudit.owner.actor });
+			// 照原样重建那条 INSERT，只多一个 pended_at——不重新走 insert()，那会再发一个 key，
+			// 而审批记录里记的是原来那一个。
+			await runSystemSql(database, builder.insertExisting(statement.insertAudit.table, { ...statement.insertAudit.values, pended_at: Date.now() }));
+		}
 		// 除了抛异常，还在上下文里留个标记：万一某处 catch 把异常吞了，最外层中间件
 		// 仍会把响应改成 202。正确性不能依赖「每一处 catch 都记得重新抛出」。
 		c.set('pendingApproval', { operationId, entries: recorded });

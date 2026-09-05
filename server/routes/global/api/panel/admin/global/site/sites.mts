@@ -141,7 +141,7 @@ const handler: ApiHandler = async (c, next, params) => {
 		try { ({ dsn, databaseBinding } = buildDatabaseTarget(body)); }
 		catch (error) { return apiMessage(c, 400, error instanceof DatabaseTargetError ? error.message : '数据库配置不合法'); }
 		if (!await validateParent(database, siteKey, baseSiteKey)) return apiMessage(c, 400, '父站点不存在、不可继承或会形成循环');
-		await runSql(database, sql({ database }).insert('global_sites', { key: siteKey, title: String(body.title ?? siteKey).trim() || siteKey, base_site_key: baseSiteKey, dsn, database_binding: databaseBinding, status: 'disabled', migration_status: 'creating', is_default: 0, is_system: 0 }));
+		await runOperationSql(c, database, sql({ database }).insert('global_sites', { key: siteKey, title: String(body.title ?? siteKey).trim() || siteKey, base_site_key: baseSiteKey, dsn, database_binding: databaseBinding, status: 'disabled', migration_status: 'creating', is_default: 0, is_system: 0 }));
 		let message = '站点已创建，请通过部署流程完成 migration';
 		if (c.env.MIGRATE_SITE) {
 			try {

@@ -120,7 +120,7 @@ const handler: ApiHandler = async (c, next, params) => {
 		catch (error) { return apiMessage(c, 502, error instanceof Error ? error.message : 'Bot Token 校验失败'); }
 		try {
 			const now = Date.now();
-			await runSql(database, sql({ database }).insert('global_telegram_bots', { title: name, token, username: identity.username, secret_token: secretToken, webhook_hostname: hostname, status }));
+			await runOperationSql(c, database, sql({ database }).insert('global_telegram_bots', { title: name, token, username: identity.username, secret_token: secretToken, webhook_hostname: hostname, status }));
 		} catch { return apiMessage(c, 409, '机器人名称、Token 或 Username 已存在'); }
 		const created = await firstSql<{ id: number }>(database, sql({ database }).select({ table: 'global_telegram_bots', columns: { id: 'id' }, where: [{ column: 'token', value: token }] }));
 		if (!created) return apiMessage(c, 500, '机器人创建后无法读取');

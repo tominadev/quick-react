@@ -11,7 +11,23 @@ export type SqlContext = { database: DatabaseAdapter; actorUid?: DatabaseActorUi
  */
 export type SqlAuditOwnership = { tid?: DatabaseActorUid; bid?: DatabaseActorUid; uid: DatabaseActorUid | null; actor: DatabaseActorUid | null };
 export type SqlAuditMetadata = { table: string; values: Values; where: SqlCondition[]; owner: SqlAuditOwnership };
-export type SqlQuery = { query: string; values: unknown[]; audit?: SqlAuditMetadata };
+export type SqlQuery = { query: string; values: unknown[]; audit?: SqlAuditMetadata; insertAudit?: SqlInsertAuditMetadata };
+
+/**
+ * 新建一行时附上的信息，供操作层记一条 `action=insert`。
+ *
+ * 与 update 的 {@link SqlAuditMetadata} 分开放，是因为**它不触发 runSql 的守卫**：
+ * 会话、登录挑战、设备注册、验证码这些机器写入也走 insert，把它们一并拦下来要么让
+ * 系统跑不动，要么把审批表冲爆。是不是人做的操作由调用方选 runOperationSql 还是 runSql
+ * 来声明——这与 update 那边「runOperation 显式声明」是同一条线。
+ */
+export type SqlInsertAuditMetadata = {
+	table: string;
+	rowKey: string;
+	/** 这条 INSERT 最终写入的全部列值（含系统字段）。待审批时照原样重建一条带 pended_at 的。 */
+	values: Values;
+	owner: SqlAuditOwnership;
+};
 type SqlValue = unknown;
 type Values = Record<string, SqlValue | undefined>;
 type InsertSelectValue = SqlValue | { column: string };
@@ -101,7 +117,7 @@ export type SqlSortOption = {
 
 /** 与 Prisma schema 里 owner_tid / owner_bid 的 @default(1) 对应：不写这两列时数据库落到默认租户与主分站。 */
 const DEFAULT_OWNER_ID = 1;
-export type SqlAuditAction = 'update' | 'soft_delete' | 'restore';
+export type SqlAuditAction = 'insert' | 'update' | 'soft_delete' | 'restore' | 'purge';
 export type SqlAuditChange = { before: SqlValue; after: SqlValue };
 export type SqlAuditChanges = Record<string, SqlAuditChange>;
 
@@ -277,9 +293,12 @@ export abstract class SqlBuilder {
 		const rowKey = values.key === undefined && !KEYLESS_TABLES.has(table) ? { key: nextSnowflake() } : {};
 		const timestamped: Values = { created_at: timestamp, updated_at: timestamp, ...(options.pending ? { pended_at: timestamp } : {}), ...(actorUid !== null ? { created_duid: actorUid, updated_duid: actorUid } : {}), owner_tid: ownerTid, owner_bid: ownerBid, owner_uid: ownerUid, ...rowKey, ...values };
 		const entries = definedEntries(timestamped); if (!entries.length) throw new Error('INSERT values cannot be empty');
+		const rowKeyValue = timestamped.key;
 		return {
 			query: `INSERT INTO ${quoteIdentifier(table, this.dialect)} (${entries.map(([key]) => quoteIdentifier(key, this.dialect)).join(', ')}) VALUES (${this.placeholders(entries.length).join(', ')})`,
 			values: entries.map(([, value]) => value),
+			// key 在这里就定下来了，因此新建也能「先记录、后写行」——自增主键做不到这一点。
+			...(typeof rowKeyValue === 'string' && rowKeyValue ? { insertAudit: { table, rowKey: rowKeyValue, values: timestamped, owner: { tid: this.ownerTidFor(AUDIT_TABLE), bid: this.ownerBidFor(AUDIT_TABLE), uid: this.ownerUidFor(AUDIT_TABLE), actor: this.actorUidFor(AUDIT_TABLE) } } } : {}),
 		};
 	}
 
@@ -429,7 +448,9 @@ export abstract class SqlBuilder {
 	 * 自然返回空、不产生记录——与"insert 不审计"是同一个结果，不需要分支判断。
 	 */
 	upsert(table: string, conflictKeys: string[], values: Values, updateKeys: string[]): SqlQuery {
-		const inserted = this.insert(table, values), actorUid = this.actorUidFor(table);
+		// 冲突时走的是 UPDATE，记成新建就错了；这一支的审计由下面的 auditMetadata 负责。
+		const { insertAudit: _ignored, ...inserted } = this.insert(table, values);
+		const actorUid = this.actorUidFor(table);
 		const managedUpdateKeys = [...new Set([...updateKeys, 'updated_at', ...(actorUid === null ? [] : ['updated_duid'])])];
 		const quotedUpdates = managedUpdateKeys.map((key) => quoteIdentifier(key, this.dialect));
 		const target = conflictTarget(conflictKeys);
@@ -447,7 +468,8 @@ export abstract class SqlBuilder {
 	}
 
 	ignoreInsert(table: string, conflictKeys: string[], values: Values): SqlQuery {
-		const inserted = this.insert(table, values);
+		// 冲突时什么都不做，因此不能预先记一条新建。
+		const { insertAudit: _ignored, ...inserted } = this.insert(table, values);
 		const target = conflictTarget(conflictKeys);
 		return this.dialect === 'mysql'
 			? { ...inserted, query: inserted.query.replace(/^INSERT /, 'INSERT IGNORE ') }

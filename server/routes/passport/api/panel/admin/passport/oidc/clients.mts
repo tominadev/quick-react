@@ -92,7 +92,7 @@ const handler: ApiHandler = async (c, next, params) => {
 		try { logoutPath = normalizeBackchannelPath(body.backchannel_logout_path); } catch (error) { return apiMessage(c, 400, error instanceof Error ? error.message : '注销路径不合法'); }
 		const name = String(body.title ?? '').trim(), id = `acct_${randomToken(18)}`, secret = randomToken(36), now = Date.now();
 		if (!name) return apiMessage(c, 400, '请输入客户端名称');
-		await runSql(database, sql({ database }).insert('passport_oidc_clients', { client_id: id, title: name, secret_hash: await sha256(secret), redirect_uris: JSON.stringify(redirectUris), backchannel_logout_uri: backchannelUri(redirectUris, logoutPath), allowed_scopes: String(body.allowed_scopes ?? 'openid profile email').trim() || 'openid', require_pkce: body.require_pkce === false ? 0 : 1, strict_redirect_uri: body.strict_redirect_uri === true ? 1 : 0, password_sync: body.password_sync === true || body.password_sync === 1 ? 1 : 0, status: 'enabled' }));
+		await runOperationSql(c, database, sql({ database }).insert('passport_oidc_clients', { client_id: id, title: name, secret_hash: await sha256(secret), redirect_uris: JSON.stringify(redirectUris), backchannel_logout_uri: backchannelUri(redirectUris, logoutPath), allowed_scopes: String(body.allowed_scopes ?? 'openid profile email').trim() || 'openid', require_pkce: body.require_pkce === false ? 0 : 1, strict_redirect_uri: body.strict_redirect_uri === true ? 1 : 0, password_sync: body.password_sync === true || body.password_sync === 1 ? 1 : 0, status: 'enabled' }));
 		return apiMessageData(c, 201, `客户端已创建。客户端密钥仅显示一次：${secret}`, { id, client_secret: secret });
 	}
 	if (params.id && c.req.method === 'PUT') {

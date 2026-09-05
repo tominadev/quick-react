@@ -249,6 +249,25 @@ const rowCondition = (entry: AuditEntryRow): SqlCondition => (
 	entry.row_key ? { column: 'key', value: entry.row_key } : { column: 'id', value: entry.row_id }
 );
 
+/**
+ * 新建那一条走另一套写法：没有前后值，只有「这一行看不看得见」。
+ *
+ * - **批准 / 恢复**：`pended_at` 归零 / 从回收站捞回来，这一行开始存在。
+ * - **驳回 / 撤销**：把那一行**物理删掉**。它从未生效过，留着只是一份没人认领的草稿，
+ *   而历史留在这条审批记录上（`rejected` / `withdrawn`），不靠那一行保存。
+ * - **回滚**：它已经生效过，因此按普通删除处理——软删除，回收站里找得回来。
+ */
+const applyInsertTransition = async (database: DatabaseAdapter, entry: AuditEntryRow, to: ApprovalTransition) => {
+	const where = [rowCondition(entry)];
+	const builder = sql({ database, subjectRoles: null });
+	const statement = to === 'approve' ? builder.activate(entry.table_name, where)
+		: to === 'restore' ? builder.restore(entry.table_name, where)
+			: to === 'revert' ? builder.softDelete(entry.table_name, where)
+				: builder.delete(entry.table_name, where);
+	const result = await runSystemSql(database, statement);
+	return Number(result.meta?.changes ?? 0) > 0;
+};
+
 const transitionOne = async (database: DatabaseAdapter, entry: AuditEntryRow, to: ApprovalTransition, reason: string): Promise<AuditRevertResult> => {
 	const allowed = TRANSITIONS[to];
 	if (allowed.fromReview && !allowed.fromReview.includes(entry.review_status)) {
@@ -265,8 +284,14 @@ const transitionOne = async (database: DatabaseAdapter, entry: AuditEntryRow, to
 		: to === 'approve' || to === 'reject' ? { reviewed_at: now, reviewed_duid: actor, review_reason: reason }
 			: to === 'revert' ? { reverted_at: now, reverted_duid: actor, revert_reason: reason }
 				: { restored_at: now, restored_duid: actor, restore_reason: reason };
+	// 新建：行已经在库里，区别只在看不看得见（驳回与撤销则把它删掉）。
+	if (entry.action === 'insert') {
+		if (!await applyInsertTransition(database, entry, to)) {
+			return { id: entry.id, ok: false, message: `原记录已不存在，无法${allowed.label}` };
+		}
+	}
 	// 驳回与撤销申请都不碰数据：待审批的修改从未写入过。
-	if (allowed.write !== 'none') {
+	if (entry.action !== 'insert' && allowed.write !== 'none') {
 		const changes = parseAuditChanges(entry.changes);
 		const columns = Object.keys(changes);
 		if (!columns.length) return { id: entry.id, ok: false, message: '该记录没有可还原的字段' };

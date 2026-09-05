@@ -98,7 +98,7 @@ const handler: ApiHandler = async (c, next, params) => {
 		if (!Number.isInteger(credentialId) || !await validCredential(database, credentialId, region) || !emailPattern.test(accountName) || !fromAlias) return apiMessage(c, 400, '云凭据、Region 或发信身份不合法');
 		try {
 			const now = Date.now();
-			await runSql(database, sql({ database }).insert('global_cloud_email_channels', { cloud_credential_id: credentialId, region, account_name: accountName, from_alias: fromAlias, reply_to_address: booleanValue(body.reply_to_address) ? 1 : 0, status: body.status === statusValues.disabled ? statusValues.disabled : statusValues.enabled }));
+			await runOperationSql(c, database, sql({ database }).insert('global_cloud_email_channels', { cloud_credential_id: credentialId, region, account_name: accountName, from_alias: fromAlias, reply_to_address: booleanValue(body.reply_to_address) ? 1 : 0, status: body.status === statusValues.disabled ? statusValues.disabled : statusValues.enabled }));
 		} catch (error) { if (error instanceof PendingApprovalError) throw error; return apiMessage(c, 409, '该凭据、Region 和发信地址已经存在'); }
 		return apiMessageData(c, 201, '邮件通道创建成功', {});
 	}

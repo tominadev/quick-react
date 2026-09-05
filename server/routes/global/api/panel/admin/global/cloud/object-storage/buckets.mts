@@ -96,7 +96,7 @@ const handler: ApiHandler = async (c, next, params) => {
 		if (extra === null) return apiMessage(c, 400, '扩展配置必须是有效 JSON');
 		try {
 			const now = Date.now();
-			await runSql(database, sql({ database }).insert('global_cloud_object_storage_buckets', { cloud_credential_id: credentialId, endpoint, region: text(body.region), bucket, path_style: booleanValue(body.path_style) ? 1 : 0, public_base_url: text(body.public_base_url), extra_config: extra, status: body.status === statusValues.disabled ? statusValues.disabled : statusValues.enabled }));
+			await runOperationSql(c, database, sql({ database }).insert('global_cloud_object_storage_buckets', { cloud_credential_id: credentialId, endpoint, region: text(body.region), bucket, path_style: booleanValue(body.path_style) ? 1 : 0, public_base_url: text(body.public_base_url), extra_config: extra, status: body.status === statusValues.disabled ? statusValues.disabled : statusValues.enabled }));
 		} catch (error) { if (error instanceof PendingApprovalError) throw error; return apiMessage(c, 409, '该凭据、Endpoint 和 Bucket 已经存在'); }
 		return apiMessageData(c, 201, 'Bucket 创建成功', {});
 	}

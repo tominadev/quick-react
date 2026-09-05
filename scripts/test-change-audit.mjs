@@ -140,6 +140,35 @@ const auditRouteFilter = async () => {
 		assert.equal(applied.table.dataSource.find((row) => row.user_name === 'pendingbob').status, 'disabled');
 		assert.equal(applied.table.columns[0].dataIndex !== '_pending', true, '没有待审批的行时不必占一列');
 
+		// ---- 新建也进审批队列 ----
+		// 行照写进库，但 pended_at 非零让它对所有正常查询不可见；批准把它归零，
+		// 驳回把那一行物理删掉——它从未生效过，历史留在这条审批记录上。
+		const rowsApi = 'http://localhost/api/panel/admin/base/data/rows.php?table=base_configs';
+		const visibleKeys = async () => (await (await app.request(`${rowsApi}&include=data`, { headers: { ...headers, cookie } })).json())
+			.table.dataSource.map((row) => row.key);
+		const pendingIds = async () => (await (await app.request('http://localhost/api/panel/admin/base/audit.php?include=data&review_status=pending', { headers: { ...headers, cookie } })).json())
+			.table.dataSource.map((row) => String(row.id));
+		const decide = (action, ids) => app.request(`http://localhost/api/panel/admin/base/audit.php?action=${action}`, { method: 'POST', headers: { ...headers, cookie }, body: JSON.stringify(ids) });
+
+		assert.equal((await app.request(rowsApi, { method: 'POST', headers: { ...headers, cookie }, body: JSON.stringify({ key: 'audit_fixture', value: '{}' }) })).status, 202, '新建也要进审批队列');
+		assert.equal((await visibleKeys()).includes('audit_fixture'), false, '没批准之前这一行不该被任何查询看到');
+		const insertEntry = (await (await app.request('http://localhost/api/panel/admin/base/audit.php?include=data&review_status=pending', { headers: { ...headers, cookie } })).json())
+			.table.dataSource.find((row) => row.row_key === 'audit_fixture');
+		assert.equal(insertEntry.action, 'insert');
+		assert.equal(insertEntry.data_status, 'unwritten');
+		// changes 留空：值就在行上，抄进审批表反而要把隐藏列一并搬进去。
+		assert.equal(insertEntry.summary, '');
+		assert.equal((await decide('approve', [String(insertEntry.id)])).status, 200);
+		assert.equal((await visibleKeys()).includes('audit_fixture'), true, '批准之后这一行才开始存在');
+
+		// 驳回：那一行物理消失。
+		assert.equal((await app.request(rowsApi, { method: 'POST', headers: { ...headers, cookie }, body: JSON.stringify({ key: 'audit_rejected', value: '{}' }) })).status, 202);
+		assert.equal((await decide('reject', await pendingIds())).status, 200);
+		assert.equal((await visibleKeys()).includes('audit_rejected'), false, '驳回之后行不该留下');
+		const leftovers = new DatabaseSync(process.env.DEFAULT_DATABASE_FILE);
+		assert.equal(leftovers.prepare("SELECT COUNT(*) AS n FROM base_configs WHERE key = 'audit_rejected'").get().n, 0, '被驳回的新建要物理删掉，不是留在回收站');
+		leftovers.close();
+
 		// 列的先后要与 prisma 里的字段顺序一致：两处对照着看时不用来回找。
 		// 只比相对次序——不是每个字段都显示（operation_id 就不显示），也允许有计算列。
 		const schema = await readFile(resolve(projectDirectory, 'prisma/base.prisma'), 'utf8');

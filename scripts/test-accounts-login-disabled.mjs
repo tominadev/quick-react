@@ -61,11 +61,14 @@ const deviceKey = '00000000-0000-4000-8000-000000000001';
 
 	// 身份中心站点和业务站点用同一套模块：后台同样有“Accounts 登录”设置页，可以在这里关掉这种登录方式。
 	const cookie = login.headers.get('set-cookie').split(';')[0];
-	assert.equal((await request('/api/panel/admin/global/site/hosts.php', { method: 'POST', headers: { cookie }, body: { hostname: 'accounts.test', site_key: 'passport' } })).status, 201);
+	// 新建也进审批队列了：批掉再往下走。
+	assert.equal((await request('/api/panel/admin/global/site/hosts.php', { method: 'POST', headers: { cookie }, body: { hostname: 'accounts.test', site_key: 'passport' } })).status, 202);
+	await approvePending(cookie);
 	const siteDatabase = new DatabaseSync(process.env.DEFAULT_DATABASE_FILE);
 	siteDatabase.prepare("INSERT INTO global_sites (key, title, base_site_key, dsn, database_binding, status, migration_status, is_default, is_system) VALUES ('business', 'Business', 'base', '', '', 'enabled', 'ready', 0, 0)").run();
 	siteDatabase.close();
-	assert.equal((await request('/api/panel/admin/global/site/hosts.php', { method: 'POST', headers: { cookie }, body: { hostname: 'business.test', site_key: 'business' } })).status, 201);
+	assert.equal((await request('/api/panel/admin/global/site/hosts.php', { method: 'POST', headers: { cookie }, body: { hostname: 'business.test', site_key: 'business' } })).status, 202);
+	await approvePending(cookie);
 	const settingsPath = '/api/panel/admin/base/settings/accounts-oidc.php';
 	const expectedSettingsFields = ['enabled', 'issuerSource', 'issuer', 'clientId', 'clientSecret'];
 	const globalSettings = await (await request(settingsPath, { headers: { cookie } })).json();

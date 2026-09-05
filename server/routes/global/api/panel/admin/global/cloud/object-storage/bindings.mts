@@ -47,7 +47,7 @@ const purposeState = (rows: BindingPurposeRow[]) => ({
 	default_purposes: rows.filter((item) => Boolean(item.is_default)).map((item) => item.purpose),
 });
 const savePurposes = async (c: Context<AppEnv>, database: DatabaseAdapter, bindingId: number, siteKey: string, selected: string[], defaults: string[]) => {
-	for (const purpose of selected) await runSql(database, sql({ database }).insert('global_cloud_object_storage_binding_purposes', { binding_id: bindingId, site_key: siteKey, purpose, is_default: 0 }));
+	for (const purpose of selected) await runOperationSql(c, database, sql({ database }).insert('global_cloud_object_storage_binding_purposes', { binding_id: bindingId, site_key: siteKey, purpose, is_default: 0 }));
 	for (const purpose of defaults) {
 		await runOperationSql(c, database, sql({ database }).update('global_cloud_object_storage_binding_purposes', { is_default: 0 }, [{ column: 'site_key', value: siteKey }, { column: 'purpose', value: purpose }, { column: 'binding_id', operator: '!=', value: bindingId }]));
 		await runOperationSql(c, database, sql({ database }).update('global_cloud_object_storage_binding_purposes', { is_default: 1 }, { binding_id: bindingId, purpose }));
@@ -96,7 +96,7 @@ const handler: ApiHandler = async (c, next, params) => {
 		const createdAt = Date.now();
 		let createdBindingId: number | undefined;
 		try {
-			await runSql(database, sql({ database }).insert('global_cloud_object_storage_bindings', { site_key: siteKey, bucket_id: bucketId, key_prefix: keyPrefix, status }));
+			await runOperationSql(c, database, sql({ database }).insert('global_cloud_object_storage_bindings', { site_key: siteKey, bucket_id: bucketId, key_prefix: keyPrefix, status }));
 			const binding = await firstSql<{ id: number }>(database, sql({ database }).select({ table: 'global_cloud_object_storage_bindings', columns: { id: 'id' }, where: [{ column: 'site_key', value: siteKey }, { column: 'bucket_id', value: bucketId }, { column: 'key_prefix', value: keyPrefix }] }));
 			if (!binding) throw new Error('绑定创建后无法读取');
 			createdBindingId = binding.id;

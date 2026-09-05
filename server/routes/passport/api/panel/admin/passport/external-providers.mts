@@ -51,7 +51,7 @@ const handler: ApiHandler = async (c, next, params) => {
 		const exists = await firstSql(database, sql({ database }).select({ table: 'passport_external_providers', columns: { id: 'provider' }, where: [{ column: 'provider', value: id }] }));
 		if (exists) return apiMessage(c, 409, `${id === 'google' ? 'Google' : '微信'}身份源已经存在，请直接编辑`);
 		const now = Date.now();
-		await runSql(database, sql({ database }).insert('passport_external_providers', { provider: id, title: displayName, client_id: clientId, client_secret: clientSecret, wechat_mode: wechatMode, wechat_redirect_domain: id === 'wechat' ? redirectDomain : '', status: body.status === 'disabled' ? 'disabled' : 'enabled' }));
+		await runOperationSql(c, database, sql({ database }).insert('passport_external_providers', { provider: id, title: displayName, client_id: clientId, client_secret: clientSecret, wechat_mode: wechatMode, wechat_redirect_domain: id === 'wechat' ? redirectDomain : '', status: body.status === 'disabled' ? 'disabled' : 'enabled' }));
 		return apiMessage(c, 201, '外部身份源已创建');
 	}
 	const id = providerId(params.id);
