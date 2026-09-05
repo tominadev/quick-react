@@ -3,7 +3,7 @@ import type { MenuProps } from 'antd';
 import type { CommonApi } from '@/utils/common/api.js';
 import type { InitialData } from '@shared/types/initial-data.mjs';
 import type { AuthState } from '@shared/types/initial-data.mjs';
-import type { ApiContext } from '@shared/types/api-response.mjs';
+import type { ApiContext, ApiContextPatch } from '@shared/types/api-response.mjs';
 import type { NavigationItem } from '@shared/types/navigation.mjs';
 import type { DashboardData } from '@shared/types/dashboard.mjs';
 import type { HomePageData } from '@shared/types/home.mjs';
@@ -85,11 +85,15 @@ export const App = ({ commonApi }: AppType) => {
 	const [navigation, setNavigation] = useState(initialData.siteNavigation);
 	const [bootstrapPageData, setBootstrapPageData] = useState<BootstrapPageData>();
 	const bootstrapRequested = useRef(false);
-	const applyApiContext = (context?: ApiContext) => {
-		if (!context?.auth) throw new Error('认证上下文响应不完整');
-		setAuth(context.auth);
-		setNavigation(context.siteNavigation ?? []);
-		setPageStatus(context.pageStatus);
+	const applyApiContext = (context?: ApiContext | ApiContextPatch) => {
+		// 这里是**整份替换**，因此必须确认拿到的是完整认证状态而不是局部补丁——
+		// 补丁只有 currentUser，套上去会把可用动作和登录入口清空。不完整就抛出去，
+		// 由调用方回落到整页导航重新建立状态。
+		const auth = context?.auth;
+		if (!auth || !('component' in auth) || !Array.isArray((auth as AuthState).actions)) throw new Error('认证上下文响应不完整');
+		setAuth(auth as AuthState);
+		setNavigation((context as ApiContext).siteNavigation ?? []);
+		setPageStatus((context as ApiContext).pageStatus);
 	};
 	const loadAuthContext = async (path: string) => {
 		setContextError(false);
