@@ -1,5 +1,5 @@
 import assert from 'node:assert/strict';
-import { readTableUrlState, writeTableUrlState, sortOrderFor, parseSort, formatSort, mergeSort, mergeQueryValues, defaultTableUrlState } from '@/utils/antd/table_crud/url-state.js';
+import { readTableUrlState, writeTableUrlState, sortOrderFor, parseSort, formatSort, mergeSort, mergeQueryValues, tableRequestParams, defaultTableUrlState } from '@/utils/antd/table_crud/url-state.js';
 
 // —— 读 ——
 assert.deepEqual(readTableUrlState(''), { ...defaultTableUrlState, query: {} });
@@ -81,5 +81,19 @@ assert.deepEqual(mergeQueryValues(auditFields, { status: 'applied' }, { status: 
 assert.deepEqual(mergeQueryValues(auditFields, {}, { reason: '改密码' }), { status: 'pending', reason: '改密码' });
 // 没有默认值也没人给的字段不会凭空出现。
 assert.deepEqual(mergeQueryValues([{ dataIndex: 'reason' }], {}, {}), {});
+
+// —— 地址栏 → 接口参数 ——
+// 地址上什么都没写就不带任何参数，接口照常用它自己的默认值。
+assert.deepEqual(tableRequestParams(''), {});
+assert.deepEqual(tableRequestParams('?tab=profile'), {}, '页面自身的参数不往接口带');
+// 这就是 /panel/admin/base/audit.html?q.status=all 首屏该发出的参数。
+assert.deepEqual(tableRequestParams('?q.status=all'), { status: 'all' });
+assert.deepEqual(tableRequestParams('?page=3&size=50'), { pageNum: '3', pageSize: '50' }, '地址用 page/size，接口用 pageNum/pageSize');
+assert.deepEqual(tableRequestParams('?sort=status:asc,user_name:desc'), { sort: 'status:asc,user_name:desc' });
+assert.deepEqual(tableRequestParams('?page=2&size=20&sort=id:desc&q.status=all&q.reason=改密码'), {
+	pageNum: '2', pageSize: '20', sort: 'id:desc', status: 'all', reason: '改密码',
+});
+// 坏值不往接口带脏数据：读取时已经回落到合法值。
+assert.deepEqual(tableRequestParams('?page=abc'), { pageNum: '1' });
 
 console.log('table url state test passed');

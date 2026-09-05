@@ -105,6 +105,10 @@ export const App = ({ commonApi }: AppType) => {
 		includes.add('schema');
 		includes.add('data');
 		endpoint.searchParams.set('include', [...includes].join(','));
+		// 首屏数据就是这一个请求取回来的，页面组件直接拿去用、不再自己请求一次。
+		// 因此地址栏上的筛选、翻页和排序必须在这里就带上——否则 ?q.status=all 进来，
+		// 首屏拿到的却是服务端默认那一份，界面和地址对不上。
+		for (const [name, value] of Object.entries(tableRequestParams(window.location.search))) endpoint.searchParams.set(name, value);
 		const response = await commonApi.apiFetch(`${endpoint.pathname}${endpoint.search}`);
 		const result = await response.json() as BootstrapResponse;
 		applyApiContext(result.context);
@@ -280,6 +284,7 @@ export const App = ({ commonApi }: AppType) => {
 };
 
 import { useCommonApi } from '@/utils/common/api.js'
+import { tableRequestParams } from '@/utils/antd/table_crud/url-state.js';
 
 const AppRoot = () => {
 	const [commonApi, contextHolder] = useCommonApi();

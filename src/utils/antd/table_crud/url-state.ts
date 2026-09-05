@@ -98,3 +98,22 @@ export const mergeQueryValues = (
 	...initial,
 	...fromUrl,
 });
+
+/**
+ * 把地址栏上的表格状态换成接口参数。
+ *
+ * 地址栏用 `page`/`size`/`q.<字段>`，接口用 `pageNum`/`pageSize`/`<字段>`——两套名字
+ * 各有各的理由（地址要短、要能和搜索字段区分开；接口要和既有协议一致），换算只此一处。
+ *
+ * **只带地址栏里真有的东西**：地址上什么都没写时返回空，接口照常用它自己的默认值。
+ */
+export const tableRequestParams = (search: string): Record<string, string> => {
+	const params = new URLSearchParams(search);
+	const state = readTableUrlState(search);
+	return {
+		...(params.has('page') ? { pageNum: String(state.page) } : {}),
+		...(params.has('size') ? { pageSize: String(state.size) } : {}),
+		...(state.sort ? { sort: state.sort } : {}),
+		...state.query,
+	};
+};
