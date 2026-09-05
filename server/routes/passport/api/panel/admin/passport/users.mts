@@ -10,14 +10,13 @@ import { tableSort } from '@server/modules/base/query-options.mjs';
 export const tableCrud: TableCrudDefinition = { table: 'passport_users', rowKey: 'user_id', database: 'passportDatabase' };
 
 const columns = [
+	{ dataIndex: 'created_at', title: '创建时间', dataType: 'js_timestamp' as const, dayjsFormat: 'YYYY-MM-DD HH:mm:ss' },
+	{ dataIndex: 'updated_at', title: '更新时间', dataType: 'js_timestamp' as const, dayjsFormat: 'YYYY-MM-DD HH:mm:ss' },
 	{ dataIndex: 'user_id', title: 'ID', dataType: 'text' as const },
 	{ dataIndex: 'user_name', title: '用户名' },
 	{ dataIndex: 'profile_nickname', title: '昵称' },
 	{ dataIndex: 'password', title: '密码特征' },
-	{ dataIndex: 'status', title: '状态' },
-	{ dataIndex: 'created_at', title: '创建时间', dataType: 'js_timestamp' as const, dayjsFormat: 'YYYY-MM-DD HH:mm:ss' },
-	{ dataIndex: 'updated_at', title: '更新时间', dataType: 'js_timestamp' as const, dayjsFormat: 'YYYY-MM-DD HH:mm:ss' },
-];
+	{ dataIndex: 'status', title: '状态' }];
 const passwordResetColumns = [{ dataIndex: 'password', title: '新密码', component: 'textbox' as const, inputType: 'password' as const, placeholder: '至少 8 个字符', rules: [{ required: true, message: '请输入新密码' }] }];
 
 const handler: ApiHandler = async (c, next, params) => {

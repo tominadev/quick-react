@@ -18,16 +18,15 @@ import { tableSort } from '@server/modules/base/query-options.mjs';
 const baseColumns = [
 	{ dataIndex: 'id', title: 'ID', dataType: 'int' as const },
 	{ dataIndex: 'cloud_credential_id', title: '凭据', component: 'select', rules: [{ required: true, message: '请选择凭据' }] },
-	{ dataIndex: 'bucket', title: 'Bucket', component: 'select', allowCustomValue: true, remoteOptions: { action: 'discover', dependencies: ['cloud_credential_id'], clearFields: ['endpoint', 'region', 'path_style'] }, rules: [{ required: true, message: '请选择或输入 Bucket' }] },
 	{ dataIndex: 'provider', title: 'Provider' },
 	{ dataIndex: 'product', title: '产品' },
 	{ dataIndex: 'endpoint', title: 'Endpoint', component: 'textbox', rules: [{ required: true, message: '请输入 Endpoint' }] },
 	{ dataIndex: 'region', title: 'Region', component: 'textbox' },
+	{ dataIndex: 'bucket', title: 'Bucket', component: 'select', allowCustomValue: true, remoteOptions: { action: 'discover', dependencies: ['cloud_credential_id'], clearFields: ['endpoint', 'region', 'path_style'] }, rules: [{ required: true, message: '请选择或输入 Bucket' }] },
 	{ dataIndex: 'path_style', title: 'Path Style', component: 'switch' },
 	{ dataIndex: 'public_base_url', title: '公共访问地址', component: 'textbox' },
 	{ dataIndex: 'extra_config', title: '扩展配置 JSON', component: 'textarea', placeholder: '{}' },
-	{ dataIndex: 'status', title: '状态', component: 'switch', checkedValue: statusValues.enabled, uncheckedValue: statusValues.disabled, options: enabledDisabledOptions },
-];
+	{ dataIndex: 'status', title: '状态', component: 'switch', checkedValue: statusValues.enabled, uncheckedValue: statusValues.disabled, options: enabledDisabledOptions }];
 
 const parseBody = async (c: Parameters<ApiHandler>[0]): Promise<Record<string, unknown>> => c.req.json<Record<string, unknown>>().catch(() => ({}));
 const text = (value: unknown) => typeof value === 'string' ? value.trim() : '';

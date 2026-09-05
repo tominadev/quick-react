@@ -17,11 +17,10 @@ const verifiedOptions = [
 const PENDING_ROW_KEY = 'pending';
 
 const columns = [
+	{ dataIndex: 'created_at', title: '绑定时间', dataType: 'js_timestamp' as const, dayjsFormat: 'YYYY-MM-DD HH:mm:ss' },
 	{ dataIndex: 'email', title: '邮箱' },
 	{ dataIndex: 'is_primary', title: '主邮箱', component: 'select' as const, options: primaryOptions, form: { create: false as const, edit: false as const } },
-	{ dataIndex: 'verified', title: '状态', component: 'select' as const, options: verifiedOptions, form: { create: false as const, edit: false as const } },
-	{ dataIndex: 'created_at', title: '绑定时间', dataType: 'js_timestamp' as const, dayjsFormat: 'YYYY-MM-DD HH:mm:ss' },
-];
+	{ dataIndex: 'verified', title: '状态', component: 'select' as const, options: verifiedOptions, form: { create: false as const, edit: false as const } }];
 
 const handler: ApiHandler = async (c, _next, params) => {
 	const database = c.get('passportDatabase')!;

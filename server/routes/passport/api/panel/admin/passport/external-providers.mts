@@ -23,12 +23,11 @@ const columns = [
 	{ dataIndex: 'display_name', title: '显示名称', component: 'textbox', rules: [{ required: true, message: '请输入显示名称' }] },
 	{ dataIndex: 'client_id', title: '客户端 ID / AppID', component: 'textbox', rules: [{ required: true, message: '请输入客户端 ID 或 AppID' }] },
 	{ dataIndex: 'client_secret', title: 'Google Client Secret / 微信 AppSecret', component: 'textbox', inputType: 'password', hideInTable: true, placeholder: '留空表示保留现有密钥', form: { create: { placeholder: '请输入 Google Client Secret 或微信 AppSecret', rules: [{ required: true, message: '请输入 Google Client Secret 或微信 AppSecret' }] } } },
+	{ dataIndex: 'secret_configured', title: '密钥状态' },
+	{ dataIndex: 'status', title: '状态', component: 'switch', checkedValue: statusValues.enabled, uncheckedValue: statusValues.disabled, options: enabledDisabledOptions },
 	{ dataIndex: 'wechat_mode', title: '微信登录类型', component: 'select', hideInTable: true, options: [{ value: 'open_platform', text: '开放平台网站应用（PC 扫码）' }, { value: 'official_account', text: '公众号服务号（微信内网页授权）' }], extra: '仅微信身份源生效；服务号使用 snsapi_userinfo，需在微信内打开。' },
 	{ dataIndex: 'wechat_redirect_domain', title: '微信授权回调域名', component: 'textbox', hideInTable: true, placeholder: '例如 passport.example.com', extra: '仅填写域名，不要填写 https://、路径或查询参数；留空使用当前站点域名。' },
-	{ dataIndex: 'secret_configured', title: '密钥状态' },
-	{ dataIndex: 'callback_url', title: '授权回调地址' },
-	{ dataIndex: 'status', title: '状态', component: 'switch', checkedValue: statusValues.enabled, uncheckedValue: statusValues.disabled, options: enabledDisabledOptions },
-];
+	{ dataIndex: 'callback_url', title: '授权回调地址' }];
 const providerId = (value: unknown): ProviderId | undefined => value === 'google' || value === 'wechat' ? value : undefined;
 const requiredText = (value: unknown) => String(value ?? '').trim();
 const parseBody = async (c: Parameters<ApiHandler>[0]): Promise<Record<string, unknown>> => c.req.json<Record<string, unknown>>().catch(() => ({}));

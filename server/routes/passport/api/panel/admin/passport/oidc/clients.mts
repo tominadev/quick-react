@@ -20,10 +20,9 @@ const columns = [
 	{ dataIndex: 'backchannel_logout_path', title: '后端注销路径', component: 'textbox', readOnlyWhen: { field: 'redirect_uri_source', optionValues: true }, placeholder: defaultBackchannelLogoutPath, rules: [{ required: true, message: '请输入注销路径' }] },
 	{ dataIndex: 'allowed_scopes', title: '允许 Scope', component: 'textbox' },
 	{ dataIndex: 'require_pkce', title: '要求 PKCE', component: 'switch' },
-	{ dataIndex: 'strict_redirect_uri', title: '严格校验回调地址', component: 'switch', extra: '关闭时自动允许同数据库已启用站点的标准回调；开启后只允许手工登记的完整地址。' },
-	{ dataIndex: 'password_sync', title: '下发密码', component: 'switch' as const, checkedValue: 1, uncheckedValue: 0, placeholder: '默认关闭', extra: '在 ID Token 里下发凭证哈希，让接入方的本地账号能用同一个密码登录。开着等于把口令哈希交给接入方。' },
 	{ dataIndex: 'status', title: '状态', component: 'switch', checkedValue: statusValues.enabled, uncheckedValue: statusValues.disabled, options: enabledDisabledOptions },
-];
+	{ dataIndex: 'strict_redirect_uri', title: '严格校验回调地址', component: 'switch', extra: '关闭时自动允许同数据库已启用站点的标准回调；开启后只允许手工登记的完整地址。' },
+	{ dataIndex: 'password_sync', title: '下发密码', component: 'switch' as const, checkedValue: 1, uncheckedValue: 0, placeholder: '默认关闭', extra: '在 ID Token 里下发凭证哈希，让接入方的本地账号能用同一个密码登录。开着等于把口令哈希交给接入方。' }];
 
 const loadRedirectUriOptions = async (c: Parameters<ApiHandler>[0]): Promise<Array<{ value: string; text: string; fieldValues: Record<string, unknown> }>> => {
 	const database = c.get('globalDatabase');

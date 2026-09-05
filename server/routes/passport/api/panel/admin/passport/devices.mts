@@ -9,9 +9,8 @@ const columns = [
 	{ dataIndex: 'device', title: '设备' },
 	{ dataIndex: 'platform', title: '平台' },
 	{ dataIndex: 'ip_address', title: '最近 IP' },
-	{ dataIndex: 'last_seen_at', title: '最近活动', dataType: 'js_timestamp' as const, dayjsFormat: 'YYYY-MM-DD HH:mm:ss' },
 	{ dataIndex: 'status', title: '状态' },
-];
+	{ dataIndex: 'last_seen_at', title: '最近活动', dataType: 'js_timestamp' as const, dayjsFormat: 'YYYY-MM-DD HH:mm:ss' }];
 
 const handler: ApiHandler = async (c, next, params) => {
 	const database = c.get('passportDatabase');

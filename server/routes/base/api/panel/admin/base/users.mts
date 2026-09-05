@@ -16,18 +16,17 @@ import type { TableCrudDefinition } from '@server/modules/base/table-crud.mjs';
 
 const columns = [
 	{ dataIndex: 'id', title: 'ID', dataType: 'int' as const, group: '基础设置' },
+	{ dataIndex: 'created_at', title: '创建时间', dataType: 'js_timestamp' as const, dayjsFormat: 'YYYY-MM-DD HH:mm:ss', group: '基础设置' },
+	{ dataIndex: 'updated_at', title: '更新时间', dataType: 'js_timestamp' as const, dayjsFormat: 'YYYY-MM-DD HH:mm:ss', group: '基础设置' },
 	{ dataIndex: 'user_name', title: '用户名', component: 'textbox' as const, group: '基础设置' },
 	{ dataIndex: 'password', title: '新密码', component: 'textbox' as const, inputType: 'password' as const, placeholder: '留空表示不修改', form: { create: { title: '密码', placeholder: '至少 8 个字符', rules: [{ required: true, message: '请输入密码' }] } } },
 	{ dataIndex: 'roles', title: '角色', component: 'select' as const, multiple: true, options: assignableRoleOptions, placeholder: '留空表示仅具备登录用户权限' },
 	{ dataIndex: 'status', title: '状态', component: 'switch' as const, checkedValue: statusValues.enabled, uncheckedValue: statusValues.disabled, options: enabledDisabledOptions },
-	{ dataIndex: 'created_at', title: '创建时间', dataType: 'js_timestamp' as const, dayjsFormat: 'YYYY-MM-DD HH:mm:ss', group: '基础设置' },
-	{ dataIndex: 'updated_at', title: '更新时间', dataType: 'js_timestamp' as const, dayjsFormat: 'YYYY-MM-DD HH:mm:ss', group: '基础设置' },
 	// 个人简介都存在 base_user_profiles：没有资料行就是没设过，昵称回落到用户名。
 	{ dataIndex: 'profile_nickname', title: '昵称', component: 'textbox' as const, placeholder: '默认与用户名相同', group: '个人简介' },
 	{ dataIndex: 'profile_qq', title: 'QQ', component: 'textbox' as const, group: '个人简介' },
 	{ dataIndex: 'profile_wechat', title: '微信号', component: 'textbox' as const, group: '个人简介' },
-	{ dataIndex: 'profile_email', title: '联系邮箱', component: 'textbox' as const, placeholder: '本站不做验证，仅作联系方式', group: '个人简介' },
-];
+	{ dataIndex: 'profile_email', title: '联系邮箱', component: 'textbox' as const, placeholder: '本站不做验证，仅作联系方式', group: '个人简介' }];
 
 export const tableCrud: TableCrudDefinition = { table: 'base_users', rowKey: 'id' };
 
