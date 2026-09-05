@@ -58,11 +58,20 @@ export const readChangeReason = (c: Context<AppEnv>) => {
  * 是否放行由**服务端角色**说了算，不由请求头说了算——请求头只是勾选框的传递方式，
  * 非管理员就算伪造这个头也照样进审批队列。
  */
+/**
+ * 这次操作算后台还是用户自助。
+ *
+ * **与「要不要走审批」是同一条判定**，因此只算这一处：写进 base_approvals.scope 的值和
+ * 审批门用的必须是同一个结论，各判各的迟早会漂移——那时候审计里记着「后台操作」，
+ * 而它当初其实没进过队列。
+ */
+export const operationScope = (c: Context<AppEnv>) => c.req.path.startsWith('/api/panel/admin/') ? 'admin' as const : 'self' as const;
+
 const skipsApproval = (c: Context<AppEnv>, options: OperationOptions) => {
 	// 审批只适用于管理后台（需求文档 §11.2）。个人中心与账户中心的自助操作、注册引导、
 	// 以及任何显式声明的操作都照常留痕但立即生效——那些要么是用户处置自己的数据，
 	// 要么根本没有审批人可言（初始管理员注册时系统里一个账号都还没有）。
-	if (!c.req.path.startsWith('/api/panel/admin/')) return true;
+	if (operationScope(c) === 'self') return true;
 	// 「立即生效」这个勾选框已废除：管理后台的修改一律进队列，有权限的人在待审批提示里
 	// 点「批准并生效」。两条路做同一件事，留一条就够，而勾选框那条还得在每个表单里占一格。
 	// options.immediate 仍保留给路由内部的机器写入（建号收尾之类）显式声明。
@@ -129,7 +138,7 @@ const findPendingEntry = async (database: DatabaseAdapter, builder: ReturnType<t
 	const where: SqlCondition[] = [
 		{ column: 'table_name', value: table },
 		{ column: 'row_id', value: rowId },
-		{ column: 'status', value: 'pending' },
+		{ column: 'review_status', value: 'pending' },
 		actor === null ? { column: 'created_duid', operator: 'IS NULL' } : { column: 'created_duid', value: actor },
 	];
 	return firstSql<{ id: string }>(database, builder.select({
@@ -158,7 +167,7 @@ const jsonKeyDiff = (before: unknown, after: unknown) => {
 	};
 };
 
-const recordStatement = async (database: DatabaseAdapter, metadata: SqlAuditMetadata, operationId: string, reason: string, origin: RequestOrigin, status: 'applied' | 'pending') => {
+const recordStatement = async (database: DatabaseAdapter, metadata: SqlAuditMetadata, operationId: string, reason: string, origin: RequestOrigin, scope: 'admin' | 'self', immediate: boolean) => {
 	// 归属与可见性条件都在生成语句时定死了：调用方可能用显式上下文覆盖适配器。
 	const builder = sql({ database, subjectRoles: null, ownerTid: metadata.owner.tid, ownerBid: metadata.owner.bid, ownerUid: metadata.owner.uid, actorUid: metadata.owner.actor });
 	const columns = Object.keys(metadata.values);
@@ -186,13 +195,17 @@ const recordStatement = async (database: DatabaseAdapter, metadata: SqlAuditMeta
 		const values = {
 			operation_id: operationId,
 			reason,
+			scope,
 			request_hostname: origin.hostname,
 			request_path: origin.path,
 			table_name: metadata.table,
 			row_id: row.id,
 			action: actionOf(changes),
 			changes: JSON.stringify(changes),
-			status,
+			// 「没人批过」不叫「已批准」：直接生效的记录审批状态是 none，
+			// approved 只留给真的走完队列的那些。
+			review_status: immediate ? 'none' : 'pending',
+			data_status: immediate ? 'applied' : 'unwritten',
 		};
 		// 覆盖这个人自己挂在这一行上的待审批记录，不管新提交是继续排队还是立即生效。
 		//
@@ -201,7 +214,7 @@ const recordStatement = async (database: DatabaseAdapter, metadata: SqlAuditMeta
 		// 立即生效的情况：他已经自己把这一行改掉了，原先那条申请随之作废，留着就是
 		// 一条谁也批不动的孤儿记录（before 已经对不上）。两种情况都是同一件事的最新版本。
 		const existing = await findPendingEntry(database, builder, metadata.table, row.id);
-		if (existing) await runSystemSql(database, builder.update(AUDIT_TABLE, values, [{ column: 'id', value: existing.id }, { column: 'status', value: 'pending' }]));
+		if (existing) await runSystemSql(database, builder.update(AUDIT_TABLE, values, [{ column: 'id', value: existing.id }, { column: 'review_status', value: 'pending' }]));
 		else await runSystemSql(database, builder.insert(AUDIT_TABLE, values));
 		recorded += 1;
 	}
@@ -243,7 +256,7 @@ export const runOperation = async (
 				return { hostname: url.hostname, path };
 			} catch { return { hostname: '', path: '' }; }
 		})();
-		for (const statement of audited) recorded += await recordStatement(database, statement.audit, operationId, reason, origin, immediate ? 'applied' : 'pending');
+		for (const statement of audited) recorded += await recordStatement(database, statement.audit, operationId, reason, origin, operationScope(c), immediate);
 	}
 	// 待审批：记录已写，数据一条都不动。逐列比对下来没有任何变化时 recorded 为 0，
 	// 那本来就不是一次修改，不该拦下来让人去批一个空操作。

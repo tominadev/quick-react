@@ -17,7 +17,9 @@ export type AuditEntryRow = {
 	row_id: string;
 	action: SqlAuditAction;
 	changes: string;
-	status: 'pending' | 'applied' | 'rejected' | 'withdrawn' | 'reverted';
+	review_status: ReviewStatus;
+	data_status: DataStatus;
+	scope: 'admin' | 'self';
 	reviewed_at: number | null;
 	reviewed_duid: string | null;
 	review_reason: string;
@@ -44,7 +46,9 @@ const entryColumns = {
 	row_id: { column: 'row_id', cast: 'text' as const },
 	action: 'action',
 	changes: 'changes',
-	status: 'status',
+	review_status: 'review_status',
+	data_status: 'data_status',
+	scope: 'scope',
 	reviewed_at: 'reviewed_at',
 	reviewed_duid: { column: 'reviewed_duid', cast: 'text' as const },
 	review_reason: 'review_reason',
@@ -184,22 +188,46 @@ export const readAuditEntry = (database: DatabaseAdapter, id: string) => firstSq
 }));
 
 export type AuditRevertResult = { id: string; ok: boolean; message: string };
-export type AuditStatus = AuditEntryRow['status'];
 
 /**
- * 允许的状态迁移，其余一概拒绝。
+ * 审批状态与数据状态是**两件事**，各占一列。
  *
- * 「撤销申请」与「撤回变更」按对象区分，不靠词义：前者收回的是还没生效的申请
- * （从 pending 出发，数据从未动过），后者回滚的是已经生效的变更（从 applied 出发，
- * 数据要改回去）。两者的起点、后果和权限都不同，合成一个动作只会让人分不清点了什么。
+ * 「没人批过」和「批过了」都让数据生效了，但不是同一个事实：前台自助与路由显式声明的
+ * 机器写入根本没进过队列，记成「已批准」是在伪造一次不存在的审批。
+ *
+ * 两列正交还顺手解决了回滚的老问题：合成一列时，一条自助操作被回滚再恢复就会凭空变成
+ * 「已批准」——恢复只能挑一个目标状态，而那个状态里混着审批信息。分开之后回滚与恢复
+ * 只动 data_status，是谁放行的原样留着。
  */
-const TRANSITIONS: Record<AuditStatus, { to: AuditStatus; label: string }[]> = {
-	pending: [{ to: 'applied', label: '批准' }, { to: 'rejected', label: '驳回' }, { to: 'withdrawn', label: '撤销申请' }],
-	applied: [{ to: 'reverted', label: '回滚' }],
-	reverted: [{ to: 'applied', label: '恢复' }],
-	rejected: [],
-	withdrawn: [],
+export type ReviewStatus = 'none' | 'pending' | 'approved' | 'rejected' | 'withdrawn';
+export type DataStatus = 'unwritten' | 'applied' | 'reverted';
+export type ApprovalTransition = 'approve' | 'reject' | 'withdraw' | 'revert' | 'restore';
+
+/**
+ * 允许的迁移，其余一概拒绝。
+ *
+ * 「撤销申请」与「回滚」按对象区分，不靠词义：前者收回的是还没生效的申请（只动审批状态，
+ * 数据从未动过），后者回滚的是已经生效的变更（只动数据状态，是谁放行的不变）。
+ */
+const TRANSITIONS: Record<ApprovalTransition, {
+	label: string;
+	/** 允许的起点。审批类动作看审批状态，数据类动作看数据状态。 */
+	fromReview?: readonly ReviewStatus[];
+	fromData?: readonly DataStatus[];
+	/** 目标状态；不写这一列就不动它。 */
+	review?: ReviewStatus;
+	data?: DataStatus;
+	/** 往表上写哪一侧的值：批准与恢复写 after，回滚写 before，驳回与撤销不碰数据。 */
+	write: 'after' | 'before' | 'none';
+}> = {
+	approve: { label: '批准', fromReview: ['pending'], review: 'approved', data: 'applied', write: 'after' },
+	reject: { label: '驳回', fromReview: ['pending'], review: 'rejected', write: 'none' },
+	withdraw: { label: '撤销申请', fromReview: ['pending'], review: 'withdrawn', write: 'none' },
+	revert: { label: '回滚', fromData: ['applied'], data: 'reverted', write: 'before' },
+	restore: { label: '恢复', fromData: ['reverted'], data: 'applied', write: 'after' },
 };
+
+export const transitionLabel = (transition: ApprovalTransition) => TRANSITIONS[transition].label;
 
 /**
  * 状态迁移：撤回、恢复、批准、驳回是同一段代码。
@@ -209,29 +237,30 @@ const TRANSITIONS: Record<AuditStatus, { to: AuditStatus; label: string }[]> = {
  * 批准（`pending → applied`）与恢复（`reverted → applied`）因此是同一条路径：两种情况下
  * 行上都还是 `before`，都要写成 `after`。驳回不碰数据，只落状态。
  */
-const transitionOne = async (database: DatabaseAdapter, entry: AuditEntryRow, to: AuditStatus, reason: string): Promise<AuditRevertResult> => {
-	const allowed = TRANSITIONS[entry.status].find((transition) => transition.to === to);
-	if (!allowed) return { id: entry.id, ok: false, message: `当前状态是「${STATUS_LABELS[entry.status]}」，不能执行这个操作` };
-	// 三种迁移各写自己那一组：同一条记录可能先被批准、再被回滚、又被恢复，
-	// 合用一组的话后发生的会覆盖先发生的——恢复完之后「撤回人」就成了恢复的人。
+const transitionOne = async (database: DatabaseAdapter, entry: AuditEntryRow, to: ApprovalTransition, reason: string): Promise<AuditRevertResult> => {
+	const allowed = TRANSITIONS[to];
+	if (allowed.fromReview && !allowed.fromReview.includes(entry.review_status)) {
+		return { id: entry.id, ok: false, message: `当前审批状态是「${REVIEW_LABELS[entry.review_status]}」，不能执行这个操作` };
+	}
+	if (allowed.fromData && !allowed.fromData.includes(entry.data_status)) {
+		return { id: entry.id, ok: false, message: `当前数据状态是「${DATA_LABELS[entry.data_status]}」，不能执行这个操作` };
+	}
+	// 四组字段各写各的：同一条记录可能先被批准、再被回滚、又被恢复，合用一组的话后发生的
+	// 会覆盖先发生的——恢复完之后「回滚人」就成了恢复的人。撤销也单独一组：它和审批都从
+	// pending 出发，但一个是审批人的决定、一个是申请人自己收回。
 	const now = Date.now(), actor = actorOf(database);
-	// 四组字段各写各的。撤销单独一组：它和审批都从 pending 出发，但一个是审批人的决定、
-	// 一个是申请人自己收回，混在一起就分不清那一格记的是谁。
-	const statusFields = to === 'withdrawn'
-		? { withdrawn_at: now, withdrawn_duid: actor }
-		: entry.status === 'pending'
-			? { reviewed_at: now, reviewed_duid: actor, review_reason: reason }
-			: to === 'reverted'
-				? { reverted_at: now, reverted_duid: actor, revert_reason: reason }
+	const statusFields = to === 'withdraw' ? { withdrawn_at: now, withdrawn_duid: actor }
+		: to === 'approve' || to === 'reject' ? { reviewed_at: now, reviewed_duid: actor, review_reason: reason }
+			: to === 'revert' ? { reverted_at: now, reverted_duid: actor, revert_reason: reason }
 				: { restored_at: now, restored_duid: actor, restore_reason: reason };
 	// 驳回与撤销申请都不碰数据：待审批的修改从未写入过。
-	if (to !== 'rejected' && to !== 'withdrawn') {
+	if (allowed.write !== 'none') {
 		const changes = parseAuditChanges(entry.changes);
 		const columns = Object.keys(changes);
 		if (!columns.length) return { id: entry.id, ok: false, message: '该记录没有可还原的字段' };
-		const toApplied = to === 'applied';
-		const write = (column: string) => toApplied ? changes[column].after : changes[column].before;
-		const expect = (column: string) => toApplied ? changes[column].before : changes[column].after;
+		const toAfter = allowed.write === 'after';
+		const write = (column: string) => toAfter ? changes[column].after : changes[column].before;
+		const expect = (column: string) => toAfter ? changes[column].before : changes[column].after;
 		// JSON 列记的是差异（只有变了的那几个键），写回时要合并进当前值——整块覆盖会把
 		// 这条记录没提到的键一起抹掉。读一次当前行，合并出目标值，并用**读到的整值**
 		// 作为并发条件：读—改—写之间被人插一手，条件就匹配不上，写入落空。
@@ -289,14 +318,22 @@ const transitionOne = async (database: DatabaseAdapter, entry: AuditEntryRow, to
 	// 带上原状态做条件：并发下只有一个请求能迁移成功。
 	// 走 runSystemSql：这次迁移的留痕就是这几列本身，再记一条是重复；
 	// 递归也是被这条路径挡住的，审计表因此不需要被排除在受管范围之外。
-	await runSystemSql(database, sql({ database }).update(AUDIT_TABLE, { status: to, ...statusFields },
-		[{ column: 'id', value: entry.id }, { column: 'status', value: entry.status }]));
+	await runSystemSql(database, sql({ database }).update(AUDIT_TABLE, {
+		...(allowed.review ? { review_status: allowed.review } : {}),
+		...(allowed.data ? { data_status: allowed.data } : {}),
+		...statusFields,
+	}, [
+		{ column: 'id', value: entry.id },
+		{ column: 'review_status', value: entry.review_status },
+		{ column: 'data_status', value: entry.data_status },
+	]));
 	return { id: entry.id, ok: true, message: `已${allowed.label}` };
 };
 
 const actorOf = (database: DatabaseAdapter) => database.actorUidForTable?.(AUDIT_TABLE) ?? database.actorUid ?? null;
 
-export const STATUS_LABELS: Record<AuditStatus, string> = { pending: '待审批', applied: '已生效', rejected: '已驳回', withdrawn: '已撤销申请', reverted: '已回滚' };
+export const REVIEW_LABELS: Record<ReviewStatus, string> = { none: '无需审批', pending: '待审批', approved: '已批准', rejected: '已驳回', withdrawn: '已撤销申请' };
+export const DATA_LABELS: Record<DataStatus, string> = { unwritten: '未写入', applied: '已生效', reverted: '已回滚' };
 
 /**
  * 批量迁移是逐条执行的入口，**不是原子的级联回滚**——无事务环境下做不到。
@@ -305,7 +342,7 @@ export const STATUS_LABELS: Record<AuditStatus, string> = { pending: '待审批'
  * 当前值是 C，只有先撤 B→C 才能接着撤 A→B。落到 applied 的方向正好相反，按时间升序走。
  * 某一条被拒绝时其余照常执行，最后逐条返回结果。
  */
-export const transitionAuditEntries = async (database: DatabaseAdapter, ids: readonly string[], to: AuditStatus, reason = ''): Promise<AuditRevertResult[]> => {
+export const transitionAuditEntries = async (database: DatabaseAdapter, ids: readonly string[], to: ApprovalTransition, reason = ''): Promise<AuditRevertResult[]> => {
 	const entries: AuditEntryRow[] = [];
 	const results: AuditRevertResult[] = [];
 	for (const id of ids) {
@@ -314,7 +351,9 @@ export const transitionAuditEntries = async (database: DatabaseAdapter, ids: rea
 		else results.push({ id, ok: false, message: '审计记录不存在或无权访问' });
 	}
 	const newestFirst = (left: AuditEntryRow, right: AuditEntryRow) => Number(right.created_at) - Number(left.created_at) || Number(right.id) - Number(left.id);
-	entries.sort(to === 'reverted' ? newestFirst : (left, right) => newestFirst(right, left));
+	// 回滚要从最新的一条往回走，其余从最早的一条开始：值校验（§7.2）要求每一步的起点
+	// 都是当前值，顺序反了就整批失败。
+	entries.sort(to === 'revert' ? newestFirst : (left, right) => newestFirst(right, left));
 	for (const entry of entries) results.push(await transitionOne(database, entry, to, reason));
 	return results;
 };

@@ -2,44 +2,66 @@ import type { ApiHandler } from '@server/modules/base/api-router.mjs';
 import { apiMessage, apiResponse } from '@server/modules/base/api-response.mjs';
 import { readChangeReason } from '@server/modules/base/operation.mjs';
 import type { SqlCondition } from '@server/database/sql.mjs';
-import { STATUS_LABELS, countAuditEntries, describeAuditChanges, listAuditEntries, parseAuditChanges, publicAuditChanges, readAuditEntry, transitionAuditEntries, type AuditEntryRow } from '@server/modules/base/audit.mjs';
+import { DATA_LABELS, REVIEW_LABELS, countAuditEntries, describeAuditChanges, listAuditEntries, parseAuditChanges, publicAuditChanges, readAuditEntry, transitionAuditEntries, type AuditEntryRow } from '@server/modules/base/audit.mjs';
 import { tableSort } from '@server/modules/base/query-options.mjs';
 import type { TableCrudDefinition } from '@server/modules/base/table-crud.mjs';
 import { AUDIT_TABLE } from '@server/database/sql.mjs';
 
 const actionLabels: Record<string, string> = { update: '修改', soft_delete: '删除', restore: '恢复' };
-// 状态用带颜色的标签：绿色一眼看出这条变更此刻是生效的。
-const statusOptions = [
-	{ value: 'pending', text: STATUS_LABELS.pending, color: 'gold' },
-	{ value: 'applied', text: STATUS_LABELS.applied, color: 'green' },
-	{ value: 'rejected', text: STATUS_LABELS.rejected, color: 'red' },
-	{ value: 'withdrawn', text: STATUS_LABELS.withdrawn, color: 'default' },
-	{ value: 'reverted', text: STATUS_LABELS.reverted, color: 'default' },
+/**
+ * 审批状态与数据状态是两件事，分两列显示。
+ *
+ * 「无需审批」不是「已批准」：前台自助与路由显式声明的机器写入根本没进过队列。把它们
+ * 显示成已批准，等于告诉看的人有个不存在的审批人点过头。
+ */
+const reviewOptions = [
+	{ value: 'pending', text: REVIEW_LABELS.pending, color: 'gold' },
+	{ value: 'approved', text: REVIEW_LABELS.approved, color: 'green' },
+	{ value: 'none', text: REVIEW_LABELS.none, color: 'blue' },
+	{ value: 'rejected', text: REVIEW_LABELS.rejected, color: 'red' },
+	{ value: 'withdrawn', text: REVIEW_LABELS.withdrawn, color: 'default' },
+];
+const dataOptions = [
+	{ value: 'applied', text: DATA_LABELS.applied, color: 'green' },
+	{ value: 'unwritten', text: DATA_LABELS.unwritten, color: 'default' },
+	{ value: 'reverted', text: DATA_LABELS.reverted, color: 'default' },
+];
+const scopeOptions = [
+	{ value: 'admin', text: '后台操作', color: 'geekblue' },
+	{ value: 'self', text: '用户自助', color: 'default' },
 ];
 /**
- * 查询条件。**状态默认「待审批」**：进这一页最常做的事是处理积压的申请，
- * 而不是翻历史；要看全部把它清空即可。
+ * 查询条件。**审批状态默认「待审批」**：进这一页最常做的事是处理积压的申请，
+ * 而不是翻历史；要看全部把它选成「全部」即可。
  */
 const DEFAULT_STATUS = 'pending';
 // 「全部」用显式哨兵值而不是空串：空串在 antd 的 Select 里等于「没有选中」，
-// 选完会显示成空白。顺带让 URL 自解释——status=all 比 status= 一眼看得懂。
+// 选完会显示成空白。顺带让 URL 自解释——review_status=all 比 review_status= 一眼看得懂。
 const ALL_STATUS = 'all';
+const allOption = { value: ALL_STATUS, text: '全部' };
 const queryFields = [
-	{ dataIndex: 'status', label: '状态', component: 'select' as const, defaultValue: DEFAULT_STATUS, options: [{ value: ALL_STATUS, text: '全部' }, ...statusOptions] },
+	{ dataIndex: 'review_status', label: '审批状态', component: 'select' as const, defaultValue: DEFAULT_STATUS, options: [allOption, ...reviewOptions] },
+	{ dataIndex: 'data_status', label: '数据状态', component: 'select' as const, defaultValue: ALL_STATUS, options: [allOption, ...dataOptions] },
+	{ dataIndex: 'scope', label: '来源', component: 'select' as const, defaultValue: ALL_STATUS, options: [allOption, ...scopeOptions] },
 	{ dataIndex: 'table_name', label: '数据表', component: 'textbox' as const, placeholder: '例如 base_users' },
 	{ dataIndex: 'row_id', label: '记录 ID', component: 'textbox' as const },
 	{ dataIndex: 'reason', label: '操作原因', component: 'textbox' as const, placeholder: '模糊匹配，% 与 _ 是通配符' },
 ];
 
-/** 每个动作对应一次状态迁移，并且只对处在起点状态的行显示。 */
+/**
+ * 每个动作对应一次迁移，并且只对处在起点的行显示。
+ *
+ * 审批类动作看审批状态，数据类动作看数据状态——两列各管各的：一条「无需审批」的自助
+ * 操作照样能回滚，而它压根没有可批准的申请。
+ */
 const flipActions = [
-	{ key: 'approve', label: '批准', to: 'applied' as const, from: 'pending', confirm: '确认批准这条修改吗？批准后立即生效。' },
-	{ key: 'reject', label: '驳回', to: 'rejected' as const, from: 'pending', confirm: '确认驳回这条修改吗？数据不会被改动。' },
+	{ key: 'approve' as const, label: '批准', field: 'review_status', from: ['pending'], confirm: '确认批准这条修改吗？批准后立即生效。' },
+	{ key: 'reject' as const, label: '驳回', field: 'review_status', from: ['pending'], confirm: '确认驳回这条修改吗？数据不会被改动。' },
 	// 「撤销申请」动的是还没生效的申请，「回滚」动的是已经生效的数据。不用「撤回」——
 	// 它和「撤销」太近，读的人分不清哪个会改到数据。
-	{ key: 'withdraw', label: '撤销申请', to: 'withdrawn' as const, from: 'pending', confirm: '确认撤销这条还没生效的申请吗？数据不会被改动。' },
-	{ key: 'revert', label: '回滚', to: 'reverted' as const, from: 'applied', confirm: '确认把这条已经生效的变更改回去吗？' },
-	{ key: 'restore', label: '恢复', to: 'applied' as const, from: 'reverted', confirm: '确认恢复这条变更吗？' },
+	{ key: 'withdraw' as const, label: '撤销申请', field: 'review_status', from: ['pending'], confirm: '确认撤销这条还没生效的申请吗？数据不会被改动。' },
+	{ key: 'revert' as const, label: '回滚', field: 'data_status', from: ['applied'], confirm: '确认把这条已经生效的变更改回去吗？' },
+	{ key: 'restore' as const, label: '恢复', field: 'data_status', from: ['reverted'], confirm: '确认恢复这条变更吗？' },
 ];
 
 const columns = [
@@ -51,6 +73,7 @@ const columns = [
 	{ dataIndex: 'created_duid', title: '操作者' },
 	{ dataIndex: 'owner_uid', title: '作用账号' },
 	{ dataIndex: 'reason', title: '操作原因' },
+	{ dataIndex: 'scope', title: '来源', options: scopeOptions },
 	{ dataIndex: 'request_hostname', title: '操作域名' },
 	{ dataIndex: 'request_path', title: '操作接口' },
 	{ dataIndex: 'table_name', title: '数据表' },
@@ -58,7 +81,8 @@ const columns = [
 	{ dataIndex: 'action', title: '动作' },
 	// changes 的位置。一列一行；multiline 模式带 pre-wrap 与三行折叠，改得多也不会撑爆表格。
 	{ dataIndex: 'summary', title: '变更内容', tableDisplay: 'multiline' as const },
-	{ dataIndex: 'status', title: '状态', options: statusOptions },
+	{ dataIndex: 'review_status', title: '审批状态', options: reviewOptions },
+	{ dataIndex: 'data_status', title: '数据状态', options: dataOptions },
 	{ dataIndex: 'reviewed_at', title: '审批时间', dataType: 'js_timestamp' as const, dayjsFormat: 'YYYY-MM-DD HH:mm:ss' },
 	{ dataIndex: 'reviewed_duid', title: '审批人' },
 	{ dataIndex: 'review_reason', title: '审批意见' },
@@ -83,7 +107,9 @@ const publicEntry = (row: AuditEntryRow) => ({
 	reason: row.reason ?? '',
 	created_duid: row.created_duid ?? '',
 	owner_uid: row.owner_uid ?? '',
-	status: row.status,
+	review_status: row.review_status,
+	data_status: row.data_status,
+	scope: row.scope,
 	request_hostname: row.request_hostname,
 	request_path: row.request_path,
 	reviewed_at: row.reviewed_at ?? '',
@@ -112,8 +138,12 @@ const handler: ApiHandler = async (c, next, params) => {
 		// 参数缺失用默认值；选了「全部」或传空串都表示不过滤。
 		// 客户端首次请求发出时还没带上查询默认值——它拿到 schema 之后才填，而那一步
 		// 刻意跳过了重新请求（避免首屏两次请求）。默认值因此要由服务端认。
-		const status = (c.req.query('status') ?? DEFAULT_STATUS).trim();
-		if (status !== ALL_STATUS && statusOptions.some((option) => option.value === status)) filters.push({ column: 'status', value: status });
+		const review = (c.req.query('review_status') ?? DEFAULT_STATUS).trim();
+		if (review !== ALL_STATUS && reviewOptions.some((option) => option.value === review)) filters.push({ column: 'review_status', value: review });
+		const dataStatus = (c.req.query('data_status') ?? ALL_STATUS).trim();
+		if (dataStatus !== ALL_STATUS && dataOptions.some((option) => option.value === dataStatus)) filters.push({ column: 'data_status', value: dataStatus });
+		const scope = (c.req.query('scope') ?? ALL_STATUS).trim();
+		if (scope !== ALL_STATUS && scopeOptions.some((option) => option.value === scope)) filters.push({ column: 'scope', value: scope });
 		const tableFilter = c.req.query('table_name')?.trim();
 		if (tableFilter) filters.push({ column: 'table_name', value: tableFilter });
 		const rowFilter = c.req.query('row_id')?.trim();
@@ -132,7 +162,7 @@ const handler: ApiHandler = async (c, next, params) => {
 				// 撤回不新开记录，而是把这一条翻到另一面；已撤回的再点一次就恢复。
 				// 撤回与恢复是互斥的两个动作，一行上只显示其中适用的那个。
 				toolbar: flipActions.map((action) => ({ key: action.key, label: `${action.label}选中记录`, confirm: action.confirm, selection: true })),
-				row: flipActions.map((action) => ({ key: action.key, label: action.label, confirm: action.confirm, visibleWhen: { field: 'status', values: [action.from] } })),
+				row: flipActions.map((action) => ({ key: action.key, label: action.label, confirm: action.confirm, visibleWhen: { field: action.field, values: action.from } })),
 			} },
 			columns,
 			dataSource: rows.map(publicEntry),
@@ -148,7 +178,7 @@ const handler: ApiHandler = async (c, next, params) => {
 	if (flip) {
 		const ids = await readIds(c, params.id);
 		if (!ids.length) return apiMessage(c, 400, `请选择要${flip.label}的记录`);
-		const results = await transitionAuditEntries(database, ids, flip.to, readChangeReason(c));
+		const results = await transitionAuditEntries(database, ids, flip.key, readChangeReason(c));
 		const failed = results.filter((result) => !result.ok);
 		if (!failed.length) return apiMessage(c, 200, `已${flip.label} ${results.length} 条变更`);
 		// 逐条独立判定：某一条被拒绝时其余照常执行，最后逐条返回结果（§7.4）。

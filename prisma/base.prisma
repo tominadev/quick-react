@@ -24,20 +24,43 @@ enum BaseApprovalAction {
   restore
 }
 
-/// 「撤销申请」与「回滚」是两件事：前者收回的是还没生效的申请（数据从未动过），
-/// 后者把已经生效的变更改回去（数据被改回）。用「回滚」而不是「撤回」，是因为
-/// 「撤回/撤销」两个词太近，读的人分不清哪个动的是数据。
-enum BaseApprovalStatus {
+/// 审批状态：这次修改有没有人放行、是谁放行的。
+///
+/// 「没人批过」和「批过了」是两回事：前台自助与路由显式声明的机器写入根本没进过队列，
+/// 把它们记成「已批准」是在伪造一次不存在的审批。
+enum BaseApprovalReview {
+  /// 无需审批：用户自助操作，或路由显式声明的机器写入（建号收尾、回收站恢复）。
+  none
   /// 已提交，等审批：记录已写，数据还没动。
   pending
-  applied
+  approved
   /// 审批人否掉：数据从未被写入。
   rejected
   /// 申请人自己收回：数据从未被写入。与 rejected 落在同一侧，但不是同一件事，
   /// 因此分开记——追查时「是被否掉的还是自己撤的」是两个不同的结论。
   withdrawn
+}
+
+/// 数据状态：这次修改的值现在有没有落在表上。
+///
+/// 与审批状态**正交**。「撤销申请」与「回滚」因此各管一列：前者收回的是还没生效的申请
+/// （审批状态变、数据没动过），后者把已经生效的变更改回去（数据状态变、是谁放行的不变）。
+/// 合成一列的话，一条自助操作被回滚再恢复就会凭空变成「已批准」——记录被自己的状态机洗白。
+enum BaseApprovalState {
+  /// 从未写入：待审批、被驳回、被撤销的申请都停在这里。
+  unwritten
+  applied
   /// 生效之后被回滚：数据已经改回去了。
   reverted
+}
+
+/// 后台操作要审批，用户处置自己的数据不排队。两者留在同一张表里（分表会把「这一行被谁
+/// 改过」的时间线劈成两半），靠这一列区分。
+enum BaseApprovalScope {
+  /// /panel/admin 下的后台操作。
+  admin
+  /// 个人中心、账户中心一类的用户自助操作，照常留痕但不排队。
+  self
 }
 
 /// 业务站点内部的租户。与 global_sites 的代码站点无关，命名一律不使用 site。
@@ -313,6 +336,12 @@ model base_approvals {
   operation_id String
   /// 操作原因：审计记录了「改了什么」，这一列记「为什么」，取证时后者更有价值。
   reason       String @default("")
+  /// 这次操作来自后台还是用户自助。**与「要不要走审批」是同一条判定**（§11.2），
+  /// 由 operationScope() 一处算出、两处使用。
+  ///
+  /// 写入时定下来，而不是事后拿 request_path 去 LIKE：判定规则以后会变（四眼原则要把
+  /// 「谁能批」从按角色改成按操作），历史记录记的必须是**当时判定的事实**。
+  scope        BaseApprovalScope @default(admin)
   /// 这次操作是从哪个域名、哪个接口发起的。
   ///
   /// 多站点共用一套代码，同一张表在不同域名下都可能被改；只记"改了什么"而不记"在哪改的"，
@@ -325,8 +354,11 @@ model base_approvals {
   action       BaseApprovalAction
   /// JSON 对象：列名 -> { before, after }，只含实际发生变化的列。
   changes      Json @default("{}")
-  /// applied ↔ reverted 可以来回翻：回滚不新开记录，而是把这一条翻到另一面。
-  status       BaseApprovalStatus @default(applied)
+  /// 审批走到哪一步。没进过队列的写入是 none，不是 approved。
+  review_status BaseApprovalReview @default(none)
+  /// 数据当前停在哪一边。applied ↔ reverted 可以来回翻：回滚不新开记录，
+  /// 而是把这一条翻到另一面；审批状态不跟着变。
+  data_status  BaseApprovalState @default(applied)
   /// 审批的时间、审批人与意见。pending → applied/rejected 时写一次就定了。
   reviewed_at   BigInt?
   reviewed_duid BigInt?
@@ -353,7 +385,8 @@ model base_approvals {
   @@index([owner_uid, created_at])
   @@index([table_name, row_id, created_at])
   @@index([operation_id])
-  @@index([status, created_at])
+  @@index([review_status, created_at])
+  @@index([scope, created_at])
 }
 
 /// 本站账号的登录凭证。

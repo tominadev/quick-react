@@ -68,17 +68,17 @@ assert.equal(mergeSort('status:asc', []), '');
 assert.equal(mergeSort('', [{ field: ['a', 'b'], order: 'ascend' }]), 'a.b:asc');
 
 // —— 查询条件的三个来源 ——
-const auditFields = [{ dataIndex: 'status', defaultValue: 'pending' }, { dataIndex: 'reason' }];
+const auditFields = [{ dataIndex: 'review_status', defaultValue: 'pending' }, { dataIndex: 'reason' }];
 // 什么都没给：用后端下发的默认值。
-assert.deepEqual(mergeQueryValues(auditFields, {}, {}), { status: 'pending' });
+assert.deepEqual(mergeQueryValues(auditFields, {}, {}), { review_status: 'pending' });
 // 地址栏压过默认值——审计页默认「待审批」，用户改成「全部」再刷新，挑的不能白挑。
-assert.deepEqual(mergeQueryValues(auditFields, {}, { status: 'all' }), { status: 'all' });
-assert.deepEqual(mergeQueryValues(auditFields, {}, { status: '' }), { status: '' }, '空串也是明确的选择，不能回落到默认值');
+assert.deepEqual(mergeQueryValues(auditFields, {}, { review_status: 'all' }), { review_status: 'all' });
+assert.deepEqual(mergeQueryValues(auditFields, {}, { review_status: '' }), { review_status: '' }, '空串也是明确的选择，不能回落到默认值');
 // 页面初始值压过字段默认值，地址栏又压过它。
-assert.deepEqual(mergeQueryValues(auditFields, { status: 'applied' }, {}), { status: 'applied' });
-assert.deepEqual(mergeQueryValues(auditFields, { status: 'applied' }, { status: 'all' }), { status: 'all' });
+assert.deepEqual(mergeQueryValues(auditFields, { review_status: 'approved' }, {}), { review_status: 'approved' });
+assert.deepEqual(mergeQueryValues(auditFields, { review_status: 'approved' }, { review_status: 'all' }), { review_status: 'all' });
 // 地址栏里的额外条件照样带上。
-assert.deepEqual(mergeQueryValues(auditFields, {}, { reason: '改密码' }), { status: 'pending', reason: '改密码' });
+assert.deepEqual(mergeQueryValues(auditFields, {}, { reason: '改密码' }), { review_status: 'pending', reason: '改密码' });
 // 没有默认值也没人给的字段不会凭空出现。
 assert.deepEqual(mergeQueryValues([{ dataIndex: 'reason' }], {}, {}), {});
 
@@ -86,12 +86,12 @@ assert.deepEqual(mergeQueryValues([{ dataIndex: 'reason' }], {}, {}), {});
 // 地址上什么都没写就不带任何参数，接口照常用它自己的默认值。
 assert.deepEqual(tableRequestParams(''), {});
 assert.deepEqual(tableRequestParams('?tab=profile'), {}, '页面自身的参数不往接口带');
-// 这就是 /panel/admin/base/audit.html?q.status=all 首屏该发出的参数。
-assert.deepEqual(tableRequestParams('?q.status=all'), { status: 'all' });
+// 这就是 /panel/admin/base/audit.html?q.review_status=all 首屏该发出的参数。
+assert.deepEqual(tableRequestParams('?q.review_status=all'), { review_status: 'all' });
 assert.deepEqual(tableRequestParams('?page=3&size=50'), { pageNum: '3', pageSize: '50' }, '地址用 page/size，接口用 pageNum/pageSize');
 assert.deepEqual(tableRequestParams('?sort=status:asc,user_name:desc'), { sort: 'status:asc,user_name:desc' });
-assert.deepEqual(tableRequestParams('?page=2&size=20&sort=id:desc&q.status=all&q.reason=改密码'), {
-	pageNum: '2', pageSize: '20', sort: 'id:desc', status: 'all', reason: '改密码',
+assert.deepEqual(tableRequestParams('?page=2&size=20&sort=id:desc&q.review_status=all&q.reason=改密码'), {
+	pageNum: '2', pageSize: '20', sort: 'id:desc', review_status: 'all', reason: '改密码',
 });
 // 坏值不往接口带脏数据：读取时已经回落到合法值。
 assert.deepEqual(tableRequestParams('?page=abc'), { pageNum: '1' });

@@ -28,7 +28,7 @@ export const pendingEntriesFor = async (database: DatabaseAdapter, table: string
 	allSql<PendingEntry>(database, sql({ database }).select({
 		table: 'base_approvals',
 		columns: { id: { column: 'id', cast: 'text' }, changes: 'changes', reason: 'reason', created_at: 'created_at', created_duid: { column: 'created_duid', cast: 'text' } },
-		where: [{ column: 'table_name', value: table }, { column: 'row_id', value: String(rowId) }, { column: 'status', value: 'pending' }],
+		where: [{ column: 'table_name', value: table }, { column: 'row_id', value: String(rowId) }, { column: 'review_status', value: 'pending' }],
 		orderBy: [{ column: 'id' }],
 	}));
 
@@ -43,7 +43,7 @@ export const pendingRowIds = async (database: DatabaseAdapter, table: string, ro
 	const rows = await allSql<{ row_id: string }>(database, sql({ database }).select({
 		table: 'base_approvals', distinct: true,
 		columns: { row_id: { column: 'row_id', cast: 'text' } },
-		where: [{ column: 'table_name', value: table }, { column: 'status', value: 'pending' }],
+		where: [{ column: 'table_name', value: table }, { column: 'review_status', value: 'pending' }],
 	}));
 	const pending = new Set(rows.map((row) => String(row.row_id)));
 	return new Set(rowIds.filter((id) => pending.has(id)));
@@ -113,7 +113,7 @@ export const handlePendingApprovalAction = async (c: Context<AppEnv>, table: str
 	// 撤销只动自己提的那几条：替别人撤等于替别人做决定，那是驳回该干的事。
 	const entries = action === WITHDRAW_ACTION ? all.filter((entry) => sameActor(entry, actorOf(database))) : all;
 	if (!entries.length) return { ok: false as const, message: action === WITHDRAW_ACTION ? '没有你自己提交的待审批申请' : '没有待审批的修改' };
-	const target = action === APPROVE_ACTION ? 'applied' as const : action === REJECT_ACTION ? 'rejected' as const : 'withdrawn' as const;
+	const target = action === APPROVE_ACTION ? 'approve' as const : action === REJECT_ACTION ? 'reject' as const : 'withdraw' as const;
 	const results = await transitionAuditEntries(database, entries.map((entry) => entry.id), target, readChangeReason(c));
 	const failed = results.filter((result) => !result.ok);
 	if (failed.length) return { ok: false as const, message: failed.map((result) => `#${result.id} ${result.message}`).join('；') };

@@ -31,7 +31,7 @@ try {
 		if (response.status !== 202 || !options.cookie || options.keepPending) return response;
 		const auditHeaders = new Headers(headers);
 		auditHeaders.set('content-type', 'application/json');
-		const pending = await (await app.request('http://localhost/api/panel/admin/base/audit.php?include=data&status=pending', { headers: auditHeaders })).json();
+		const pending = await (await app.request('http://localhost/api/panel/admin/base/audit.php?include=data&review_status=pending', { headers: auditHeaders })).json();
 		const ids = (pending.table?.dataSource ?? []).map((row) => String(row.id));
 		if (ids.length) {
 			await app.request('http://localhost/api/panel/admin/base/audit.php?action=approve', { method: 'POST', headers: auditHeaders, body: JSON.stringify(ids) });
@@ -91,19 +91,19 @@ try {
 	// 回收站——「数据管理」能软删除任何表，包括这一张，删掉之后它就从审批页上消失，而审批页
 	// 恰恰是唯一会去看它的地方。没有回收站的话，谁把审批记录删了既看不见也找不回。
 	const approvals = '/api/panel/admin/base/audit.php';
-	const approvalPage = await (await request(`${approvals}?include=schema,data&status=all`, { cookie })).json();
+	const approvalPage = await (await request(`${approvals}?include=schema,data&review_status=all`, { cookie })).json();
 	const approvalToolbar = approvalPage.table.option.actions.toolbar.map((action) => action.key);
 	assert.ok(approvalToolbar.includes('recycle-bin'), '审批页要有回收站入口');
 	assert.equal(approvalToolbar.includes('delete'), false, '审批页不给删除按钮');
 	const victim = approvalPage.table.dataSource[0].id;
 	assert.equal((await request(`${auditBase}&include=schema,data`, { method: 'DELETE', cookie, body: [String(victim)] })).status, 200);
-	const withoutVictim = await (await request(`${approvals}?include=data&status=all`, { cookie })).json();
+	const withoutVictim = await (await request(`${approvals}?include=data&review_status=all`, { cookie })).json();
 	assert.equal(withoutVictim.table.dataSource.some((row) => String(row.id) === String(victim)), false, '软删除的审批记录不在正常列表');
-	const approvalBin = await (await request(`${approvals}?include=schema,data,deleted&status=all`, { cookie })).json();
+	const approvalBin = await (await request(`${approvals}?include=schema,data,deleted&review_status=all`, { cookie })).json();
 	assert.ok(approvalBin.table.dataSource.some((row) => String(row.id) === String(victim)), '软删除的审批记录要出现在审批页的回收站');
 	assert.deepEqual(approvalBin.table.option.actions.toolbar.map((action) => action.key), ['restore', 'purge']);
 	assert.equal((await request(`${approvals}/${victim}?include=deleted&action=restore`, { method: 'POST', cookie, keepPending: true, body: {} })).status, 200, '审批记录也要能从回收站恢复');
-	const restoredApproval = await (await request(`${approvals}?include=data&status=all`, { cookie })).json();
+	const restoredApproval = await (await request(`${approvals}?include=data&review_status=all`, { cookie })).json();
 	assert.ok(restoredApproval.table.dataSource.some((row) => String(row.id) === String(victim)), '恢复后要回到审批列表');
 
 	console.log('recycle-bin test passed');
