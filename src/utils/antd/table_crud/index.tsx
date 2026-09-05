@@ -8,14 +8,14 @@ import type { CommonApi, ResJsonTableColumn } from '@/utils/common/api.js';
 import type { TableAction, TableQueryField } from '@shared/types/table.mjs';
 import { CHANGE_CONTROL_FIELD, changeControlColumn, changeControlHeaders, resolveTableFormColumns } from '@shared/table-form.mjs';
 
-import { useRef, useState, useEffect } from 'react';
+import { useRef, useState, useEffect, useMemo } from 'react';
 import { Table, Avatar, Button, Flex, Input, Space, Tag, Select, Progress, Typography, Modal } from 'antd';
 import FormPage from '@/components/panel/FormPage.js';
 import { useNavigate } from 'react-router-dom';
 import { PlusOutlined, DeleteOutlined, SearchOutlined, UploadOutlined, DownloadOutlined } from '@ant-design/icons';
 import { useDrawer } from '@/utils/common/drawer.js';
 import dayjs from 'dayjs';
-import { readTableUrlState, sortOrderFor, sortParameter, writeTableUrlState } from './url-state.js';
+import { mergeSort, readTableUrlState, sortOrderFor, writeTableUrlState } from './url-state.js';
 
 // 定义TableCRUD的传参
 type TableCrudType = {
@@ -135,10 +135,10 @@ const TableCRUD = ({ commonApi, resourcePath, initialResponse, initialQueryValue
 	 * 那次请求时的值。首次加载时查询条件还是空的，于是「表列管理」点编辑会带不上
 	 * table 参数，报「请选择数据表」；切换数据表再搜索会重建列定义，就正常了。
 	 */
-	// 列定义是在异步回调里构造的，捕获渲染时的 sort 会拿到旧值，必须读 ref。
+	// 请求是在异步回调里发的，捕获渲染时的 sort 会拿到旧值，必须读 ref。
 	const sortRef = useRef(sort);
 	sortRef.current = sort;
-	const sortOrderRef = useRef((dataIndex: string) => sortOrderFor(sortRef.current, dataIndex));
+
 	const appliedQueryValuesRef = useRef(appliedQueryValues);
 	appliedQueryValuesRef.current = appliedQueryValues;
 	const currentQueryValues = () => appliedQueryValuesRef.current;
@@ -348,9 +348,14 @@ const TableCRUD = ({ commonApi, resourcePath, initialResponse, initialQueryValue
 						const { tableDisplay, tableDisplayTextField, sortable, ...tableColumn } = column;
 						tableColumns.push({
 							...tableColumn,
-							// 排序在服务端做（数据是分页的，只排当前页等于排了个寂寞），
-							// 所以 sorter 只当开关用；哪些列能排由后端下发，前端不自行推断。
-							...(sortable ? { sorter: true as const, sortOrder: sortOrderRef.current(String(column.dataIndex)) } : {}),
+							// 排序在服务端做（数据是分页的，只排当前页等于排了个寂寞），所以 sorter 只当开关用；
+							// 哪些列能排由后端下发，前端不自行推断。multiple 让 antd 进多列模式，
+							// 具体优先级由我们按点击顺序自己定（见 mergeSort），不用它那套列上写死的数字。
+							//
+							// **不在这里写 sortOrder**：列定义只构造一次，写进去就永远停在首次的值，
+							// 而 antd 的"下一档排序"取决于当前 sortOrder——那样点几次都只有升序。
+							// 它改为在渲染时注入，见 sortedColumns。
+							...(sortable ? { sorter: { multiple: 1 } as const } : {}),
 								render: (value, record) => {
 								if (column.component === 'avatar') return value ? <Avatar src={String(value)} /> : <Avatar />;
 								if (column.component === 'avatar_text') return <Space size={8}><Avatar src={record.avatar ? String(record.avatar) : undefined} /> <span>{String(value ?? '') || '未设置昵称'}</span></Space>;
@@ -468,8 +473,9 @@ const TableCRUD = ({ commonApi, resourcePath, initialResponse, initialQueryValue
 	useEffect(() => () => uploadAbortController.current?.abort(), []);
 	const onChange: TableProps<DataType>['onChange'] = (_pagination: TablePaginationConfig, _filters, _sorter, _extra) => {
 		// 排序变了就回第一页：停在第 5 页却换了次序，看到的是一段没有来由的数据。
-		const sorter = Array.isArray(_sorter) ? _sorter[0] : _sorter;
-		const nextSort = sortParameter(sorter?.field, sorter?.order);
+		// 已经在排的列保持原有先后，新点的列排到末尾——"再按某列细分"是往后加一层，
+		// 而不是把之前的次序打乱。
+		const nextSort = mergeSort(sortRef.current, Array.isArray(_sorter) ? _sorter : [_sorter]);
 		const sortChanged = nextSort !== sortRef.current;
 		if (sortChanged) {
 			setSort(nextSort);
@@ -494,6 +500,18 @@ const TableCRUD = ({ commonApi, resourcePath, initialResponse, initialQueryValue
 			}
 		}
 	};
+
+	/**
+	 * 渲染时把当前排序状态注入列定义。
+	 *
+	 * 列定义只在拿到 schema 时构造一次，把 sortOrder 写死在里面的话，antd 依据它算出的
+	 * "下一档排序"永远是同一个，点几次都只有升序。这里每次渲染重算，箭头和下一档才跟着走。
+	 */
+	const sortedColumns = useMemo(() => tableColumns?.map((column) => (
+		'dataIndex' in column && column.dataIndex !== undefined && column.sorter
+			? { ...column, sortOrder: sortOrderFor(sort, String(column.dataIndex)) }
+			: column
+	)), [tableColumns, sort]);
 
 	// 代码分类：导航
 	const navigate = useNavigate();
@@ -810,7 +828,7 @@ const TableCRUD = ({ commonApi, resourcePath, initialResponse, initialQueryValue
 			rowSelection={rowSelection}
 			pagination={pagination}
 			onChange={onChange}
-			columns={tableColumns}
+			columns={sortedColumns}
 			dataSource={dataSource}
 			loading={loading}
 			rowKey={resJsonTableOption?.rowKey}

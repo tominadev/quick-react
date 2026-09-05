@@ -39,11 +39,41 @@ export const writeTableUrlState = (search: string, state: Partial<TableUrlState>
 	return params.toString();
 };
 
-/** antd 的排序状态与 `<列>:<asc|desc>` 之间的换算。 */
-export const sortOrderFor = (sort: string, dataIndex: string) => {
-	const [field, direction] = sort.split(':');
-	return field === dataIndex ? (direction === 'desc' ? 'descend' as const : 'ascend' as const) : null;
+/**
+ * antd 的排序状态与 `<列>:<asc|desc>` 之间的换算。支持多列：逗号分隔，靠前的优先。
+ *
+ * 优先级按**点击顺序**排，不用 antd 的 `sorter.multiple`——那个是列上写死的固定优先级，
+ * 用户点的先后不影响结果，而"先按状态再按时间"和"先按时间再按状态"是两回事。
+ */
+export type SortEntry = { field: string; order: 'ascend' | 'descend' };
+
+export const parseSort = (sort: string): SortEntry[] => sort.split(',').flatMap((part) => {
+	const separator = part.lastIndexOf(':');
+	const field = (separator === -1 ? part : part.slice(0, separator)).trim();
+	if (!field) return [];
+	return [{ field, order: part.slice(separator + 1).trim().toLowerCase() === 'desc' ? 'descend' as const : 'ascend' as const }];
+});
+
+export const formatSort = (entries: readonly SortEntry[]) =>
+	entries.map((entry) => `${entry.field}:${entry.order === 'descend' ? 'desc' : 'asc'}`).join(',');
+
+export const sortOrderFor = (sort: string, dataIndex: string) =>
+	parseSort(sort).find((entry) => entry.field === dataIndex)?.order ?? null;
+
+/**
+ * 把 antd 回调里的排序状态合进当前排序。
+ *
+ * 已经在排的列保持原有先后，新点的列排到末尾——这样"再按某列细分"是往后加一层，
+ * 而不是把之前的次序打乱。取消排序的列直接去掉。
+ */
+export const mergeSort = (sort: string, changed: ReadonlyArray<{ field?: unknown; order?: unknown }>): string => {
+	const next = new Map<string, SortEntry['order']>();
+	for (const item of changed) {
+		const field = Array.isArray(item.field) ? item.field.join('.') : item.field;
+		if (typeof field !== 'string' || !field || !item.order) continue;
+		next.set(field, item.order === 'descend' ? 'descend' : 'ascend');
+	}
+	const kept = parseSort(sort).filter((entry) => next.has(entry.field)).map((entry) => ({ field: entry.field, order: next.get(entry.field)! }));
+	const added = [...next.keys()].filter((field) => !kept.some((entry) => entry.field === field)).map((field) => ({ field, order: next.get(field)! }));
+	return formatSort([...kept, ...added]);
 };
-export const sortParameter = (field: unknown, order: unknown) => (
-	order && field ? `${String(field)}:${order === 'descend' ? 'desc' : 'asc'}` : ''
-);

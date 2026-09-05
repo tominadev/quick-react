@@ -18,19 +18,19 @@ export type SortDirection = 'ASC' | 'DESC';
 export type SortRequest = { field: string; direction: SortDirection };
 
 /**
- * 解析 `?sort=<字段>:<asc|desc>`。字段名用的是表格列的 dataIndex，不是数据库列名——
- * 两者的映射由路由给出（见 tableOrderBy），因此请求里出现的任何名字都只是查表的键，
- * 拼不进 SQL。
+ * 解析 `?sort=<字段>:<asc|desc>[,<字段>:<asc|desc>…]`。逗号分隔多列，靠前的优先。
+ *
+ * 字段名用的是表格列的 dataIndex，不是数据库列名——映射由查询自己完成（见 SqlSortOption），
+ * 因此请求里出现的任何名字都只是查表的键，拼不进 SQL。
  */
-export const sortFromQuery = (c: Context<AppEnv>): SortRequest | undefined => {
-	const raw = (c.req.query('sort') ?? '').trim();
-	if (!raw) return undefined;
-	const separator = raw.lastIndexOf(':');
-	const field = (separator === -1 ? raw : raw.slice(0, separator)).trim();
-	if (!field) return undefined;
-	const direction = raw.slice(separator + 1).trim().toLowerCase() === 'desc' ? 'DESC' as const : 'ASC' as const;
-	return { field, direction };
-};
+export const sortFromQuery = (c: Context<AppEnv>): SortRequest[] => (c.req.query('sort') ?? '')
+	.split(',')
+	.flatMap((part) => {
+		const separator = part.lastIndexOf(':');
+		const field = (separator === -1 ? part : part.slice(0, separator)).trim();
+		if (!field) return [];
+		return [{ field, direction: part.slice(separator + 1).trim().toLowerCase() === 'desc' ? 'DESC' as const : 'ASC' as const }];
+	});
 
 /**
  * 交给列表查询的排序参数。查询执行时会回调 expose，把它选出的列名记到请求上下文里，

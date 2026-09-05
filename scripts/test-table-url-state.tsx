@@ -1,5 +1,5 @@
 import assert from 'node:assert/strict';
-import { readTableUrlState, writeTableUrlState, sortOrderFor, sortParameter, defaultTableUrlState } from '@/utils/antd/table_crud/url-state.js';
+import { readTableUrlState, writeTableUrlState, sortOrderFor, parseSort, formatSort, mergeSort, defaultTableUrlState } from '@/utils/antd/table_crud/url-state.js';
 
 // —— 读 ——
 assert.deepEqual(readTableUrlState(''), { ...defaultTableUrlState, query: {} });
@@ -38,9 +38,33 @@ assert.equal(sortOrderFor('user_name:asc', 'user_name'), 'ascend');
 assert.equal(sortOrderFor('user_name', 'user_name'), 'ascend', '没写方向按升序');
 assert.equal(sortOrderFor('user_name:desc', 'status'), null, '别的列不该显示排序箭头');
 assert.equal(sortOrderFor('', 'user_name'), null);
-assert.equal(sortParameter('user_name', 'descend'), 'user_name:desc');
-assert.equal(sortParameter('user_name', 'ascend'), 'user_name:asc');
-assert.equal(sortParameter('user_name', undefined), '', '取消排序回到后端默认次序');
-assert.equal(sortParameter(undefined, 'ascend'), '');
+
+// —— 多列排序 ——
+assert.deepEqual(parseSort('status:asc,user_name:desc'), [
+	{ field: 'status', order: 'ascend' }, { field: 'user_name', order: 'descend' },
+]);
+assert.deepEqual(parseSort(''), []);
+assert.deepEqual(parseSort('a:asc,,b:desc').map((e) => e.field), ['a', 'b'], '空段跳过');
+assert.equal(formatSort(parseSort('status:asc,user_name:desc')), 'status:asc,user_name:desc', '往返一致');
+// 多列时每一列各自显示自己的箭头。
+assert.equal(sortOrderFor('status:asc,user_name:desc', 'status'), 'ascend');
+assert.equal(sortOrderFor('status:asc,user_name:desc', 'user_name'), 'descend');
+
+// —— 合并 antd 回调：已在排的保持先后，新点的排到末尾 ——
+assert.equal(mergeSort('', [{ field: 'status', order: 'ascend' }]), 'status:asc');
+assert.equal(mergeSort('status:asc', [{ field: 'status', order: 'ascend' }, { field: 'user_name', order: 'descend' }]),
+	'status:asc,user_name:desc', '新点的列排到末尾，不打乱已有次序');
+// 就算 antd 把新列放在数组前面，已有列的先后也不变——"再按某列细分"是往后加一层。
+assert.equal(mergeSort('status:asc', [{ field: 'user_name', order: 'descend' }, { field: 'status', order: 'ascend' }]),
+	'status:asc,user_name:desc');
+// 同一列换方向：位置不动，只改方向。
+assert.equal(mergeSort('status:asc,user_name:desc', [{ field: 'status', order: 'descend' }, { field: 'user_name', order: 'descend' }]),
+	'status:desc,user_name:desc');
+// 取消某一列的排序就把它去掉。
+assert.equal(mergeSort('status:asc,user_name:desc', [{ field: 'user_name', order: 'descend' }]), 'user_name:desc');
+assert.equal(mergeSort('status:asc', [{ field: 'status', order: undefined }]), '', '取消排序回到后端默认次序');
+assert.equal(mergeSort('status:asc', []), '');
+// antd 的 dataIndex 可能是数组路径。
+assert.equal(mergeSort('', [{ field: ['a', 'b'], order: 'ascend' }]), 'a.b:asc');
 
 console.log('table url state test passed');

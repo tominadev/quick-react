@@ -58,7 +58,8 @@ export const AUDIT_TABLE = 'base_audit_entries';
  * 请求里出现的字段名只是查这张表的键，拼不进 SQL。
  */
 export type SqlSortOption = {
-	request?: { field: string; direction: 'ASC' | 'DESC' };
+	/** 多列排序，靠前的优先。 */
+	request?: ReadonlyArray<{ field: string; direction: 'ASC' | 'DESC' }>;
 	expose?: (fields: string[]) => void;
 };
 
@@ -186,12 +187,16 @@ export abstract class SqlBuilder {
 		if (conditions.length) query += ` WHERE ${conditions.map((condition) => renderCondition(condition, this.dialect, () => this.placeholder(++parameterIndex))).join(' AND ')}`;
 		const selectable = Object.keys(options.columns ?? {});
 		options.sort?.expose?.(selectable);
-		const requested = options.sort?.request;
-		const requestedColumn = requested && selectable.includes(requested.field) ? options.columns?.[requested.field] : undefined;
-		const requestedName = typeof requestedColumn === 'string' ? requestedColumn : (requestedColumn && typeof requestedColumn === 'object' ? requestedColumn.column : '');
+		// 请求里认不出的字段直接丢掉——那多半是换了页面结构后浏览器还留着旧地址。
+		const requested = (options.sort?.request ?? []).flatMap((item) => {
+			if (!selectable.includes(item.field)) return [];
+			const mapped = options.columns?.[item.field];
+			const column = typeof mapped === 'string' ? mapped : (mapped && typeof mapped === 'object' ? mapped.column : '');
+			return column ? [{ column, direction: item.direction }] : [];
+		});
 		// 请求的排序排在前面，原有排序留在后面兜底：按状态这类重复值很多的列排时，
 		// 同值行之间还要有个稳定的次序，否则翻页会看到同一行出现两次、另一行一次都不出现。
-		const orderBy = requestedName && requested ? [{ column: requestedName, direction: requested.direction }, ...(options.orderBy ?? [])] : options.orderBy;
+		const orderBy = requested.length ? [...requested, ...(options.orderBy ?? [])] : options.orderBy;
 		if (orderBy?.length) query += ` ORDER BY ${orderBy.map((order) => `${quoteIdentifier(order.column, this.dialect)} ${order.direction ?? 'ASC'}`).join(', ')}`;
 		if (options.limit !== undefined) { query += ` LIMIT ${this.placeholder(boundConditions.length + 1)}`; if (options.offset !== undefined) query += ` OFFSET ${this.placeholder(boundConditions.length + 2)}`; }
 		return { query, values: [...boundConditions.map((condition) => condition.value as SqlValue), ...(options.limit !== undefined ? [options.limit, ...(options.offset !== undefined ? [options.offset] : [])] : [])] };
