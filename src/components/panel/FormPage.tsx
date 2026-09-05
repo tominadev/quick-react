@@ -299,14 +299,10 @@ export default function FormPage({ commonApi, apiPath, title, submitMethod = 'PU
 		// 只在 formConfig.actions 里找的话它们会一声不吭地执行。
 		const action = formConfig?.actions?.find((item) => item.key === key)
 			?? formConfig?.notice?.actions?.find((item) => item.key === key);
-		let control: ChangeControlValues | undefined;
-		// 撤销自己的申请不问原因：那是把自己提的东西收回去，不需要向谁交代。
-		// 批准与驳回要问：那是给申请人的答复，记进审批意见。
-		if (formConfig?.changeControl && action?.confirm && key !== WITHDRAW_ACTION) {
-			control = await commonApi.modalConfirmWithReason([action.confirm]);
-			if (control === undefined) return;
-		} else if (action?.confirm && !await commonApi.modalConfirm([action.confirm])) return;
+		// 「恢复默认」只是把表单填成默认值，一个字都没写到服务端，因此既不问原因也不留痕
+		// ——真正的写入发生在之后点「保存」的时候，那一步才该问。所以它排在问原因之前。
 		if (key === 'restore-defaults') {
+			if (action?.confirm && !await commonApi.modalConfirm([action.confirm])) return;
 			const defaults = formConfig?.defaultValues;
 			if (!defaults || !formConfig) {
 				await commonApi.modalError(['当前页面没有提供可恢复的默认值']);
@@ -325,6 +321,13 @@ export default function FormPage({ commonApi, apiPath, title, submitMethod = 'PU
 			messageApi.open({ key: 'form-restore-defaults', type: 'success', content: '已恢复默认，请点击“保存配置”使其生效。', duration: 2 });
 			return;
 		}
+		// 其余动作会发到服务端。撤销自己的申请不问原因——那是把自己提的东西收回去，
+		// 不需要向谁交代；批准与驳回要问，那是给申请人的答复，记进审批意见。
+		let control: ChangeControlValues | undefined;
+		if (formConfig?.changeControl && action?.confirm && key !== WITHDRAW_ACTION) {
+			control = await commonApi.modalConfirmWithReason([action.confirm]);
+			if (control === undefined) return;
+		} else if (action?.confirm && !await commonApi.modalConfirm([action.confirm])) return;
 		setRunningAction(key);
 		const values = form.getFieldsValue(true) as Record<string, unknown>;
 		const { [CHANGE_CONTROL_FIELD]: _actionControl, ...actionValues } = values;

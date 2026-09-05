@@ -326,7 +326,10 @@ const renderDocument = async (c: Context<WorkerEnv>) => {
  */
 app.onError((error, c) => {
 	if (error instanceof PendingApprovalError) {
-		return apiMessage(c, 202, error.message, { component: 'modal', showIcon: true, title: '已提交审批' });
+		// 用 message 而不是 modal：模态反馈的「确定」按钮是整页跳转（见 FormPage 的
+		// modalFeedback），于是「提交了审批」这条提示点一下就把页面刷掉了，正在填的
+		// 东西和刚出现的待审批提示一起没了。提交审批不是需要用户决策的事，一条轻提示就够。
+		return apiMessage(c, 202, error.message, { component: 'message', type: 'warning', title: '已提交审批' });
 	}
 	console.error(error);
 	return c.text('Internal Server Error', 500);

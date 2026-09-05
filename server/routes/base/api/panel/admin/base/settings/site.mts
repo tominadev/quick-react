@@ -1,6 +1,7 @@
 import type { ApiHandler } from '@server/modules/base/api-router.mjs';
 import { apiMessage, apiMessageData, apiResponse } from '@server/modules/base/api-response.mjs';
 import { configRowId, handlePendingApprovalAction, pendingApprovalNotice } from '@server/modules/base/pending-approval.mjs';
+import { PendingApprovalError } from '@server/modules/base/operation.mjs';
 import { mergeChangedFields } from '@server/modules/base/changed-fields.mjs';
 import { defaultSiteSettings, loadSiteSettings, normalizeSiteSettings, type SiteSettings } from '@server/modules/base/site-settings.mjs';
 import { defaultMinUserNameLength, maxUserNameLength } from '@shared/account-name.mjs';
@@ -53,9 +54,16 @@ const handler: ApiHandler = async (c, next) => {
 	if (c.req.method === 'PUT') {
 		const body = await c.req.json<unknown>().catch(() => ({}));
 		const settings = normalizeSiteSettings(mergeChangedFields(c.get('siteSettings'), body, ['contactEmail', 'footer', 'logoutLocalEnabled', 'logoutPassportEnabled', 'logoutAllEnabled', 'apiBootstrapEnabled', 'userNameMinLength', 'auditRetentionDays', 'registrationEnabled', 'localLoginEnabled', 'passwordSyncEnabled']));
-		await c.get('configStore').put(CONFIG_KEY, settings);
+		try {
+			await c.get('configStore').put(CONFIG_KEY, settings);
+		} catch (error) {
+			// 进了审批队列。就地接住而不是让它冒到全局处理器：那里只回一句话，页面上
+			// 既看不到刚提交的申请，也没法撤销，非得刷新一次才认。回整页数据就地更新。
+			if (!(error instanceof PendingApprovalError)) throw error;
+			return apiMessageData(c, 202, error.message, await pageData(c, c.get('siteSettings')), { component: 'inline', type: 'warning', showIcon: true, title: '已提交审批' });
+		}
 		c.set('siteSettings', settings);
-		return apiMessageData(c, 200, '站点设置已保存', { currentValues: settings }, { component: 'inline', showIcon: true, title: '保存结果' });
+		return apiMessageData(c, 200, '站点设置已保存', await pageData(c, settings), { component: 'inline', showIcon: true, title: '保存结果' });
 	}
 	return next();
 };
