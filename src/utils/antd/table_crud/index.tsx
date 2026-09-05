@@ -16,7 +16,7 @@ import { PlusOutlined, DeleteOutlined, SearchOutlined, UploadOutlined, DownloadO
 import { useDrawer } from '@/utils/common/drawer.js';
 import dayjs from 'dayjs';
 import { mergeQueryValues, mergeSort, queryUrlValues, readTableUrlState, sortOrderFor, writeTableUrlState } from './url-state.js';
-import { describeFormChanges } from '@/components/panel/form-changes.js';
+import { describeFormAdditions, describeFormChanges } from '@/components/panel/form-changes.js';
 import { PENDING_FIELD } from '@shared/types/table.mjs';
 
 // 定义TableCRUD的传参
@@ -566,15 +566,33 @@ const TableCRUD = ({ commonApi, resourcePath, initialResponse, initialQueryValue
 	const navigate = useNavigate();
 
 	const onAddNew = async (action: TableAction) => {
+		const createColumns = resolveTableFormColumns(resJsonColumns, 'create');
 		const drawerForm = drawer.drawerForm({
 			title: action.label,
-			columns: resolveTableFormColumns(resJsonColumns, 'create'),
+			columns: createColumns,
 			optionsPath: apiPath,
 		}, async (newRow) => {
 			if (!newRow) {
 				// 用户点了[取消]按钮
 				return;
 			}
+			// 新增也要先把内容摆出来再确认，和编辑、删除一致。
+			//
+			// 原先这条路一句确认都没有，连「操作原因」都不问——而在管理后台，新增和修改
+			// 一样要进审批队列，审批人看到的那条记录里因此永远没有原因可读。
+			const added = describeFormAdditions(
+				createColumns.map((column) => ({
+					name: column.dataIndex,
+					label: column.title,
+					options: column.options,
+					...(column.inputType === 'password' ? { type: 'password' as const } : {}),
+				})),
+				newRow,
+			);
+			const control = await confirmChange(added.length
+				? ['将新增以下内容，确认继续吗？', ...added]
+				: ['当前没有填写任何内容，仍要新增吗？']);
+			if (control === undefined) return;
 			// 前端校验通过，开始向后端提交表单
 			drawerForm.setSubmitting‌(true);
 			try {
@@ -582,8 +600,9 @@ const TableCRUD = ({ commonApi, resourcePath, initialResponse, initialQueryValue
 					method: 'POST', // 指定请求方法
 					headers: {
 						'Content-Type': 'application/json', // 指定请求头，表明是 JSON 数据
+						...confirmHeaders(control),
 					},
-					body: JSON.stringify(newRow), // 将数据转换为 JSON 字符串
+					body: JSON.stringify(withoutControls(newRow)), // 将数据转换为 JSON 字符串
 				});
 				if (!res.ok) {
 					return;

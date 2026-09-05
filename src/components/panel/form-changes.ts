@@ -44,3 +44,25 @@ export const describeFormChanges = (
 		const to = readableFieldValue(field, after[name]);
 		return from === to ? [] : [`${field?.label || name}：${from} → ${to}`];
 	});
+
+/**
+ * 新增前列给人看的内容清单。
+ *
+ * 与「改了什么」分开写，不是把 before 当成空跑一遍 describeFormChanges：新增没有前值，
+ * 「用户名：空 → newguy」比「用户名：newguy」多了一个箭头和一个「空」，却什么也没多说。
+ *
+ * **没填的不列**：新建表单动辄十几格，把空的也摆出来会把真正填了的那几行淹掉。
+ * **密码一类不回显**：把刚输入的口令原样念一遍，确认框本身就成了泄漏点。
+ */
+export const describeFormAdditions = (
+	fields: readonly FormPageField[] | undefined,
+	values: Record<string, unknown>,
+) => Object.entries(values)
+	.filter(([name]) => !isSystemField(name) && !isProtocolField(name))
+	.flatMap(([name, value]) => {
+		const field = fields?.find((item) => item.name === name);
+		const label = field?.label || name;
+		if (field?.type === 'password') return value ? [`${label}：已填写`] : [];
+		const text = readableFieldValue(field, value);
+		return text === '空' ? [] : [`${label}：${text}`];
+	});

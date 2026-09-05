@@ -1,5 +1,5 @@
 import assert from 'node:assert/strict';
-import { describeFormChanges, readableFieldValue } from '@/components/panel/form-changes.js';
+import { describeFormAdditions, describeFormChanges, readableFieldValue } from '@/components/panel/form-changes.js';
 
 const fields = [
 	{ name: 'port', label: 'HTTP 端口' },
@@ -53,5 +53,21 @@ assert.deepEqual(describeFormChanges(fields, ['port', '__changedFields'], { port
 assert.deepEqual(describeFormChanges(fields, ['created_at'], { created_at: 1 }, { created_at: 2 }), [], '系统字段不列');
 // 没有登记的字段用字段名兜底，而不是整行消失。
 assert.deepEqual(describeFormChanges(fields, ['unknown'], { unknown: 'a' }, { unknown: 'b' }), ['unknown：a → b']);
+
+// —— 新增前的内容清单 ——
+// 新增没有前值：「用户名：newguy」比「用户名：空 → newguy」少一个箭头和一个「空」，
+// 而那两样什么也没多说。
+assert.deepEqual(describeFormAdditions(fields, { port: 9000, mode: 'api' }), ['HTTP 端口：9000', '页面启动模式：仅输出页面壳']);
+// 没填的不列：新建表单动辄十几格，把空的摆出来会把真正填了的那几行淹掉。
+assert.deepEqual(describeFormAdditions(fields, { port: 9000, origin: '' }), ['HTTP 端口：9000']);
+// 密码不回显：把刚输入的口令原样念一遍，确认框本身就成了泄漏点。
+assert.deepEqual(
+	describeFormAdditions([...fields, { name: 'password', label: '密码', type: 'password' as const }], { password: 'hunter2', port: 1 }),
+	['密码：已填写', 'HTTP 端口：1'],
+);
+// 系统字段与协议字段一个都不列。
+assert.deepEqual(describeFormAdditions(fields, { created_at: 1, __changedFields: ['port'], _change: {}, port: 1 }), ['HTTP 端口：1']);
+// 开关按「开/关」说，不是 true/false。
+assert.deepEqual(describeFormAdditions(fields, { debug: true }), ['调试模式：开']);
 
 console.log('form changes test passed');

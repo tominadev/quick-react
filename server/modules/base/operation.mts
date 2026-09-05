@@ -2,6 +2,8 @@ import type { Context } from 'hono';
 import type { AppEnv } from './types.mjs';
 import type { DatabaseAdapter, DatabaseRunResult } from '@server/database/index.mjs';
 import { allSql, AUDIT_TABLE, firstSql, runSystemSql, sql, type SqlAuditAction, type SqlAuditMetadata, type SqlCondition, type SqlInsertAuditMetadata, type SqlQuery } from '@server/database/sql.mjs';
+import { isHiddenValueColumn } from '@shared/audit-tables.mjs';
+import { isSystemField } from '@shared/system-fields.mjs';
 
 /**
  * 一次人工操作。
@@ -195,11 +197,27 @@ const jsonKeyDiff = (before: unknown, after: unknown) => {
 };
 
 /**
+ * 一条新建记录里要写下哪些列值。
+ *
+ * **隐藏列一个都不进来**：password、client_secret 这类抄进审批表就会在那里躺满保留期，
+ * 而它们对「我在批什么」毫无帮助。这里是不写入，比在显示时脱敏更彻底——库里根本没有。
+ *
+ * 归属与时间戳也不写：它们每一行都有，写进来只会把真正要看的那几行挤下去。
+ */
+const insertChanges = (values: Record<string, unknown>) => Object.fromEntries(Object.entries(values)
+	.filter(([name, value]) => value !== undefined && value !== null && value !== ''
+		&& !isHiddenValueColumn(name) && !isSystemField(name) && !name.startsWith('owner_'))
+	.map(([name, value]) => [name, { before: null, after: value }]));
+
+/**
  * 记一条「新建了这一行」。
  *
- * **不抄列值**：值就在行上，批准只是让它可见、驳回只是把它删掉，用不着前后值。抄进来
- * 反而要把 password、client_secret 这类隐藏列一并搬进审批表，在那里躺满保留期。
- * `changes` 因此留空，页面上显示成「新增记录」。
+ * `changes` 里写的是**将要新增的内容**（隐藏列除外，见 insertChanges）：审批人要能看见
+ * 自己在批什么。行虽然已经写进库里，但它带着 pended_at，在任何正常列表里都不可见——
+ * 让审批人「自己去看那一行」是行不通的。
+ *
+ * 这些值只用来显示：批准是把 pended_at 归零、驳回是把那一行删掉，两者都不读 changes，
+ * 因此少记几列不影响任何一步的正确性。
  *
  * 定位靠 `row_key`：它在建语句时就生成好了，所以这条记录能在**写行之前**落地，
  * 与 update 那边「先记录、后应用」是同一条顺序（§6.2）。
@@ -225,7 +243,7 @@ const recordInsert = async (
 		row_id: 0,
 		row_key: metadata.rowKey,
 		action: 'insert',
-		changes: '{}',
+		changes: JSON.stringify(insertChanges(metadata.values)),
 		review_status: immediate ? 'none' : 'pending',
 		data_status: immediate ? 'applied' : 'unwritten',
 	}));

@@ -170,8 +170,11 @@ const auditRouteFilter = async () => {
 			.table.dataSource.find((row) => row.row_key === 'audit_fixture');
 		assert.equal(insertEntry.action, 'insert');
 		assert.equal(insertEntry.data_status, 'unwritten');
-		// changes 留空：值就在行上，抄进审批表反而要把隐藏列一并搬进去。
-		assert.equal(insertEntry.summary, '');
+		// 新建记录里写下将要新增的内容：待审批的行带着 pended_at，在任何正常列表里都看不见，
+		// 让审批人「自己去看那一行」是行不通的。
+		// `key` 不重复进来——它已经是这条记录的「记录标识」那一列。
+		assert.match(insertEntry.summary, /value：空 → \{\}/, '审批人要看得见自己在批什么');
+		assert.equal(insertEntry.row_key, 'audit_fixture', '身份看记录标识那一列');
 		assert.equal((await decide('approve', [String(insertEntry.id)])).status, 200);
 		assert.equal((await visibleKeys()).includes('audit_fixture'), true, '批准之后这一行才开始存在');
 
@@ -203,6 +206,7 @@ const auditRouteFilter = async () => {
 		const selfEntries = await (await app.request('http://localhost/api/panel/admin/base/audit.php?include=data&scope=self&table_name=base_user_profiles', { headers: { ...headers, cookie } })).json();
 		const created = selfEntries.table.dataSource.find((row) => row.action === 'insert');
 		assert.ok(created, '第一次设资料要留下一条「新增」');
+		assert.match(created.summary, /nickname：空 → 首次设置的昵称/, '记下新增的内容');
 		assert.equal(created.review_status, 'none', '没有审批人可言');
 		assert.equal(created.data_status, 'applied', '已经生效');
 
