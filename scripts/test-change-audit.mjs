@@ -179,6 +179,19 @@ const auditRouteFilter = async () => {
 		assert.equal(leftovers.prepare("SELECT COUNT(*) AS n FROM base_configs WHERE key = 'audit_rejected'").get().n, 0, '被驳回的新建要物理删掉，不是留在回收站');
 		leftovers.close();
 
+		// 一次操作里的几行有先后：建起来从账号开始，拆掉反着来（先资料后账号）——
+		// 中间那一刻不能出现「凭证指向一个已经不存在的账号」。
+		assert.equal((await app.request(usersApi, { method: 'POST', headers: { ...headers, cookie }, body: JSON.stringify({ user_name: 'rejectme', password: 'reject-password-1', roles: [], status: 'enabled', profile_nickname: '要被驳回' }) })).status, 202);
+		const queuedInsert = await (await app.request('http://localhost/api/panel/admin/base/audit.php?include=data&review_status=pending', { headers: { ...headers, cookie } })).json();
+		assert.equal(queuedInsert.table.dataSource.length, 3, '建号写三行：账号、凭证、资料');
+		assert.equal(new Set(queuedInsert.table.dataSource.map((row) => row.operation_id)).size, 1, '三条共享一个操作号');
+		assert.equal((await app.request('http://localhost/api/panel/admin/base/audit.php?action=reject', { method: 'POST', headers: { ...headers, cookie }, body: JSON.stringify([String(queuedInsert.table.dataSource[0].id)]) })).status, 200);
+		const afterReject = new DatabaseSync(process.env.DEFAULT_DATABASE_FILE);
+		assert.equal(afterReject.prepare("SELECT COUNT(*) AS n FROM base_users WHERE name = 'rejectme'").get().n, 0, '驳回要把账号那一行删掉');
+		assert.equal(afterReject.prepare('SELECT COUNT(*) AS n FROM base_user_credentials WHERE user_id NOT IN (SELECT id FROM base_users)').get().n, 0, '驳回不能留下指向不存在账号的凭证');
+		assert.equal(afterReject.prepare('SELECT COUNT(*) AS n FROM base_user_profiles WHERE user_id NOT IN (SELECT id FROM base_users)').get().n, 0, '资料同理');
+		afterReject.close();
+
 		// 列的先后要与 prisma 里的字段顺序一致：两处对照着看时不用来回找。
 		// 只比相对次序——不是每个字段都显示（operation_id 就不显示），也允许有计算列。
 		const schema = await readFile(resolve(projectDirectory, 'prisma/base.prisma'), 'utf8');
@@ -197,10 +210,10 @@ const auditRouteFilter = async () => {
 		const origins = await app.request('http://localhost/api/panel/admin/base/audit.php?include=schema,data&review_status=all&table_name=base_user_profiles', { headers: { ...headers, cookie } });
 		const originRows = (await origins.json()).table.dataSource;
 		assert.ok(originRows.length >= 1, '改昵称要留下审计记录');
-		// 第一次是新增资料行，新增不留痕（§3.2）；从第二次起才是更新。
 		// 记的是去掉后缀的逻辑路径：`.php` 是站点可配的接口后缀，记原样会让同一件事
 		// 在审计里长出好几种写法，按路径筛选也就筛不干净。
-		assert.deepEqual([...new Set(originRows.map((row) => row.request_path))], ['/api/panel/me']);
+		// 只看「改」：建号也会写一条资料行，那一条的来路是后台的建号接口，不是个人中心。
+		assert.deepEqual([...new Set(originRows.filter((row) => row.action === '修改').map((row) => row.request_path))], ['/api/panel/me']);
 		assert.ok(originRows.some((row) => row.request_hostname === 'site-b.test'), '域名要如实记下来，而不是都记成同一个');
 		// 域名与接口路径由服务端自己看到，不听客户端的：页面路径要靠 referer 推断，
 		// 那是客户端说什么就是什么，写进审计等于给伪造留了口子。

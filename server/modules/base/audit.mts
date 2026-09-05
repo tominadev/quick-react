@@ -410,9 +410,17 @@ export const transitionAuditEntries = async (database: DatabaseAdapter, requeste
 		else results.push({ id, ok: false, message: '审计记录不存在或无权访问' });
 	}
 	const newestFirst = (left: AuditEntryRow, right: AuditEntryRow) => Number(right.created_at) - Number(left.created_at) || Number(right.id) - Number(left.id);
-	// 回滚要从最新的一条往回走，其余从最早的一条开始：值校验（§7.2）要求每一步的起点
-	// 都是当前值，顺序反了就整批失败。
-	entries.sort(to === 'revert' ? newestFirst : (left, right) => newestFirst(right, left));
+	/**
+	 * 「建起来」的动作从最早的一条开始，「拆掉」的从最新的一条往回走。
+	 *
+	 * 两个理由。一是值校验（§7.2）要求每一步的起点都是当前值，顺序反了整批失败。
+	 * 二是同一次操作里的几行本来就有先后：建号先有账号，才谈得上它的密码和资料；
+	 * 驳回与撤销对新建而言是物理删行，那是「拆」，必须反着来——先删账号再删它的凭证，
+	 * 中间那一刻凭证指向的账号已经不存在了。库里眼下一个外键约束都没有，所以现在不报错，
+	 * 但顺序错了就是错了。
+	 */
+	const dismantling = to === 'revert' || to === 'reject' || to === 'withdraw';
+	entries.sort(dismantling ? newestFirst : (left, right) => newestFirst(right, left));
 	for (const entry of entries) results.push(await transitionOne(database, entry, to, reason));
 	return results;
 };
