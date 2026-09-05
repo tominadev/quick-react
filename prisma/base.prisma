@@ -325,20 +325,26 @@ model base_audit_entries {
   action       BaseAuditAction
   /// JSON 对象：列名 -> { before, after }，只含实际发生变化的列。
   changes      Json @default("{}")
-  /// applied ↔ reverted 可以来回翻：撤回不新开记录，而是把这一条翻到另一面。
+  /// applied ↔ reverted 可以来回翻：回滚不新开记录，而是把这一条翻到另一面。
   status       BaseAuditStatus @default(applied)
   /// 审批的时间、审批人与意见。pending → applied/rejected 时写一次就定了。
   reviewed_at   BigInt?
   reviewed_duid BigInt?
   review_reason String @default("")
-  /// 撤回的时间、操作者与理由。原记录的 created_* 属于原操作者，不能复用。
+  /// 撤销申请的时间与操作者。没有理由列：撤销是申请人把自己提的东西收回去，
+  /// 不需要向谁交代，界面上也不问——留一列永远是空的比不留更容易让人以为漏填了。
+  withdrawn_at   BigInt?
+  withdrawn_duid BigInt?
+  /// 回滚的时间、操作者与理由。原记录的 created_* 属于原操作者，不能复用。
   reverted_at   BigInt?
   reverted_duid BigInt?
   revert_reason String @default("")
   /// 恢复的时间、操作者与理由。
   ///
-  /// 三组字段一律分开：同一条记录可能先被批准、再被撤回、又被恢复，合用一组的话
-  /// 后发生的会把先发生的覆盖掉——恢复完之后「撤回人」显示的就成了恢复的人。
+  /// 四组字段一律分开：同一条记录可能先被批准、再被回滚、又被恢复，合用一组的话
+  /// 后发生的会把先发生的覆盖掉——恢复完之后「回滚人」显示的就成了恢复的人。
+  /// 撤销单独一组同理：它和审批都从 pending 出发，但一个是审批人的决定、
+  /// 一个是申请人自己收回，混在一起就分不清那一格记的是谁。
   restored_at    BigInt?
   restored_duid  BigInt?
   restore_reason String @default("")

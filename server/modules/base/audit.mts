@@ -21,6 +21,8 @@ export type AuditEntryRow = {
 	reviewed_at: number | null;
 	reviewed_duid: string | null;
 	review_reason: string;
+	withdrawn_at: number | null;
+	withdrawn_duid: string | null;
 	reverted_at: number | null;
 	restored_at: number | null;
 	restored_duid: string | null;
@@ -46,6 +48,8 @@ const entryColumns = {
 	reviewed_at: 'reviewed_at',
 	reviewed_duid: { column: 'reviewed_duid', cast: 'text' as const },
 	review_reason: 'review_reason',
+	withdrawn_at: 'withdrawn_at',
+	withdrawn_duid: { column: 'withdrawn_duid', cast: 'text' as const },
 	restored_at: 'restored_at',
 	restored_duid: { column: 'restored_duid', cast: 'text' as const },
 	restore_reason: 'restore_reason',
@@ -211,13 +215,15 @@ const transitionOne = async (database: DatabaseAdapter, entry: AuditEntryRow, to
 	// 三种迁移各写自己那一组：同一条记录可能先被批准、再被回滚、又被恢复，
 	// 合用一组的话后发生的会覆盖先发生的——恢复完之后「撤回人」就成了恢复的人。
 	const now = Date.now(), actor = actorOf(database);
-	// 撤销申请是申请人自己收回，写进「审批」那一组：这一格回答的是「谁把这条从队列里
-	// 拿掉的、为什么」，申请人自己拿掉也是这个问题的答案之一。
-	const statusFields = entry.status === 'pending'
-		? { reviewed_at: now, reviewed_duid: actor, review_reason: reason }
-		: to === 'reverted'
-			? { reverted_at: now, reverted_duid: actor, revert_reason: reason }
-			: { restored_at: now, restored_duid: actor, restore_reason: reason };
+	// 四组字段各写各的。撤销单独一组：它和审批都从 pending 出发，但一个是审批人的决定、
+	// 一个是申请人自己收回，混在一起就分不清那一格记的是谁。
+	const statusFields = to === 'withdrawn'
+		? { withdrawn_at: now, withdrawn_duid: actor }
+		: entry.status === 'pending'
+			? { reviewed_at: now, reviewed_duid: actor, review_reason: reason }
+			: to === 'reverted'
+				? { reverted_at: now, reverted_duid: actor, revert_reason: reason }
+				: { restored_at: now, restored_duid: actor, restore_reason: reason };
 	// 驳回与撤销申请都不碰数据：待审批的修改从未写入过。
 	if (to !== 'rejected' && to !== 'withdrawn') {
 		const changes = parseAuditChanges(entry.changes);

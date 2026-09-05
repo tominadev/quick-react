@@ -551,6 +551,20 @@ try {
 	assert.equal(afterRevert.restore_reason, '', '三组字段互不干扰');
 	assert.equal(await rolesOf(), originalRoles);
 
+	// 撤销申请自己一组字段：它和审批都从 pending 出发，但一个是审批人的决定、
+	// 一个是申请人自己收回，混在一起就分不清那一格记的是谁。
+	await assert.rejects(() => runOperationSql(context('申请改名'), acting, sql({ database: acting }).update('base_users', { name: 'withdrawn-name' }, { id: alice.id })));
+	const withdrawEntry = await latestEntry();
+	assert.deepEqual(await transitionAuditEntries(acting, [withdrawEntry.id], 'withdrawn', ''), [{ id: withdrawEntry.id, ok: true, message: '已撤销申请' }]);
+	const withdrawn = await entryById(withdrawEntry.id);
+	assert.equal(withdrawn.status, 'withdrawn');
+	assert.ok(Number(withdrawn.withdrawn_at) > 0, '要记下什么时候撤销的');
+	assert.equal(withdrawn.reviewed_at, null, '撤销不是审批，不该占审批那一格');
+	assert.equal(withdrawn.reverted_at, null, '撤销更不是回滚：数据从未动过');
+	assert.equal(await nameOf(alice.id), 'frank', '撤销不该改动数据');
+	// 撤销是终态，和驳回一样不能再迁移。
+	assert.equal((await transitionAuditEntries(acting, [withdrawEntry.id], 'applied', ''))[0].ok, false);
+
 	// 驳回：不碰数据，只落状态。
 	await assert.rejects(() => runOperationSql(context('申请改名'), acting, sql({ database: acting }).update('base_users', { name: 'rejected-name' }, { id: alice.id })));
 	const rejectEntry = await latestEntry();
