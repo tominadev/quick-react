@@ -1,5 +1,5 @@
 import type React from 'react';
-import { Checkbox, Input, Modal, ModalFuncProps, Spin } from 'antd';
+import { Checkbox, Input, Modal, ModalFuncProps, Spin, theme } from 'antd';
 import { message } from 'antd';
 import { ExclamationCircleOutlined } from '@ant-design/icons';
 import { useRef, useState } from 'react';
@@ -44,6 +44,18 @@ export function useCommonApi(): [CommonApi, React.JSX.Element] {
 	const [modalApi, contextHolderModal] = Modal.useModal();
 	const [messageApi, contextHolderMessage] = message.useMessage();
 	const [pendingRequests, setPendingRequests] = useState(0);
+	/**
+	 * 请求遮罩要盖在弹窗**上面**。
+	 *
+	 * antd 的 `Spin fullscreen` 默认就是 zIndexPopupBase（1000），而一个顶层 Modal 是
+	 * 1000+100，嵌套的容器每层再叠 100（最多十层）——遮罩因此落在所有弹窗底下：抽屉里点
+	 * 保存，转圈的圈圈在抽屉后面，看着像没反应，人就会再点一次。
+	 *
+	 * 抬到容器叠加的上限之上、message（+1010）与 notification（+1050）之下：请求结果的
+	 * 提示语该压在遮罩上面，那是给人看的字。
+	 */
+	const { token: themeToken } = theme.useToken();
+	const loadingZIndex = themeToken.zIndexPopupBase + 1005;
 	const implementationRef = useRef<CommonApi | null>(null);
 	const stableApiRef = useRef<CommonApi | null>(null);
 
@@ -283,7 +295,7 @@ export function useCommonApi(): [CommonApi, React.JSX.Element] {
 	return [
 		stableApiRef.current,
 		<>
-			<Spin fullscreen spinning={pendingRequests > 0} />
+			<Spin fullscreen spinning={pendingRequests > 0} style={{ zIndex: loadingZIndex }} />
 			{contextHolderModal}
 			{contextHolderMessage}
 		</>,
