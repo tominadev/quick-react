@@ -178,7 +178,18 @@ const TableCRUD = ({ commonApi, resourcePath, initialResponse, initialQueryValue
 	/** 提交时把两个控制字段摘出去改走请求头：它们不是业务字段。 */
 	/** 确认框收集到的控制信息转成请求头，与表单那条路径同一套语义。 */
 	const confirmHeaders = (control: ChangeControlValues) => changeControlHeaders(control);
-	const confirmChange = (lines: string[]) => commonApi.modalConfirmWithReason(lines);
+	/**
+	 * 动作确认框。
+	 *
+	 * **操作原因只在管理后台问**（`changeControl` 由服务端按 `/api/panel/admin/` 注入）。
+	 * 账户中心的解绑邮箱、注销设备也是 TableCRUD，那里是用户处置自己的数据——照常留痕，
+	 * 但让人为解绑自己的邮箱写一条「操作原因」是荒谬的。确认框本身照旧显示：
+	 * 那问的是「要不要做」，与「为什么做」是两回事。
+	 */
+	const confirmChange = async (lines: string[]): Promise<ChangeControlValues | undefined> => {
+		if (tableOptionRef.current.changeControl) return commonApi.modalConfirmWithReason(lines);
+		return await commonApi.modalConfirm(lines) ? { reason: '' } : undefined;
+	};
 	const withoutControls = (values: Record<string, unknown>) => {
 		const { [CHANGE_CONTROL_FIELD]: _control, ...rest } = values;
 		return rest;

@@ -261,18 +261,26 @@ export default function FormPage({ commonApi, apiPath, title, submitMethod = 'PU
 		//
 		// 「还原默认」会把每个字段都标记成已改，不管值有没有真的变；用户打一个字又删掉
 		// 也会留下标记。照标记列的话，确认框里全是「8088 → 8088」这种自说自话的行。
-		const changedLines = describeFormChanges(formConfig?.fields, changedFields.current, initialValues, values, controlNames);
 		// 确认框里一并收集变更说明：改了什么、为什么改，在同一个地方问完。
 		// **没改动就不问原因**：一次什么都没变的提交没有「原因」可言，摆个必填框只会逼人瞎写。
+		//
+		// 整个确认步骤只在管理后台出现（`changeControl` 由服务端按 `/api/panel/admin/` 注入）。
+		// 注册页也是一个 FormPage，不判这一下的话，填完用户名密码点提交会先弹出
+		// 「将保存以下修改：用户名：空 → admin，密码：空 → 123」——把刚输入的密码
+		// 原样念一遍给用户看，而这既不是修改也没有留痕，压根没有可确认的东西。
 		let control: ChangeControlValues | undefined;
-		if (changedLines.length) {
-			const lines = [formConfig?.confirmChangedSubmit ?? '将保存以下修改，确认继续吗？', ...changedLines];
-			if (formConfig?.changeControl) {
-				control = await commonApi.modalConfirmWithReason(lines);
+		if (formConfig?.changeControl) {
+			// 判据是「显示出来真的不一样」，而不是「这个字段被标记过」。
+			//
+			// 「还原默认」会把每个字段都标记成已改，不管值有没有真的变；用户打一个字又删掉
+			// 也会留下标记。照标记列的话，确认框里全是「8088 → 8088」这种自说自话的行。
+			const changedLines = describeFormChanges(formConfig.fields, changedFields.current, initialValues, values, controlNames);
+			if (changedLines.length) {
+				control = await commonApi.modalConfirmWithReason([formConfig.confirmChangedSubmit ?? '将保存以下修改，确认继续吗？', ...changedLines]);
 				if (control === undefined) return;
-			} else if (!await commonApi.modalConfirm(lines)) return;
-		} else if (formConfig?.confirmOnUnchangedSubmit) {
-			if (!await commonApi.modalConfirm([formConfig.confirmOnUnchangedSubmit])) return;
+			} else if (formConfig.confirmOnUnchangedSubmit) {
+				if (!await commonApi.modalConfirm([formConfig.confirmOnUnchangedSubmit])) return;
+			}
 		}
 		setSaving(true);
 		try {
