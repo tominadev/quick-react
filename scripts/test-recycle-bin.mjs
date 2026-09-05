@@ -87,6 +87,25 @@ try {
 	assert.equal(afterTamper.table.dataSource.find((row) => String(row.id) === String(entryId)).reason, '改写了');
 	assert.ok(afterTamper.table.dataSource.some((row) => row.table_name === 'base_approvals'), '改审计表也要留痕');
 
+	// 审批页自己也是 TableCRUD 路由：它不给删除按钮（审批记录不该在这一页被删），但必须有
+	// 回收站——「数据管理」能软删除任何表，包括这一张，删掉之后它就从审批页上消失，而审批页
+	// 恰恰是唯一会去看它的地方。没有回收站的话，谁把审批记录删了既看不见也找不回。
+	const approvals = '/api/panel/admin/base/audit.php';
+	const approvalPage = await (await request(`${approvals}?include=schema,data&status=all`, { cookie })).json();
+	const approvalToolbar = approvalPage.table.option.actions.toolbar.map((action) => action.key);
+	assert.ok(approvalToolbar.includes('recycle-bin'), '审批页要有回收站入口');
+	assert.equal(approvalToolbar.includes('delete'), false, '审批页不给删除按钮');
+	const victim = approvalPage.table.dataSource[0].id;
+	assert.equal((await request(`${auditBase}&include=schema,data`, { method: 'DELETE', cookie, body: [String(victim)] })).status, 200);
+	const withoutVictim = await (await request(`${approvals}?include=data&status=all`, { cookie })).json();
+	assert.equal(withoutVictim.table.dataSource.some((row) => String(row.id) === String(victim)), false, '软删除的审批记录不在正常列表');
+	const approvalBin = await (await request(`${approvals}?include=schema,data,deleted&status=all`, { cookie })).json();
+	assert.ok(approvalBin.table.dataSource.some((row) => String(row.id) === String(victim)), '软删除的审批记录要出现在审批页的回收站');
+	assert.deepEqual(approvalBin.table.option.actions.toolbar.map((action) => action.key), ['restore', 'purge']);
+	assert.equal((await request(`${approvals}/${victim}?include=deleted&action=restore`, { method: 'POST', cookie, keepPending: true, body: {} })).status, 200, '审批记录也要能从回收站恢复');
+	const restoredApproval = await (await request(`${approvals}?include=data&status=all`, { cookie })).json();
+	assert.ok(restoredApproval.table.dataSource.some((row) => String(row.id) === String(victim)), '恢复后要回到审批列表');
+
 	console.log('recycle-bin test passed');
 } finally {
 	await rm(temporaryDirectory, { recursive: true, force: true });

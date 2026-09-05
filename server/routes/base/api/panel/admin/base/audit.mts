@@ -4,6 +4,8 @@ import { readChangeReason } from '@server/modules/base/operation.mjs';
 import type { SqlCondition } from '@server/database/sql.mjs';
 import { STATUS_LABELS, countAuditEntries, describeAuditChanges, listAuditEntries, parseAuditChanges, publicAuditChanges, readAuditEntry, transitionAuditEntries, type AuditEntryRow } from '@server/modules/base/audit.mjs';
 import { tableSort } from '@server/modules/base/query-options.mjs';
+import type { TableCrudDefinition } from '@server/modules/base/table-crud.mjs';
+import { AUDIT_TABLE } from '@server/database/sql.mjs';
 
 const actionLabels: Record<string, string> = { update: '修改', soft_delete: '删除', restore: '恢复' };
 // 状态用带颜色的标签：绿色一眼看出这条变更此刻是生效的。
@@ -157,4 +159,15 @@ const handler: ApiHandler = async (c, next, params) => {
 };
 
 export const acceptsTrailingParams = true;
+/**
+ * 审批记录自己也要有回收站。
+ *
+ * 这一页不给删除按钮（§7.3：审批记录不可删除），但「数据管理」能对任何表软删除，
+ * 包括这一张。删掉之后它从这一页消失，而这一页恰恰是唯一会去看它的地方——
+ * 没有回收站的话，「谁把审批记录删了」既看不见也找不回。
+ *
+ * 声明 tableCrud 还顺带把「待审批」标记和撤销/批准行动作接上：改一条审批记录同样要
+ * 走审批（test:recycle-bin 覆盖），那条申请也该在这一页上看得见。
+ */
+export const tableCrud: TableCrudDefinition = { table: AUDIT_TABLE, rowKey: 'id' };
 export default handler;
