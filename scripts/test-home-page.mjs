@@ -15,7 +15,7 @@ try {
 	database.prepare("INSERT INTO global_site_hosts (hostname, site_key, status, created_at) VALUES ('accounts.test','passport','enabled',?)").run(Date.now());
 	// 联系邮箱来自站点设置；没配置时首页只显示“站点管理员”，Google 应用验证要求给出可联系的方式。
 	database.prepare('INSERT INTO base_configs (created_at, updated_at, key, value) VALUES (?, ?, ?, ?)')
-		.run(Date.now(), Date.now(), 'site-settings', JSON.stringify({ contactEmail: 'contact@example.com' }));
+		.run(Date.now(), Date.now(), 'site_settings', JSON.stringify({ contactEmail: 'contact@example.com' }));
 	database.close();
 
 	// 站点首页说明由后端下发，未登录也能读取。
@@ -29,7 +29,7 @@ try {
 	// 站点名称从站点记录读取：accounts.test 的公开文档由 wwwroot/passport/index.html 静态覆盖，
 	// 品牌文案手工维护，不再经过通用外壳，因此不能从文档里取 siteName。
 	const siteNameDatabase = new DatabaseSync(process.env.DEFAULT_DATABASE_FILE);
-	const accountsSiteName = siteNameDatabase.prepare("SELECT name FROM global_sites WHERE key = 'passport'").get()?.name;
+	const accountsSiteName = siteNameDatabase.prepare("SELECT title FROM global_sites WHERE key = 'passport'").get()?.title;
 	siteNameDatabase.close();
 	assert.equal(accounts.home.title, accountsSiteName);
 	assert.match(accounts.home.summary, /统一账号服务/);

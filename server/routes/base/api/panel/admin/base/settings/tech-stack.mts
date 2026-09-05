@@ -24,7 +24,7 @@ const createFormPage = (): FormPageConfig => {
 };
 
 export default settingsPageHandler({
-	key: 'tech-stack',
+	key: 'tech_stack',
 	load: (c) => loadTechStackConfigFromStore(c.get('configStore')),
 	formPage: () => createFormPage(),
 	parse: (c, body, current) => normalizeTechStackConfig(mergeChangedFields(current, body, ['nginx', 'phpVersion', 'apiSuffix', 'pageSuffix'])),

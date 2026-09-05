@@ -41,7 +41,7 @@ const handler: ApiHandler = async (c, next) => {
 		if (!verified) {
 			const providers = await externalProviders(database, true);
 			if (!providers.length) return verifyIdentityForm([]);
-			return verifyIdentityForm(providers.map((provider) => ({ key: `provider:${provider.id}`, label: `使用${provider.display_name}认证` })));
+			return verifyIdentityForm(providers.map((provider) => ({ key: `provider:${provider.id}`, label: `使用${provider.title}认证` })));
 		}
 		const pending = await pendingAccountEmailOtp(database, userId);
 		return pending ? codeForm(pending.email) : emailForm();
@@ -58,7 +58,7 @@ const handler: ApiHandler = async (c, next) => {
 		const provider = await externalProviders(database, true).then((items) => items.find((item) => item.id === action.slice('provider:'.length)));
 		if (!provider) return apiMessage(c, 400, '外部身份源不存在或未启用');
 		c.header('Set-Cookie', bindReturnCookie(`/panel/accounts/emails${c.get('techStackConfig').pageSuffix}`, isSecureRequest(c)));
-		return apiResponse(c, 200, { redirectTo: `/api/accounts/external/${provider.id}`, feedback: { component: 'message' as const, type: 'success' as const, message: `正在前往${provider.display_name}认证`, redirectAfter: 0 } });
+		return apiResponse(c, 200, { redirectTo: `/api/accounts/external/${provider.id}`, feedback: { component: 'message' as const, type: 'success' as const, message: `正在前往${provider.title}认证`, redirectAfter: 0 } });
 	}
 	if (action === 'restart') {
 		await discardAccountEmailOtp(database, userId);

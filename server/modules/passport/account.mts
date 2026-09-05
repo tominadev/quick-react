@@ -251,7 +251,7 @@ export const listAccountIdentities = async (database: DatabaseAdapter, globalDat
 			where: [{ column: 'user_id', value: userId }],
 			orderBy: [{ column: 'created_at' }],
 		})),
-		allSql<{ id: string; display_name: string }>(database, sql({ database }).select({ table: 'passport_external_providers', columns: { id: 'provider', display_name: 'display_name' } })),
+		allSql<{ id: string; title: string }>(database, sql({ database }).select({ table: 'passport_external_providers', columns: { id: 'provider', title: 'title' } })),
 		allSql<{ id: string; bot_id: string; telegram_user_id: string; nickname: string; created_at: number }>(database, sql({ database }).select({
 			table: 'passport_telegram_accounts',
 			columns: { id: { column: 'id', cast: 'text' }, bot_id: { column: 'bot_id', cast: 'text' }, telegram_user_id: { column: 'telegram_user_id', cast: 'text' }, nickname: 'nickname', created_at: 'created_at' },
@@ -262,7 +262,7 @@ export const listAccountIdentities = async (database: DatabaseAdapter, globalDat
 	const bots = telegrams.length
 		? await allSql<{ id: string; bot_username: string }>(globalDatabase, sql({ database: globalDatabase }).select({ table: 'global_telegram_bots', columns: { id: { column: 'id', cast: 'text' }, bot_username: 'username' } }))
 		: [];
-	const providerNames = new Map(providers.map((provider) => [provider.id, provider.display_name]));
+	const providerNames = new Map(providers.map((provider) => [provider.id, provider.title]));
 	const botNames = new Map(bots.map((bot) => [bot.id, bot.bot_username]));
 	return [
 		...externals.map((item) => ({

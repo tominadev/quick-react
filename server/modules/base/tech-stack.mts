@@ -50,11 +50,11 @@ export const normalizeTechStackConfig = (value: unknown, defaults: TechStackConf
 	})(),
 });
 
-export const loadTechStackConfigFromStore = async (targetStore: ConfigStore) => normalizeTechStackConfig(await targetStore.get('tech-stack'));
+export const loadTechStackConfigFromStore = async (targetStore: ConfigStore) => normalizeTechStackConfig(await targetStore.get('tech_stack'));
 
 export const loadTechStackConfig = async () => {
 	if (loadedAt && Date.now() - loadedAt < cacheTtl) return { ...config };
-	config = normalizeTechStackConfig(await store.get('tech-stack'));
+	config = normalizeTechStackConfig(await store.get('tech_stack'));
 	loadedAt = Date.now();
 	return { ...config };
 };
@@ -63,7 +63,7 @@ export const getTechStackConfig = () => ({ ...config });
 
 export const saveTechStackConfig = async (value: unknown) => {
 	config = normalizeTechStackConfig(value);
-	await store.put('tech-stack', config);
+	await store.put('tech_stack', config);
 	loadedAt = Date.now();
 	return { ...config };
 };

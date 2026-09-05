@@ -271,11 +271,11 @@ const renderDocument = async (c: Context<WorkerEnv>) => {
 	const menuItems = apiBootstrap ? [] : getSiteNavigation(site.codeSiteChain, c.get('effectiveRoles'));
 	const pageStatus = apiBootstrap ? undefined : await resolvePageStatus(c, requestPath, auth, pagePaths);
 	const metadata = apiBootstrap
-		? { title: site.name, description: `${site.name}提供网站页面与接口服务。` }
+		? { title: site.title, description: `${site.title}提供网站页面与接口服务。` }
 		: pageStatus
 			? { title: pageStatus.title, description: pageStatus.description }
 			: getPageMetadata(logicalRequestPath, menuItems, siteConfig.pageSuffix);
-	const title = metadata.title === 'Quick React' ? site.name : `${metadata.title} | ${site.name}`;
+	const title = metadata.title === 'Quick React' ? site.title : `${metadata.title} | ${site.title}`;
 	const publicOrigin = systemConfig.publicOrigin || undefined;
 	const canonical = publicOrigin && !pageStatus ? new URL(requestPath, publicOrigin).toString() : undefined;
 	const bootstrapApiPath = apiBootstrap ? (() => {
@@ -309,7 +309,7 @@ const renderDocument = async (c: Context<WorkerEnv>) => {
 			...(bootstrapApiPath ? { bootstrapApiPath } : {}),
 			apiSuffix: siteConfig.apiSuffix,
 			pageSuffix: siteConfig.pageSuffix,
-			siteName: site.name,
+			siteName: site.title,
 			siteNavigation: apiBootstrap ? [] : menuItems,
 			...(apiBootstrap ? {} : { auth }),
 			footer: c.get('siteSettings').footer,
@@ -398,8 +398,8 @@ app.get('/accounts/external/wechat*', (c, next) => {
 	return c.html(renderWechatQrPage(`/api/accounts/external/wechat${c.get('techStackConfig').apiSuffix || ''}`, `/accounts/sign${suffix}${popup ? '?popup=1' : ''}`, popup));
 });
 app.get('/', renderDocument);
-app.get('/page/privacy.html', (c) => c.html(renderPrivacyHtml(c.get('site').name, c.get('siteSettings').contactEmail)));
-app.get('/page/terms.html', (c) => c.html(renderTermsHtml(c.get('site').name, c.get('siteSettings').contactEmail)));
+app.get('/page/privacy.html', (c) => c.html(renderPrivacyHtml(c.get('site').title, c.get('siteSettings').contactEmail)));
+app.get('/page/terms.html', (c) => c.html(renderTermsHtml(c.get('site').title, c.get('siteSettings').contactEmail)));
 
 app.get('*', async (c, next) => {
 	if (c.req.path.startsWith('/api/') || !c.req.header('accept')?.includes('text/html')) {

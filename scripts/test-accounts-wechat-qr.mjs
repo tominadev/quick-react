@@ -26,7 +26,7 @@ try {
 	const deviceKey = '00000000-0000-4000-8000-000000000001';
 const fingerprintData = JSON.stringify({ canvas_cyrb53: '4b5a6c7d8e9f', audio_cyrb53: '1a2b3c4d5e6f' });
 	database.prepare("INSERT INTO global_site_hosts (hostname, site_key, status, created_at) VALUES ('accounts.test','passport','enabled',?)").run(now);
-	database.prepare("INSERT INTO passport_external_providers (provider,display_name,client_id,client_secret,status,created_at,updated_at,wechat_mode) VALUES ('wechat','微信','wechat-app','secret','enabled',?,?,'official_account')").run(now, now);
+	database.prepare("INSERT INTO passport_external_providers (provider,title,client_id,client_secret,status,created_at,updated_at,wechat_mode) VALUES ('wechat','微信','wechat-app','secret','enabled',?,?,'official_account')").run(now, now);
 	database.prepare("INSERT INTO passport_users (user_id, name, status, created_at, updated_at) VALUES (?, 'wxuser2026', 'enabled', ?, ?)").run(userId, now, now)
 	database.prepare("INSERT INTO passport_user_profiles (user_id, nickname, created_at, updated_at) VALUES (?, '微信用户', 0, 0)").run(userId);
 	database.prepare("INSERT INTO passport_emails (id,email,verified,created_at,updated_at) VALUES (2000000000000000011,'wx@example.com',1,?,?)").run(now, now);

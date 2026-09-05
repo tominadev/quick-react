@@ -1,7 +1,7 @@
 import type { DatabaseAdapter } from '@server/database/index.mjs';
 import { databaseLabel, listColumns, listTables } from '@server/database/schema.mjs';
 import { allSql, firstSql, sql, type DeletedScope } from '@server/database/sql.mjs';
-import type { TableActions, TableColumn, TableData, TableResponse, TableSelectOption } from '@shared/types/table.mjs';
+import { ROW_KEY_FIELD, type TableActions, type TableColumn, type TableData, type TableResponse, type TableSelectOption } from '@shared/types/table.mjs';
 import { isSystemField } from '@shared/system-fields.mjs';
 
 const page = (value: string | undefined, fallback: number) => Math.max(1, Number(value) || fallback);
@@ -39,11 +39,12 @@ export const databaseSelectColumns = (columns: Awaited<ReturnType<typeof getColu
 export const readTable = async (database: DatabaseAdapter, mode: 'columns' | 'rows', tableName: string | undefined, pageNumValue?: string, pageSizeValue?: string, options: { deleted?: DeletedScope; tables?: TableSelectOption[] } = {}): Promise<DatabaseTableResponse> => {
 	const tables = options.tables ?? await getTables(database);
 	const selectedTableName = tableName || tables[0]?.value;
-	if (!selectedTableName || !tables.some((item) => item.value === selectedTableName)) return { tables, editable: false, dataSource: [], totalRecords: 0, option: { rowKey: 'key' } };
+	if (!selectedTableName || !tables.some((item) => item.value === selectedTableName)) return { tables, editable: false, dataSource: [], totalRecords: 0, option: { rowKey: ROW_KEY_FIELD } };
 	const info = await getColumns(database, selectedTableName);
 	if (mode === 'columns') {
-		const rows = info.map((column) => ({ key: column.name, cid: column.name, name: column.name, type: column.type || '—', notnull: Boolean(column.notnull), pk: Boolean(column.pk) }));
-		return { tables, editable: true, columns: [{ dataIndex: 'cid', title: '字段名', component: 'textbox' }, { dataIndex: 'type', title: '类型', component: 'textbox' }, { dataIndex: 'notnull', title: '必填', component: 'switch' }, { dataIndex: 'pk', title: '主键', component: 'switch' }], dataSource: rows, totalRecords: rows.length, option: { rowKey: 'key' } };
+		// 字段名本身就是这一行的主键，不必再合成一个。
+		const rows = info.map((column) => ({ name: column.name, type: column.type || '—', notnull: Boolean(column.notnull), pk: Boolean(column.pk) }));
+		return { tables, editable: true, columns: [{ dataIndex: 'name', title: '字段名', component: 'textbox' }, { dataIndex: 'type', title: '类型', component: 'textbox' }, { dataIndex: 'notnull', title: '必填', component: 'switch' }, { dataIndex: 'pk', title: '主键', component: 'switch' }], dataSource: rows, totalRecords: rows.length, option: { rowKey: 'name' } };
 	}
 	const primaryKey = info.find((column) => column.pk)?.name;
 	const sqliteRowId = !primaryKey && (database.dialect ?? 'sqlite') === 'sqlite';
@@ -55,12 +56,14 @@ export const readTable = async (database: DatabaseAdapter, mode: 'columns' | 'ro
 	// columns to text prevents SQLite from coercing snowflake IDs to unsafe JS numbers.
 	const selectedColumns = databaseSelectColumns(info);
 	const rows = await allSql<TableData>(database, sql({ database }).select({ table: selectedTableName, columns: selectedColumns, sqliteRowIdAlias: sqliteRowId ? '__rowid__' : undefined, limit: pageSize, offset: (pageNum - 1) * pageSize, deleted }));
-	const dataSource = rows.map((row, index) => ({ ...row, key: rowKey ? String(row[rowKey]) : `readonly-${(pageNum - 1) * pageSize + index + 1}` }));
+	// 有主键就直接用那一列当 rowKey，不再往行里塞字段——塞进去会覆盖这张表自己的同名列，
+	// `base_configs.key` 就是这么在列表上变成数字的。没有主键的表才合成一个保留字段。
+	const dataSource = rowKey ? rows : rows.map((row, index) => ({ ...row, [ROW_KEY_FIELD]: `readonly-${(pageNum - 1) * pageSize + index + 1}` }));
 	const dataColumns = info.map(tableColumn);
 	const idIndex = dataColumns.findIndex((column) => column.dataIndex === 'id');
 	if (idIndex > 0) dataColumns.unshift(dataColumns.splice(idIndex, 1)[0]);
 	if (sqliteRowId) dataColumns.unshift({ dataIndex: '__rowid__', title: 'ID', dataType: 'int' });
-	return { tables, editable: Boolean(rowKey), columns: dataColumns, dataSource, totalRecords: Number(total?.count ?? 0), option: { rowKey: 'key' } };
+	return { tables, editable: Boolean(rowKey), columns: dataColumns, dataSource, totalRecords: Number(total?.count ?? 0), option: { rowKey: rowKey || ROW_KEY_FIELD } };
 };
 export const assertTable = async (database: DatabaseAdapter, tableName: string) => { if (!(await getTables(database)).some((item) => item.value === tableName)) throw new Error('数据表不存在'); };
 export const tableRowKey = (database: DatabaseAdapter, columns: Awaited<ReturnType<typeof getColumns>>) => {

@@ -26,7 +26,7 @@ const createFormPage = (): FormPageConfig => {
 };
 
 export default settingsPageHandler({
-	key: 'system-config',
+	key: 'system_config',
 	load: (c) => loadSystemConfigFromStore(c.get('configStore')),
 	formPage: () => createFormPage(),
 	parse: (c, body, current) => normalizeSystemConfig(mergeChangedFields(current, body, ['httpPort', 'domain', 'publicOrigin', 'trustedProxyIps', 'mapAllowedIps', 'debug'])),

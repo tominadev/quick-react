@@ -27,4 +27,4 @@ export const normalizeSiteSettings = (value: unknown): SiteSettings => {
 		userNameMinLength: clampMinUserNameLength(source.userNameMinLength),
 	};
 };
-export const loadSiteSettings = async (store: ConfigStore) => normalizeSiteSettings(await store.get('site-settings'));
+export const loadSiteSettings = async (store: ConfigStore) => normalizeSiteSettings(await store.get('site_settings'));

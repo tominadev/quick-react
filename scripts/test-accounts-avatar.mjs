@@ -52,8 +52,8 @@ try {
 	const database = new DatabaseSync(process.env.DEFAULT_DATABASE_FILE);
 	const now = Date.now();
 	database.prepare("INSERT INTO global_site_hosts (hostname, site_key, status, created_at) VALUES ('accounts.test','passport','enabled',?)").run(now);
-	database.prepare("INSERT INTO passport_external_providers (provider,display_name,client_id,client_secret,status,created_at,updated_at) VALUES ('google','Google','gid','gsecret','enabled',?,?)").run(now, now);
-	database.prepare(`INSERT INTO global_cloud_credentials (id,name,provider,access_key_id,access_key_secret,status,created_at,updated_at)
+	database.prepare("INSERT INTO passport_external_providers (provider,title,client_id,client_secret,status,created_at,updated_at) VALUES ('google','Google','gid','gsecret','enabled',?,?)").run(now, now);
+	database.prepare(`INSERT INTO global_cloud_credentials (id,title,provider,access_key_id,access_key_secret,status,created_at,updated_at)
 		VALUES (31,'avatar-store','other','key','secret','enabled',?,?)`).run(now, now);
 	database.prepare(`INSERT INTO global_cloud_object_storage_buckets (id,cloud_credential_id,bucket,endpoint,region,path_style,status,created_at,updated_at)
 		VALUES (32,31,'media','https://storage.test','auto',1,'enabled',?,?)`).run(now, now);

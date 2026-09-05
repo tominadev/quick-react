@@ -56,7 +56,7 @@ const deviceKey = '00000000-0000-4000-8000-000000000001';
 	const cookie = login.headers.get('set-cookie').split(';')[0];
 	assert.equal((await request('/api/panel/admin/global/site/hosts.php', { method: 'POST', headers: { cookie }, body: { hostname: 'accounts.test', site_key: 'passport' } })).status, 201);
 	const siteDatabase = new DatabaseSync(process.env.DEFAULT_DATABASE_FILE);
-	siteDatabase.prepare("INSERT INTO global_sites (key, name, base_site_key, dsn, database_binding, status, migration_status, is_default, is_system) VALUES ('business', 'Business', 'base', '', '', 'enabled', 'ready', 0, 0)").run();
+	siteDatabase.prepare("INSERT INTO global_sites (key, title, base_site_key, dsn, database_binding, status, migration_status, is_default, is_system) VALUES ('business', 'Business', 'base', '', '', 'enabled', 'ready', 0, 0)").run();
 	siteDatabase.close();
 	assert.equal((await request('/api/panel/admin/global/site/hosts.php', { method: 'POST', headers: { cookie }, body: { hostname: 'business.test', site_key: 'business' } })).status, 201);
 	const settingsPath = '/api/panel/admin/base/settings/accounts-oidc.php';

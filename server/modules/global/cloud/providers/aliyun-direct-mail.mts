@@ -141,7 +141,7 @@ export const getAliyunDirectMailTemplate = async (target: Pick<CloudEmailTarget,
 export const createAliyunDirectMailTemplate = async (target: CloudEmailScope, template: CloudEmailTemplate): Promise<CloudEmailTemplatePublication> => {
 	const result = await callDirectMail(target, 'CreateTemplate', {
 		TemplateName: providerTemplateName(template),
-		TemplateNickName: template.name.slice(0, 30),
+		TemplateNickName: template.title.slice(0, 30),
 		TemplateSubject: providerTemplateText(template.subject),
 		TemplateText: providerTemplateText(template.body_html),
 		TemplateType: '0',
@@ -154,7 +154,7 @@ export const updateAliyunDirectMailTemplate = async (target: CloudEmailScope, te
 	const result = await callDirectMail(target, 'ModifyTemplate', {
 		TemplateId: providerTemplateId,
 		TemplateName: providerTemplateName(template),
-		TemplateNickName: template.name.slice(0, 30),
+		TemplateNickName: template.title.slice(0, 30),
 		TemplateSubject: providerTemplateText(template.subject),
 		TemplateText: providerTemplateText(template.body_html),
 	});

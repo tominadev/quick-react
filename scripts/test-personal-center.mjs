@@ -27,7 +27,7 @@ try {
 	{
 		const setup = new DatabaseSync(process.env.DEFAULT_DATABASE_FILE);
 		const at = Date.now();
-		setup.prepare("INSERT INTO base_configs (created_at, updated_at, key, value) VALUES (?, ?, 'site-settings', ?)")
+		setup.prepare("INSERT INTO base_configs (created_at, updated_at, key, value) VALUES (?, ?, 'site_settings', ?)")
 			.run(at, at, JSON.stringify({ localLoginEnabled: true }));
 		setup.close();
 	}
@@ -62,7 +62,7 @@ try {
 	// 启用 Accounts 登录后给出说明和新页面入口，且入口指向账号中心。
 	const database = new DatabaseSync(process.env.DEFAULT_DATABASE_FILE);
 	const now = Date.now();
-	database.prepare("INSERT INTO base_configs (created_at, updated_at, key, value) VALUES (?, ?, 'accounts-oidc-client', ?)")
+	database.prepare("INSERT INTO base_configs (created_at, updated_at, key, value) VALUES (?, ?, 'accounts_oidc_client', ?)")
 		.run(now, now, JSON.stringify({ enabled: true, issuer: 'https://accounts.test', clientId: 'acct', clientSecret: 'secret' }));
 	database.close();
 	const linked = await (await request('/api/panel/me.php', { cookie })).json();

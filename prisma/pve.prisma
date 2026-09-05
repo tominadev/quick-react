@@ -18,10 +18,9 @@ model pve_regions {
   owner_tid     BigInt @default(1)
   owner_bid     BigInt @default(1)
   owner_uid     BigInt?
-  code         String
-  @@unique([code, deleted_at])
-  name         String
-  display_name String
+  key          String
+  @@unique([key, deleted_at])
+  title        String
   status       PveEnabledStatus @default(enabled)
   sort_order   Int    @default(0)
 }
@@ -59,13 +58,14 @@ model pve_instance_flavors {
   owner_tid     BigInt @default(1)
   owner_bid     BigInt @default(1)
   owner_uid     BigInt?
-  code                 String
-  name                 String
+  key                  String
+  title                String
   cpu_cores            Int
   memory_gb            Int
   status               PveEnabledStatus @default(enabled)
   sort_order           Int    @default(0)
 
+  @@unique([key, deleted_at])
   @@unique([cpu_cores, memory_gb, deleted_at])
 }
 

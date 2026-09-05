@@ -97,7 +97,7 @@ try {
 	const fingerprintData = JSON.stringify({ canvas_cyrb53: '4b5a6c7d8e9f', audio_cyrb53: '1a2b3c4d5e6f' });
 	const migratedDatabase = new DatabaseSync(process.env.DEFAULT_DATABASE_FILE, { readOnly: true });
 	assert.equal(migratedDatabase.prepare("SELECT migration_status FROM global_sites WHERE key = 'passport'").get()?.migration_status, 'ready');
-	assert.equal(migratedDatabase.prepare("SELECT name FROM global_sites WHERE key = 'passport'").get()?.name, 'Passport');
+	assert.equal(migratedDatabase.prepare("SELECT title FROM global_sites WHERE key = 'passport'").get()?.title, 'Passport');
 	assert.equal(migratedDatabase.prepare("SELECT name FROM sqlite_master WHERE type = 'table' AND name = 'passport_users'").get()?.name, 'passport_users');
 	migratedDatabase.close();
 	const request = async (host, path, options = {}) => {
@@ -251,7 +251,7 @@ try {
 	assert.equal(externalProviders.table.columns.find((column) => column.dataIndex === 'provider').form.edit, false);
 	assert.equal((await request('passport.test', externalProvidersPath, {
 		// 身份源由 provider 指定；id 已按项目约定改为自增主键，不再承载业务键。
-		method: 'POST', cookie, body: { provider: 'wechat', display_name: '微信', client_id: 'wechat-app-id', client_secret: 'wechat-app-secret', status: 'enabled' },
+		method: 'POST', cookie, body: { provider: 'wechat', title: '微信', client_id: 'wechat-app-id', client_secret: 'wechat-app-secret', status: 'enabled' },
 	})).status, 201);
 	const createdProvider = await (await request('passport.test', `${externalProvidersPath}/wechat`, { cookie })).json();
 	assert.equal(createdProvider.client_secret, '');

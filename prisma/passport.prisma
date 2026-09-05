@@ -562,7 +562,7 @@ model passport_external_providers {
   owner_uid     BigInt?
   provider                String
   @@unique([provider, deleted_at])
-  display_name            String
+  title                   String
   client_id               String
   client_secret           String
   status                  PassportAccountStatus @default(enabled)
@@ -582,7 +582,7 @@ model passport_oidc_clients {
   owner_uid     BigInt?
   client_id              String
   @@unique([client_id, deleted_at])
-  name                   String
+  title                  String
   secret_hash            String
   redirect_uris          String @default("[]")
   allowed_scopes         String @default("openid profile email")

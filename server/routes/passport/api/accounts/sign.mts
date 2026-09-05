@@ -151,7 +151,7 @@ const parseBody = async (c: Parameters<ApiHandler>[0]): Promise<Record<string, u
 
 const loadTelegramOptions = async (database: DatabaseAdapter, globalDatabase: DatabaseAdapter, email: string) => {
 	const accounts = await allSql<TelegramOption>(database, sql({ database }).select({ table: 'passport_emails', alias: 'e', columns: { account_id: { column: 'a.id', cast: 'text' }, bot_id: { column: 'a.bot_id', cast: 'text' }, telegram_user_id: { column: 'a.telegram_user_id', cast: 'text' }, chat_id: { column: 'a.chat_id', cast: 'text' }, nickname: 'a.nickname' }, joins: [{ table: 'passport_user_emails', alias: 'ue', left: 'ue.email_id', right: 'e.id' }, { table: 'passport_users', alias: 'u', left: 'u.user_id', right: 'ue.user_id' }, { table: 'passport_telegram_accounts', alias: 'a', left: 'a.user_id', right: 'u.user_id' }], where: [{ column: 'e.email', value: email }, { column: 'e.verified', value: 1 }, { column: 'u.status', value: 'enabled' }], orderBy: [{ column: 'a.created_at' }] }));
-	const bots = await allSql<Bot>(globalDatabase, sql({ database: globalDatabase }).select({ table: 'global_telegram_bots', columns: { id: { column: 'id', cast: 'text' }, name: 'name', bot_username: 'username', bot_token: 'token' }, where: [{ column: 'status', value: 'enabled' }] }));
+	const bots = await allSql<Bot>(globalDatabase, sql({ database: globalDatabase }).select({ table: 'global_telegram_bots', columns: { id: { column: 'id', cast: 'text' }, title: 'title', bot_username: 'username', bot_token: 'token' }, where: [{ column: 'status', value: 'enabled' }] }));
 	const botMap = new Map(bots.map((bot) => [bot.id, bot]));
 	return accounts.flatMap((account) => {
 		const bot = botMap.get(account.bot_id);
@@ -218,8 +218,8 @@ const handler: ApiHandler = async (c, next) => {
 		]);
 		const entries: FormPageExternalLogin[] = [
 			...providers.map((provider) => providersWithVerifiedEmail.has(provider.id)
-				? { key: provider.id, label: provider.display_name, recommended: true, hint: '新用户无需邮箱验证码' }
-				: { key: provider.id, label: provider.display_name }),
+				? { key: provider.id, label: provider.title, recommended: true, hint: '新用户无需邮箱验证码' }
+				: { key: provider.id, label: provider.title }),
 			...(bot ? [{ key: 'telegram', label: 'Telegram' }] : []),
 		];
 		// 推荐的方式排在最前面。
@@ -231,7 +231,7 @@ const handler: ApiHandler = async (c, next) => {
 			includeTelegram ? firstSql(globalDatabase, sql({ database: globalDatabase }).select({ table: 'global_telegram_bots', columns: { id: 'id' }, where: [{ column: 'status', value: 'enabled' }], limit: 1 })) : null,
 		]);
 		return [
-			...providers.map((provider) => ({ value: provider.id, text: `使用${provider.display_name}认证` })),
+			...providers.map((provider) => ({ value: provider.id, text: `使用${provider.title}认证` })),
 			...(bot ? [{ value: 'telegram', text: 'Telegram 消息批准' }] : []),
 		];
 	};
@@ -306,7 +306,7 @@ const handler: ApiHandler = async (c, next) => {
 			const referer = c.req.header('referer');
 			if (referer && new URL(referer).searchParams.get('popup') === '1') redirectTo.searchParams.set('popup', '1');
 		} catch { /* 无效 Referer 不影响正常登录 */ }
-		return apiResponse(c, 200, { redirectTo: `${redirectTo.pathname}${redirectTo.search}`, feedback: { component: 'message' as const, type: 'success' as const, message: `正在前往${provider.display_name}`, redirectAfter: 0 } });
+		return apiResponse(c, 200, { redirectTo: `${redirectTo.pathname}${redirectTo.search}`, feedback: { component: 'message' as const, type: 'success' as const, message: `正在前往${provider.title}`, redirectAfter: 0 } });
 	}
 	if (action === 'change_email') {
 		const pendingToken = readCookie(c.req.raw, externalPendingCookieName);
@@ -460,7 +460,7 @@ const handler: ApiHandler = async (c, next) => {
 		const providers = await externalProviders(database, true);
 		if (!providers.length) return apiMessage(c, 409, '当前还没有启用可用于注册的外部身份源，请联系管理员');
 		c.header('Set-Cookie', signupEmailCookie(email, secure));
-		const formPage = methodForm(providers.map((provider) => ({ value: provider.id, text: `使用${provider.display_name}认证` })), 'signup', email);
+		const formPage = methodForm(providers.map((provider) => ({ value: provider.id, text: `使用${provider.title}认证` })), 'signup', email);
 		return apiResponse(c, 200, { formPage, currentValues: formPage.initialValues });
 	}
 
@@ -474,7 +474,7 @@ const handler: ApiHandler = async (c, next) => {
 		}
 		const provider = await externalProviders(database, true).then((items) => items.find((item) => item.id === method));
 		if (!provider) return apiMessage(c, 400, '请选择有效的登录方式');
-		return apiResponse(c, 200, { redirectTo: `/api/accounts/external/${provider.id}`, feedback: { component: 'message' as const, type: 'success' as const, message: user ? `正在前往${provider.display_name}绑定` : `正在前往${provider.display_name}`, redirectAfter: 0 } });
+		return apiResponse(c, 200, { redirectTo: `/api/accounts/external/${provider.id}`, feedback: { component: 'message' as const, type: 'success' as const, message: user ? `正在前往${provider.title}绑定` : `正在前往${provider.title}`, redirectAfter: 0 } });
 	}
 
 	if (step === 'telegram_email') {

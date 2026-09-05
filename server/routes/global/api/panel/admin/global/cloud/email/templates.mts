@@ -22,7 +22,7 @@ const columns = [
 	{ dataIndex: 'id', title: 'ID', dataType: 'int' as const },
 	{ dataIndex: 'template_key', title: '模板 Key', component: 'textbox', placeholder: 'email_verification', rules: [{ required: true, message: '请输入模板 Key' }] },
 	{ dataIndex: 'template_type', title: '类型', component: 'select', options: cloudEmailPurposeOptions, rules: [{ required: true, message: '请选择模板类型' }] },
-	{ dataIndex: 'name', title: '名称', component: 'textbox', rules: [{ required: true, message: '请输入名称' }] },
+	{ dataIndex: 'title', title: '名称', component: 'textbox', rules: [{ required: true, message: '请输入名称' }] },
 	{ dataIndex: 'subject', title: '主题', component: 'textbox', placeholder: '您的验证码是 {{code}}', rules: [{ required: true, message: '请输入主题' }] },
 	{ dataIndex: 'body_text', title: '纯文本正文', component: 'textarea', tableDisplay: 'multiline', placeholder: '您的验证码是 {{code}}', rules: [{ required: true, message: '请输入纯文本正文' }] },
 	{ dataIndex: 'body_html', title: 'HTML 正文', component: 'textarea', tableDisplay: 'multiline', placeholder: '<p>您的验证码是 {{code}}</p>', rules: [{ required: true, message: '请输入 HTML 正文' }] },
@@ -31,7 +31,7 @@ const columns = [
 ];
 
 const templateColumns = {
-	id: 'id', template_key: 'key', template_type: 'type', name: 'name', subject: 'subject', body_text: 'body_text', body_html: 'body_html', status: 'status',
+	id: 'id', template_key: 'key', template_type: 'type', title: 'title', subject: 'subject', body_text: 'body_text', body_html: 'body_html', status: 'status',
 } as const;
 
 const keyPattern = /^[a-z][a-z0-9_]*$/;
@@ -47,7 +47,7 @@ const cloudContentSnapshot = (template: CloudEmailTemplate, provider: string) =>
 	template.template_key,
 	template.body_text,
 	template.body_html,
-] : [template.template_key, template.name, template.subject, template.body_html]);
+] : [template.template_key, template.title, template.subject, template.body_html]);
 const cloudContentHash = async (template: CloudEmailTemplate, provider: string) => [...new Uint8Array(await crypto.subtle.digest('SHA-256', encoder.encode(cloudContentSnapshot(template, provider))))]
 	.map((byte) => byte.toString(16).padStart(2, '0')).join('');
 const loadTemplate = (database: DatabaseAdapter, id: number) => firstSql<CloudEmailTemplate>(database, sql({ database }).select({ table: 'global_cloud_email_templates', columns: templateColumns, where: [{ column: 'id', value: id }] }));
@@ -99,7 +99,7 @@ const syncCloudTemplates = async (c: Context<AppEnv>, database: DatabaseAdapter,
 				updated += 1;
 			} else {
 				const templateKey = importedTemplateKey(target.provider, target.cloud_credential_id, target.region, remote.providerTemplateId);
-				await runSql(database, sql({ database }).insert('global_cloud_email_templates', { key: templateKey, type: templateType, name: remote.name, subject, body_text: bodyText, body_html: bodyHtml, status: 'enabled' }));
+				await runSql(database, sql({ database }).insert('global_cloud_email_templates', { key: templateKey, type: templateType, title: remote.name, subject, body_text: bodyText, body_html: bodyHtml, status: 'enabled' }));
 				local = await firstSql<{ template_id: number; template_type: string; subject: string; body_text: string }>(database, sql({ database }).select({ table: 'global_cloud_email_templates', columns: { template_id: 'id', template_type: 'type', subject: 'subject', body_text: 'body_text' }, where: [{ column: 'key', value: templateKey }] }));
 				if (!local) throw new Error('本地模板创建后无法读取');
 				imported += 1;
@@ -115,11 +115,11 @@ const syncCloudTemplates = async (c: Context<AppEnv>, database: DatabaseAdapter,
 	return { imported, updated, total: remoteTemplates.length, failures };
 };
 const loadSyncOptions = async (database: DatabaseAdapter) => {
-	const credentials = await allSql<{ id: number; name: string; provider: string }>(database, sql({ database }).select({ table: 'global_cloud_credentials', columns: { id: 'id', name: 'name', provider: 'provider' }, where: [{ column: 'status', value: 'enabled' }], orderBy: [{ column: 'provider' }, { column: 'name' }] }));
+	const credentials = await allSql<{ id: number; title: string; provider: string }>(database, sql({ database }).select({ table: 'global_cloud_credentials', columns: { id: 'id', title: 'title', provider: 'provider' }, where: [{ column: 'status', value: 'enabled' }], orderBy: [{ column: 'provider' }, { column: 'title' }] }));
 	const providerNames = new Map<string, string>(cloudProviderOptions.map((item) => [item.value, item.text]));
 	const enabled = credentials.filter((item) => providerSupportsEmailPush(item.provider));
 	return {
-		credentials: enabled.map((item) => ({ value: String(item.id), text: `${item.name}（${providerNames.get(item.provider) ?? item.provider}）` })),
+		credentials: enabled.map((item) => ({ value: String(item.id), text: `${item.title}（${providerNames.get(item.provider) ?? item.provider}）` })),
 		regions: enabled.flatMap((credential) => getCloudEmailRegionOptions(credential.provider).map((region) => ({
 			value: region.value,
 			text: `${region.text}（${region.value}）`,
@@ -170,13 +170,13 @@ const handler: ApiHandler = async (c, next, params) => {
 		} catch (error) { return apiMessage(c, 502, error instanceof Error ? error.message : '模板同步失败'); }
 	}
 	if (!params.id && c.req.method === 'POST') {
-		const body = await parseBody(c), templateKey = text(body.template_key), templateType = text(body.template_type), name = text(body.name), subject = text(body.subject), bodyText = text(body.body_text), bodyHtml = text(body.body_html);
+		const body = await parseBody(c), templateKey = text(body.template_key), templateType = text(body.template_type), name = text(body.title), subject = text(body.subject), bodyText = text(body.body_text), bodyHtml = text(body.body_html);
 		if (!keyPattern.test(templateKey) || !cloudEmailPurposeKeys.has(templateType) || !name || !subject || !bodyText || !bodyHtml) return apiMessage(c, 400, '模板 Key、类型、名称、主题和正文不合法');
 		const variableError = validateCloudEmailTemplateVariables(templateType, { subject, body_text: bodyText, body_html: bodyHtml });
 		if (variableError) return apiMessage(c, 400, variableError);
 		try {
 			const now = Date.now();
-			await runSql(database, sql({ database }).insert('global_cloud_email_templates', { key: templateKey, type: templateType, name, subject, body_text: bodyText, body_html: bodyHtml, status: body.status === statusValues.disabled ? statusValues.disabled : statusValues.enabled }));
+			await runSql(database, sql({ database }).insert('global_cloud_email_templates', { key: templateKey, type: templateType, title: name, subject, body_text: bodyText, body_html: bodyHtml, status: body.status === statusValues.disabled ? statusValues.disabled : statusValues.enabled }));
 		} catch (error) { if (error instanceof PendingApprovalError) throw error; return apiMessage(c, 409, '模板 Key 已经存在'); }
 		const template = await firstSql<CloudEmailTemplate>(database, sql({ database }).select({ table: 'global_cloud_email_templates', columns: templateColumns, where: [{ column: 'key', value: templateKey }] }));
 		if (!template) return apiMessage(c, 500, '模板创建后无法读取');
@@ -229,16 +229,16 @@ const handler: ApiHandler = async (c, next, params) => {
 		if (!defaults) return apiMessage(c, 400, '该模板类型没有后端默认值');
 		const variableError = validateCloudEmailTemplateVariables(current.template_type, defaults);
 		if (variableError) return apiMessage(c, 500, `后端默认模板配置错误：${variableError}`);
-		await runOperationSql(c, database, sql({ database }).update('global_cloud_email_templates', { name: defaults.name, subject: defaults.subject, body_text: defaults.body_text, body_html: defaults.body_html }, { id: current.id }));
+		await runOperationSql(c, database, sql({ database }).update('global_cloud_email_templates', { title: defaults.title, subject: defaults.subject, body_text: defaults.body_text, body_html: defaults.body_html }, { id: current.id }));
 		return apiMessage(c, 200, '模板已还原默认，请选择云凭据和 Region 发布更新');
 	}
 	if (params.id && c.req.method === 'PUT') {
 		const current = await loadTemplate(database, Number(params.id));
 		if (!current) return apiMessage(c, 404, '邮件模板不存在');
-		const body = await parseBody(c), changed = getChangedFields(body, ['template_key', 'template_type', 'name', 'subject', 'body_text', 'body_html', 'status']);
+		const body = await parseBody(c), changed = getChangedFields(body, ['template_key', 'template_type', 'title', 'subject', 'body_text', 'body_html', 'status']);
 		const templateKey = changed.has('template_key') ? text(body.template_key) : current.template_key;
 		const templateType = changed.has('template_type') ? text(body.template_type) : current.template_type;
-		const name = changed.has('name') ? text(body.name) : current.name, subject = changed.has('subject') ? text(body.subject) : current.subject;
+		const name = changed.has('title') ? text(body.title) : current.title, subject = changed.has('subject') ? text(body.subject) : current.subject;
 		const bodyText = changed.has('body_text') ? text(body.body_text) : current.body_text, bodyHtml = changed.has('body_html') ? text(body.body_html) : current.body_html;
 		const status = changed.has('status') && body.status === statusValues.disabled ? statusValues.disabled : changed.has('status') ? statusValues.enabled : current.status;
 		if (!keyPattern.test(templateKey) || !cloudEmailPurposeKeys.has(templateType) || !name || !subject || !bodyText || !bodyHtml) return apiMessage(c, 400, '模板 Key、类型、名称、主题和正文不合法');
@@ -249,7 +249,7 @@ const handler: ApiHandler = async (c, next, params) => {
 			if (binding) return apiMessage(c, 409, '模板已有站点绑定，不能修改类型');
 		}
 		try {
-			await runOperationSql(c, database, sql({ database }).update('global_cloud_email_templates', { key: templateKey, type: templateType, name, subject, body_text: bodyText, body_html: bodyHtml, status }, { id: current.id }));
+			await runOperationSql(c, database, sql({ database }).update('global_cloud_email_templates', { key: templateKey, type: templateType, title: name, subject, body_text: bodyText, body_html: bodyHtml, status }, { id: current.id }));
 		} catch { return apiMessage(c, 409, '模板 Key 已经存在'); }
 		return apiMessage(c, 200, '保存成功，请按需选择云凭据和 Region 发布更新');
 	}

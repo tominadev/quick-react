@@ -32,7 +32,7 @@ const formPage = {
 const fields = ['contactEmail', 'footer', 'logoutLocalEnabled', 'logoutPassportEnabled', 'logoutAllEnabled', 'apiBootstrapEnabled', 'userNameMinLength', 'auditRetentionDays', 'registrationEnabled', 'localLoginEnabled', 'passwordSyncEnabled'] as const;
 
 export default settingsPageHandler({
-	key: 'site-settings',
+	key: 'site_settings',
 	load: (c) => loadSiteSettings(c.get('configStore')),
 	formPage: () => formPage,
 	parse: (c, body, current) => normalizeSiteSettings(mergeChangedFields(current, body, fields)),

@@ -35,16 +35,16 @@ const validEndpoint = (value: string) => {
 	try { return ['http:', 'https:'].includes(new URL(value).protocol); } catch { return false; }
 };
 const credentialOptions = async (database: DatabaseAdapter) => {
-	const rows = await allSql<{ id: number; name: string; provider: string }>(database, sql({ database }).select({ table: 'global_cloud_credentials', columns: { id: 'id', name: 'name', provider: 'provider' }, where: [{ column: 'status', value: 'enabled' }], orderBy: [{ column: 'provider' }, { column: 'name' }] }));
+	const rows = await allSql<{ id: number; title: string; provider: string }>(database, sql({ database }).select({ table: 'global_cloud_credentials', columns: { id: 'id', title: 'title', provider: 'provider' }, where: [{ column: 'status', value: 'enabled' }], orderBy: [{ column: 'provider' }, { column: 'title' }] }));
 	const providerNames = new Map<string, string>(cloudProviderOptions.map((item) => [item.value, item.text]));
 	return rows.filter((item) => providerSupportsObjectStorage(item.provider))
-		.map((item) => ({ value: String(item.id), text: `${item.name} (${providerNames.get(item.provider) ?? item.provider})` }));
+		.map((item) => ({ value: String(item.id), text: `${item.title} (${providerNames.get(item.provider) ?? item.provider})` }));
 };
 const columnsWithCredentials = async (database: DatabaseAdapter) => {
 	const options = await credentialOptions(database);
 	return baseColumns.map((column) => column.dataIndex === 'cloud_credential_id' ? { ...column, options } : column);
 };
-const loadCredential = (database: DatabaseAdapter, credentialId: number) => firstSql<CloudCredential>(database, sql({ database }).select({ table: 'global_cloud_credentials', columns: { id: 'id', name: 'name', provider: 'provider', account_id: 'account_id', access_key_id: 'access_key_id', access_key_secret: 'access_key_secret', status: 'status' }, where: [{ column: 'id', value: credentialId }, { column: 'status', value: 'enabled' }] }));
+const loadCredential = (database: DatabaseAdapter, credentialId: number) => firstSql<CloudCredential>(database, sql({ database }).select({ table: 'global_cloud_credentials', columns: { id: 'id', title: 'title', provider: 'provider', account_id: 'account_id', access_key_id: 'access_key_id', access_key_secret: 'access_key_secret', status: 'status' }, where: [{ column: 'id', value: credentialId }, { column: 'status', value: 'enabled' }] }));
 const parseExtra = (value: unknown, fallback = '{}') => {
 	const extra = text(value) || fallback;
 	try { JSON.parse(extra); return extra; } catch { return null; }
@@ -81,7 +81,7 @@ const handler: ApiHandler = async (c, next, params) => {
 	}
 	if (!params.id && c.req.method === 'GET') {
 		const [rows, columns] = await Promise.all([
-			allSql<Record<string, unknown>>(database, sql({ database }).select({ table: 'global_cloud_object_storage_buckets', alias: 'b', columns: { id: 'b.id', cloud_credential_id: 'b.cloud_credential_id', credential_name: 'c.name', provider: 'c.provider', endpoint: 'b.endpoint', region: 'b.region', bucket: 'b.bucket', path_style: 'b.path_style', public_base_url: 'b.public_base_url', status: 'b.status', created_at: 'b.created_at', updated_at: 'b.updated_at' }, joins: [{ table: 'global_cloud_credentials', alias: 'c', left: 'c.id', right: 'b.cloud_credential_id' }], sort: tableSort(c), orderBy: [{ column: 'b.id', direction: 'DESC' }] })),
+			allSql<Record<string, unknown>>(database, sql({ database }).select({ table: 'global_cloud_object_storage_buckets', alias: 'b', columns: { id: 'b.id', cloud_credential_id: 'b.cloud_credential_id', credential_title: 'c.title', provider: 'c.provider', endpoint: 'b.endpoint', region: 'b.region', bucket: 'b.bucket', path_style: 'b.path_style', public_base_url: 'b.public_base_url', status: 'b.status', created_at: 'b.created_at', updated_at: 'b.updated_at' }, joins: [{ table: 'global_cloud_credentials', alias: 'c', left: 'c.id', right: 'b.cloud_credential_id' }], sort: tableSort(c), orderBy: [{ column: 'b.id', direction: 'DESC' }] })),
 			columnsWithCredentials(database),
 		]);
 		const dataSource = rows.map((row) => ({ ...row, product: getCloudStorageProduct(String(row.provider)) }));

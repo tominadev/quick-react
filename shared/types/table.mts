@@ -85,6 +85,16 @@ export type TableOption = {
 	/** 这个页面要不要收集「变更说明」；由服务端按请求路径注入，登录与注册页不需要。 */
 	changeControl?: boolean;
 };
+/**
+ * 表格行的合成主键字段。
+ *
+ * 只有**没有主键的只读表**才需要它——有主键的表直接把 `option.rowKey` 声明成那一列。
+ * 早先一律合成一个叫 `key` 的字段，而 `base_configs`、`global_sites` 这些表自己就有
+ * `key` 列，`{ ...row, key: 主键值 }` 把真值覆盖成了 id：列表上看着像「key 存成数字了」。
+ * 下划线前缀表示协议保留字段，与 `_pending`、`_section` 一致，撞不上任何业务列。
+ */
+export const ROW_KEY_FIELD = '_row_key';
+
 export type TableSelectOption = {
 	value: string;
 	text: string;

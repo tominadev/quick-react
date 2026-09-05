@@ -65,17 +65,17 @@ const handler: ApiHandler = async (c, next, params) => {
 	const database = c.get('database');
 	const listOptions = async () => {
 		const [sites, buckets] = await Promise.all([
-			allSql<{ site_key: string; name: string }>(database, sql({ database }).select({ table: 'global_sites', columns: { site_key: 'key', name: 'name' }, where: [{ column: 'status', value: 'enabled' }, { column: 'migration_status', value: 'ready' }], orderBy: [{ column: 'key' }] })),
-			allSql<{ id: number; bucket: string; credential_name: string; provider: string }>(database, sql({ database }).select({ table: 'global_cloud_object_storage_buckets', alias: 'b', columns: { id: 'b.id', bucket: 'b.bucket', credential_name: 'c.name', provider: 'c.provider' }, joins: [{ table: 'global_cloud_credentials', alias: 'c', left: 'c.id', right: 'b.cloud_credential_id' }], where: [{ column: 'b.status', value: 'enabled' }, { column: 'c.status', value: 'enabled' }], orderBy: [{ column: 'c.name' }, { column: 'b.bucket' }] })),
+			allSql<{ site_key: string; title: string }>(database, sql({ database }).select({ table: 'global_sites', columns: { site_key: 'key', title: 'title' }, where: [{ column: 'status', value: 'enabled' }, { column: 'migration_status', value: 'ready' }], orderBy: [{ column: 'key' }] })),
+			allSql<{ id: number; bucket: string; credential_title: string; provider: string }>(database, sql({ database }).select({ table: 'global_cloud_object_storage_buckets', alias: 'b', columns: { id: 'b.id', bucket: 'b.bucket', credential_title: 'c.title', provider: 'c.provider' }, joins: [{ table: 'global_cloud_credentials', alias: 'c', left: 'c.id', right: 'b.cloud_credential_id' }], where: [{ column: 'b.status', value: 'enabled' }, { column: 'c.status', value: 'enabled' }], orderBy: [{ column: 'c.title' }, { column: 'b.bucket' }] })),
 		]);
 		return {
-			sites: sites.map((item) => ({ value: item.site_key, text: `${item.name} (${item.site_key})` })),
-			buckets: buckets.map((item) => ({ value: String(item.id), text: `${item.credential_name} / ${getCloudStorageProduct(item.provider)} / ${item.bucket}` })),
+			sites: sites.map((item) => ({ value: item.site_key, text: `${item.title} (${item.site_key})` })),
+			buckets: buckets.map((item) => ({ value: String(item.id), text: `${item.credential_title} / ${getCloudStorageProduct(item.provider)} / ${item.bucket}` })),
 		};
 	};
 	if (!params.id && c.req.method === 'GET') {
 		const [rows, purposeRows, options] = await Promise.all([
-			allSql<Record<string, unknown>>(database, sql({ database }).select({ table: 'global_cloud_object_storage_bindings', alias: 'b', columns: { id: 'b.id', site_key: 'b.site_key', site_name: 's.name', bucket_id: 'b.bucket_id', bucket: 'bkt.bucket', credential_name: 'c.name', provider: 'c.provider', key_prefix: 'b.key_prefix', status: 'b.status', created_at: 'b.created_at', updated_at: 'b.updated_at' }, joins: [{ table: 'global_sites', alias: 's', left: 's.key', right: 'b.site_key' }, { table: 'global_cloud_object_storage_buckets', alias: 'bkt', left: 'bkt.id', right: 'b.bucket_id' }, { table: 'global_cloud_credentials', alias: 'c', left: 'c.id', right: 'bkt.cloud_credential_id' }], sort: tableSort(c), orderBy: [{ column: 'b.id', direction: 'DESC' }] })),
+			allSql<Record<string, unknown>>(database, sql({ database }).select({ table: 'global_cloud_object_storage_bindings', alias: 'b', columns: { id: 'b.id', site_key: 'b.site_key', site_title: 's.title', bucket_id: 'b.bucket_id', bucket: 'bkt.bucket', credential_title: 'c.title', provider: 'c.provider', key_prefix: 'b.key_prefix', status: 'b.status', created_at: 'b.created_at', updated_at: 'b.updated_at' }, joins: [{ table: 'global_sites', alias: 's', left: 's.key', right: 'b.site_key' }, { table: 'global_cloud_object_storage_buckets', alias: 'bkt', left: 'bkt.id', right: 'b.bucket_id' }, { table: 'global_cloud_credentials', alias: 'c', left: 'c.id', right: 'bkt.cloud_credential_id' }], sort: tableSort(c), orderBy: [{ column: 'b.id', direction: 'DESC' }] })),
 			allSql<BindingPurposeRow>(database, sql({ database }).select({ table: 'global_cloud_object_storage_binding_purposes', columns: { binding_id: 'binding_id', purpose: 'purpose', is_default: 'is_default' }, orderBy: [{ column: 'purpose' }] })),
 			listOptions(),
 		]);

@@ -51,11 +51,11 @@ export const normalizeSystemConfig = (value: unknown, defaults: SystemConfig = d
 	};
 };
 
-export const loadSystemConfigFromStore = async (targetStore: ConfigStore) => normalizeSystemConfig(await targetStore.get('system-config'));
+export const loadSystemConfigFromStore = async (targetStore: ConfigStore) => normalizeSystemConfig(await targetStore.get('system_config'));
 
 export const loadSystemConfig = async () => {
 	if (loadedAt && Date.now() - loadedAt < cacheTtl) return { ...config };
-	config = normalizeSystemConfig(await store.get('system-config'));
+	config = normalizeSystemConfig(await store.get('system_config'));
 	loadedAt = Date.now();
 	return { ...config };
 };
@@ -64,7 +64,7 @@ export const getSystemConfig = () => ({ ...config });
 
 export const saveSystemConfig = async (value: unknown) => {
 	config = normalizeSystemConfig(value);
-	await store.put('system-config', config);
+	await store.put('system_config', config);
 	loadedAt = Date.now();
 	return { ...config };
 };

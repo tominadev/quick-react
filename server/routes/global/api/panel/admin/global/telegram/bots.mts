@@ -16,7 +16,7 @@ const columns = [
 	{ dataIndex: 'id', title: 'ID', dataType: 'int' as const },
 	{ dataIndex: 'created_at', title: '创建时间', dataType: 'js_timestamp' as const, dayjsFormat: 'YYYY-MM-DD HH:mm:ss' },
 	{ dataIndex: 'updated_at', title: '更新时间', dataType: 'js_timestamp' as const, dayjsFormat: 'YYYY-MM-DD HH:mm:ss' },
-	{ dataIndex: 'name', title: '名称', component: 'textbox', rules: [{ required: true, message: '请输入名称' }] },
+	{ dataIndex: 'title', title: '名称', component: 'textbox', rules: [{ required: true, message: '请输入名称' }] },
 	{ dataIndex: 'bot_token', title: 'Bot Token', component: 'textbox', inputType: 'password', hideInTable: true, placeholder: '留空表示保持原值', form: { create: { placeholder: '新增时必填', rules: [{ required: true, message: '请输入 Bot Token' }] } } },
 	{ dataIndex: 'bot_username', title: 'Bot Username' },
 	{ dataIndex: 'secret_token', title: 'Secret Token', component: 'textbox', inputType: 'password', hideInTable: true, placeholder: '留空表示保持原值', form: { create: { placeholder: '留空由系统生成' } } },
@@ -25,7 +25,7 @@ const columns = [
 
 type BotRow = {
 	id: number;
-	name: string;
+	title: string;
 	bot_token: string;
 	bot_username: string;
 	secret_token: string;
@@ -58,7 +58,7 @@ const validatePassportHost = async (c: Parameters<ApiHandler>[0], database: Data
 
 const publicRow = (row: BotRow) => ({
 	id: row.id,
-	name: row.name,
+	title: row.title,
 	bot_username: row.bot_username,
 	webhook_hostname: row.webhook_hostname,
 	status: row.status,
@@ -69,7 +69,7 @@ const publicRow = (row: BotRow) => ({
 // Keep the API field names stable while reading the canonical short fields from the table.
 const botColumns = {
 	id: 'id',
-	name: 'name',
+	title: 'title',
 	bot_token: 'token',
 	bot_username: 'username',
 	secret_token: 'secret_token',
@@ -120,7 +120,7 @@ const handler: ApiHandler = async (c, next, params) => {
 		catch (error) { return apiMessage(c, 502, error instanceof Error ? error.message : 'Bot Token 校验失败'); }
 		try {
 			const now = Date.now();
-			await runSql(database, sql({ database }).insert('global_telegram_bots', { name, token, username: identity.username, secret_token: secretToken, webhook_hostname: hostname, status }));
+			await runSql(database, sql({ database }).insert('global_telegram_bots', { title: name, token, username: identity.username, secret_token: secretToken, webhook_hostname: hostname, status }));
 		} catch { return apiMessage(c, 409, '机器人名称、Token 或 Username 已存在'); }
 		const created = await firstSql<{ id: number }>(database, sql({ database }).select({ table: 'global_telegram_bots', columns: { id: 'id' }, where: [{ column: 'token', value: token }] }));
 		if (!created) return apiMessage(c, 500, '机器人创建后无法读取');
@@ -160,8 +160,8 @@ const handler: ApiHandler = async (c, next, params) => {
 		const current = await loadBot(database, id);
 		if (!current) return apiMessage(c, 404, '机器人不存在');
 		const body = await parseBody(c);
-		const changed = getChangedFields(body, ['name', 'bot_token', 'secret_token', 'webhook_hostname', 'status']);
-		const name = changed.has('name') ? text(body.name) : current.name;
+		const changed = getChangedFields(body, ['title', 'bot_token', 'secret_token', 'webhook_hostname', 'status']);
+		const name = changed.has('title') ? text(body.title) : current.title;
 		const token = changed.has('bot_token') && text(body.bot_token) ? text(body.bot_token) : current.bot_token;
 		const secretToken = changed.has('secret_token') && text(body.secret_token) ? text(body.secret_token) : current.secret_token;
 		const hostname = changed.has('webhook_hostname') ? text(body.webhook_hostname) : current.webhook_hostname;
@@ -179,7 +179,7 @@ const handler: ApiHandler = async (c, next, params) => {
 			else if (current.status === statusValues.enabled || token !== current.bot_token) await deleteTelegramWebhook(current.bot_token);
 			if (token !== current.bot_token && current.status === statusValues.enabled) await deleteTelegramWebhook(current.bot_token).catch(() => undefined);
 		} catch (error) { return apiMessage(c, 502, error instanceof Error ? error.message : 'Webhook 更新失败'); }
-		await runOperationSql(c, database, sql({ database }).update('global_telegram_bots', { name, token, username, secret_token: secretToken, webhook_hostname: hostname, status }, { id }));
+		await runOperationSql(c, database, sql({ database }).update('global_telegram_bots', { title: name, token, username, secret_token: secretToken, webhook_hostname: hostname, status }, { id }));
 		return apiMessage(c, 200, status === statusValues.enabled ? '机器人已保存并更新 Webhook' : '机器人已停用并删除 Webhook');
 	}
 	if (c.req.method === 'DELETE') {

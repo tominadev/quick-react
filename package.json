@@ -56,7 +56,8 @@
 		"schema:verify": "node scripts/verify-prisma-migrations.mjs",
 		"schema:check": "node scripts/schema-repair.mjs --check",
 		"schema:repair": "node scripts/schema-repair.mjs",
-		"test": "node esbuild.cjs"
+		"test": "node esbuild.cjs",
+		"test:naming": "node scripts/test-naming-convention.mjs"
 	},
 	"repository": {
 		"type": "git",

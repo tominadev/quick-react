@@ -42,11 +42,11 @@ try {
 	const globalDatabase = new DatabaseSync(globalFile);
 	const now = Date.now();
 	globalDatabase.prepare("INSERT INTO global_site_hosts (hostname, site_key, status, created_at) VALUES ('accounts.split.test', 'passport', 'enabled', ?)").run(now);
-	globalDatabase.prepare(`INSERT INTO global_cloud_credentials (id, name, provider, access_key_id, access_key_secret, status, created_at, updated_at)
+	globalDatabase.prepare(`INSERT INTO global_cloud_credentials (id, title, provider, access_key_id, access_key_secret, status, created_at, updated_at)
 		VALUES (91, 'split-email', 'aliyun', 'mail-key', 'mail-secret', 'enabled', ?, ?)`).run(now, now);
 	globalDatabase.prepare(`INSERT INTO global_cloud_email_channels (id, cloud_credential_id, region, account_name, from_alias, reply_to_address, status, created_at, updated_at)
 		VALUES (92, 91, 'cn-hangzhou', 'noreply@example.com', 'Accounts', 0, 'enabled', ?, ?)`).run(now, now);
-	globalDatabase.prepare(`INSERT INTO global_cloud_email_templates (id, key, type, name, subject, body_text, body_html, status, created_at, updated_at)
+	globalDatabase.prepare(`INSERT INTO global_cloud_email_templates (id, key, type, title, subject, body_text, body_html, status, created_at, updated_at)
 		VALUES (93, 'email_verification_split', 'email_verification', '分库邮箱验证码', '验证码 {{code}}', '验证码：{{code}}', '<p>验证码：{{code}}</p>', 'enabled', ?, ?)`).run(now, now);
 	globalDatabase.prepare(`INSERT INTO global_cloud_email_template_publications (template_id, cloud_credential_id, region, provider_template_id, content_hash, status, created_at, updated_at)
 		VALUES (93, 91, 'cn-hangzhou', 'split-template', 'test', 'ready', ?, ?)`).run(now, now);

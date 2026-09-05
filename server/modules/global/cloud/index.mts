@@ -67,7 +67,7 @@ export type CloudEmailTemplate = {
 	id: number;
 	template_key: string;
 	template_type: string;
-	name: string;
+	title: string;
 	subject: string;
 	body_text: string;
 	body_html: string;

@@ -9,7 +9,7 @@ export type AccountsOidcClientConfig = { enabled: boolean; issuer: string; clien
  * - `both`：已接入，但站点设置里开了「保留本站登录」，两条路径并存。
  */
 export type AccountsLoginMode = 'local' | 'oidc' | 'both';
-export const accountsOidcConfigKey = 'accounts-oidc-client';
+export const accountsOidcConfigKey = 'accounts_oidc_client';
 export const defaultAccountsOidcConfig: AccountsOidcClientConfig = { enabled: false, issuer: '', clientId: '', clientSecret: '' };
 
 export const normalizeAccountsOidcConfig = (value: unknown, previous = defaultAccountsOidcConfig): AccountsOidcClientConfig => {

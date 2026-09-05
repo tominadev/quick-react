@@ -1,5 +1,5 @@
 import assert from 'node:assert/strict';
-import { mkdtemp, readFile, rm } from 'node:fs/promises';
+import { mkdtemp, readdir, readFile, rm } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join, resolve } from 'node:path';
 import { DatabaseSync } from 'node:sqlite';
@@ -61,17 +61,22 @@ const backup = {
 
 try {
 	const database = new DatabaseSync(databaseFile);
-	database.exec(await readFile(join(projectDirectory, 'migrations/global/0001_prisma_schema.sql'), 'utf8'));
-	database.exec(await readFile(join(projectDirectory, 'migrations/base/0001_prisma_schema.sql'), 'utf8'));
-	database.exec(await readFile(join(projectDirectory, 'migrations/passport/0001_prisma_schema.sql'), 'utf8'));
-	database.exec("INSERT INTO global_sites (created_at, updated_at, key, name, base_site_key, dsn, status, migration_status, is_default, is_system) VALUES (0, 0, 'global', '全局控制面', 'base', '', 'enabled', 'ready', 1, 1)");
+	// 按顺序跑完每个站点的全部迁移，不能只跑 0001：只建基线的话，后续迁移改过的列名
+	// 在这里还是旧的，测试造出来的库和真实全新安装对不上。
+	for (const site of ['global', 'base', 'passport']) {
+		const directory = join(projectDirectory, 'migrations', site);
+		for (const file of (await readdir(directory)).filter((name) => name.endsWith('.sql')).sort()) {
+			database.exec(await readFile(join(directory, file), 'utf8'));
+		}
+	}
+	database.exec("INSERT INTO global_sites (created_at, updated_at, key, title, base_site_key, dsn, status, migration_status, is_default, is_system) VALUES (0, 0, 'global', '全局控制面', 'base', '', 'enabled', 'ready', 1, 1)");
 	database.exec("INSERT INTO base_bootstrap (created_at, updated_at, key, value) VALUES (0, 0, 'initial_admin', 'open')");
-	database.prepare(`INSERT INTO global_sites (key, name, base_site_key, dsn, status, migration_status, is_default, is_system)
+	database.prepare(`INSERT INTO global_sites (key, title, base_site_key, dsn, status, migration_status, is_default, is_system)
 		VALUES ('passport', 'Passport', 'base', '', 'enabled', 'ready', 0, 1)`).run();
 	database.prepare(`INSERT INTO global_site_hosts (hostname, site_key, status, created_at)
 		VALUES ('passport.example.com', 'passport', 'enabled', 1)`).run();
 	for (const id of [7, 8]) database.prepare(`INSERT INTO global_telegram_bots
-		(id, name, token, username, secret_token, webhook_hostname, status, created_at, updated_at)
+		(id, title, token, username, secret_token, webhook_hostname, status, created_at, updated_at)
 		VALUES (?, ?, ?, ?, ?, 'passport.example.com', 'disabled', 1, 1)`).run(id, `bot-${id}`, `token-${id}`, `bot_${id}`, `secret-${id}`);
 	database.close();
 

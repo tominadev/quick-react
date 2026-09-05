@@ -4,7 +4,8 @@ import { siteProvidesApi } from './navigation.mjs';
 
 export type SiteRecord = {
 	siteKey: string;
-	name: string;
+	/** 站点的显示名。列名与对外字段都叫 title：name 一律留给英文技术名。 */
+	title: string;
 	baseSiteKey: string | null;
 	dsn: string;
 	databaseBinding: string;
@@ -22,7 +23,7 @@ export type SiteRequestContext = SiteRecord & {
 
 type SiteRow = {
 	site_key: string;
-	name: string;
+	title: string;
 	base_site_key: string | null;
 	dsn: string;
 	database_binding: string;
@@ -64,7 +65,7 @@ const normalizeStoredHostname = (value: string) => value.startsWith('*.')
 
 const createSiteRecord = (row: SiteRow): SiteRecord => ({
 	siteKey: row.site_key,
-	name: row.name,
+	title: row.title,
 	baseSiteKey: row.base_site_key,
 	dsn: row.dsn,
 	databaseBinding: row.database_binding,
@@ -100,7 +101,7 @@ export class SiteRouter {
 	constructor(private readonly database: DatabaseAdapter, private readonly ttlMs = 30_000) {}
 
 	private async loadSnapshot() {
-		const siteRows = await allSql<SiteRow>(this.database, sql({ database: this.database }).select({ table: 'global_sites', columns: { site_key: 'key', name: 'name', base_site_key: 'base_site_key', dsn: 'dsn', database_binding: 'database_binding', status: 'status', migration_status: 'migration_status', is_default: 'is_default', is_system: 'is_system' }, where: [{ column: 'status', value: 'enabled' }, { column: 'migration_status', value: 'ready' }] }));
+		const siteRows = await allSql<SiteRow>(this.database, sql({ database: this.database }).select({ table: 'global_sites', columns: { site_key: 'key', title: 'title', base_site_key: 'base_site_key', dsn: 'dsn', database_binding: 'database_binding', status: 'status', migration_status: 'migration_status', is_default: 'is_default', is_system: 'is_system' }, where: [{ column: 'status', value: 'enabled' }, { column: 'migration_status', value: 'ready' }] }));
 		const sites = new Map(siteRows.filter((row) => siteKeyPattern.test(row.site_key)).map((row) => [row.site_key, createSiteRecord(row)]));
 		for (const site of sites.values()) buildSiteChain(site, sites);
 

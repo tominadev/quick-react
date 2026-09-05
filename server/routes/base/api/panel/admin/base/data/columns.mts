@@ -18,7 +18,7 @@ const handler: ApiHandler = async (c, next, params) => {
 		if (!tableName) return apiMessage(c, 400, '请选择数据表');
 		const columns = await getColumns(database, tableName);
 		const column = columns.find((item) => item.name === params.id);
-		return column ? apiResponse(c, 200, { key: column.name, name: column.name, type: column.type || 'TEXT', notnull: Boolean(column.notnull), pk: Boolean(column.pk) }) : apiMessage(c, 404, '字段不存在');
+		return column ? apiResponse(c, 200, { name: column.name, type: column.type || 'TEXT', notnull: Boolean(column.notnull), pk: Boolean(column.pk) }) : apiMessage(c, 404, '字段不存在');
 	}
 	if (c.req.method !== 'GET') {
 		if (!tableName) return apiMessage(c, 400, '请选择数据表');
@@ -67,7 +67,7 @@ const handler: ApiHandler = async (c, next, params) => {
 	}
 	const result = await readTable(c.get('database'), 'columns', c.req.query('table'), c.req.query('pageNum'), c.req.query('pageSize'));
 	const { tables, editable: _, ...table } = result;
-	return apiResponse(c, 200, { table: { ...table, option: { rowKey: 'key', actions: databaseTableActions(true, { softDelete: false }), queryFields: databaseQueryFields(database, site.databaseTarget.kind === 'binding', tables) }, columns: [
+	return apiResponse(c, 200, { table: { ...table, option: { rowKey: 'name', actions: databaseTableActions(true, { softDelete: false }), queryFields: databaseQueryFields(database, site.databaseTarget.kind === 'binding', tables) }, columns: [
 		{ dataIndex: 'name', title: '字段名', component: 'textbox' },
 		{ dataIndex: 'type', title: '类型', component: 'select', options: databaseTypeOptions(database) },
 		{ dataIndex: 'notnull', title: '必填', component: 'switch' },

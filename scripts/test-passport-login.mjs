@@ -28,12 +28,12 @@ try {
 	const now = Date.now();
 	database.prepare(`INSERT INTO global_site_hosts (hostname, site_key, status, created_at) VALUES (?, 'passport', 'enabled', ?)`).run('passport.test', now);
 	database.prepare(`INSERT INTO global_site_hosts (hostname, site_key, status, created_at) VALUES (?, 'global', 'enabled', ?)`).run('global.test', now);
-	database.prepare(`INSERT INTO global_sites (key, name, base_site_key, dsn, status, migration_status, is_default, is_system)
+	database.prepare(`INSERT INTO global_sites (key, title, base_site_key, dsn, status, migration_status, is_default, is_system)
 		VALUES ('business', 'Business', 'base', '', 'enabled', 'ready', 0, 0)`).run();
 	database.prepare(`INSERT INTO global_site_hosts (hostname, site_key, status, created_at) VALUES (?, 'business', 'enabled', ?)`).run('business.test', now);
-	database.prepare(`INSERT INTO base_configs (created_at, updated_at, key, value) VALUES (?, ?, 'accounts-oidc-client', ?)`).run(now, now, JSON.stringify({ enabled: true, issuer: 'https://passport.test', clientId: 'shared-client', clientSecret: 'shared-secret' }));
+	database.prepare(`INSERT INTO base_configs (created_at, updated_at, key, value) VALUES (?, ?, 'accounts_oidc_client', ?)`).run(now, now, JSON.stringify({ enabled: true, issuer: 'https://passport.test', clientId: 'shared-client', clientSecret: 'shared-secret' }));
 	database.prepare(`INSERT INTO global_telegram_bots
-		(id, name, token, username, secret_token, webhook_hostname, status, created_at, updated_at)
+		(id, title, token, username, secret_token, webhook_hostname, status, created_at, updated_at)
 		VALUES (1, 'login-bot', '1:test-token', 'passport_login_bot', 'login-secret', 'passport.test', 'enabled', ?, ?)`).run(now, now);
 	const userId = '1000000000000000000';
 	database.prepare(`INSERT INTO passport_users (user_id, name, status, created_at, updated_at) VALUES (?, ?, 'enabled', ?, ?)`).run(userId, `passport_${userId}`, now, now)
@@ -75,7 +75,7 @@ const fingerprintData = JSON.stringify({ canvas_cyrb53: '4b5a6c7d8e9f', audio_cy
 	const switchDatabase = new DatabaseSync(process.env.DEFAULT_DATABASE_FILE);
 	// owner_tid 是 NOT NULL DEFAULT 1，两次写入落在同一个默认租户上，ON CONFLICT 正常命中。
 	const writeAccountsLogin = (enabled) => switchDatabase.prepare('INSERT INTO base_configs (created_at, updated_at, key, value) VALUES (?, ?, ?, ?) ON CONFLICT(key, owner_tid, deleted_at) DO UPDATE SET value = excluded.value, updated_at = excluded.updated_at')
-		.run(Date.now(), Date.now(), 'accounts-oidc-client', JSON.stringify({ enabled, issuer: 'https://passport.test', clientId: 'shared-client', clientSecret: 'shared-secret' }));
+		.run(Date.now(), Date.now(), 'accounts_oidc_client', JSON.stringify({ enabled, issuer: 'https://passport.test', clientId: 'shared-client', clientSecret: 'shared-secret' }));
 	writeAccountsLogin(false);
 	for (const host of ['passport.test', 'global.test', 'business.test']) {
 		const localForm = await (await request('/api/sign.php', { host })).json();

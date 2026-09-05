@@ -76,7 +76,7 @@ model base_tenants {
   owner_uid    BigInt?
   key          String
   @@unique([key, deleted_at])
-  name         String
+  title        String
   status       BaseTenantStatus @default(enabled)
 }
 
@@ -94,7 +94,7 @@ model base_branches {
   owner_uid    BigInt?
   key          String
   @@unique([owner_tid, key, deleted_at])
-  name         String
+  title        String
   status       BaseTenantStatus @default(enabled)
 }
 

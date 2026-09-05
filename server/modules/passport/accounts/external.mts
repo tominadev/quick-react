@@ -9,12 +9,12 @@ import { normalizePassportEmail } from '@server/modules/passport/identity.mjs';
 
 export type ExternalProviderId = 'google' | 'wechat';
 export type WechatMode = 'open_platform' | 'official_account';
-export type ExternalProvider = { id: ExternalProviderId; display_name: string; client_id: string; client_secret: string; wechat_mode: WechatMode; wechat_redirect_domain: string; status: string };
+export type ExternalProvider = { id: ExternalProviderId; title: string; client_id: string; client_secret: string; wechat_mode: WechatMode; wechat_redirect_domain: string; status: string };
 export type ExternalProfile = { subject: string; nickname: string; email?: string; raw: Record<string, unknown> };
 export type ExternalLoginState = { provider: ExternalProviderId; code_verifier: string; nonce: string; redirect_uri: string; oidc_request_id: string | null; expires_at: number; consumed_at: number | null };
 export type PendingExternalIdentity = { id_hash: string; provider: ExternalProviderId; subject: string; nickname: string; profile: string; status: string; expires_at: number };
 
-const providerColumns = { id: 'provider', display_name: 'display_name', client_id: 'client_id', client_secret: 'client_secret', wechat_mode: 'wechat_mode', wechat_redirect_domain: 'wechat_redirect_domain', status: 'status' } as const;
+const providerColumns = { id: 'provider', title: 'title', client_id: 'client_id', client_secret: 'client_secret', wechat_mode: 'wechat_mode', wechat_redirect_domain: 'wechat_redirect_domain', status: 'status' } as const;
 /** 能直接提供已验证邮箱的身份源：这些方式创建新账号时不需要再收邮箱验证码。 */
 export const providersWithVerifiedEmail = new Set<ExternalProviderId>(['google']);
 

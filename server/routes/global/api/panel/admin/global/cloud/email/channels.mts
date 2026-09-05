@@ -20,7 +20,7 @@ import { tableSort } from '@server/modules/base/query-options.mjs';
 
 const columns = [
 	{ dataIndex: 'id', title: 'ID', dataType: 'int' as const },
-	{ dataIndex: 'cloud_credential_id', title: '云凭据', component: 'select', tableDisplay: 'reference', tableDisplayTextField: 'credential_name', rules: [{ required: true, message: '请选择云凭据' }] },
+	{ dataIndex: 'cloud_credential_id', title: '云凭据', component: 'select', tableDisplay: 'reference', tableDisplayTextField: 'credential_title', rules: [{ required: true, message: '请选择云凭据' }] },
 	{ dataIndex: 'region', title: 'Region', component: 'select', dependsOn: 'cloud_credential_id', rules: [{ required: true, message: '请选择 Region' }] },
 	{ dataIndex: 'account_name', title: '发信地址', component: 'select', remoteOptions: { action: 'discover', dependencies: ['cloud_credential_id', 'region'], clearFields: ['reply_to_address'] }, rules: [{ required: true, message: '请选择发信地址' }] },
 	{ dataIndex: 'from_alias', title: '发信人名称', component: 'textbox', rules: [{ required: true, message: '请输入发信人名称' }] },
@@ -38,11 +38,11 @@ const text = (value: unknown) => typeof value === 'string' ? value.trim() : '';
 const booleanValue = (value: unknown) => value === true || value === 1 || value === '1';
 const emailPattern = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
 const credentialOptions = async (database: DatabaseAdapter) => {
-	const rows = await allSql<{ id: number; name: string; provider: string }>(database, sql({ database }).select({ table: 'global_cloud_credentials', columns: { id: 'id', name: 'name', provider: 'provider' }, where: [{ column: 'status', value: 'enabled' }], orderBy: [{ column: 'provider' }, { column: 'name' }] }));
+	const rows = await allSql<{ id: number; title: string; provider: string }>(database, sql({ database }).select({ table: 'global_cloud_credentials', columns: { id: 'id', title: 'title', provider: 'provider' }, where: [{ column: 'status', value: 'enabled' }], orderBy: [{ column: 'provider' }, { column: 'title' }] }));
 	const names = new Map<string, string>(cloudProviderOptions.map((item) => [item.value, item.text]));
 	const enabled = rows.filter((item) => providerSupportsEmailPush(item.provider));
 	return {
-		credentials: enabled.map((item) => ({ value: String(item.id), text: `${item.name} (${names.get(item.provider) ?? item.provider})` })),
+		credentials: enabled.map((item) => ({ value: String(item.id), text: `${item.title} (${names.get(item.provider) ?? item.provider})` })),
 		regions: enabled.flatMap((credential) => getCloudEmailRegionOptions(credential.provider).map((region) => ({
 			value: region.value, text: `${region.text}（${region.value}）`, parentValue: String(credential.id),
 		}))),
@@ -84,7 +84,7 @@ const handler: ApiHandler = async (c, next, params) => {
 	}
 	if (!params.id && c.req.method === 'GET') {
 		const [rows, options] = await Promise.all([
-			allSql<Record<string, unknown>>(database, sql({ database }).select({ table: 'global_cloud_email_channels', alias: 'ch', columns: { id: 'ch.id', cloud_credential_id: 'ch.cloud_credential_id', credential_name: 'c.name', provider: 'c.provider', region: 'ch.region', account_name: 'ch.account_name', from_alias: 'ch.from_alias', reply_to_address: 'ch.reply_to_address', status: 'ch.status', created_at: 'ch.created_at', updated_at: 'ch.updated_at' }, joins: [{ table: 'global_cloud_credentials', alias: 'c', left: 'c.id', right: 'ch.cloud_credential_id' }], sort: tableSort(c), orderBy: [{ column: 'ch.id', direction: 'DESC' }] })),
+			allSql<Record<string, unknown>>(database, sql({ database }).select({ table: 'global_cloud_email_channels', alias: 'ch', columns: { id: 'ch.id', cloud_credential_id: 'ch.cloud_credential_id', credential_title: 'c.title', provider: 'c.provider', region: 'ch.region', account_name: 'ch.account_name', from_alias: 'ch.from_alias', reply_to_address: 'ch.reply_to_address', status: 'ch.status', created_at: 'ch.created_at', updated_at: 'ch.updated_at' }, joins: [{ table: 'global_cloud_credentials', alias: 'c', left: 'c.id', right: 'ch.cloud_credential_id' }], sort: tableSort(c), orderBy: [{ column: 'ch.id', direction: 'DESC' }] })),
 			credentialOptions(database),
 		]);
 		const tableColumns = columns.map((column) => column.dataIndex === 'cloud_credential_id' ? { ...column, options: options.credentials }
@@ -115,13 +115,13 @@ const handler: ApiHandler = async (c, next, params) => {
 		const channel = await loadCloudEmailTarget(database, Number(params.id));
 		if (!channel) return apiMessage(c, 404, '邮件通道不存在或已停用');
 		const [templates, publications] = await Promise.all([
-			allSql<CloudEmailTemplate>(database, sql({ database }).select({ table: 'global_cloud_email_templates', columns: { id: 'id', template_key: 'key', template_type: 'type', name: 'name', subject: 'subject', body_text: 'body_text', body_html: 'body_html', status: 'status' }, where: [{ column: 'status', value: 'enabled' }, { column: 'type', value: 'email_verification' }], orderBy: [{ column: 'name' }, { column: 'key' }] })),
+			allSql<CloudEmailTemplate>(database, sql({ database }).select({ table: 'global_cloud_email_templates', columns: { id: 'id', template_key: 'key', template_type: 'type', title: 'title', subject: 'subject', body_text: 'body_text', body_html: 'body_html', status: 'status' }, where: [{ column: 'status', value: 'enabled' }, { column: 'type', value: 'email_verification' }], orderBy: [{ column: 'title' }, { column: 'key' }] })),
 			allSql<{ template_id: number; status: string }>(database, sql({ database }).select({ table: 'global_cloud_email_template_publications', columns: { template_id: 'template_id', status: 'status' }, where: [{ column: 'cloud_credential_id', value: channel.cloud_credential_id }, { column: 'region', value: channel.region }] })),
 		]);
 		const publicationStatuses = new Map(publications.map((item) => [Number(item.template_id), item.status]));
 		return apiResponse(c, 200, { options: templates.map((item) => ({ ...item, publication_status: publicationStatuses.get(Number(item.id)) })).filter((item) => !validateCloudEmailTemplateVariables(item.template_type, item)
 			&& (channel.provider !== 'tencent' || item.publication_status === 'ready'))
-			.map((item) => ({ value: String(item.id), text: `${item.name} (${item.template_key})` })) });
+			.map((item) => ({ value: String(item.id), text: `${item.title} (${item.template_key})` })) });
 	}
 	if (params.id && c.req.method === 'GET') {
 		const row = await firstSql<Record<string, unknown>>(database, sql({ database }).select({ table: 'global_cloud_email_channels', where: [{ column: 'id', value: Number(params.id) }] }));
@@ -132,7 +132,7 @@ const handler: ApiHandler = async (c, next, params) => {
 		if (!emailPattern.test(to) || !Number.isInteger(templateId) || !/^\d{6}$/.test(code)) return apiMessage(c, 400, '收件人、验证码模板或 6 位数字验证码不合法');
 		const [target, template] = await Promise.all([
 			loadCloudEmailTarget(database, Number(params.id)),
-			firstSql<CloudEmailTemplate>(database, sql({ database }).select({ table: 'global_cloud_email_templates', columns: { id: 'id', template_key: 'key', template_type: 'type', name: 'name', subject: 'subject', body_text: 'body_text', body_html: 'body_html', status: 'status' }, where: [{ column: 'id', value: templateId }, { column: 'type', value: 'email_verification' }, { column: 'status', value: 'enabled' }] })),
+			firstSql<CloudEmailTemplate>(database, sql({ database }).select({ table: 'global_cloud_email_templates', columns: { id: 'id', template_key: 'key', template_type: 'type', title: 'title', subject: 'subject', body_text: 'body_text', body_html: 'body_html', status: 'status' }, where: [{ column: 'id', value: templateId }, { column: 'type', value: 'email_verification' }, { column: 'status', value: 'enabled' }] })),
 		]);
 		if (!target || !template) return apiMessage(c, 404, '邮件通道或启用的验证码模板不存在');
 		const variableError = validateCloudEmailTemplateVariables(template.template_type, template);

@@ -398,7 +398,7 @@ export const purgeAuditRetention = async (database: DatabaseAdapter) => {
 	}));
 	let removed = 0;
 	for (const tenant of tenants) {
-		const settings = normalizeSiteSettings(await createDatabaseConfigStore(withDatabaseActors(database, { subjectRoles: null }), tenant.id).get('site-settings'));
+		const settings = normalizeSiteSettings(await createDatabaseConfigStore(withDatabaseActors(database, { subjectRoles: null }), tenant.id).get('site_settings'));
 		removed += await purgeExpiredAuditEntries(database, settings.auditRetentionDays, { tenantId: tenant.id });
 	}
 	return removed;

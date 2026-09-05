@@ -24,7 +24,7 @@ const handler: ApiHandler = async (c, _next, params) => {
 			table: {
 				option: {
 					rowKey: 'identity_key',
-					actions: { toolbar: providers.map((provider) => ({ key: `bind:${provider.id}`, label: `绑定${provider.display_name}` })),
+					actions: { toolbar: providers.map((provider) => ({ key: `bind:${provider.id}`, label: `绑定${provider.title}` })),
 						row: [{ key: 'delete', label: '解绑', confirm: '确认解绑 {provider_label} 身份（{detail}）吗？解绑后将不能再使用这个账号登录。' }] },
 				},
 				columns,

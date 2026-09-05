@@ -29,7 +29,7 @@ const serverKinds = ['mysql', 'postgresql'];
 const columns = [
 	{ dataIndex: 'id', title: 'ID', dataType: 'int' as const },
 	{ dataIndex: 'site_key', title: '站点标识', component: 'textbox', rules: [{ required: true, message: '请输入站点标识' }], form: { edit: false } },
-	{ dataIndex: 'name', title: '名称', component: 'textbox' },
+	{ dataIndex: 'title', title: '名称', component: 'textbox' },
 	{ dataIndex: 'base_site_key', title: '父站点', component: 'select', placeholder: '搜索并选择父站点', rules: [{ required: true, message: '请选择父站点' }] },
 	{ dataIndex: 'db_kind', title: '数据库类型', component: 'select', options: kindOptions, hideInTable: true, rules: [{ required: true, message: '请选择数据库类型' }] },
 	{ dataIndex: 'db_file', title: 'SQLite 文件', component: 'textbox', hideInTable: true, dependsOn: 'db_kind', parentValues: ['sqlite'], placeholder: 'database/passport.sqlite', extra: '相对路径基于项目目录。' },
@@ -62,7 +62,7 @@ const publicSite = (row: Record<string, unknown>) => {
 };
 
 const siteColumns = {
-	id: 'id', site_key: 'key', name: 'name', base_site_key: 'base_site_key', dsn: 'dsn', database_binding: 'database_binding',
+	id: 'id', site_key: 'key', title: 'title', base_site_key: 'base_site_key', dsn: 'dsn', database_binding: 'database_binding',
 	status: 'status', migration_status: 'migration_status', is_default: 'is_default', is_system: 'is_system', passport_sso_enabled: 'passport_sso_enabled',
 } as const;
 
@@ -91,7 +91,7 @@ const list = async (c: Parameters<ApiHandler>[0]) => {
 		{ value: 'base', text: '基础层 (base)' },
 		...rows
 			.filter((site) => site.is_system !== 1 && site.migration_status === 'ready')
-			.map((site) => ({ value: String(site.site_key), text: `${String(site.name)} (${String(site.site_key)})` })),
+			.map((site) => ({ value: String(site.site_key), text: `${String(site.title)} (${String(site.site_key)})` })),
 	];
 	const tableColumns = columns.map((column) => column.dataIndex === 'base_site_key' ? { ...column, options: parentOptions } : column);
 	return apiResponse(c, 200, { table: {
@@ -141,7 +141,7 @@ const handler: ApiHandler = async (c, next, params) => {
 		try { ({ dsn, databaseBinding } = buildDatabaseTarget(body)); }
 		catch (error) { return apiMessage(c, 400, error instanceof DatabaseTargetError ? error.message : '数据库配置不合法'); }
 		if (!await validateParent(database, siteKey, baseSiteKey)) return apiMessage(c, 400, '父站点不存在、不可继承或会形成循环');
-		await runSql(database, sql({ database }).insert('global_sites', { key: siteKey, name: String(body.name ?? siteKey).trim() || siteKey, base_site_key: baseSiteKey, dsn, database_binding: databaseBinding, status: 'disabled', migration_status: 'creating', is_default: 0, is_system: 0 }));
+		await runSql(database, sql({ database }).insert('global_sites', { key: siteKey, title: String(body.title ?? siteKey).trim() || siteKey, base_site_key: baseSiteKey, dsn, database_binding: databaseBinding, status: 'disabled', migration_status: 'creating', is_default: 0, is_system: 0 }));
 		let message = '站点已创建，请通过部署流程完成 migration';
 		if (c.env.MIGRATE_SITE) {
 			try {
@@ -220,7 +220,7 @@ const handler: ApiHandler = async (c, next, params) => {
 		if (!current) return apiMessage(c, 404, '站点不存在');
 		const body = await parseBody(c);
 		const targetFields = ['db_kind', 'db_file', 'db_host', 'db_port', 'db_name', 'db_user', 'db_password', 'database_binding'];
-		const changedFields = getChangedFields(body, ['name', 'base_site_key', 'status', ...targetFields]);
+		const changedFields = getChangedFields(body, ['title', 'base_site_key', 'status', ...targetFields]);
 		const status = changedFields.has('status') && allowedStatuses.has(String(body.status)) ? String(body.status) : undefined;
 		if (status === statusValues.enabled && current.migration_status !== 'ready') return apiMessage(c, 400, 'Migration 未完成，站点不可启用');
 		if (current.is_system && status === statusValues.disabled) return apiMessage(c, 400, '系统站点不可禁用');
@@ -241,7 +241,7 @@ const handler: ApiHandler = async (c, next, params) => {
 		const inheritanceChanged = nextParent !== (current.base_site_key || 'base');
 		if (current.is_system && targetChanged) return apiMessage(c, 400, '系统站点不可修改数据库目标');
 		const values: Record<string, unknown> = { base_site_key: nextParent };
-		if (changedFields.has('name') && typeof body.name === 'string') values.name = body.name.trim();
+		if (changedFields.has('title') && typeof body.title === 'string') values.title = body.title.trim();
 		if (dsn !== undefined) values.dsn = dsn;
 		if (databaseBinding !== undefined) values.database_binding = databaseBinding;
 		if (targetChanged || inheritanceChanged) {

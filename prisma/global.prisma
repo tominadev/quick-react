@@ -34,7 +34,7 @@ model global_sites {
   owner_uid     BigInt?
   key              String
   @@unique([key, deleted_at])
-  name             String
+  title            String
   base_site_key    String?
   dsn              String  @default("")
   dsn_password     String?
@@ -72,8 +72,8 @@ model global_cloud_credentials {
   owner_tid     BigInt @default(1)
   owner_bid     BigInt @default(1)
   owner_uid     BigInt?
-  name              String
-  @@unique([name, deleted_at])
+  title             String
+  @@unique([title, deleted_at])
   provider          String
   account_id        String @default("")
   access_key_id     String @default("")
@@ -150,8 +150,8 @@ model global_telegram_bots {
   owner_tid     BigInt @default(1)
   owner_bid     BigInt @default(1)
   owner_uid     BigInt?
-  name             String
-  @@unique([name, deleted_at])
+  title            String
+  @@unique([title, deleted_at])
   token            String
   @@unique([token, deleted_at])
   username         String
@@ -196,7 +196,7 @@ model global_cloud_email_templates {
   key           String
   @@unique([key, deleted_at])
   type          String @default("email_verification")
-  name          String
+  title         String
   subject       String
   body_text     String
   body_html     String

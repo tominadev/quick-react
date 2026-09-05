@@ -47,8 +47,8 @@ const seedBaseDatabase = async (database: DatabaseAdapter) => {
 	await runSql(database, sql({ database }).ignoreInsert('base_bootstrap', ['key', 'owner_tid'], { key: 'initial_admin', value: 'open' }));
 	// 默认租户与它的主分站：主机名解析不到时一律落到这一对，单租户单分站部署因此开箱即用。
 	// 每个域名都必须绑定分站，所以每个租户都要有主分站——新建租户时同样要建一个。
-	await runSql(database, sql({ database }).ignoreInsert('base_tenants', ['key'], { key: 'default', name: '默认租户', status: 'enabled' }));
-	await runSql(database, sql({ database }).ignoreInsert('base_branches', ['key', 'owner_tid'], { key: 'main', name: '主分站', status: 'enabled' }));
+	await runSql(database, sql({ database }).ignoreInsert('base_tenants', ['key'], { key: 'default', title: '默认租户', status: 'enabled' }));
+	await runSql(database, sql({ database }).ignoreInsert('base_branches', ['key', 'owner_tid'], { key: 'main', title: '主分站', status: 'enabled' }));
 };
 
 export const migrateDefaultDatabase = async (database: DatabaseAdapter, migrationsRoot: string) => {
@@ -56,7 +56,7 @@ export const migrateDefaultDatabase = async (database: DatabaseAdapter, migratio
 	// Prisma generates schema only. Keep the two required bootstrap rows as
 	// runtime seed data so a freshly generated database remains usable.
 	await runSql(database, sql({ database }).ignoreInsert('global_sites', ['key'], {
-		key: 'global', name: '全局控制面', base_site_key: 'base', dsn: '', database_binding: '',
+		key: 'global', title: '全局控制面', base_site_key: 'base', dsn: '', database_binding: '',
 		status: 'enabled', migration_status: 'ready', is_default: 1, is_system: 1,
 	}));
 	await seedBaseDatabase(database);
@@ -75,15 +75,15 @@ export const initializeCodeSites = async (
 ) => {
 	for (const siteKey of codeSites) {
 		if (!siteKeyPattern.test(siteKey) || siteKey === 'base') continue;
-		const name = siteNames[siteKey] || siteKey;
-		const existing = await firstSql<{ name: string }>(database, sql({ database }).select({ table: 'global_sites', columns: { name: 'name' }, where: [{ column: 'key', value: siteKey }] }));
+		const title = siteNames[siteKey] || siteKey;
+		const existing = await firstSql<{ title: string }>(database, sql({ database }).select({ table: 'global_sites', columns: { title: 'title' }, where: [{ column: 'key', value: siteKey }] }));
 		if (!existing) {
-			await runSql(database, sql({ database }).insert('global_sites', { key: siteKey, name, base_site_key: 'base', dsn: '', database_binding: '', status: 'enabled', migration_status: 'ready', is_default: 0, is_system: 0 }));
+			await runSql(database, sql({ database }).insert('global_sites', { key: siteKey, title, base_site_key: 'base', dsn: '', database_binding: '', status: 'enabled', migration_status: 'ready', is_default: 0, is_system: 0 }));
 			continue;
 		}
 		// 仅修正过去由首个导航项误填的默认名称，不覆盖主人手工设置的站点名称。
-		if (legacySiteNames[siteKey] && existing.name === legacySiteNames[siteKey] && existing.name !== name) {
-			await runSql(database, sql({ database }).update('global_sites', { name }, { key: siteKey }));
+		if (legacySiteNames[siteKey] && existing.title === legacySiteNames[siteKey] && existing.title !== title) {
+			await runSql(database, sql({ database }).update('global_sites', { title }, { key: siteKey }));
 		}
 	}
 };
