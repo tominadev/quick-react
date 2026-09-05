@@ -1,0 +1,244 @@
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+enum GlobalEnabledStatus {
+  enabled
+  disabled
+}
+
+enum GlobalMigrationStatus {
+  creating
+  migrating
+  ready
+  failed
+}
+
+enum GlobalPublicationStatus {
+  reviewing
+  ready
+  rejected
+  failed
+}
+
+model global_sites {
+  id               BigInt @id @default(autoincrement())
+  created_at       BigInt @default(0)
+  updated_at       BigInt @default(0)
+  deleted_at       BigInt @default(0)
+  created_duid     BigInt?
+  updated_duid     BigInt?
+  owner_tid     BigInt @default(1)
+  owner_bid     BigInt @default(1)
+  owner_uid     BigInt?
+  key              String
+  @@unique([key, deleted_at])
+  name             String
+  base_site_key    String?
+  dsn              String  @default("")
+  dsn_password     String?
+  database_binding String  @default("")
+  status           GlobalEnabledStatus  @default(enabled)
+  migration_status GlobalMigrationStatus @default(ready)
+  is_default       Int     @default(0)
+  is_system        Int     @default(0)
+  passport_sso_enabled Int  @default(0)
+}
+
+model global_site_hosts {
+  id           BigInt @id @default(autoincrement())
+  created_at   BigInt
+  updated_at   BigInt @default(0)
+  deleted_at   BigInt @default(0)
+  created_duid BigInt?
+  updated_duid BigInt?
+  owner_tid     BigInt @default(1)
+  owner_bid     BigInt @default(1)
+  owner_uid     BigInt?
+  hostname     String
+  @@unique([hostname, deleted_at])
+  site_key     String
+  status       GlobalEnabledStatus @default(enabled)
+}
+
+model global_cloud_credentials {
+  id                BigInt @id @default(autoincrement())
+  created_at        BigInt
+  updated_at        BigInt
+  deleted_at BigInt @default(0)
+  created_duid      BigInt?
+  updated_duid      BigInt?
+  owner_tid     BigInt @default(1)
+  owner_bid     BigInt @default(1)
+  owner_uid     BigInt?
+  name              String
+  @@unique([name, deleted_at])
+  provider          String
+  account_id        String @default("")
+  access_key_id     String @default("")
+  access_key_secret String @default("")
+  status            GlobalEnabledStatus @default(enabled)
+}
+
+model global_cloud_object_storage_buckets {
+  id                  BigInt @id @default(autoincrement())
+  created_at          BigInt
+  updated_at          BigInt
+  deleted_at BigInt @default(0)
+  created_duid        BigInt?
+  updated_duid        BigInt?
+  owner_tid     BigInt @default(1)
+  owner_bid     BigInt @default(1)
+  owner_uid     BigInt?
+  cloud_credential_id BigInt
+  endpoint            String
+  region              String @default("")
+  bucket              String
+  path_style          Int    @default(0)
+  public_base_url     String @default("")
+  extra_config        String @default("{}")
+  status              GlobalEnabledStatus @default(enabled)
+
+  @@unique([cloud_credential_id, endpoint, bucket, deleted_at])
+}
+
+model global_cloud_object_storage_bindings {
+  id         BigInt @id @default(autoincrement())
+  created_at BigInt
+  updated_at BigInt
+  deleted_at BigInt @default(0)
+  created_duid BigInt?
+  updated_duid BigInt?
+  owner_tid     BigInt @default(1)
+  owner_bid     BigInt @default(1)
+  owner_uid     BigInt?
+  site_key   String
+  bucket_id  BigInt
+  key_prefix String @default("")
+  status     GlobalEnabledStatus @default(enabled)
+
+  @@unique([id, site_key, deleted_at])
+  @@unique([site_key, bucket_id, key_prefix, deleted_at])
+}
+
+model global_cloud_object_storage_binding_purposes {
+  id         BigInt @id @default(autoincrement())
+  created_at BigInt @default(0)
+  updated_at BigInt @default(0)
+  deleted_at BigInt @default(0)
+  created_duid BigInt?
+  updated_duid BigInt?
+  owner_tid     BigInt @default(1)
+  owner_bid     BigInt @default(1)
+  owner_uid     BigInt?
+  binding_id BigInt
+  site_key   String
+  purpose    String
+  is_default Int @default(0)
+
+  @@unique([binding_id, purpose, deleted_at])
+}
+
+model global_telegram_bots {
+  id               BigInt @id @default(autoincrement())
+  created_at       BigInt
+  updated_at       BigInt
+  deleted_at BigInt @default(0)
+  created_duid     BigInt?
+  updated_duid     BigInt?
+  owner_tid     BigInt @default(1)
+  owner_bid     BigInt @default(1)
+  owner_uid     BigInt?
+  name             String
+  @@unique([name, deleted_at])
+  token            String
+  @@unique([token, deleted_at])
+  username         String
+  @@unique([username, deleted_at])
+  secret_token     String
+  webhook_hostname String
+  status           GlobalEnabledStatus @default(enabled)
+
+  @@index([webhook_hostname])
+}
+
+model global_cloud_email_channels {
+  id                  BigInt @id @default(autoincrement())
+  created_at          BigInt
+  updated_at          BigInt
+  deleted_at BigInt @default(0)
+  created_duid        BigInt?
+  updated_duid        BigInt?
+  owner_tid     BigInt @default(1)
+  owner_bid     BigInt @default(1)
+  owner_uid     BigInt?
+  cloud_credential_id BigInt
+  region              String
+  account_name        String
+  from_alias          String
+  reply_to_address    Int    @default(0)
+  status              GlobalEnabledStatus @default(enabled)
+
+  @@unique([cloud_credential_id, region, account_name, deleted_at])
+}
+
+model global_cloud_email_templates {
+  id            BigInt @id @default(autoincrement())
+  created_at    BigInt
+  updated_at    BigInt
+  deleted_at BigInt @default(0)
+  created_duid  BigInt?
+  updated_duid  BigInt?
+  owner_tid     BigInt @default(1)
+  owner_bid     BigInt @default(1)
+  owner_uid     BigInt?
+  key           String
+  @@unique([key, deleted_at])
+  type          String @default("email_verification")
+  name          String
+  subject       String
+  body_text     String
+  body_html     String
+  status        GlobalEnabledStatus @default(enabled)
+}
+
+model global_cloud_email_bindings {
+  id         BigInt @id @default(autoincrement())
+  created_at BigInt
+  updated_at BigInt
+  deleted_at BigInt @default(0)
+  created_duid BigInt?
+  updated_duid BigInt?
+  owner_tid     BigInt @default(1)
+  owner_bid     BigInt @default(1)
+  owner_uid     BigInt?
+  site_key   String
+  channel_id BigInt
+  template_id BigInt
+  purpose    String
+  is_default Int    @default(0)
+  status     GlobalEnabledStatus @default(enabled)
+
+  @@unique([site_key, channel_id, template_id, purpose, deleted_at])
+}
+
+model global_cloud_email_template_publications {
+  id                   BigInt @id @default(autoincrement())
+  created_at           BigInt
+  updated_at           BigInt
+  deleted_at BigInt @default(0)
+  created_duid         BigInt?
+  updated_duid         BigInt?
+  owner_tid     BigInt @default(1)
+  owner_bid     BigInt @default(1)
+  owner_uid     BigInt?
+  template_id          BigInt
+  cloud_credential_id  BigInt
+  region               String
+  provider_template_id String
+  content_hash         String @default("")
+  status               GlobalPublicationStatus
+
+  @@unique([template_id, cloud_credential_id, region, deleted_at])
+}

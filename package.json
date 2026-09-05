@@ -46,7 +46,7 @@
 		"test:change-audit": "node scripts/test-change-audit.mjs",
 		"import:legacy-passport": "node scripts/import-legacy-passport.mjs",
 		"migrate:sqlite": "node scripts/migrate-sqlite.mjs",
-		"prisma:migrations": "node scripts/generate-prisma-migrations.mjs && npm run schema:verify",
+		"prisma:migrations": "node scripts/generate-prisma-migrations.mjs",
 		"schema:verify": "node scripts/verify-prisma-migrations.mjs",
 		"schema:check": "node scripts/schema-repair.mjs --check",
 		"schema:repair": "node scripts/schema-repair.mjs",

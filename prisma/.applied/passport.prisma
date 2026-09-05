@@ -1,0 +1,717 @@
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+enum PassportAccountStatus {
+  enabled
+  disabled
+}
+
+enum PassportOtpStatus {
+  pending
+  expired
+  used
+}
+
+enum PassportTelegramUpdateStatus {
+  processing
+  completed
+  failed
+}
+
+enum PassportTelegramChoiceStatus {
+  pending
+  confirmed
+  cancelled
+  expired
+}
+
+enum PassportLoginChallengeStatus {
+  pending
+  approved
+  denied
+  consumed
+  expired
+}
+
+enum PassportSsoStatus {
+  pending
+  consumed
+  expired
+}
+
+enum PassportExternalPendingStatus {
+  pending
+  expired
+  completed
+}
+
+enum PassportQrStatus {
+  pending
+  authorized
+  consumed
+}
+
+enum PassportSigningKeyStatus {
+  active
+  retired
+}
+
+enum PassportDeviceStatus {
+  active
+  revoked
+}
+
+model passport_users {
+  id          BigInt @id @default(autoincrement())
+  created_at  BigInt
+  updated_at  BigInt
+  deleted_at BigInt @default(0)
+  created_duid BigInt?
+  updated_duid BigInt?
+  owner_tid     BigInt @default(1)
+  owner_bid     BigInt @default(1)
+  owner_uid     BigInt?
+  user_id     BigInt
+  @@unique([user_id, deleted_at])
+  name        String
+  @@unique([name, deleted_at])
+  status      PassportAccountStatus @default(enabled)
+}
+
+model passport_user_email_otps {
+  id            BigInt @id @default(autoincrement())
+  created_at    BigInt
+  updated_at    BigInt
+  deleted_at BigInt @default(0)
+  created_duid  BigInt?
+  updated_duid  BigInt?
+  owner_tid     BigInt @default(1)
+  owner_bid     BigInt @default(1)
+  owner_uid     BigInt?
+  otp_id        String
+  @@unique([otp_id, deleted_at])
+  user_id       BigInt
+  email         String
+  code_hash     String
+  attempt_count Int    @default(0)
+  status        PassportOtpStatus @default(pending)
+  expires_at    BigInt
+
+  @@index([user_id, status, created_at])
+}
+
+model passport_user_credentials {
+  id         BigInt @id @default(autoincrement())
+  created_at BigInt
+  updated_at BigInt
+  deleted_at BigInt @default(0)
+  created_duid BigInt?
+  updated_duid BigInt?
+  owner_tid     BigInt @default(1)
+  owner_bid     BigInt @default(1)
+  owner_uid     BigInt?
+  user_id    BigInt
+  /// 同 base_users.password：存的是 { hash, pattern }。
+  password   Json
+
+  @@index([user_id, created_at, id])
+}
+
+model passport_sessions {
+  id         BigInt @id @default(autoincrement())
+  created_at BigInt
+  updated_at BigInt
+  deleted_at BigInt @default(0)
+  created_duid BigInt?
+  updated_duid BigInt?
+  owner_tid     BigInt @default(1)
+  owner_bid     BigInt @default(1)
+  owner_uid     BigInt?
+  token_hash String
+  @@unique([token_hash, deleted_at])
+  user_id    BigInt
+  expires_at BigInt
+  device_id  BigInt
+
+  @@index([user_id])
+  @@index([expires_at])
+}
+
+model passport_devices {
+  id           BigInt @id @default(autoincrement())
+  created_at   BigInt
+  updated_at   BigInt
+  deleted_at BigInt @default(0)
+  created_duid BigInt?
+  updated_duid BigInt?
+  owner_tid     BigInt @default(1)
+  owner_bid     BigInt @default(1)
+  owner_uid     BigInt?
+  key           String
+  fingerprint  Json   @default("{}")
+  user_agent   String @default("")
+  platform     String @default("")
+  ip_address   String @default("")
+  network_info Json   @default("{}")
+  status       PassportDeviceStatus @default(active)
+  last_seen_at BigInt
+  revoked_at   BigInt?
+
+  @@unique([key, deleted_at])
+}
+
+model passport_device_users {
+  id           BigInt @id @default(autoincrement())
+  created_at   BigInt
+  updated_at   BigInt
+  deleted_at BigInt @default(0)
+  created_duid BigInt?
+  updated_duid BigInt?
+  owner_tid     BigInt @default(1)
+  owner_bid     BigInt @default(1)
+  owner_uid     BigInt?
+  device_id    BigInt
+  user_id      BigInt
+  status       PassportDeviceStatus @default(active)
+  last_seen_at BigInt
+  revoked_at   BigInt?
+
+  @@unique([device_id, user_id, deleted_at])
+}
+
+model passport_telegram_accounts {
+  id               BigInt @id @default(autoincrement())
+  created_at       BigInt
+  updated_at       BigInt
+  deleted_at BigInt @default(0)
+  created_duid     BigInt?
+  updated_duid     BigInt?
+  owner_tid     BigInt @default(1)
+  owner_bid     BigInt @default(1)
+  owner_uid     BigInt?
+  user_id          BigInt
+  bot_id           BigInt
+  telegram_user_id BigInt
+  chat_id          BigInt
+  nickname         String
+
+  @@unique([bot_id, telegram_user_id, deleted_at])
+}
+
+model passport_oauth_accounts {
+  id               BigInt @id @default(autoincrement())
+  created_at       BigInt
+  updated_at       BigInt
+  deleted_at BigInt @default(0)
+  created_duid     BigInt?
+  updated_duid     BigInt?
+  owner_tid     BigInt @default(1)
+  owner_bid     BigInt @default(1)
+  owner_uid     BigInt?
+  user_id          BigInt
+  provider         String
+  provider_user_id String
+
+  @@unique([provider, provider_user_id, deleted_at])
+}
+
+model passport_emails {
+  id         BigInt @id @default(autoincrement())
+  created_at BigInt
+  updated_at BigInt
+  deleted_at BigInt @default(0)
+  created_duid BigInt?
+  updated_duid BigInt?
+  owner_tid     BigInt @default(1)
+  owner_bid     BigInt @default(1)
+  owner_uid     BigInt?
+  email      String
+  verified   Int    @default(0)
+
+  @@unique([email, deleted_at])
+}
+
+model passport_user_emails {
+  id         BigInt @id @default(autoincrement())
+  created_at BigInt
+  updated_at BigInt
+  deleted_at BigInt @default(0)
+  created_duid BigInt?
+  updated_duid BigInt?
+  owner_tid     BigInt @default(1)
+  owner_bid     BigInt @default(1)
+  owner_uid     BigInt?
+  user_id    BigInt
+  email_id   BigInt
+  is_primary Int    @default(0)
+
+  @@unique([user_id, email_id, deleted_at])
+  @@unique([email_id, deleted_at])
+}
+
+model passport_email_otp {
+  id               BigInt @id @default(autoincrement())
+  created_at       BigInt
+  updated_at       BigInt
+  deleted_at BigInt @default(0)
+  created_duid     BigInt?
+  updated_duid     BigInt?
+  owner_tid     BigInt @default(1)
+  owner_bid     BigInt @default(1)
+  owner_uid     BigInt?
+  bot_id           BigInt
+  telegram_user_id BigInt
+  chat_id          BigInt
+  email            String
+  code_hash        String
+  attempt_count    Int    @default(0)
+  status           PassportOtpStatus @default(pending)
+  expires_at       BigInt
+
+  @@index([bot_id, telegram_user_id, status, created_at])
+}
+
+model passport_snowflake_state {
+  id             BigInt @id @default(autoincrement())
+  created_at     BigInt
+  updated_at     BigInt
+  deleted_at BigInt @default(0)
+  created_duid   BigInt?
+  updated_duid   BigInt?
+  owner_tid     BigInt @default(1)
+  owner_bid     BigInt @default(1)
+  owner_uid     BigInt?
+  worker_id      Int
+  @@unique([worker_id, deleted_at])
+  last_timestamp BigInt
+}
+
+model passport_telegram_menus {
+  id                BigInt @id @default(autoincrement())
+  created_at        BigInt
+  updated_at        BigInt
+  deleted_at BigInt @default(0)
+  created_duid      BigInt?
+  updated_duid      BigInt?
+  owner_tid     BigInt @default(1)
+  owner_bid     BigInt @default(1)
+  owner_uid     BigInt?
+  bot_id           BigInt
+  telegram_user_id BigInt
+  chat_id          BigInt
+  message_id       BigInt
+  mode             String
+  @@unique([bot_id, telegram_user_id, deleted_at])
+}
+
+model passport_telegram_updates {
+  id         BigInt @id @default(autoincrement())
+  created_at BigInt
+  updated_at BigInt
+  deleted_at BigInt @default(0)
+  created_duid BigInt?
+  updated_duid BigInt?
+  owner_tid     BigInt @default(1)
+  owner_bid     BigInt @default(1)
+  owner_uid     BigInt?
+  bot_id     BigInt
+  update_id  BigInt
+  status     PassportTelegramUpdateStatus
+  @@unique([bot_id, update_id, deleted_at])
+  @@index([status, updated_at])
+}
+
+model passport_telegram_identity_choices {
+  id               BigInt @id @default(autoincrement())
+  created_at       BigInt
+  updated_at       BigInt
+  deleted_at BigInt @default(0)
+  created_duid     BigInt?
+  updated_duid     BigInt?
+  owner_tid     BigInt @default(1)
+  owner_bid     BigInt @default(1)
+  owner_uid     BigInt?
+  bot_id           BigInt
+  telegram_user_id BigInt
+  chat_id          BigInt
+  target_user_id   BigInt
+  email            String
+  status           PassportTelegramChoiceStatus
+  expires_at       BigInt
+
+  @@index([bot_id, telegram_user_id, status, created_at])
+}
+
+model passport_login_challenges {
+  id               BigInt @id @default(autoincrement())
+  created_at       BigInt
+  updated_at       BigInt
+  deleted_at BigInt @default(0)
+  created_duid     BigInt?
+  updated_duid     BigInt?
+  owner_tid     BigInt @default(1)
+  owner_bid     BigInt @default(1)
+  owner_uid     BigInt?
+  challenge_id     String
+  @@unique([challenge_id, deleted_at])
+  user_id          BigInt
+  bot_id           BigInt
+  telegram_user_id BigInt
+  chat_id          BigInt
+  expected_number  Int
+  status           PassportLoginChallengeStatus
+  expires_at       BigInt
+
+  @@index([bot_id, telegram_user_id, status, created_at])
+  @@index([status, expires_at])
+}
+
+model passport_sso_requests {
+  id                BigInt @id @default(autoincrement())
+  created_at        BigInt
+  updated_at        BigInt
+  deleted_at BigInt @default(0)
+  created_duid      BigInt?
+  updated_duid      BigInt?
+  owner_tid     BigInt @default(1)
+  owner_bid     BigInt @default(1)
+  owner_uid     BigInt?
+  request_id        String
+  @@unique([request_id, deleted_at])
+  target_site_key   String
+  target_hostname   String
+  status            PassportSsoStatus
+  expires_at        BigInt
+
+  @@index([status, expires_at])
+}
+
+model passport_login_tickets {
+  id                BigInt @id @default(autoincrement())
+  created_at        BigInt
+  updated_at        BigInt
+  deleted_at BigInt @default(0)
+  created_duid      BigInt?
+  updated_duid      BigInt?
+  owner_tid     BigInt @default(1)
+  owner_bid     BigInt @default(1)
+  owner_uid     BigInt?
+  token_hash        String
+  @@unique([token_hash, deleted_at])
+  user_id           BigInt
+  target_site_key   String
+  target_hostname   String
+  status            PassportSsoStatus
+  expires_at        BigInt
+
+  @@index([status, expires_at])
+}
+
+model passport_site_sessions {
+  id         BigInt @id @default(autoincrement())
+  created_at BigInt
+  updated_at BigInt
+  deleted_at BigInt @default(0)
+  created_duid BigInt?
+  updated_duid BigInt?
+  owner_tid     BigInt @default(1)
+  owner_bid     BigInt @default(1)
+  owner_uid     BigInt?
+  session_id String
+  @@unique([session_id, deleted_at])
+  user_id    BigInt
+  site_key   String
+  hostname   String
+  expires_at BigInt
+
+  @@index([user_id])
+  @@index([site_key, hostname, expires_at])
+}
+
+model passport_group_prompts {
+  id         BigInt @id @default(autoincrement())
+  created_at BigInt
+  updated_at BigInt
+  deleted_at BigInt @default(0)
+  created_duid BigInt?
+  updated_duid BigInt?
+  owner_tid     BigInt @default(1)
+  owner_bid     BigInt @default(1)
+  owner_uid     BigInt?
+  chat_id    BigInt
+  actor_id   BigInt
+  state_json String @default("{}")
+  expires_at BigInt
+
+  @@index([chat_id, actor_id, updated_at])
+}
+
+model passport_external_email_otps {
+  id                    BigInt @id @default(autoincrement())
+  created_at            BigInt
+  updated_at            BigInt
+  deleted_at BigInt @default(0)
+  created_duid          BigInt?
+  updated_duid          BigInt?
+  owner_tid     BigInt @default(1)
+  owner_bid     BigInt @default(1)
+  owner_uid     BigInt?
+  otp_id                String
+  @@unique([otp_id, deleted_at])
+  pending_identity_hash String
+  email                 String
+  code_hash             String
+  attempt_count         Int    @default(0)
+  status                PassportOtpStatus @default(pending)
+  expires_at            BigInt
+
+  @@index([pending_identity_hash, status, created_at])
+}
+
+model passport_external_identities {
+  id          BigInt @id @default(autoincrement())
+  created_at  BigInt
+  updated_at  BigInt
+  deleted_at BigInt @default(0)
+  created_duid BigInt?
+  updated_duid BigInt?
+  owner_tid     BigInt @default(1)
+  owner_bid     BigInt @default(1)
+  owner_uid     BigInt?
+  user_id     BigInt
+  provider    String
+  subject     String
+  profile     String @default("{}")
+
+  @@unique([provider, subject, deleted_at])
+  @@index([user_id])
+}
+
+model passport_external_login_states {
+  id              BigInt @id @default(autoincrement())
+  created_at      BigInt
+  updated_at      BigInt
+  deleted_at BigInt @default(0)
+  created_duid    BigInt?
+  updated_duid    BigInt?
+  owner_tid     BigInt @default(1)
+  owner_bid     BigInt @default(1)
+  owner_uid     BigInt?
+  id_hash         String
+  @@unique([id_hash, deleted_at])
+  provider        String
+  code_verifier   String
+  nonce           String
+  redirect_uri    String
+  expires_at      BigInt
+  consumed_at     BigInt?
+  qr_status       PassportQrStatus @default(pending)
+  qr_user_id      String?
+  oidc_request_id String?
+
+  @@index([expires_at, consumed_at])
+}
+
+model passport_external_pending_identities {
+  id             BigInt @id @default(autoincrement())
+  created_at   BigInt
+  updated_at   BigInt
+  deleted_at BigInt @default(0)
+  created_duid BigInt?
+  updated_duid BigInt?
+  owner_tid     BigInt @default(1)
+  owner_bid     BigInt @default(1)
+  owner_uid     BigInt?
+  id_hash      String
+  @@unique([id_hash, deleted_at])
+  provider     String
+  subject      String
+  nickname     String
+  profile      String
+  status       PassportExternalPendingStatus @default(pending)
+  expires_at   BigInt
+}
+
+model passport_external_pending_qr_states {
+  id                     BigInt @id @default(autoincrement())
+  created_at            BigInt
+  updated_at            BigInt
+  deleted_at BigInt @default(0)
+  created_duid          BigInt?
+  updated_duid          BigInt?
+  owner_tid     BigInt @default(1)
+  owner_bid     BigInt @default(1)
+  owner_uid     BigInt?
+  pending_identity_hash String
+  @@unique([pending_identity_hash, deleted_at])
+  qr_state_hash         String
+  @@unique([qr_state_hash, deleted_at])
+}
+
+model passport_external_providers {
+  id                      BigInt @id @default(autoincrement())
+  created_at              BigInt
+  updated_at              BigInt
+  deleted_at BigInt @default(0)
+  created_duid            BigInt?
+  updated_duid            BigInt?
+  owner_tid     BigInt @default(1)
+  owner_bid     BigInt @default(1)
+  owner_uid     BigInt?
+  provider                String
+  @@unique([provider, deleted_at])
+  display_name            String
+  client_id               String
+  client_secret           String
+  status                  PassportAccountStatus @default(enabled)
+  wechat_mode             String @default("open_platform")
+  wechat_redirect_domain  String @default("")
+}
+
+model passport_oidc_clients {
+  id                     BigInt @id @default(autoincrement())
+  created_at             BigInt
+  updated_at             BigInt
+  deleted_at BigInt @default(0)
+  created_duid           BigInt?
+  updated_duid           BigInt?
+  owner_tid     BigInt @default(1)
+  owner_bid     BigInt @default(1)
+  owner_uid     BigInt?
+  client_id              String
+  @@unique([client_id, deleted_at])
+  name                   String
+  secret_hash            String
+  redirect_uris          String @default("[]")
+  allowed_scopes         String @default("openid profile email")
+  require_pkce           Int    @default(1)
+  status                 PassportAccountStatus @default(enabled)
+  backchannel_logout_uri String @default("")
+  strict_redirect_uri    Int    @default(0)
+  /// 是否在 ID Token 里下发凭证 blob，让接入方的本地账号能用同一个密码登录。
+  ///
+  /// 默认关闭。开着等于把这个账号的口令哈希交给接入方——接入方脱库就等于拿到
+  /// Accounts 的密码。两侧都要显式打开才会真的下发：这里是签发侧。
+  password_sync          Int    @default(0)
+}
+
+model passport_oidc_authorization_requests {
+  id                    BigInt @id @default(autoincrement())
+  created_at            BigInt
+  updated_at            BigInt
+  deleted_at BigInt @default(0)
+  created_duid          BigInt?
+  updated_duid          BigInt?
+  owner_tid     BigInt @default(1)
+  owner_bid     BigInt @default(1)
+  owner_uid     BigInt?
+  request_id            String
+  @@unique([request_id, deleted_at])
+  client_id             String
+  redirect_uri          String
+  scope                 String
+  state                 String @default("")
+  nonce                 String @default("")
+  code_challenge        String @default("")
+  code_challenge_method String @default("")
+  expires_at            BigInt
+}
+
+model passport_oidc_authorization_codes {
+  id                    BigInt @id @default(autoincrement())
+  created_at            BigInt
+  updated_at            BigInt
+  deleted_at BigInt @default(0)
+  created_duid          BigInt?
+  updated_duid          BigInt?
+  owner_tid     BigInt @default(1)
+  owner_bid     BigInt @default(1)
+  owner_uid     BigInt?
+  code_hash             String
+  @@unique([code_hash, deleted_at])
+  client_id             String
+  user_id               BigInt
+  redirect_uri          String
+  scope                 String
+  nonce                 String @default("")
+  code_challenge        String @default("")
+  code_challenge_method String @default("")
+  expires_at            BigInt
+  consumed_at           BigInt?
+  session_id            String @default("")
+
+  @@index([expires_at, consumed_at])
+}
+
+model passport_oidc_access_tokens {
+  id                      BigInt @id @default(autoincrement())
+  created_at              BigInt
+  updated_at              BigInt
+  deleted_at BigInt @default(0)
+  created_duid            BigInt?
+  updated_duid            BigInt?
+  owner_tid     BigInt @default(1)
+  owner_bid     BigInt @default(1)
+  owner_uid     BigInt?
+  token_hash              String
+  @@unique([token_hash, deleted_at])
+  client_id               String
+  user_id                 BigInt
+  scope                   String
+  expires_at              BigInt
+  revoked_at              BigInt?
+  session_id              String @default("")
+  authorization_code_hash String?
+  @@unique([authorization_code_hash, deleted_at])
+
+  @@index([expires_at, revoked_at])
+}
+
+model passport_oidc_signing_keys {
+  id           BigInt @id @default(autoincrement())
+  created_at   BigInt
+  updated_at   BigInt
+  deleted_at BigInt @default(0)
+  created_duid BigInt?
+  updated_duid BigInt?
+  owner_tid     BigInt @default(1)
+  owner_bid     BigInt @default(1)
+  owner_uid     BigInt?
+  kid          String
+  @@unique([kid, deleted_at])
+  private_jwk  String
+  public_jwk   String
+  status       PassportSigningKeyStatus @default(active)
+}
+
+/// Accounts 账号的资料。
+///
+/// 与 base_user_profiles 同构：**没有行就是没设过昵称**，显示时回落到用户名。
+///
+/// 但**不加昵称唯一索引**——本站昵称是人自己挑的，而这里的昵称来自外部提供方：
+/// 没有昵称的微信用户一律叫「微信用户」，Google 用户一律叫「Google用户」
+/// （见 accounts/external.mts 的 normalizedNickname）。加唯一约束会让第二个这样的
+/// 用户直接登不进来。
+model passport_user_profiles {
+  id           BigInt @id @default(autoincrement())
+  created_at   BigInt
+  updated_at   BigInt
+  deleted_at   BigInt @default(0)
+  created_duid BigInt?
+  updated_duid BigInt?
+  owner_tid    BigInt @default(1)
+  owner_bid    BigInt @default(1)
+  owner_uid    BigInt?
+  user_id      BigInt
+  /// 可空：NULL 表示没设昵称，显示时回落到用户名。
+  nickname     String?
+  /// 联系方式，都不唯一也不校验格式：它们是给人看的，不是登录凭据。
+  qq           String @default("")
+  wechat       String @default("")
+
+  /// 邮箱不在这里：passport_emails + passport_user_emails 已经带了验证状态与主邮箱。
+  /// 头像也不在这里：对象路径由 user_id 推导，见 modules/passport/avatar.mts。
+  @@unique([user_id, deleted_at])
+}

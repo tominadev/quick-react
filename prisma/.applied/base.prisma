@@ -1,0 +1,392 @@
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+enum BaseUserStatus {
+  enabled
+  disabled
+}
+
+enum BaseDeviceStatus {
+  active
+  revoked
+}
+
+enum BaseTenantStatus {
+  enabled
+  disabled
+}
+
+enum BaseAuditAction {
+  update
+  soft_delete
+  restore
+}
+
+enum BaseAuditStatus {
+  /// 已提交，等审批：记录已写，数据还没动。
+  pending
+  applied
+  /// 审批未通过：数据从未被写入。
+  rejected
+  reverted
+}
+
+/// 业务站点内部的租户。与 global_sites 的代码站点无关，命名一律不使用 site。
+model base_tenants {
+  id           BigInt @id @default(autoincrement())
+  created_at   BigInt
+  updated_at   BigInt
+  deleted_at   BigInt @default(0)
+  created_duid BigInt?
+  updated_duid BigInt?
+  owner_tid    BigInt @default(1)
+  owner_bid    BigInt @default(1)
+  owner_uid    BigInt?
+  key          String
+  @@unique([key, deleted_at])
+  name         String
+  status       BaseTenantStatus @default(enabled)
+}
+
+/// 分站：租户下面的一层，绑定自己的域名，管理自己的用户与代理。
+/// 分站 key 在租户内唯一：不同租户可以各有同名分站。
+model base_branches {
+  id           BigInt @id @default(autoincrement())
+  created_at   BigInt
+  updated_at   BigInt
+  deleted_at   BigInt @default(0)
+  created_duid BigInt?
+  updated_duid BigInt?
+  owner_tid    BigInt @default(1)
+  owner_bid    BigInt @default(1)
+  owner_uid    BigInt?
+  key          String
+  @@unique([owner_tid, key, deleted_at])
+  name         String
+  status       BaseTenantStatus @default(enabled)
+}
+
+/// 主机名到租户与分站的映射。控制面只负责主机名到站点，租户与分站的解析在站点库内完成。
+/// 每个域名都必须同时绑定租户和分站：没有"不属于任何分站"的状态，租户自己的域名绑到它的主分站，
+/// 这样用量与计费的聚合不需要处理 NULL 桶。
+model base_hosts {
+  id           BigInt @id @default(autoincrement())
+  created_at   BigInt
+  updated_at   BigInt
+  deleted_at   BigInt @default(0)
+  created_duid BigInt?
+  updated_duid BigInt?
+  owner_tid    BigInt @default(1)
+  owner_bid    BigInt @default(1)
+  owner_uid    BigInt?
+  hostname     String
+  @@unique([hostname, deleted_at])
+  tenant_id    BigInt
+  branch_id    BigInt
+  status       BaseTenantStatus @default(enabled)
+}
+
+model base_users {
+  id            BigInt @id @default(autoincrement())
+  created_at    BigInt
+  updated_at    BigInt
+  deleted_at BigInt @default(0)
+  created_duid BigInt?
+  updated_duid BigInt?
+  owner_tid     BigInt @default(1)
+  owner_bid     BigInt @default(1)
+  owner_uid     BigInt?
+  name          String
+  // 用户名在租户内唯一：不同租户可以各有同名账号。
+  @@unique([owner_tid, name, deleted_at])
+  roles         String[] @default([])
+  status        BaseUserStatus @default(enabled)
+}
+
+model base_sessions {
+  id         BigInt @id @default(autoincrement())
+  created_at BigInt
+  updated_at BigInt
+  deleted_at BigInt @default(0)
+  created_duid BigInt?
+  updated_duid BigInt?
+  owner_tid     BigInt @default(1)
+  owner_bid     BigInt @default(1)
+  owner_uid     BigInt?
+  token_hash String
+  @@unique([token_hash, deleted_at])
+  user_id    BigInt
+  expires_at BigInt
+  device_id  BigInt
+}
+
+model base_configs {
+  id         BigInt @id @default(autoincrement())
+  created_at BigInt
+  updated_at BigInt
+  deleted_at BigInt @default(0)
+  created_duid BigInt?
+  updated_duid BigInt?
+  owner_tid     BigInt @default(1)
+  owner_bid     BigInt @default(1)
+  owner_uid     BigInt?
+  key        String
+  // 配置按租户独立：同一个 key 每个租户各存一份，owner_tid 为 NULL 的行是平台默认值。
+  @@unique([owner_tid, key, deleted_at])
+  value      String
+}
+
+model base_bootstrap {
+  id           BigInt @id @default(autoincrement())
+  created_at   BigInt
+  updated_at   BigInt
+  deleted_at BigInt @default(0)
+  created_duid BigInt?
+  updated_duid BigInt?
+  owner_tid     BigInt @default(1)
+  owner_bid     BigInt @default(1)
+  owner_uid     BigInt?
+  key          String
+  // 引导状态同样按租户独立：每个租户各自创建自己的初始管理员。
+  @@unique([owner_tid, key, deleted_at])
+  value        String
+}
+
+model base_oidc_login_requests {
+  id            BigInt @id @default(autoincrement())
+  created_at    BigInt
+  updated_at    BigInt
+  deleted_at BigInt @default(0)
+  created_duid  BigInt?
+  updated_duid  BigInt?
+  owner_tid     BigInt @default(1)
+  owner_bid     BigInt @default(1)
+  owner_uid     BigInt?
+  request_id    String
+  @@unique([request_id, deleted_at])
+  issuer        String
+  state         String
+  @@unique([state, deleted_at])
+  nonce         String
+  code_verifier String
+  return_path   String @default("/")
+  expires_at    BigInt
+
+  /// pending：还在等 Accounts 回调。
+  /// choosing：回调已验证通过，但这个身份在本站还没有账号，正等用户选「新建」还是「绑定已有」。
+  ///
+  /// 之所以要把已验证的身份先存下来而不是当场建号：建号是不可撤销的副作用，而用户此刻
+  /// 还没表态。先建一个占位号再按选择删掉，在没有事务的环境里意味着中间态会被别的请求看见。
+  status        String @default("pending")
+  /// choosing 阶段暂存已验证的 sub 与 claims，供选择页落定时使用；不再向 Accounts 二次换取。
+  subject       String @default("")
+  claims        String @default("{}")
+  /// Accounts 下发的凭证 blob，单独一列而不是混进 claims：claims 最终会写进
+  /// base_oidc_users.profile，那是「数据管理」里可见的普通列。这一列随请求行在落定时删掉，
+  /// 列名进了 HIDDEN_VALUE_COLUMNS，接口不返回它的值。
+  credential    String @default("")
+}
+
+model base_oidc_users {
+  id            BigInt @id @default(autoincrement())
+  created_at    BigInt
+  updated_at    BigInt
+  deleted_at BigInt @default(0)
+  created_duid  BigInt?
+  updated_duid  BigInt?
+  owner_tid     BigInt @default(1)
+  owner_bid     BigInt @default(1)
+  owner_uid     BigInt?
+  issuer        String
+  subject       String
+  user_id       BigInt
+  profile       String @default("{}")
+
+  // 同一个 Accounts 身份在每个租户各有一个本地账号。
+  @@unique([owner_tid, issuer, subject, deleted_at])
+}
+
+model base_oidc_sessions {
+  id            BigInt @id @default(autoincrement())
+  created_at    BigInt
+  updated_at    BigInt
+  deleted_at BigInt @default(0)
+  created_duid  BigInt?
+  updated_duid  BigInt?
+  owner_tid     BigInt @default(1)
+  owner_bid     BigInt @default(1)
+  owner_uid     BigInt?
+  issuer        String
+  sid           String
+  session_id    BigInt
+  @@unique([session_id, deleted_at])
+
+  @@unique([issuer, sid, deleted_at])
+}
+
+model base_devices {
+  id           BigInt @id @default(autoincrement())
+  created_at   BigInt
+  updated_at   BigInt
+  deleted_at BigInt @default(0)
+  created_duid BigInt?
+  updated_duid BigInt?
+  owner_tid     BigInt @default(1)
+  owner_bid     BigInt @default(1)
+  owner_uid     BigInt?
+  user_id      BigInt
+  key          String
+  fingerprint  Json   @default("{}")
+  user_agent   String @default("")
+  platform     String @default("")
+  ip_address   String @default("")
+  network_info Json   @default("{}")
+  status       BaseDeviceStatus @default(active)
+  last_seen_at BigInt
+  revoked_at   BigInt?
+
+  @@unique([key, deleted_at])
+}
+
+model base_device_users {
+  id           BigInt @id @default(autoincrement())
+  created_at   BigInt
+  updated_at   BigInt
+  deleted_at BigInt @default(0)
+  created_duid BigInt?
+  updated_duid BigInt?
+  owner_tid     BigInt @default(1)
+  owner_bid     BigInt @default(1)
+  owner_uid     BigInt?
+  device_id    BigInt
+  user_id      BigInt
+  status       BaseDeviceStatus @default(active)
+  last_seen_at BigInt
+  revoked_at   BigInt?
+
+  @@unique([device_id, user_id, deleted_at])
+}
+
+model base_device_snapshots {
+  id            BigInt @id @default(autoincrement())
+  created_at    BigInt
+  updated_at    BigInt
+  deleted_at BigInt @default(0)
+  created_duid  BigInt?
+  updated_duid  BigInt?
+  owner_tid     BigInt @default(1)
+  owner_bid     BigInt @default(1)
+  owner_uid     BigInt?
+  device_id     BigInt
+  fingerprint   Json    @default("{}")
+  ip_address    String @default("")
+  network_info  Json    @default("{}")
+  user_agent    String @default("")
+  platform      String @default("")
+  screen_width  Int    @default(0)
+  screen_height Int    @default(0)
+  captured_at   BigInt
+}
+
+/// 变更留痕：受管表上每一次业务字段变更的前后值，同时用作操作日志与撤回依据。
+/// 只覆盖 update（软删除与恢复同为 UPDATE），不覆盖 insert 与物理 delete。
+model base_audit_entries {
+  id           BigInt @id @default(autoincrement())
+  created_at   BigInt
+  updated_at   BigInt
+  deleted_at   BigInt @default(0)
+  created_duid BigInt?
+  updated_duid BigInt?
+  owner_tid    BigInt @default(1)
+  owner_bid    BigInt @default(1)
+  owner_uid    BigInt?
+  /// 同一次人工操作可能写多张表多行，它们共享一个 operation_id 与同一条原因。
+  operation_id String
+  /// 操作原因：审计记录了「改了什么」，这一列记「为什么」，取证时后者更有价值。
+  reason       String @default("")
+  table_name   String
+  row_id       BigInt
+  action       BaseAuditAction
+  /// JSON 对象：列名 -> { before, after }，只含实际发生变化的列。
+  changes      Json @default("{}")
+  /// applied ↔ reverted 可以来回翻：撤回不新开记录，而是把这一条翻到另一面。
+  status       BaseAuditStatus @default(applied)
+  /// 审批的时间、审批人与意见。pending → applied/rejected 时写一次就定了。
+  reviewed_at   BigInt?
+  reviewed_duid BigInt?
+  review_reason String @default("")
+  /// 撤回的时间、操作者与理由。原记录的 created_* 属于原操作者，不能复用。
+  reverted_at   BigInt?
+  reverted_duid BigInt?
+  revert_reason String @default("")
+  /// 恢复的时间、操作者与理由。
+  ///
+  /// 三组字段一律分开：同一条记录可能先被批准、再被撤回、又被恢复，合用一组的话
+  /// 后发生的会把先发生的覆盖掉——恢复完之后「撤回人」显示的就成了恢复的人。
+  restored_at    BigInt?
+  restored_duid  BigInt?
+  restore_reason String @default("")
+  @@index([owner_tid, created_at])
+  @@index([owner_bid, created_at])
+  @@index([owner_uid, created_at])
+  @@index([table_name, row_id, created_at])
+  @@index([operation_id])
+  @@index([status, created_at])
+}
+
+/// 本站账号的登录凭证。
+///
+/// 与账号资料分表，和 passport_user_credentials 同构：
+/// - **没有行就是没有本地密码**，不需要 '!oidc' 这类哨兵值；
+/// - 列表查询不会捎带凭证；
+/// - 改密码的审计落在这张表上，不和资料变更混在一起。
+model base_user_credentials {
+  id           BigInt @id @default(autoincrement())
+  created_at   BigInt
+  updated_at   BigInt
+  deleted_at   BigInt @default(0)
+  created_duid BigInt?
+  updated_duid BigInt?
+  owner_tid    BigInt @default(1)
+  owner_bid    BigInt @default(1)
+  owner_uid    BigInt?
+  user_id      BigInt
+  /// 存的是 { hash, pattern }。
+  password     Json
+
+  /// 一个账号一份当前凭证；user_id 本身全局唯一，不必再按租户划分。
+  @@unique([user_id, deleted_at])
+}
+
+/// 本站账号的资料。
+///
+/// 与凭证一样从 base_users 拆出来：**没有行就是没设过资料**，昵称回落到用户名，
+/// 不需要在建号时把用户名抄一份进昵称列（抄过去还会撞上别人挑走的昵称）。
+model base_user_profiles {
+  id           BigInt @id @default(autoincrement())
+  created_at   BigInt
+  updated_at   BigInt
+  deleted_at   BigInt @default(0)
+  created_duid BigInt?
+  updated_duid BigInt?
+  owner_tid    BigInt @default(1)
+  owner_bid    BigInt @default(1)
+  owner_uid    BigInt?
+  user_id      BigInt
+  /// 显示名，租户内唯一，但允许的字符比用户名多（中文都行）。
+  ///
+  /// 可空：NULL 表示没设昵称，显示时回落到用户名。不能用空串——唯一索引里空串互相相等，
+  /// 第二个不设昵称的账号就建不出来了；NULL 互不相等，正好是这里要的语义。
+  nickname     String?
+  /// 联系方式，都不唯一也不校验格式：它们是给人看的，不是登录凭据。
+  qq           String @default("")
+  wechat       String @default("")
+  /// 联系邮箱。本站没有邮箱验证流程，这里存的是人自己填的联系方式，不能当身份用。
+  email        String @default("")
+
+  /// 一个账号一份资料；user_id 本身全局唯一，不必再按租户划分。
+  @@unique([user_id, deleted_at])
+  @@unique([owner_tid, nickname, deleted_at])
+}
