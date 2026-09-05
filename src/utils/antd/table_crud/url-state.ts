@@ -77,3 +77,24 @@ export const mergeSort = (sort: string, changed: ReadonlyArray<{ field?: unknown
 	const added = [...next.keys()].filter((field) => !kept.some((entry) => entry.field === field)).map((field) => ({ field, order: next.get(field)! }));
 	return formatSort([...kept, ...added]);
 };
+
+/**
+ * 合并查询条件的三个来源，后面的压过前面的：
+ *
+ * 1. 字段自带的 `defaultValue`（后端下发的"没指定时用什么"）
+ * 2. 页面传进来的初始值
+ * 3. **地址栏**——带着 `?q.status=…` 进来的地址是用户明确选定的，必须赢
+ *
+ * 审计页默认「待审批」；用户改成「全部」再刷新，如果默认值压过地址栏，他挑的就白挑了。
+ */
+export const mergeQueryValues = (
+	fields: ReadonlyArray<{ dataIndex: string; defaultValue?: unknown }>,
+	initial: Record<string, string>,
+	fromUrl: Record<string, string>,
+): Record<string, string> => ({
+	...Object.fromEntries(fields
+		.filter((field) => initial[field.dataIndex] !== undefined || (field.defaultValue !== undefined && field.defaultValue !== ''))
+		.map((field) => [field.dataIndex, initial[field.dataIndex] ?? String(field.defaultValue)])),
+	...initial,
+	...fromUrl,
+});

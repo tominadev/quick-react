@@ -1,5 +1,5 @@
 import assert from 'node:assert/strict';
-import { readTableUrlState, writeTableUrlState, sortOrderFor, parseSort, formatSort, mergeSort, defaultTableUrlState } from '@/utils/antd/table_crud/url-state.js';
+import { readTableUrlState, writeTableUrlState, sortOrderFor, parseSort, formatSort, mergeSort, mergeQueryValues, defaultTableUrlState } from '@/utils/antd/table_crud/url-state.js';
 
 // —— 读 ——
 assert.deepEqual(readTableUrlState(''), { ...defaultTableUrlState, query: {} });
@@ -66,5 +66,20 @@ assert.equal(mergeSort('status:asc', [{ field: 'status', order: undefined }]), '
 assert.equal(mergeSort('status:asc', []), '');
 // antd 的 dataIndex 可能是数组路径。
 assert.equal(mergeSort('', [{ field: ['a', 'b'], order: 'ascend' }]), 'a.b:asc');
+
+// —— 查询条件的三个来源 ——
+const auditFields = [{ dataIndex: 'status', defaultValue: 'pending' }, { dataIndex: 'reason' }];
+// 什么都没给：用后端下发的默认值。
+assert.deepEqual(mergeQueryValues(auditFields, {}, {}), { status: 'pending' });
+// 地址栏压过默认值——审计页默认「待审批」，用户改成「全部」再刷新，挑的不能白挑。
+assert.deepEqual(mergeQueryValues(auditFields, {}, { status: 'all' }), { status: 'all' });
+assert.deepEqual(mergeQueryValues(auditFields, {}, { status: '' }), { status: '' }, '空串也是明确的选择，不能回落到默认值');
+// 页面初始值压过字段默认值，地址栏又压过它。
+assert.deepEqual(mergeQueryValues(auditFields, { status: 'applied' }, {}), { status: 'applied' });
+assert.deepEqual(mergeQueryValues(auditFields, { status: 'applied' }, { status: 'all' }), { status: 'all' });
+// 地址栏里的额外条件照样带上。
+assert.deepEqual(mergeQueryValues(auditFields, {}, { reason: '改密码' }), { status: 'pending', reason: '改密码' });
+// 没有默认值也没人给的字段不会凭空出现。
+assert.deepEqual(mergeQueryValues([{ dataIndex: 'reason' }], {}, {}), {});
 
 console.log('table url state test passed');

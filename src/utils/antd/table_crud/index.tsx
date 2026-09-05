@@ -15,7 +15,7 @@ import { useNavigate } from 'react-router-dom';
 import { PlusOutlined, DeleteOutlined, SearchOutlined, UploadOutlined, DownloadOutlined } from '@ant-design/icons';
 import { useDrawer } from '@/utils/common/drawer.js';
 import dayjs from 'dayjs';
-import { mergeSort, readTableUrlState, sortOrderFor, writeTableUrlState } from './url-state.js';
+import { mergeQueryValues, mergeSort, readTableUrlState, sortOrderFor, writeTableUrlState } from './url-state.js';
 
 // 定义TableCRUD的传参
 type TableCrudType = {
@@ -114,7 +114,11 @@ const TableCRUD = ({ commonApi, resourcePath, initialResponse, initialQueryValue
 	const tableOptionRef = useRef<ResJsonTableOption>({ rowKey: 'key' });
 	const [queryFields, setQueryFields] = useState<TableQueryField[]>([]);
 	const [queryActions, setQueryActions] = useState<TableAction[]>([]);
-	const [queryValues, setQueryValues] = useState<Record<string, string>>(initialQueryDefaults);
+	/**
+	 * 输入框里显示的值。初值同样取自地址栏——只让请求用地址栏的值、框里却显示默认值的话，
+	 * 用户看到的条件和实际生效的条件对不上。
+	 */
+	const [queryValues, setQueryValues] = useState<Record<string, string>>({ ...initialQueryDefaults, ...initialTableState.query });
 	const [appliedQueryValues, setAppliedQueryValues] = useState<Record<string, string>>({ ...initialQueryDefaults, ...initialTableState.query });
 	const [searchRequestKey, setSearchRequestKey] = useState(0);
 	const initializedQueryDefaultsFor = useRef('');
@@ -316,20 +320,22 @@ const TableCRUD = ({ commonApi, resourcePath, initialResponse, initialQueryValue
 							...Object.fromEntries(Object.entries(initialQueryDefaults).filter(([name]) => !fieldNames.has(name))),
 							...Object.fromEntries(fields.map((field) => [
 								field.dataIndex,
-								previous[field.dataIndex] ?? initialQueryDefaults[field.dataIndex] ?? field.defaultValue ?? '',
+								previous[field.dataIndex] ?? initialTableState.query[field.dataIndex] ?? initialQueryDefaults[field.dataIndex] ?? field.defaultValue ?? '',
 							])),
 						}));
 						if (initializedQueryDefaultsFor.current !== apiPath) {
 							initializedQueryDefaultsFor.current = apiPath;
-							const defaults = {
-								...Object.fromEntries(fields
-								.filter((field) => initialQueryDefaults[field.dataIndex] !== undefined || (field.defaultValue !== undefined && field.defaultValue !== ''))
-								.map((field) => [field.dataIndex, initialQueryDefaults[field.dataIndex] ?? (field.defaultValue as string)])),
-								...initialQueryDefaults,
-							};
+							// 地址栏里的条件排在最后，压过后端下发的默认值：默认值是"没指定时用什么"，
+							// 而带着 ?q.status=… 进来的地址是用户明确选定的。审计页默认「待审批」，
+							// 刷新后若被默认值盖掉，用户挑好的筛选就白挑了。
+							const defaults = mergeQueryValues(fields, initialQueryDefaults, initialTableState.query);
 							if (Object.keys(defaults).length) {
 								skipFetchForSearchRequest.current = searchRequestKey;
 								setAppliedQueryValues(defaults);
+								// 进页面就把**生效的**筛选写进地址栏，让地址栏成为唯一事实来源：
+								// 看到的地址就是当前查询，刷新、收藏、分享出去都是同一份结果。
+								// 否则「界面上是待审批、地址栏里什么都没有」，刷新后走哪一套全看实现细节。
+								rememberTableState({ query: defaults });
 							}
 						}
 					} else {
@@ -444,9 +450,12 @@ const TableCRUD = ({ commonApi, resourcePath, initialResponse, initialQueryValue
 		setQueryActions([]);
 		setQueryValues(initialQueryDefaults);
 		setAppliedQueryValues(initialQueryDefaults);
+		setSort('');
 		setPagination((previous) => ({ ...previous, current: 1, total: 0 }));
 		cursorsByPage.current = { 1: undefined };
 		initializedQueryDefaultsFor.current = '';
+		// 换了一张表，上一张表的筛选、翻页和排序都不再适用，地址栏一并清掉。
+		rememberTableState({ query: {}, page: 1, size: 10, sort: '' });
 		cacheResJsonTable.current = { columns: [] };
 		tableSchemaLoaded.current = false;
 		initialResponseConsumed.current = false;
