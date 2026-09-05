@@ -133,7 +133,9 @@ const fingerprintData = JSON.stringify({ canvas_cyrb53: '4b5a6c7d8e9f', audio_cy
 	assert.equal(loginResult.redirectTo, undefined);
 	const signedIn = await (await request('/api/accounts/sign.php', { cookie: passportCookie })).json();
 	assert.equal(signedIn.user.id, userId);
-	assert.equal(signedIn.user.user_name, 'PassportUser');
+	// 用户名与显示名分开：用户名自动取自邮箱，昵称来自资料表，右上角显示的是昵称。
+	assert.equal(signedIn.user.user_name, 'user');
+	assert.equal(signedIn.user.profile_nickname, 'PassportUser');
 	const passportDeviceDatabase = new DatabaseSync(process.env.DEFAULT_DATABASE_FILE, { readOnly: true });
 	assert.equal(passportDeviceDatabase.prepare('SELECT COUNT(*) AS count FROM passport_devices').get().count, 1);
 	assert.equal(passportDeviceDatabase.prepare('SELECT COUNT(*) AS count FROM passport_device_users').get().count, 1);

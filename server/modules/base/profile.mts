@@ -38,13 +38,23 @@ export const profileStatement = async (
 		.filter(([, value]) => value !== undefined)
 		.map(([key, value]) => [key, String(value).trim()]));
 	if (!Object.keys(values).length) return { clear: sql({ database }).softDelete('base_user_profiles', { user_id: userId }) };
+	// 表单里昵称的默认值就是用户名（没设过时回落显示的那个）。原样提交回来说明用户没改，
+	// 当作「没设昵称」处理：不写行、继续回落。这一步必须在长度校验之前——用户名可以短到
+	// 3 位，而昵称下限是 4 个半角，否则一个 3 位用户名的账号连保存都保存不了。
+	if (values.profile_nickname) {
+		const self = await firstSql<{ user_name: string }>(database, sql({ database }).select({
+			table: 'base_users', columns: { user_name: 'name' }, where: [{ column: 'id', value: userId }], limit: 1,
+		}));
+		if (self?.user_name === values.profile_nickname) values.profile_nickname = '';
+	}
 	const nickname = values.profile_nickname;
 	if (nickname !== undefined && nickname) {
 		// 字符集与长度规则和 passport 共用一份：昵称按半角宽度计长，全角记 2。
 		const error = nicknameError(nickname);
 		if (error) return { error };
-		// 昵称没设时回落到用户名，所以不能占用别的账号的用户名——否则两个账号显示成同一个名字。
-		// 跨表的约束数据库管不了，只能写入前查。
+		// 昵称没设时回落到用户名，所以不能占用**别的**账号的用户名——否则两个账号显示成同一个
+		// 名字。自己的用户名上面已经折成「不设昵称」了，走不到这里。跨表的约束数据库管不了，
+		// 只能写入前查。
 		const takenAsUsername = await firstSql(database, sql({ database }).select({
 			table: 'base_users', columns: { id: 'id' },
 			where: [{ column: 'name', value: nickname }, { column: 'id', operator: '!=', value: userId }, tenantScope], limit: 1,

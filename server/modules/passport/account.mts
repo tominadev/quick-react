@@ -4,7 +4,7 @@ import type { DatabaseAdapter, DatabaseBatchStatement } from '@server/database/i
 import { allSql, firstSql, runSql, runSystemSql, sql } from '@server/database/sql.mjs';
 import { PendingApprovalError, runOperationSql } from '@server/modules/base/operation.mjs';
 import { isValidUserName, nicknameError, userNameError } from '@shared/account-name.mjs';
-import { passportProfileStatement } from './profile.mjs';
+import { passportProfileNicknameOf, passportProfileStatement } from './profile.mjs';
 import { hashPassword, verifyPassword } from '@server/modules/base/auth/index.mjs';
 import { normalizePassportEmail } from './identity.mjs';
 import { getPassportSnowflakeGenerator } from './snowflake.mjs';
@@ -94,6 +94,13 @@ export const hasAccountPassword = async (database: DatabaseAdapter, userId: stri
 );
 
 export const updateProfileNickname = async (c: Context<AppEnv>, database: DatabaseAdapter, userId: string, rawNickname: string) => {
+	// 与 base 同一套：表单默认填的就是用户名，原样提交回来当作「没设昵称」，
+	// 清掉后继续回落。这一步在长度校验之前——用户名可以短到 3 位。
+	const current = await loadAccountName(database, userId);
+	if (rawNickname.trim() === current) {
+		await runOperationSql(c, database, passportProfileStatement(database, userId, { profile_nickname: '' }));
+		return current ?? '';
+	}
 	const profileNickname = normalizeProfileNickname(rawNickname);
 	await runOperationSql(c, database, passportProfileStatement(database, userId, { profile_nickname: profileNickname }));
 	return profileNickname;
@@ -305,7 +312,7 @@ export const loadAccountProfile = async (database: DatabaseAdapter, userId: stri
 	]);
 	return {
 		userId,
-		profile_nickname: user?.profile_nickname ?? '',
+		profile_nickname: passportProfileNicknameOf(userName ?? '', user?.profile_nickname),
 		createdAt: user?.created_at ?? 0,
 		user_name: userName,
 		emails,

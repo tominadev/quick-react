@@ -70,6 +70,16 @@ try {
 		['user_name', 'profile_nickname', 'profile_qq', 'profile_wechat', 'profile_email', 'currentPassword', 'newPassword'],
 	);
 	const save = (body) => request(mePath, { method: 'PUT', cookie, body });
+	// 昵称的默认值就是用户名（没设过时回落显示的那个），表单里不会是空白。
+	const beforeNickname = await (await request(mePath, { cookie })).json();
+	assert.equal(beforeNickname.formPage.initialValues.profile_nickname, 'meadmin');
+	assert.equal(beforeNickname.user.profile_nickname, 'meadmin', '右上角显示的是昵称，没设过就回落到用户名');
+	// 原样提交回来当作「没设昵称」：不写资料行，继续回落。用户名只有 7 位、短于昵称下限
+	// 4 个半角也不该因此保存失败——比对必须发生在长度校验之前。
+	assert.equal((await save({ profile_nickname: 'meadmin', __changedFields: ['profile_nickname'] })).status, 200);
+	const untouched = new DatabaseSync(process.env.DEFAULT_DATABASE_FILE, { readOnly: true });
+	assert.equal(untouched.prepare('SELECT nickname FROM base_user_profiles p JOIN base_users u ON u.id = p.user_id WHERE u.name = ?').get('meadmin')?.nickname ?? null, null, '原样保存不该写入昵称');
+	untouched.close();
 	assert.equal((await save({ profile_nickname: '小明', __changedFields: ['profile_nickname'] })).status, 200, '昵称可以用中文');
 	assert.equal((await save({ profile_nickname: 'a\u0000b', __changedFields: ['profile_nickname'] })).status, 400, '昵称不能带控制字符');
 	// 昵称租户内唯一，但留空存 NULL，因此多个用户都不设昵称不会互相撞车。

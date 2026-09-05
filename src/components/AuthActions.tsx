@@ -30,7 +30,7 @@ export default function AuthActions({ auth, commonApi, apiSuffix, pageSuffix }: 
 	if (!auth) return null;
 	const pageUrl = (path: string) => path === '/' ? path : path + pageSuffix;
 	const identity = auth.currentUser
-		? <Space size={6}><Avatar size="small" icon={<UserOutlined />} />{auth.currentUser.user_name}</Space>
+		? <Space size={6}><Avatar size="small" icon={<UserOutlined />} />{auth.currentUser.profile_nickname}</Space>
 		: null;
 	const execute = async (action: HeaderAction) => {
 		if (action.action === 'navigate') {

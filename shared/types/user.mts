@@ -1,6 +1,8 @@
 export type UserIdentity = {
 	id: number | string;
 	user_name: string;
+	/** 显示名。没设昵称时已经在接口内部回落到用户名，所以界面上不会是空的。 */
+	profile_nickname: string;
 	roles: string[];
 	/** 账号所属租户（base_users.owner_tid）；平台自有账号为 null。 */
 	tenantId?: string | null;

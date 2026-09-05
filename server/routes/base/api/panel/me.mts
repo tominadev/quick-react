@@ -4,7 +4,7 @@ import { apiMessage, apiMessageData, apiResponse } from '@server/modules/base/ap
 import { passwordError } from '@server/modules/base/auth/password-policy.mjs';
 import { getChangedFields } from '@server/modules/base/changed-fields.mjs';
 import { firstSql, sql, type SqlQuery } from '@server/database/sql.mjs';
-import { profileStatement } from '@server/modules/base/profile.mjs';
+import { profileNicknameOf, profileStatement } from '@server/modules/base/profile.mjs';
 import { runOperation } from '@server/modules/base/operation.mjs';
 import { credentialStatement, verifyCredential } from '@server/modules/base/credentials.mjs';
 import { loadAccountsOidcConfig } from '@server/modules/passport/accounts/client.mjs';
@@ -21,7 +21,7 @@ const profileForm = (values: { user_name: string; profile_nickname: string; prof
 	initialValues: { ...values, currentPassword: '', newPassword: '' },
 	fields: [
 		{ name: 'user_name', label: '用户名', type: 'text', maxLength: maxUserNameLength, extra: `以小写字母开头，只能包含小写字母和数字，最长 ${maxUserNameLength} 位。`, rules: [{ required: true, message: '请输入用户名' }] },
-		{ name: 'profile_nickname', label: '昵称', type: 'text', maxLength: maxNicknameWidth, extra: `显示名，与用户名一样在本站内唯一，但可以用各国语言；宽度 ${minNicknameWidth} 到 ${maxNicknameWidth} 个半角字符（一个全角按两个半角计），留空则显示用户名。` },
+		{ name: 'profile_nickname', label: '昵称', type: 'text', maxLength: maxNicknameWidth, extra: `显示名，与用户名一样在本站内唯一，但可以用各国语言；宽度 ${minNicknameWidth} 到 ${maxNicknameWidth} 个半角字符（一个全角按两个半角计），默认就是用户名，改成别的才会单独保存。` },
 		{ name: 'profile_qq', label: 'QQ', type: 'text', maxLength: 20 },
 		{ name: 'profile_wechat', label: '微信号', type: 'text', maxLength: 64 },
 		{ name: 'profile_email', label: '联系邮箱', type: 'text', maxLength: 254, extra: '本站不做验证，仅作联系方式。' },
@@ -62,7 +62,7 @@ const handler: ApiHandler = async (c, next) => {
 		return apiResponse(c, 200, {
 			user: currentUser,
 			...(accounts ?? {}),
-			...(row ? { formPage: profileForm({ user_name: row.user_name, profile_nickname: row.profile_nickname ?? '', profile_qq: row.profile_qq ?? '', profile_wechat: row.profile_wechat ?? '', profile_email: row.profile_email ?? '' }) } : {}),
+			...(row ? { formPage: profileForm({ user_name: row.user_name, profile_nickname: profileNicknameOf(row.user_name, row.profile_nickname), profile_qq: row.profile_qq ?? '', profile_wechat: row.profile_wechat ?? '', profile_email: row.profile_email ?? '' }) } : {}),
 		});
 	}
 	if (c.req.method === 'PUT') {

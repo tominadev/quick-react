@@ -14,6 +14,7 @@ import { isSecureRequest, requestOrigin, requestPagePath } from '@server/modules
 import { clearPassportSessionCookie } from '@server/modules/passport/session.mjs';
 import { passwordError } from '@server/modules/base/auth/password-policy.mjs';
 import { userNameError } from '@shared/account-name.mjs';
+import { profileNicknameOf } from '@server/modules/base/profile.mjs';
 import { parseRoles } from '@shared/types/role.mjs';
 
 const parseCredentials = async (c: Parameters<ApiHandler>[0]) => {
@@ -98,7 +99,7 @@ const localSign: ApiHandler = async (c, next) => {
 		const credentials = await parseCredentials(c);
 		// 用户名只在租户内唯一，登录必须按当前请求租户过滤：否则跨租户同名账号会被验到别人头上。
 		const tenantId = c.get('tenantId');
-		const user = await firstSql<{ id: number; user_name: string; roles: string }>(systemDatabase, sql({ database: systemDatabase }).select({ table: 'base_users', columns: { id: 'id', user_name: 'name', roles: 'roles' }, where: [{ column: 'name', value: credentials.user_name }, { column: 'status', value: 'enabled' }, tenantId === null ? { column: 'owner_tid', operator: 'IS NULL' as const } : { column: 'owner_tid', value: tenantId }] }));
+		const user = await firstSql<{ id: number; user_name: string; profile_nickname: string | null; roles: string }>(systemDatabase, sql({ database: systemDatabase }).select({ table: 'base_users', alias: 'u', columns: { id: 'u.id', user_name: 'u.name', profile_nickname: 'p.nickname', roles: 'u.roles' }, joins: [{ type: 'LEFT', table: 'base_user_profiles', alias: 'p', left: 'p.user_id', right: 'u.id' }], where: [{ column: 'u.name', value: credentials.user_name }, { column: 'u.status', value: 'enabled' }, tenantId === null ? { column: 'u.owner_tid', operator: 'IS NULL' as const } : { column: 'u.owner_tid', value: tenantId }] }));
 		// 凭证分表存放：没有凭证行就是没有本地密码（例如 OIDC 建出来的账号）。
 		// 提示统一成「用户名或密码错误」，不区分「无此用户」「没有本地密码」与「密码错」。
 		if (!user || !await verifyCredential(systemDatabase, user.id, credentials.password)) return apiMessage(c, 401, '用户名或密码错误', { component: 'modal', type: 'error' });
@@ -112,7 +113,7 @@ const localSign: ApiHandler = async (c, next) => {
 		const owned = withDatabaseActors(systemDatabase, { baseUserId: user.id });
 		await runSql(owned, sql({ database: owned }).insert('base_sessions', { token_hash: await hashSessionToken(sessionToken), user_id: user.id, device_id: deviceId, expires_at: now + maxAge * 1000 }));
 		c.header('Set-Cookie', createSessionCookie(sessionToken, new URL(c.req.url).protocol === 'https:', maxAge));
-		c.set('currentUser', { id: user.id, user_name: user.user_name, roles: parseRoles(user.roles) });
+		c.set('currentUser', { id: user.id, user_name: user.user_name, profile_nickname: profileNicknameOf(user.user_name, user.profile_nickname), roles: parseRoles(user.roles) });
 		return apiMessageData(c, 200, '登录成功', { user: { id: user.id, user_name: user.user_name }, next: { action: 'navigate', path: requestPagePath(c), refreshAuth: true } });
 	}
 	if (c.req.method === 'DELETE') {

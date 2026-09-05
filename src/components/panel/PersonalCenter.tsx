@@ -44,6 +44,7 @@ export default function PersonalCenter({ commonApi, user: initialUser, title, in
 			/> : null}
 			<Descriptions column={1} bordered>
 				<Descriptions.Item label="用户名">{user?.user_name ?? '—'}</Descriptions.Item>
+				<Descriptions.Item label="昵称">{user?.profile_nickname ?? '—'}</Descriptions.Item>
 				<Descriptions.Item label="角色">{user?.roles.map(roleLabel).join('、') || '—'}</Descriptions.Item>
 			</Descriptions>
 			{/* 同一个接口既给身份展示也给可编辑表单：用户名、昵称、密码都改自己这一行。 */}

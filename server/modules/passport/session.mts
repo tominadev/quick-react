@@ -35,7 +35,7 @@ export const loadPassportSession = async (database: DatabaseAdapter, request: Re
 	}
 	try {
 		if (await validatePassportDevice(database, user.user_id, user.device_id, request)) // 没设过资料就回落到用户名。
-			return { id: user.user_id, user_name: passportProfileNicknameOf(user.user_name, user.profile_nickname), roles: [] };
+			return { id: user.user_id, user_name: user.user_name, profile_nickname: passportProfileNicknameOf(user.user_name, user.profile_nickname), roles: [] };
 	} catch {
 		// 指纹格式错误同样使当前会话失效。
 	}

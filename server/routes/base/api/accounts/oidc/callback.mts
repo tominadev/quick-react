@@ -6,7 +6,7 @@ import { isValidAccountUserName } from '@server/modules/passport/account.mjs';
 import { baseSessionMaxAge, createSessionCookie, hashSessionToken } from '@server/modules/base/auth/index.mjs';
 import { ensureBaseDevice } from '@server/modules/base/device.mjs';
 import { hasCredential, setCredential } from '@server/modules/base/credentials.mjs';
-import { profileStatement, readProfileNickname } from '@server/modules/base/profile.mjs';
+import { profileNicknameOf, profileStatement, readProfileNickname } from '@server/modules/base/profile.mjs';
 import { readStoredPassword } from '@server/modules/base/auth/index.mjs';
 import { CREDENTIAL_CLAIM } from '@shared/types/oidc-claims.mjs';
 import { withDatabaseActors } from '@server/database/index.mjs';
@@ -134,8 +134,8 @@ const handler: ApiHandler = async (c) => {
 		await runSql(systemDatabase, sql({ database: systemDatabase }).delete('base_oidc_login_requests', { request_id: request.id }));
 		const secure = isSecureRequest(c);
 		c.header('Set-Cookie', clearAccountsLoginCookie(secure)); c.header('Set-Cookie', createSessionCookie(sessionToken, secure, maxAge), { append: true });
-		const localUser = await firstSql<{ id: number; user_name: string; roles: string }>(systemDatabase, sql({ database: systemDatabase }).select({ table: 'base_users', columns: { id: 'id', user_name: 'name', roles: 'roles' }, where: [{ column: 'id', value: account.user_id }] }));
-		if (localUser) c.set('currentUser', { id: localUser.id, user_name: localUser.user_name, roles: parseRoles(localUser.roles) });
+		const localUser = await firstSql<{ id: number; user_name: string; profile_nickname: string | null; roles: string }>(systemDatabase, sql({ database: systemDatabase }).select({ table: 'base_users', alias: 'u', columns: { id: 'u.id', user_name: 'u.name', profile_nickname: 'p.nickname', roles: 'u.roles' }, joins: [{ type: 'LEFT', table: 'base_user_profiles', alias: 'p', left: 'p.user_id', right: 'u.id' }], where: [{ column: 'u.id', value: account.user_id }] }));
+		if (localUser) c.set('currentUser', { id: localUser.id, user_name: localUser.user_name, profile_nickname: profileNicknameOf(localUser.user_name, localUser.profile_nickname), roles: parseRoles(localUser.roles) });
 		const context = await c.get('apiContext')?.(request.return_path);
 		// 登录只在弹窗里完成：直接返回关闭窗口的页面，不再中转到额外的回调页面。
 		return c.html(popupClosePage(request.return_path, context));

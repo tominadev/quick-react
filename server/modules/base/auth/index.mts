@@ -1,6 +1,7 @@
 import type { DatabaseAdapter } from '@server/database/index.mjs';
 import { firstSql, runSql, sql } from '@server/database/sql.mjs';
 import { validateBaseDevice } from '@server/modules/base/device.mjs';
+import { profileNicknameOf } from '@server/modules/base/profile.mjs';
 import { parseRoles } from '@shared/types/role.mjs';
 
 const encoder = new TextEncoder();
@@ -112,7 +113,7 @@ export const loadCurrentUser = async (database: DatabaseAdapter, request: Reques
 	const sessionId = readSessionId(request);
 	if (!sessionId) return undefined;
 	const sessionHash = await hashSessionToken(sessionId);
-	const row = await firstSql<{ id: number; user_name: string; roles: string; tenant_id: string | null; device_id: string | null }>(database, sql({ database }).select({ table: 'base_sessions', alias: 's', columns: { id: 'u.id', user_name: 'u.name', roles: 'u.roles', tenant_id: { column: 'u.owner_tid', cast: 'text' }, device_id: { column: 's.device_id', cast: 'text' } }, joins: [{ table: 'base_users', alias: 'u', left: 'u.id', right: 's.user_id' }], where: [{ column: 's.token_hash', value: sessionHash }, { column: 's.expires_at', operator: '>', value: Date.now() }, { column: 'u.status', value: 'enabled' }] }));
+	const row = await firstSql<{ id: number; user_name: string; profile_nickname: string | null; roles: string; tenant_id: string | null; device_id: string | null }>(database, sql({ database }).select({ table: 'base_sessions', alias: 's', columns: { id: 'u.id', user_name: 'u.name', profile_nickname: 'p.nickname', roles: 'u.roles', tenant_id: { column: 'u.owner_tid', cast: 'text' }, device_id: { column: 's.device_id', cast: 'text' } }, joins: [{ table: 'base_users', alias: 'u', left: 'u.id', right: 's.user_id' }, { type: 'LEFT' as const, table: 'base_user_profiles', alias: 'p', left: 'p.user_id', right: 's.user_id' }], where: [{ column: 's.token_hash', value: sessionHash }, { column: 's.expires_at', operator: '>', value: Date.now() }, { column: 'u.status', value: 'enabled' }] }));
 	if (!row) return undefined;
 	if (!row.device_id) {
 		await runSql(database, sql({ database }).delete('base_sessions', { token_hash: sessionHash }));
@@ -121,7 +122,7 @@ export const loadCurrentUser = async (database: DatabaseAdapter, request: Reques
 	try {
 		if (await validateBaseDevice(database, String(row.id), row.device_id, request)) {
 			await runSql(database, sql({ database }).update('base_sessions', { expires_at: Date.now() + baseSessionMaxAge * 1000 }, { token_hash: sessionHash }));
-			return { id: row.id, user_name: row.user_name, roles: parseRoles(row.roles), tenantId: row.tenant_id };
+			return { id: row.id, user_name: row.user_name, profile_nickname: profileNicknameOf(row.user_name, row.profile_nickname), roles: parseRoles(row.roles), tenantId: row.tenant_id };
 		}
 	} catch {
 		// 指纹格式错误同样使当前会话失效。

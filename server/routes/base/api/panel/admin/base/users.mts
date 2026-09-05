@@ -22,7 +22,7 @@ const columns = [
 	{ dataIndex: 'created_at', title: '创建时间', dataType: 'js_timestamp' as const, dayjsFormat: 'YYYY-MM-DD HH:mm:ss', group: '基础设置' },
 	{ dataIndex: 'updated_at', title: '更新时间', dataType: 'js_timestamp' as const, dayjsFormat: 'YYYY-MM-DD HH:mm:ss', group: '基础设置' },
 	// 个人简介都存在 base_user_profiles：没有资料行就是没设过，昵称回落到用户名。
-	{ dataIndex: 'profile_nickname', title: '昵称', component: 'textbox' as const, placeholder: '留空则显示用户名', group: '个人简介' },
+	{ dataIndex: 'profile_nickname', title: '昵称', component: 'textbox' as const, placeholder: '默认与用户名相同', group: '个人简介' },
 	{ dataIndex: 'profile_qq', title: 'QQ', component: 'textbox' as const, group: '个人简介' },
 	{ dataIndex: 'profile_wechat', title: '微信号', component: 'textbox' as const, group: '个人简介' },
 	{ dataIndex: 'profile_email', title: '联系邮箱', component: 'textbox' as const, placeholder: '本站不做验证，仅作联系方式', group: '个人简介' },
