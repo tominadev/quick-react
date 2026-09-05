@@ -15,6 +15,7 @@ import { useNavigate } from 'react-router-dom';
 import { PlusOutlined, DeleteOutlined, SearchOutlined, UploadOutlined, DownloadOutlined } from '@ant-design/icons';
 import { useDrawer } from '@/utils/common/drawer.js';
 import dayjs from 'dayjs';
+import { readTableUrlState, sortOrderFor, sortParameter, writeTableUrlState } from './url-state.js';
 
 // 定义TableCRUD的传参
 type TableCrudType = {
@@ -82,16 +83,28 @@ const TableCRUD = ({ commonApi, resourcePath, initialResponse, initialQueryValue
 		};
 	})();
 
+	const initialTableState = useRef(readTableUrlState(typeof window === 'undefined' ? '' : window.location.search)).current;
+	const rememberTableState = (state: Parameters<typeof writeTableUrlState>[1]) => {
+		if (typeof window === 'undefined') return;
+		try {
+			const url = new URL(window.location.href);
+			const search = writeTableUrlState(url.search, state);
+			window.history.replaceState(window.history.state, '', `${url.pathname}${search ? `?${search}` : ''}${url.hash}`);
+		} catch { /* 地址栏不可写时静默跳过：表格本身照常工作。 */ }
+	};
+
 	// 代码分类：API数据加载
 	const [loading, setLoading] = useState(!initialResponse);
 	const [uploadState, setUploadState] = useState<UploadState>();
 	const [modalAction, setModalAction] = useState<{ path: string; title: string; component?: 'form' | 'table' }>();
 	const uploadAbortController = useRef<AbortController | undefined>(undefined);
 	const [pagination, setPagination] = useState<TablePaginationConfig>({
-		current: 1,
-		pageSize: 10,
+		current: initialTableState.page,
+		pageSize: initialTableState.size,
 		showSizeChanger: true,
 	});
+	/** `<列>:<asc|desc>`，空串表示按后端默认排序。 */
+	const [sort, setSort] = useState<string>(initialTableState.sort);
 	const [filters, setFilters] = useState<Record<string, FilterValue | null>>({});
 	const [dataSource, setDataSource] = useState<DataType[]>([]);
 	const [tableColumns, setTableColumns] = useState<TableColumnsType<DataType>>();
@@ -102,7 +115,7 @@ const TableCRUD = ({ commonApi, resourcePath, initialResponse, initialQueryValue
 	const [queryFields, setQueryFields] = useState<TableQueryField[]>([]);
 	const [queryActions, setQueryActions] = useState<TableAction[]>([]);
 	const [queryValues, setQueryValues] = useState<Record<string, string>>(initialQueryDefaults);
-	const [appliedQueryValues, setAppliedQueryValues] = useState<Record<string, string>>(initialQueryDefaults);
+	const [appliedQueryValues, setAppliedQueryValues] = useState<Record<string, string>>({ ...initialQueryDefaults, ...initialTableState.query });
 	const [searchRequestKey, setSearchRequestKey] = useState(0);
 	const initializedQueryDefaultsFor = useRef('');
 	const requestSequence = useRef(0);
@@ -122,6 +135,10 @@ const TableCRUD = ({ commonApi, resourcePath, initialResponse, initialQueryValue
 	 * 那次请求时的值。首次加载时查询条件还是空的，于是「表列管理」点编辑会带不上
 	 * table 参数，报「请选择数据表」；切换数据表再搜索会重建列定义，就正常了。
 	 */
+	// 列定义是在异步回调里构造的，捕获渲染时的 sort 会拿到旧值，必须读 ref。
+	const sortRef = useRef(sort);
+	sortRef.current = sort;
+	const sortOrderRef = useRef((dataIndex: string) => sortOrderFor(sortRef.current, dataIndex));
 	const appliedQueryValuesRef = useRef(appliedQueryValues);
 	appliedQueryValuesRef.current = appliedQueryValues;
 	const currentQueryValues = () => appliedQueryValuesRef.current;
@@ -259,6 +276,7 @@ const TableCRUD = ({ commonApi, resourcePath, initialResponse, initialQueryValue
 				const query: Record<string, string> = {
 					pageNum: pagination.current?.toString() || '0',
 					pageSize: pagination.pageSize?.toString() || '0',
+					...(sortRef.current ? { sort: sortRef.current } : {}),
 				};
 				const currentCursor = cursorsByPage.current[currentPage];
 				if (currentCursor) query.cursor = currentCursor;
@@ -327,9 +345,12 @@ const TableCRUD = ({ commonApi, resourcePath, initialResponse, initialQueryValue
 					const tableColumns: TableColumnsType<DataType> = [];
 					for (const column of columns) {
 						if (column.hideInTable) continue;
-						const { tableDisplay, tableDisplayTextField, ...tableColumn } = column;
+						const { tableDisplay, tableDisplayTextField, sortable, ...tableColumn } = column;
 						tableColumns.push({
 							...tableColumn,
+							// 排序在服务端做（数据是分页的，只排当前页等于排了个寂寞），
+							// 所以 sorter 只当开关用；哪些列能排由后端下发，前端不自行推断。
+							...(sortable ? { sorter: true as const, sortOrder: sortOrderRef.current(String(column.dataIndex)) } : {}),
 								render: (value, record) => {
 								if (column.component === 'avatar') return value ? <Avatar src={String(value)} /> : <Avatar />;
 								if (column.component === 'avatar_text') return <Space size={8}><Avatar src={record.avatar ? String(record.avatar) : undefined} /> <span>{String(value ?? '') || '未设置昵称'}</span></Space>;
@@ -443,15 +464,26 @@ const TableCRUD = ({ commonApi, resourcePath, initialResponse, initialQueryValue
 			return;
 		}
 		void fetchData();
-	}, [apiPath, initialResponse, JSON.stringify(appliedQueryValues), searchRequestKey, filters, pagination.pageSize, pagination.current]);
+	}, [apiPath, initialResponse, JSON.stringify(appliedQueryValues), searchRequestKey, filters, pagination.pageSize, pagination.current, sort]);
 	useEffect(() => () => uploadAbortController.current?.abort(), []);
 	const onChange: TableProps<DataType>['onChange'] = (_pagination: TablePaginationConfig, _filters, _sorter, _extra) => {
-		// console.log('onChange-params', { _pagination, _filters, _sorter, _extra });
+		// 排序变了就回第一页：停在第 5 页却换了次序，看到的是一段没有来由的数据。
+		const sorter = Array.isArray(_sorter) ? _sorter[0] : _sorter;
+		const nextSort = sortParameter(sorter?.field, sorter?.order);
+		const sortChanged = nextSort !== sortRef.current;
+		if (sortChanged) {
+			setSort(nextSort);
+			cursorsByPage.current = { 1: undefined };
+			rememberTableState({ sort: nextSort, page: 1 });
+		}
 		setPagination((prev) => {
+			if (sortChanged) return { ...prev, current: 1 };
 			if (prev.pageSize !== _pagination.pageSize) {
 				cursorsByPage.current = { 1: undefined };
+				rememberTableState({ size: _pagination.pageSize, page: 1 });
 				return { ...prev, pageSize: _pagination.pageSize, current: 1 };
 			}
+			rememberTableState({ page: _pagination.current ?? 1, size: _pagination.pageSize });
 			return { ...prev, pageSize: _pagination.pageSize, current: _pagination.current };
 		});
 		for (const k in _filters) {
@@ -725,6 +757,8 @@ const TableCRUD = ({ commonApi, resourcePath, initialResponse, initialQueryValue
 		setAppliedQueryValues(queryValues);
 		setSearchRequestKey((previous) => previous + 1);
 		setPagination((prev) => ({ ...prev, current: 1, total: 0 }));
+		// 搜索条件也记进地址栏：刷新回到同一组条件，链接可以直接分享。
+		rememberTableState({ query: queryValues, page: 1 });
 	};
 	// 查询区是裸的输入框，不在 form 里，没有默认提交行为可拦。用 antd 自带的
 	// onPressEnter，而不是为此套一层 form——嵌套 form 还要处理默认提交与冒泡。

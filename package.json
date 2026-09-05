@@ -45,6 +45,7 @@
 		"test:maintenance-rescue": "node scripts/test-maintenance-rescue.mjs",
 		"test:response-action": "node scripts/test-response-action.mjs",
 		"test:shell-fallback": "node scripts/test-shell-fallback.mjs",
+		"test:table-url-state": "node scripts/test-table-url-state.mjs",
 		"test:audit-scope": "node scripts/test-audit-scope.mjs",
 		"test:change-audit": "node scripts/test-change-audit.mjs",
 		"import:legacy-passport": "node scripts/import-legacy-passport.mjs",
