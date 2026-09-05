@@ -183,6 +183,10 @@ model base_oidc_login_requests {
   /// choosing 阶段暂存已验证的 sub 与 claims，供选择页落定时使用；不再向 Accounts 二次换取。
   subject       String @default("")
   claims        String @default("{}")
+  /// Accounts 下发的凭证 blob，单独一列而不是混进 claims：claims 最终会写进
+  /// base_oidc_users.profile，那是「数据管理」里可见的普通列。这一列随请求行在落定时删掉，
+  /// 列名进了 HIDDEN_VALUE_COLUMNS，接口不返回它的值。
+  credential    String @default("")
 }
 
 model base_oidc_users {

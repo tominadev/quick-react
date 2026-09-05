@@ -7,7 +7,7 @@ import { allowsLocalLogin } from '@server/modules/passport/accounts/client.mjs';
 import { withDatabaseActors, type DatabaseAdapter } from '@server/database/index.mjs';
 import { apiMessage, apiMessageData, apiResponse } from '@server/modules/base/api-response.mjs';
 import type { FormPageConfig } from '@shared/types/form-page.mjs';
-import { firstSql, runSql, sql } from '@server/database/sql.mjs';
+import { firstSql, ownerScope, runSql, sql } from '@server/database/sql.mjs';
 import { accountsLoginCookie, loadAccountsOidcConfig, loadDiscovery, oidcFetch } from '@server/modules/passport/accounts/client.mjs';
 import { randomToken, sha256Base64Url } from '@server/modules/passport/accounts/oidc.mjs';
 import { isSecureRequest, requestOrigin, requestPagePath } from '@server/modules/base/request-origin.mjs';
@@ -99,7 +99,7 @@ const localSign: ApiHandler = async (c, next) => {
 		const credentials = await parseCredentials(c);
 		// 用户名只在租户内唯一，登录必须按当前请求租户过滤：否则跨租户同名账号会被验到别人头上。
 		const tenantId = c.get('tenantId');
-		const user = await firstSql<{ id: number; user_name: string; profile_nickname: string | null; roles: string }>(systemDatabase, sql({ database: systemDatabase }).select({ table: 'base_users', alias: 'u', columns: { id: 'u.id', user_name: 'u.name', profile_nickname: 'p.nickname', roles: 'u.roles' }, joins: [{ type: 'LEFT', table: 'base_user_profiles', alias: 'p', left: 'p.user_id', right: 'u.id' }], where: [{ column: 'u.name', value: credentials.user_name }, { column: 'u.status', value: 'enabled' }, tenantId === null ? { column: 'u.owner_tid', operator: 'IS NULL' as const } : { column: 'u.owner_tid', value: tenantId }] }));
+		const user = await firstSql<{ id: number; user_name: string; profile_nickname: string | null; roles: string }>(systemDatabase, sql({ database: systemDatabase }).select({ table: 'base_users', alias: 'u', columns: { id: 'u.id', user_name: 'u.name', profile_nickname: 'p.nickname', roles: 'u.roles' }, joins: [{ type: 'LEFT', table: 'base_user_profiles', alias: 'p', left: 'p.user_id', right: 'u.id' }], where: [{ column: 'u.name', value: credentials.user_name }, { column: 'u.status', value: 'enabled' }, ownerScope('u.owner_tid', tenantId)] }));
 		// 凭证分表存放：没有凭证行就是没有本地密码（例如 OIDC 建出来的账号）。
 		// 提示统一成「用户名或密码错误」，不区分「无此用户」「没有本地密码」与「密码错」。
 		if (!user || !await verifyCredential(systemDatabase, user.id, credentials.password)) return apiMessage(c, 401, '用户名或密码错误', { component: 'modal', type: 'error' });

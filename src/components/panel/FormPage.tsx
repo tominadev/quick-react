@@ -1,5 +1,5 @@
 import React, { useEffect, useRef, useState } from 'react';
-import { Alert, Button, Card, Divider, Form, Input, message, Modal, Select, Space, Spin, Switch, Typography } from 'antd';
+import { Alert, Button, Card, Divider, Form, Input, message, Modal, Select, Space, Spin, Switch, Tabs, Typography } from 'antd';
 import { ClearOutlined, GoogleCircleFilled, RollbackOutlined, SendOutlined, UserOutlined, WechatFilled } from '@ant-design/icons';
 import type { CommonApi } from '@/utils/common/api.js';
 import type { FormPageField, FormPageResponse, FormPageSection } from '@shared/types/form-page.mjs';
@@ -35,6 +35,10 @@ function SectionForm({ section, initialValues, submitting, onSubmit }: {
 	onSubmit: (key: string, values: Record<string, unknown>) => Promise<void>;
 }) {
 	const [form] = Form.useForm();
+	// 保存成功后服务端会回一份新的 formPage（例如密码设过之后那一段要多出「当前密码」），
+	// 而 antd 的 initialValues 只在挂载时生效。按对象身份同步一次：正常打字时
+	// formConfig.initialValues 的身份不变，不会把用户输入冲掉。
+	useEffect(() => { form.setFieldsValue(initialValues); }, [initialValues]);
 	return <>
 		{section.divider ? <Divider plain style={{ color: '#8c8c8c' }}>{section.divider}</Divider> : null}
 		{section.description ? <Alert type="info" showIcon message={section.description} style={{ marginBottom: 16 }} /> : null}
@@ -334,9 +338,16 @@ export default function FormPage({ commonApi, apiPath, title, submitMethod = 'PU
 			{passportError ? <Alert type="error" showIcon message={passportError} style={{ marginTop: 12 }} /> : null}
 		</div> : null}
 		{formConfig?.description ? <Alert type="info" showIcon message={formConfig.description} style={{ marginBottom: 24 }} /> : null}
-		{formConfig?.sections?.length ? formConfig.sections.map((section) => (
+		{formConfig?.sections?.length ? (formConfig.sectionLayout === 'tabs' ? (
+			// 每段自带一个 Form 实例，选项卡切走也不会互相牵连，因此不需要 forceRender。
+			<Tabs items={formConfig.sections.map((section) => ({
+				key: section.key,
+				label: section.title ?? section.key,
+				children: <SectionForm section={section} initialValues={formConfig.initialValues} submitting={saving} onSubmit={submitSection} />,
+			}))} />
+		) : formConfig.sections.map((section) => (
 			<SectionForm key={section.key} section={section} initialValues={formConfig.initialValues} submitting={saving} onSubmit={submitSection} />
-		)) : <Form
+		))) : <Form
 			form={form}
 			layout="vertical"
 			onFinish={onFinish}

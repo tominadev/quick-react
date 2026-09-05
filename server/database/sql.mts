@@ -413,3 +413,14 @@ export const runSql = async (database: DatabaseAdapter, statement: SqlQuery): Pr
 export const firstSql = <T,>(database: DatabaseAdapter, statement: SqlQuery) => database.prepare(statement.query).bind(...statement.values).first<T>();
 export const allSql = async <T,>(database: DatabaseAdapter, statement: SqlQuery) => (await database.prepare(statement.query).bind(...statement.values).all<T>()).results;
 export { compileSqlPlaceholders } from './placeholders.mjs';
+
+/**
+ * 归属列的等值条件。
+ *
+ * `owner_tid` / `owner_bid` 是 `NOT NULL DEFAULT 1`：没有租户上下文时写入落到默认租户 1，
+ * 查询就必须同样比 1。写成 `IS NULL` 是这两列还可空时的遗留，现在永远匹配不到任何行——
+ * 靠它做唯一性检查等于没做，撞名会一路放行到数据库约束（或者干脆放行）。
+ */
+export const ownerScope = (column: string, ownerId: string | number | bigint | null | undefined) => (
+	{ column, value: ownerId ?? DEFAULT_OWNER_ID } as const
+);

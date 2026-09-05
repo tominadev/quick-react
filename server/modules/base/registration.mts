@@ -1,7 +1,7 @@
 import type { Context } from 'hono';
 import type { AppEnv } from './types.mjs';
 import type { DatabaseActorUid, DatabaseAdapter } from '@server/database/index.mjs';
-import { firstSql, runSystemSql, sql } from '@server/database/sql.mjs';
+import { firstSql, runSystemSql, sql, ownerScope } from '@server/database/sql.mjs';
 
 /**
  * 本站当前允许哪种注册。
@@ -34,7 +34,7 @@ export const resolveRegistrationMode = async (c: Context<AppEnv>): Promise<Regis
  * 不需要在建号时抄一份进去。抄过去反而会撞上别人挑走的昵称。
  */
 export const finishUserCreation = async (database: DatabaseAdapter, userName: string, tenantId: DatabaseActorUid) => {
-	const scope = tenantId === null ? { column: 'owner_tid', operator: 'IS NULL' as const } : { column: 'owner_tid', value: tenantId };
+	const scope = ownerScope('owner_tid', tenantId);
 	const created = await firstSql<{ id: number | string | bigint }>(database, sql({ database }).select({ table: 'base_users', columns: { id: 'id' }, where: [{ column: 'name', value: userName }, scope], limit: 1 }));
 	if (!created) return undefined;
 	// 账号行归属账号自己，不归创建它的人。

@@ -2,7 +2,7 @@ import type { ApiHandler } from '@server/modules/base/api-router.mjs';
 import { apiMessage, apiMessageData, apiResponse } from '@server/modules/base/api-response.mjs';
 import { createStoredPassword, readStoredPassword } from '@server/modules/base/auth/index.mjs';
 import { getChangedFields } from '@server/modules/base/changed-fields.mjs';
-import { allSql, firstSql, runSql, runSystemSql, sql, type SqlQuery } from '@server/database/sql.mjs';
+import { allSql, firstSql, runSql, runSystemSql, sql, type SqlQuery, ownerScope } from '@server/database/sql.mjs';
 import { PendingApprovalError, runOperation, runOperationSql } from '@server/modules/base/operation.mjs';
 import { finishUserCreation } from '@server/modules/base/registration.mjs';
 import { credentialStatement, setCredential } from '@server/modules/base/credentials.mjs';
@@ -56,7 +56,7 @@ const handler: ApiHandler = async (c, next, params) => {
 	const database = c.get('database');
 	// 用户名只在租户内唯一，按名查找一律限本租户；列表与按 id 读取待行级判定落地后由公共层收敛。
 	const tenantId = c.get('tenantId');
-	const tenantScope = (column = 'owner_tid') => tenantId === null ? { column, operator: 'IS NULL' as const } : { column, value: tenantId };
+	const tenantScope = (column = 'owner_tid') => ownerScope(column, tenantId);
 	if (c.req.method === 'GET' && !params.id) {
 		const rows = await allSql<Record<string, unknown>>(database, sql({ database }).select({ table: 'base_users', alias: 'u', columns: { id: 'u.id', user_name: 'u.name', profile_nickname: 'p.nickname', profile_qq: 'p.qq', profile_wechat: 'p.wechat', profile_email: 'p.email', roles: 'u.roles', status: 'u.status', password: 'c.password', created_at: 'u.created_at', updated_at: 'u.updated_at' }, joins: [{ type: 'LEFT', table: 'base_user_credentials', alias: 'c', left: 'c.user_id', right: 'u.id' }, { type: 'LEFT', table: 'base_user_profiles', alias: 'p', left: 'p.user_id', right: 'u.id' }], orderBy: [{ column: 'u.id', direction: 'DESC' }] }));
 		return apiResponse(c, 200, { table: { option: { rowKey: 'id', actions: { query: [{ key: 'search', label: '搜索' }], toolbar: [{ key: 'create', label: '新增' }, { key: 'delete', label: '删除' }], row: [{ key: 'edit', label: '编辑' }, { key: 'delete', label: '删除' }] } }, columns, dataSource: rows.map(publicUser), totalRecords: rows.length } });

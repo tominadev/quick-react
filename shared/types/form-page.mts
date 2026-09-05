@@ -35,7 +35,9 @@ export type FormPageExternalLogin = { key: string; label: string; recommended?: 
  */
 export type FormPageSection = {
 	key: string;
-	/** 段前分隔线上的文字；第一段通常不需要。 */
+	/** 选项卡上的标题；sectionLayout 为 tabs 时必填。 */
+	title?: string;
+	/** 段前分隔线上的文字；stacked 布局用，第一段通常不需要。 */
 	divider?: string;
 	description?: string;
 	fields: FormPageField[];
@@ -47,6 +49,12 @@ export const SECTION_FIELD = '_section';
 export type FormPageConfig = {
 	/** 分段表单；给出这个就不渲染 fields/submitLabel 那套单表单。 */
 	sections?: FormPageSection[];
+	/**
+	 * 分段怎么排。
+	 * - `stacked`（默认）：上下堆叠，段间用分隔线。适合「两条互斥的路」，两条都要看得见。
+	 * - `tabs`：选项卡。适合「同一个对象的几组互不相干的设置」，一次只关心一组。
+	 */
+	sectionLayout?: 'stacked' | 'tabs';
 	/** 这个页面要不要收集「变更说明」；由服务端按请求路径注入，登录与注册页不需要。 */
 	changeControl?: boolean;
 	/** 当前用户能不能跳过审批；由服务端在 apiResponse 里统一注入，见 TableOption.canSkipApproval。 */

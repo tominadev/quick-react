@@ -133,7 +133,8 @@ CREATE TABLE "base_oidc_login_requests" (
     "expires_at" BIGINT NOT NULL,
     "status" TEXT NOT NULL DEFAULT 'pending',
     "subject" TEXT NOT NULL DEFAULT '',
-    "claims" TEXT NOT NULL DEFAULT '{}'
+    "claims" TEXT NOT NULL DEFAULT '{}',
+    "credential" TEXT NOT NULL DEFAULT ''
 );
 
 -- CreateTable

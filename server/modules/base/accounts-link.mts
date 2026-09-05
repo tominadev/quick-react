@@ -28,11 +28,14 @@ const syncLocalProfileNickname = async (database: DatabaseAdapter, userId: numbe
 };
 
 /**
- * 把 Accounts 带过来的昵称同步到本站资料。
+ * 首次绑定时把 Accounts 带过来的昵称抄一份到本站资料。**只做这一次。**
  *
- * **用户名不同步。** 本站账号的用户名要么是用户在选择页上自己定的，要么是他绑定过去的
- * 已有账号的名字——两种都是人挑的，Accounts 那边改名不该跟着改。（占位用户名
- * `passport_<sub>` 那套连同它的改名逻辑随选择页一起废弃了：现在建号必定有个真名字。）
+ * 绑定之后两边各管各的：用户在 Accounts 改昵称不影响业务站点，在业务站点改也不回传。
+ * 所以这个函数只在落定那一步调用，后续登录的回调不再碰用户名和昵称。
+ *
+ * 用户名一开始就不抄：本站账号的名字要么是用户在选择页上自己定的，要么是他绑过去的
+ * 已有账号的名字——两种都是人挑的。（占位用户名 `passport_<sub>` 连同它的改名逻辑
+ * 随选择页一起废弃了：现在建号必定有个真名字。）
  */
 export const syncAccountsIdentity = async (c: Context<AppEnv>, database: DatabaseAdapter, userId: number, claims: Record<string, unknown>, scope: TenantScope) => {
 	// name 只在 Accounts 那边**真设过昵称**时才下发；没设就没这个 claim，本站保持回落到用户名。

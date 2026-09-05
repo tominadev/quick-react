@@ -52,6 +52,11 @@ try {
 	database.prepare(`INSERT INTO passport_oidc_clients (client_id, name, secret_hash, redirect_uris, allowed_scopes, require_pkce, status, created_at, updated_at, backchannel_logout_uri)
 		VALUES (?, 'Test Client', ?, '["https://client.test/callback","https://site1.test/api/accounts/oidc/callback"]', 'openid profile email', 1, 'enabled', ?, ?, 'https://site1.test/api/accounts/oidc/backchannel-logout')`).run(clientId, secretHash, now, now);
 	database.prepare(`INSERT INTO base_configs (created_at, updated_at, key, value) VALUES (?, ?, 'accounts-oidc-client', ?)`).run(now, now, JSON.stringify({ enabled: true, issuer: 'https://accounts.test', clientId, clientSecret }));
+	// 密码同步两侧都要开：Accounts 客户端的「下发密码」+ 本站的「同步 Accounts 密码」。
+	// 站点设置随请求配置一起缓存，必须在第一次请求之前写进去。
+	database.prepare(`INSERT INTO base_configs (created_at, updated_at, key, value) VALUES (?, ?, 'site-settings', ?)`).run(now, now, JSON.stringify({ passwordSyncEnabled: true }));
+	const bindUserPassword = await storedPassword('accountspassword');
+	database.prepare('INSERT INTO passport_user_credentials (user_id, password, created_at, updated_at) VALUES (?, ?, ?, ?)').run(secondUserId, bindUserPassword, now, now);
 	database.prepare(`INSERT INTO base_users (id, name, roles, status, created_at, updated_at) VALUES (77, 'localadmin', '["admin"]', 'enabled', ?, ?)`).run(now, now);
 	// 绑定路径的目标账号：本站已有、且**有本地密码**。localadmin 故意不给密码，用来验证
 	// 「没有本地密码的账号绑不上」——那种账号本来就没有密码可以用来证明所有权。
@@ -226,6 +231,10 @@ try {
 	const completed = new DatabaseSync(process.env.DEFAULT_DATABASE_FILE, { readOnly: true });
 	assert.equal(completed.prepare('SELECT COUNT(*) AS count FROM base_oidc_users').get().count, 1); completed.close();
 	// —— 另一个 Accounts 身份：绑定到本站已有账号 ——
+	// 到这里才打开客户端的「下发密码」：上面那条「默认不下发凭证」的断言依赖它是关的。
+	const syncDatabase = new DatabaseSync(process.env.DEFAULT_DATABASE_FILE);
+	syncDatabase.prepare('UPDATE passport_oidc_clients SET password_sync = 1 WHERE client_id = ?').run(clientId);
+	syncDatabase.close();
 	// 这条路不建号：验证密码证明「这个本站账号确实是我的」，然后把身份映射指过去，角色不变。
 	const bindStart = await app.request('https://site1.test/api/sign.php', { method: 'POST', headers: { 'content-type': 'application/json' }, body: '{}' });
 	const bindLoginCookie = bindStart.headers.get('set-cookie')?.split(';')[0];
@@ -248,6 +257,14 @@ try {
 	const boundSign = await (await app.request('https://site1.test/api/sign.php', { headers: { cookie: boundCookie, 'x-device-key': deviceKey, 'x-device-fingerprint': fingerprintData } })).json();
 	// 绑定保留本站账号自己的用户名：Accounts 那边叫 binduser，本站还是 bindtarget。
 	assert.equal(boundSign.user.user_name, 'bindtarget');
+	// 首次绑定同步密码：整个 password blob 原样拷过来，hash 与 pattern 都不动。
+	// 之后各管各的——本站再改密码，Accounts 那边改密码，都不会互相覆盖。
+	const syncedCredential = new DatabaseSync(process.env.DEFAULT_DATABASE_FILE, { readOnly: true });
+	// blob 一字不差地拷过来，因此 Accounts 那边的密码在本站同样能登录（本站启用本地登录时）。
+	assert.equal(syncedCredential.prepare('SELECT password FROM base_user_credentials WHERE user_id = 78').get().password, bindUserPassword, '本站凭证应与 Accounts 的一字不差');
+	// 凭证 blob 只在待决期间存在，落定时随请求行一起删掉；库里不该再留下任何一份。
+	assert.equal(syncedCredential.prepare("SELECT COUNT(*) AS count FROM base_oidc_login_requests WHERE status = 'choosing' OR credential != ''").get().count, 0);
+	syncedCredential.close();
 	const boundDatabase = new DatabaseSync(process.env.DEFAULT_DATABASE_FILE, { readOnly: true });
 	assert.equal(boundDatabase.prepare('SELECT user_id FROM base_oidc_users WHERE subject = ?').get(String(secondUserId)).user_id, 78);
 	assert.equal(boundDatabase.prepare('SELECT COUNT(*) AS count FROM base_users').get().count, 3, '绑定不该建出新账号（localadmin、bindtarget、oidcuser1）');

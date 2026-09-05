@@ -23,7 +23,7 @@
  * 不做加密——解密密钥与数据库同机，能脱库的人一样拿得到（见需求文档 §5）。
  */
 export const HIDDEN_VALUE_COLUMNS = [
-	'password', 'dsn', 'dsn_password',
+	'password', 'credential', 'dsn', 'dsn_password',
 	'token', 'token_hash', 'secret_token', 'secret_hash',
 	'access_key_secret', 'api_token_secret', 'client_secret',
 	'authorization_code_hash', 'code_hash',

@@ -2,11 +2,10 @@ import type { ApiHandler } from '@server/modules/base/api-router.mjs';
 import { apiMessage } from '@server/modules/base/api-response.mjs';
 import { clearAccountsLoginCookie, accountsLoginCookieName, loadAccountsOidcConfig, loadDiscovery, oidcFetch, verifyIdToken } from '@server/modules/passport/accounts/client.mjs';
 import { readCookie } from '@server/modules/passport/accounts/oidc.mjs';
-import { setCredential } from '@server/modules/base/credentials.mjs';
-import { createAccountsSession, syncAccountsIdentity } from '@server/modules/base/accounts-link.mjs';
+import { createAccountsSession } from '@server/modules/base/accounts-link.mjs';
 import { readStoredPassword } from '@server/modules/base/auth/index.mjs';
 import { CREDENTIAL_CLAIM } from '@shared/types/oidc-claims.mjs';
-import { firstSql, runSql, sql } from '@server/database/sql.mjs';
+import { firstSql, runSql, sql, ownerScope } from '@server/database/sql.mjs';
 import { isSecureRequest, requestOrigin } from '@server/modules/base/request-origin.mjs';
 import type { ApiContext } from '@shared/types/api-response.mjs';
 
@@ -51,7 +50,7 @@ const handler: ApiHandler = async (c) => {
 		const oidcSessionId = String(claims.sid ?? ''); if (!oidcSessionId) throw new Error('ID Token 缺少 sid');
 		// 同一个 Accounts 身份在每个租户各有一个本地账号，映射查找必须带上当前租户。
 		const tenantId = c.get('tenantId');
-		const tenantScope = (column: string) => tenantId === null ? { column, operator: 'IS NULL' as const } : { column, value: tenantId };
+		const tenantScope = (column: string) => ownerScope(column, tenantId);
 		let account = await firstSql<{ user_id: number; status: string }>(systemDatabase, sql({ database: systemDatabase }).select({ table: 'base_oidc_users', alias: 'a', columns: { user_id: 'a.user_id', status: 'u.status' }, joins: [{ table: 'base_users', alias: 'u', left: 'u.id', right: 'a.user_id' }], where: [{ column: 'a.issuer', value: config.issuer }, { column: 'a.subject', value: subject }, tenantScope('a.owner_tid')] }));
 		const preferred = typeof claims.preferred_username === 'string' ? claims.preferred_username : '';
 		if (!account) {
@@ -59,22 +58,20 @@ const handler: ApiHandler = async (c) => {
 			// 建号是不可撤销的副作用，而用户此刻还没表态要「新建」还是「绑定到已有账号」。
 			// 先建占位号再按选择删掉，在没有事务的环境里意味着中间态会被别的请求看见。
 			//
-			// 凭证 claim 不存进去——它是密码哈希，而 claims 会进 base_oidc_users.profile，
-			// 那是「数据管理」里可见的普通列。首次登录因此不同步密码，下次 Accounts 登录会补上。
+			// 凭证 blob 存在自己那一列，**不混进 claims**——claims 最终会写进
+			// base_oidc_users.profile，那是「数据管理」里可见的普通列。credential 那一列
+			// 在 HIDDEN_VALUE_COLUMNS 里，且随请求行在落定时一起删掉。
+			const credential = c.get('siteSettings').passwordSyncEnabled && readStoredPassword(credentialClaim) ? JSON.stringify(credentialClaim) : '';
 			await runSql(systemDatabase, sql({ database: systemDatabase }).update('base_oidc_login_requests', {
-				status: 'choosing', subject, claims: JSON.stringify(claims), expires_at: now + 600_000,
+				status: 'choosing', subject, claims: JSON.stringify(claims), credential, expires_at: now + 600_000,
 			}, { request_id: request.id }));
 			// 选择页是主窗口的整页，不是弹窗：关掉弹窗，让打开它的页面跳过去。
 			const context = await c.get('apiContext')?.(bindPagePath(c));
 			return c.html(popupClosePage(bindPagePath(c), context));
 		}
+		// 只更新身份档案，**不同步用户名和昵称**：绑定之后两边各管各的，
+		// Accounts 那边改名不该跟着改本站账号，反过来也一样。同步只在首次绑定时做一次。
 		await runSql(systemDatabase, sql({ database: systemDatabase }).update('base_oidc_users', { profile: JSON.stringify(claims) }, [{ column: 'issuer', value: config.issuer }, { column: 'subject', value: subject }, tenantScope('owner_tid')]));
-		await syncAccountsIdentity(c, systemDatabase, account.user_id, claims, tenantScope('owner_tid'));
-		// 密码同步：两侧都要开。Accounts 那边给这个客户端打开「下发密码」才会带上 claim，
-		// 本站再打开「同步 Accounts 密码」才会写入。单向——本站改了密码，下次登录会被覆盖回去。
-		if (c.get('siteSettings').passwordSyncEnabled && readStoredPassword(credentialClaim)) {
-			await setCredential(systemDatabase, account.user_id, readStoredPassword(credentialClaim)!);
-		}
 		if (account.status !== 'enabled') return apiMessage(c, 403, '本站用户已停用');
 		// 清 cookie 必须排在建会话**之前**：c.header 不带 append 是覆盖语义，
 		// 放在后面会把 createAccountsSession 追加的 base_session 一起抹掉。

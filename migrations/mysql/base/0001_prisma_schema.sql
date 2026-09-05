@@ -155,6 +155,7 @@ CREATE TABLE `base_oidc_login_requests` (
     `status` VARCHAR(191) NOT NULL DEFAULT 'pending',
     `subject` VARCHAR(191) NOT NULL DEFAULT '',
     `claims` VARCHAR(191) NOT NULL DEFAULT '{}',
+    `credential` VARCHAR(191) NOT NULL DEFAULT '',
 
     UNIQUE INDEX `base_oidc_login_requests_request_id_deleted_at_key`(`request_id`, `deleted_at`),
     UNIQUE INDEX `base_oidc_login_requests_state_deleted_at_key`(`state`, `deleted_at`),

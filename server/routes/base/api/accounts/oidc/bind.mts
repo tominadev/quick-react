@@ -3,15 +3,16 @@ import { apiMessage, apiMessageData, apiResponse } from '@server/modules/base/ap
 import { accountsLoginCookieName, clearAccountsLoginCookie, loadAccountsOidcConfig } from '@server/modules/passport/accounts/client.mjs';
 import { readCookie } from '@server/modules/passport/accounts/oidc.mjs';
 import { withDatabaseActors } from '@server/database/index.mjs';
-import { firstSql, runSql, sql } from '@server/database/sql.mjs';
+import { firstSql, runSql, sql, ownerScope } from '@server/database/sql.mjs';
 import { isSecureRequest } from '@server/modules/base/request-origin.mjs';
 import { createAccountsSession, syncAccountsIdentity } from '@server/modules/base/accounts-link.mjs';
-import { hasCredential, verifyCredential } from '@server/modules/base/credentials.mjs';
+import { hasCredential, setCredential, verifyCredential } from '@server/modules/base/credentials.mjs';
+import { readStoredPassword } from '@server/modules/base/auth/index.mjs';
 import { finishUserCreation } from '@server/modules/base/registration.mjs';
 import { maxUserNameLength, userNameError } from '@shared/account-name.mjs';
 import { SECTION_FIELD, type FormPageConfig } from '@shared/types/form-page.mjs';
 
-type PendingChoice = { id: string; issuer: string; subject: string; claims: string; return_path: string; expires_at: number; status: string };
+type PendingChoice = { id: string; issuer: string; subject: string; claims: string; credential: string; return_path: string; expires_at: number; status: string };
 
 /**
  * 首次用某个 Accounts 身份登录本站时的落地页。
@@ -48,7 +49,7 @@ const loadPending = async (c: Parameters<ApiHandler>[0]) => {
 	if (!requestId) return undefined;
 	const row = await firstSql<PendingChoice>(systemDatabase, sql({ database: systemDatabase }).select({
 		table: 'base_oidc_login_requests',
-		columns: { id: 'request_id', issuer: 'issuer', subject: 'subject', claims: 'claims', return_path: 'return_path', expires_at: 'expires_at', status: 'status' },
+		columns: { id: 'request_id', issuer: 'issuer', subject: 'subject', claims: 'claims', credential: 'credential', return_path: 'return_path', expires_at: 'expires_at', status: 'status' },
 		where: [{ column: 'request_id', value: requestId }],
 	}));
 	return row && row.status === 'choosing' && row.expires_at > Date.now() ? row : undefined;
@@ -65,7 +66,7 @@ const parseClaims = (raw: string) => {
 const settle = async (c: Parameters<ApiHandler>[0], pending: PendingChoice, userId: number, claims: Record<string, unknown>) => {
 	const systemDatabase = c.get('systemDatabase');
 	const tenantId = c.get('tenantId');
-	const scope = tenantId === null ? { column: 'owner_tid', operator: 'IS NULL' as const } : { column: 'owner_tid', value: tenantId };
+	const scope = ownerScope('owner_tid', tenantId);
 	// 身份绑定归属账号本人；这一步还没有本站会话，不显式绑定则 owner_uid 为 NULL。
 	// 清 cookie 必须排在建会话**之前**：c.header 不带 append 是覆盖语义，
 	// 放在后面会把 createAccountsSession 追加的 base_session 一起抹掉。
@@ -73,6 +74,13 @@ const settle = async (c: Parameters<ApiHandler>[0], pending: PendingChoice, user
 	const owned = withDatabaseActors(systemDatabase, { baseUserId: userId });
 	await runSql(owned, sql({ database: owned }).insert('base_oidc_users', { issuer: pending.issuer, subject: pending.subject, user_id: userId, profile: JSON.stringify(claims) }));
 	await syncAccountsIdentity(c, systemDatabase, userId, claims, scope);
+	// 密码同步：两侧都要开（Accounts 客户端的「下发密码」+ 本站的「同步 Accounts 密码」），
+	// 而且**只在首次绑定这一次**——之后本站密码归本站管，Accounts 那边改密码不再影响这里。
+	// 整个 password blob 原样拷过来，hash 和 pattern 都不动，两边账号资料因此完全一致。
+	if (pending.credential) {
+		const stored = readStoredPassword(JSON.parse(pending.credential) as unknown);
+		if (stored) await setCredential(systemDatabase, userId, stored);
+	}
 	const oidcSessionId = String(claims.sid ?? '');
 	if (!oidcSessionId) throw new Error('登录请求缺少会话标识，请重新登录');
 	await createAccountsSession(c, systemDatabase, userId, pending.issuer, oidcSessionId);
@@ -94,7 +102,7 @@ const handler: ApiHandler = async (c, next) => {
 	if (!pending) return apiMessage(c, 410, 'Accounts 登录已完成或已过期，请重新登录');
 	const systemDatabase = c.get('systemDatabase');
 	const tenantId = c.get('tenantId');
-	const tenantScope = tenantId === null ? { column: 'owner_tid', operator: 'IS NULL' as const } : { column: 'owner_tid', value: tenantId };
+	const tenantScope = ownerScope('owner_tid', tenantId);
 	const body = await c.req.json<Record<string, unknown>>().catch(() => ({} as Record<string, unknown>));
 	const userName = String(body.user_name ?? '').trim();
 	const claims = parseClaims(pending.claims);

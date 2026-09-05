@@ -34,6 +34,13 @@ try {
 	assert.equal((await request('/api/sign.php', { method: 'PUT', body: { user_name: 'meadmin', password: 'test-password-123' } })).status, 201);
 	const login = await request('/api/sign.php', { method: 'POST', body: { user_name: 'meadmin', password: 'test-password-123' } });
 	const cookie = login.headers.get('set-cookie')?.split(';')[0];
+	// 撞名的对手：用户名唯一，且昵称不能占用别人的用户名（昵称没设时回落到用户名）。
+	{
+		const other = new DatabaseSync(process.env.DEFAULT_DATABASE_FILE);
+		const at = Date.now();
+		other.prepare('INSERT INTO base_users (name, roles, status, created_at, updated_at) VALUES (?, ?, ?, ?, ?)').run('otheruser', '[]', 'enabled', at, at);
+		other.close();
+	}
 
 	// 导航里个人中心只有一个页面，没有子菜单。
 	// CDN 模式下导航不嵌在文档里，从上下文接口取。
@@ -63,43 +70,58 @@ try {
 	assert.match(linked.accountsNotice, /当前页面不会离开/);
 	assert.deepEqual(linked.accountsCenter, { label: '在新页面打开账号中心', url: 'https://accounts.test/panel/accounts' });
 
-	// 自助改资料：只能改自己这一行的用户名、昵称与密码。
+	// 自助改资料：三组设置分成选项卡，各自提交——它们互不相干，各有各的失败方式，
+	// 混在一起的话一处失败会让另外两处也白填。
 	const mePath = '/api/panel/me.php';
-	assert.deepEqual(
-		(await (await request(mePath, { cookie })).json()).formPage.fields.map((field) => field.name),
-		['user_name', 'profile_nickname', 'profile_qq', 'profile_wechat', 'profile_email', 'currentPassword', 'newPassword'],
-	);
+	const meForm = async () => (await (await request(mePath, { cookie })).json()).formPage;
+	const before = await meForm();
+	assert.equal(before.sectionLayout, 'tabs');
+	assert.deepEqual(before.sections.map((section) => [section.key, section.title]), [['user_name', '用户名'], ['profile', '个人简介'], ['password', '修改密码']]);
+	assert.deepEqual(before.sections.map((section) => section.fields.map((field) => field.name)),
+		[['user_name'], ['profile_nickname', 'profile_qq', 'profile_wechat', 'profile_email'], ['currentPassword', 'newPassword']]);
 	const save = (body) => request(mePath, { method: 'PUT', cookie, body });
+
+	// —— 用户名 ——
+	assert.equal((await save({ _section: 'user_name', user_name: 'Me_Admin' })).status, 400, '不合规的用户名要拦下');
+	assert.equal((await save({ _section: 'user_name', user_name: 'otheruser' })).status, 409, '撞上别的账号要明说');
+	assert.equal((await save({ _section: 'user_name', user_name: 'meadmin2' })).status, 200);
+	assert.equal((await meForm()).initialValues.user_name, 'meadmin2');
+	assert.equal((await save({ _section: 'user_name', user_name: 'meadmin' })).status, 200, '改回来也是允许的（撞名检查要排除自己）');
+
+	// —— 个人简介 ——
+	const profileSave = (fields) => save({ _section: 'profile', profile_nickname: '', profile_qq: '', profile_wechat: '', profile_email: '', ...fields });
 	// 昵称的默认值就是用户名（没设过时回落显示的那个），表单里不会是空白。
-	const beforeNickname = await (await request(mePath, { cookie })).json();
-	assert.equal(beforeNickname.formPage.initialValues.profile_nickname, 'meadmin');
-	assert.equal(beforeNickname.user.profile_nickname, 'meadmin', '右上角显示的是昵称，没设过就回落到用户名');
+	assert.equal(before.initialValues.profile_nickname, 'meadmin');
+	assert.equal((await (await request(mePath, { cookie })).json()).user.profile_nickname, 'meadmin', '右上角显示的是昵称，没设过就回落到用户名');
 	// 原样提交回来当作「没设昵称」：不写资料行，继续回落。用户名只有 7 位、短于昵称下限
 	// 4 个半角也不该因此保存失败——比对必须发生在长度校验之前。
-	assert.equal((await save({ profile_nickname: 'meadmin', __changedFields: ['profile_nickname'] })).status, 200);
+	assert.equal((await profileSave({ profile_nickname: 'meadmin' })).status, 200);
 	const untouched = new DatabaseSync(process.env.DEFAULT_DATABASE_FILE, { readOnly: true });
 	assert.equal(untouched.prepare('SELECT nickname FROM base_user_profiles p JOIN base_users u ON u.id = p.user_id WHERE u.name = ?').get('meadmin')?.nickname ?? null, null, '原样保存不该写入昵称');
 	untouched.close();
-	assert.equal((await save({ profile_nickname: '小明', __changedFields: ['profile_nickname'] })).status, 200, '昵称可以用中文');
-	assert.equal((await save({ profile_nickname: 'a\u0000b', __changedFields: ['profile_nickname'] })).status, 400, '昵称不能带控制字符');
-	// 昵称租户内唯一，但留空存 NULL，因此多个用户都不设昵称不会互相撞车。
-	assert.equal((await save({ profile_nickname: '', __changedFields: ['profile_nickname'] })).status, 200, '留空表示不设置昵称');
-	// 没设资料时昵称回落到用户名，因此不能把别的账号的用户名占成自己的昵称，
-	// 否则两个账号会显示成同一个名字——这一条数据库约束管不了，只能查。
-	assert.equal((await save({ profile_nickname: 'meadmin', __changedFields: ['profile_nickname'] })).status, 200, '自己的用户名可以');
+	assert.equal((await profileSave({ profile_nickname: '小明同学' })).status, 200, '昵称可以用中文');
+	assert.equal((await profileSave({ profile_nickname: 'a\u0000bcd' })).status, 400, '昵称不能带控制字符');
+	assert.equal((await profileSave({ profile_nickname: '小明' })).status, 200, '两个全角正好 4 个半角，是下限');
+	assert.equal((await profileSave({ profile_nickname: '明' })).status, 400, '一个全角只有 2 个半角，太短');
+	assert.equal((await profileSave({ profile_nickname: '一二三四五六七八九' })).status, 400, '九个全角 18 个半角，超了');
+	assert.equal((await profileSave({ profile_nickname: 'otheruser' })).status, 400, '不能把别的账号的用户名占成自己的昵称');
+	// 昵称留空存 NULL，因此多个用户都不设昵称不会互相撞车。
+	assert.equal((await profileSave({ profile_nickname: '' })).status, 200, '留空表示不设置昵称');
 	// 联系方式与昵称同在一张资料表，可以单独改；只清昵称不该把联系方式一起删掉。
-	assert.equal((await save({ profile_qq: '10001', profile_wechat: 'wx_me', profile_email: 'me@example.test', __changedFields: ['profile_qq', 'profile_wechat', 'profile_email'] })).status, 200);
-	const withContact = await (await request(mePath, { cookie })).json();
+	assert.equal((await profileSave({ profile_qq: '10001', profile_wechat: 'wxme', profile_email: 'me@example.test' })).status, 200);
+	const withContact = await meForm();
 	assert.deepEqual(
-		[withContact.formPage.initialValues.profile_qq, withContact.formPage.initialValues.profile_wechat, withContact.formPage.initialValues.profile_email],
-		['10001', 'wx_me', 'me@example.test'],
+		[withContact.initialValues.profile_qq, withContact.initialValues.profile_wechat, withContact.initialValues.profile_email],
+		['10001', 'wxme', 'me@example.test'],
 	);
-	assert.equal((await save({ profile_nickname: '', __changedFields: ['profile_nickname'] })).status, 200);
-	assert.equal((await (await request(mePath, { cookie })).json()).formPage.initialValues.profile_qq, '10001', '清空昵称不该带走联系方式');
-	assert.equal((await save({ __changedFields: [] })).status, 400, '什么都没改要明确拒绝');
+	assert.equal((await save({ _section: 'profile' })).status, 400, '什么字段都没带要明确拒绝');
+	assert.equal((await save({ _section: 'nope' })).status, 400, '没指明改哪一组也要拒绝');
+
+	// —— 密码 ——
 	// 改密码必须先验当前密码：会话被盗时，能改密码就等于能永久接管账号。
-	assert.equal((await save({ newPassword: 'another-password-1', __changedFields: ['newPassword'] })).status, 403);
-	assert.equal((await save({ currentPassword: 'test-password-123', newPassword: 'another-password-1', __changedFields: ['newPassword'] })).status, 200);
+	assert.equal((await save({ _section: 'password', newPassword: 'another-password-1' })).status, 403);
+	assert.equal((await save({ _section: 'password', currentPassword: 'test-password-123', newPassword: 'short' })).status, 400);
+	assert.equal((await save({ _section: 'password', currentPassword: 'test-password-123', newPassword: 'another-password-1' })).status, 200);
 	assert.equal((await request('/api/sign.php', { method: 'POST', body: { user_name: 'meadmin', password: 'another-password-1' } })).status, 200, '新密码能登录');
 
 	console.log('personal center test passed');

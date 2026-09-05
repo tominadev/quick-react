@@ -166,6 +166,7 @@ CREATE TABLE "base_oidc_login_requests" (
     "status" TEXT NOT NULL DEFAULT 'pending',
     "subject" TEXT NOT NULL DEFAULT '',
     "claims" TEXT NOT NULL DEFAULT '{}',
+    "credential" TEXT NOT NULL DEFAULT '',
 
     CONSTRAINT "base_oidc_login_requests_pkey" PRIMARY KEY ("id")
 );
