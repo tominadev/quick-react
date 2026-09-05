@@ -55,6 +55,8 @@ export type AppEnv = {
 		pendingApproval?: { operationId: string; entries: number };
 		/** Base 响应层按 include=auth 请求当前认证、导航和页面状态；表格结构和数据用 include=schema,data 请求。 */
 		apiContext?: (path?: string) => Promise<ApiContext>;
+		/** 路由改动了当前登录身份自己（改名、改昵称）时置位：响应附带刷新过的认证上下文，界面不必再问一次。 */
+		refreshAuthContext?: boolean;
 	};
 };
 

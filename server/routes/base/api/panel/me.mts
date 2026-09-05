@@ -96,13 +96,35 @@ const handler: ApiHandler = async (c, next) => {
 	const section = String(body[SECTION_FIELD] ?? '');
 	const tenantId = c.get('tenantId');
 	const scope = ownerScope('owner_tid', tenantId);
-	// 保存后连同刷新过的身份一起回去：改完用户名或昵称，页面上半截的展示要跟着变。
-	const saved = async (message: string) => {
+	/**
+	 * 保存成功后的响应。
+	 *
+	 * **只回本段的字段。** 三段共用一份 initialValues，整份回去的话另外两段会被一起重置——
+	 * 正在另一个选项卡里输入的内容会凭空消失。
+	 *
+	 * 只有「有没有本地密码」变化时才回新的 formPage：那一段的标题和字段要从「设置密码」
+	 * 翻成「修改密码」。其余情况不动表单结构。
+	 *
+	 * 身份连同刷新过的认证上下文一起回去：改完用户名或昵称，页面上半截和右上角都跟着变，
+	 * 不必再多问一次。
+	 */
+	const hadCredential = await hasCredential(database, currentUser.id);
+	const saved = async (message: string, values: Record<string, unknown>) => {
 		const row = await loadProfile(c, currentUser.id);
 		if (!row) return apiMessageData(c, 200, message, {}, { component: 'inline', showIcon: true, title: '保存结果' });
+		const identity = {
+			id: currentUser.id, user_name: row.user_name,
+			profile_nickname: profileNicknameOf(row.user_name, row.profile_nickname),
+			roles: currentUser.roles, tenantId: currentUser.tenantId,
+		};
+		// 会话里的身份也要就地更新：下面附带的认证上下文是按它算出来的。
+		c.set('currentUser', identity);
+		c.set('refreshAuthContext', true);
+		const nowHasCredential = await hasCredential(database, currentUser.id);
 		return apiMessageData(c, 200, message, {
-			user: { id: currentUser.id, user_name: row.user_name, profile_nickname: profileNicknameOf(row.user_name, row.profile_nickname), roles: currentUser.roles, tenantId: currentUser.tenantId },
-			formPage: profileForm(row, await hasCredential(database, currentUser.id)),
+			user: identity,
+			currentValues: values,
+			...(nowHasCredential === hadCredential ? {} : { formPage: profileForm(row, nowHasCredential) }),
 		}, { component: 'inline', showIcon: true, title: '保存结果' });
 	};
 
@@ -113,7 +135,7 @@ const handler: ApiHandler = async (c, next) => {
 		const taken = await firstSql(database, sql({ database }).select({ table: 'base_users', columns: { id: 'id' }, where: [{ column: 'name', value: userName }, { column: 'id', operator: '!=', value: currentUser.id }, scope], limit: 1 }));
 		if (taken) return apiMessage(c, 409, '该用户名已被占用，请换一个');
 		await runOperation(c, database, [sql({ database }).update('base_users', { name: userName }, { id: currentUser.id })]);
-		return saved('用户名已保存');
+		return saved('用户名已保存', { user_name: userName });
 	}
 
 	if (section === 'profile') {
@@ -123,20 +145,26 @@ const handler: ApiHandler = async (c, next) => {
 		const result = await profileStatement(database, currentUser.id, fields, scope);
 		if ('error' in result) return apiMessage(c, 400, result.error);
 		await runOperation(c, database, ['statement' in result ? result.statement : result.clear]);
-		return saved('个人简介已保存');
+		// 按主人要求：这一段只回 profile_ 开头的字段。
+		const row = await loadProfile(c, currentUser.id);
+		return saved('个人简介已保存', row ? {
+			profile_nickname: profileNicknameOf(row.user_name, row.profile_nickname),
+			profile_qq: row.profile_qq ?? '', profile_wechat: row.profile_wechat ?? '', profile_email: row.profile_email ?? '',
+		} : {});
 	}
 
 	if (section === 'password') {
 		const newPassword = String(body.newPassword ?? '');
 		// 改密码必须先验当前密码：会话被盗时，能改密码就等于能永久接管账号。
 		// 还没有密码的账号（走 Accounts 建的）没什么可验，直接设。
-		if (await hasCredential(database, currentUser.id) && !await verifyCredential(database, currentUser.id, String(body.currentPassword ?? ''))) {
+		if (hadCredential && !await verifyCredential(database, currentUser.id, String(body.currentPassword ?? ''))) {
 			return apiMessage(c, 403, '当前密码不正确');
 		}
 		const error = passwordError(newPassword);
 		if (error) return apiMessage(c, 400, error);
 		await runOperation(c, database, [await credentialStatement(database, currentUser.id, newPassword)]);
-		return saved('密码已保存');
+		// 密码不回显，两个输入框保持空白。
+		return saved('密码已保存', { currentPassword: '', newPassword: '' });
 	}
 	return apiMessage(c, 400, '请选择要保存的一组设置');
 };

@@ -86,8 +86,14 @@ try {
 	assert.equal((await save({ _section: 'user_name', user_name: 'otheruser' })).status, 409, '撞上别的账号要明说');
 	const renamed = await save({ _section: 'user_name', user_name: 'meadmin2' });
 	assert.equal(renamed.status, 200);
-	// 保存响应里带着刷新过的身份：页面上半截的用户名/昵称跟着变，不用再请求一次。
-	assert.equal((await renamed.json()).user.user_name, 'meadmin2');
+	const renamedBody = await renamed.json();
+	// 保存响应带着刷新过的身份和认证上下文：页面上半截和右上角都跟着变，不用再请求一次。
+	assert.equal(renamedBody.user.user_name, 'meadmin2');
+	assert.equal(renamedBody.context.auth.currentUser.user_name, 'meadmin2');
+	assert.equal(renamedBody.context.auth.currentUser.profile_nickname, 'meadmin2', '没设昵称时回落到新用户名');
+	// 只回本段字段：整份回去的话，另外两段正在输入的内容会被一起重置。
+	assert.deepEqual(Object.keys(renamedBody.currentValues), ['user_name']);
+	assert.equal(renamedBody.formPage, undefined, '表单结构没变就不回 formPage');
 	assert.equal((await meForm()).initialValues.user_name, 'meadmin2');
 	assert.equal((await save({ _section: 'user_name', user_name: 'meadmin' })).status, 200, '改回来也是允许的（撞名检查要排除自己）');
 
@@ -111,7 +117,11 @@ try {
 	// 昵称留空存 NULL，因此多个用户都不设昵称不会互相撞车。
 	assert.equal((await profileSave({ profile_nickname: '' })).status, 200, '留空表示不设置昵称');
 	// 联系方式与昵称同在一张资料表，可以单独改；只清昵称不该把联系方式一起删掉。
-	assert.equal((await profileSave({ profile_qq: '10001', profile_wechat: 'wxme', profile_email: 'me@example.test' })).status, 200);
+	const contacts = await profileSave({ profile_qq: '10001', profile_wechat: 'wxme', profile_email: 'me@example.test' });
+	assert.equal(contacts.status, 200);
+	const contactsBody = await contacts.json();
+	// 个人简介这一段只回 profile_ 开头的字段。
+	assert.deepEqual(Object.keys(contactsBody.currentValues).sort(), ['profile_email', 'profile_nickname', 'profile_qq', 'profile_wechat']);
 	const withContact = await meForm();
 	assert.deepEqual(
 		[withContact.initialValues.profile_qq, withContact.initialValues.profile_wechat, withContact.initialValues.profile_email],
@@ -124,7 +134,10 @@ try {
 	// 改密码必须先验当前密码：会话被盗时，能改密码就等于能永久接管账号。
 	assert.equal((await save({ _section: 'password', newPassword: 'another-password-1' })).status, 403);
 	assert.equal((await save({ _section: 'password', currentPassword: 'test-password-123', newPassword: 'short' })).status, 400);
-	assert.equal((await save({ _section: 'password', currentPassword: 'test-password-123', newPassword: 'another-password-1' })).status, 200);
+	const passwordSaved = await save({ _section: 'password', currentPassword: 'test-password-123', newPassword: 'another-password-1' });
+	assert.equal(passwordSaved.status, 200);
+	// 密码不回显；本来就有密码，那一段的结构也没变，因此不回 formPage。
+	assert.deepEqual(await passwordSaved.json().then((body) => body.currentValues), { currentPassword: '', newPassword: '' });
 	assert.equal((await request('/api/sign.php', { method: 'POST', body: { user_name: 'meadmin', password: 'another-password-1' } })).status, 200, '新密码能登录');
 
 	console.log('personal center test passed');

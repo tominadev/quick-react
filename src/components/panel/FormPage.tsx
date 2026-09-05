@@ -11,7 +11,7 @@ import { changedFieldsKey, type ChangedFieldsPayload } from '@shared/types/chang
 import { CountdownDisplay, formatCountdown } from '@/components/common/Countdown.js';
 import { runAfterFeedback } from '@/utils/common/feedback.js';
 import { loginWithAccountsPopup } from '@/utils/common/passport.js';
-import { runApiNextAction } from '@/utils/common/response-action.js';
+import { applyApiResponseContext, runApiNextAction } from '@/utils/common/response-action.js';
 import { isSystemField } from '@shared/system-fields.mjs';
 
 const renderTemplate = (template: string, values: Record<string, React.ReactNode>) => template
@@ -38,7 +38,15 @@ function SectionForm({ section, initialValues, submitting, onSubmit }: {
 	// 保存成功后服务端会回一份新的 formPage（例如密码设过之后那一段要多出「当前密码」），
 	// 而 antd 的 initialValues 只在挂载时生效。按对象身份同步一次：正常打字时
 	// formConfig.initialValues 的身份不变，不会把用户输入冲掉。
-	useEffect(() => { form.setFieldsValue(initialValues); }, [initialValues]);
+	// 只认自己这一段的字段：整份 initialValues 套上去的话，别的选项卡里正在输入的
+	// 内容会被一起重置。缺的键也不碰——服务端只回本段字段时，其余段保持原样。
+	useEffect(() => {
+		const own = Object.fromEntries(section.fields
+			.map((field) => field.name)
+			.filter((name) => name in initialValues)
+			.map((name) => [name, initialValues[name]]));
+		if (Object.keys(own).length) form.setFieldsValue(own);
+	}, [initialValues]);
 	return <>
 		{section.divider ? <Divider plain style={{ color: '#8c8c8c' }}>{section.divider}</Divider> : null}
 		{section.description ? <Alert type="info" showIcon message={section.description} style={{ marginBottom: 16 }} /> : null}
@@ -201,6 +209,9 @@ export default function FormPage({ commonApi, apiPath, title, submitMethod = 'PU
 	const applyResult = async (result: FormResponse, values: Record<string, unknown>) => {
 		Modal.destroyAll();
 		onResponse?.(result);
+		// 改了当前登录身份自己的响应会附带认证上下文，但没有跳转；这里就地应用，
+		// 右上角的昵称因此立刻更新。
+		if (!result.next) applyApiResponseContext(result.context);
 		setResponseFeedback(result.feedback);
 		if (result.formPage) {
 			const nextValues = isRecord(result.currentValues) ? result.currentValues : result.formPage.initialValues;

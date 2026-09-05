@@ -231,7 +231,10 @@ export const App = ({ commonApi }: AppType) => {
 		const onApiNavigation = (event: Event) => {
 			const detail = (event as CustomEvent<ApiNavigationEventDetail>).detail;
 			const next = detail?.next;
-			if (!next || next.action !== 'navigate' || !next.refreshAuth) return;
+			// 没有下一步动作时只更新认证状态：改完自己的昵称，右上角要变，页面不该动。
+			// 只取 auth 一项——这类响应不带导航树和页面状态，整份套上去会把它们清空。
+			if (!next) { if (detail?.context?.auth) setAuth(detail.context.auth); return; }
+			if (next.action !== 'navigate' || !next.refreshAuth) return;
 			try {
 				applyApiContext(detail.context);
 				navigate(next.path);
