@@ -60,14 +60,14 @@ const iconComponents = {
 	mail: <MailOutlined />,
 	appstore: <AppstoreOutlined />,
 };
-const toMenuItems = (menu: NavigationItem[], onTitleClick?: (key: string) => void): MenuItem[] => menu.filter((item) => !item.hidden).map((item) => ({
+const toMenuItems = (menu: NavigationItem[]): MenuItem[] => menu.filter((item) => !item.hidden).map((item) => ({
 	label: item.label,
 	key: item.key,
 	icon: iconComponents[item.icon as keyof typeof iconComponents],
 	// 管理后台根入口是一个可点击的目录页面；顶部菜单不展开它的后台子菜单，
 	// 进入后由 panelRoot 页面切换到后端下发的默认 Dashboard。
-	children: item.children && item.component !== 'panelRoot' ? toMenuItems(item.children, onTitleClick) : undefined,
-	...(item.children && item.component !== 'panelRoot' && onTitleClick && item.dashboardPath ? { onTitleClick: () => onTitleClick(item.dashboardPath!) } : {}),
+	// 其余有子菜单的项只展开不跳转，理由同 PanelLayout。
+	children: item.children && item.component !== 'panelRoot' ? toMenuItems(item.children) : undefined,
 }));
 
 
@@ -187,7 +187,7 @@ export const App = ({ commonApi }: AppType) => {
 
 	const isPopup = new URLSearchParams(location.search).get('popup') === '1';
 	const [current, setCurrent] = useState(''); // 当前高亮的顶层菜单，无匹配时为空
-	const items: MenuItem[] = useMemo(() => toMenuItems(navigation, (key) => navigate(pageUrl(key))), [navigate, navigation]);
+	const items: MenuItem[] = useMemo(() => toMenuItems(navigation), [navigation]);
 
 	useEffect(() => {
 		// 设置 body 的 margin 为 0

@@ -84,7 +84,10 @@ try {
 	// —— 用户名 ——
 	assert.equal((await save({ _section: 'user_name', user_name: 'Me_Admin' })).status, 400, '不合规的用户名要拦下');
 	assert.equal((await save({ _section: 'user_name', user_name: 'otheruser' })).status, 409, '撞上别的账号要明说');
-	assert.equal((await save({ _section: 'user_name', user_name: 'meadmin2' })).status, 200);
+	const renamed = await save({ _section: 'user_name', user_name: 'meadmin2' });
+	assert.equal(renamed.status, 200);
+	// 保存响应里带着刷新过的身份：页面上半截的用户名/昵称跟着变，不用再请求一次。
+	assert.equal((await renamed.json()).user.user_name, 'meadmin2');
 	assert.equal((await meForm()).initialValues.user_name, 'meadmin2');
 	assert.equal((await save({ _section: 'user_name', user_name: 'meadmin' })).status, 200, '改回来也是允许的（撞名检查要排除自己）');
 

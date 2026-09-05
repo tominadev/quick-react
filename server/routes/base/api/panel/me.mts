@@ -96,9 +96,14 @@ const handler: ApiHandler = async (c, next) => {
 	const section = String(body[SECTION_FIELD] ?? '');
 	const tenantId = c.get('tenantId');
 	const scope = ownerScope('owner_tid', tenantId);
+	// 保存后连同刷新过的身份一起回去：改完用户名或昵称，页面上半截的展示要跟着变。
 	const saved = async (message: string) => {
 		const row = await loadProfile(c, currentUser.id);
-		return apiMessageData(c, 200, message, row ? { formPage: profileForm(row, await hasCredential(database, currentUser.id)) } : {}, { component: 'inline', showIcon: true, title: '保存结果' });
+		if (!row) return apiMessageData(c, 200, message, {}, { component: 'inline', showIcon: true, title: '保存结果' });
+		return apiMessageData(c, 200, message, {
+			user: { id: currentUser.id, user_name: row.user_name, profile_nickname: profileNicknameOf(row.user_name, row.profile_nickname), roles: currentUser.roles, tenantId: currentUser.tenantId },
+			formPage: profileForm(row, await hasCredential(database, currentUser.id)),
+		}, { component: 'inline', showIcon: true, title: '保存结果' });
 	};
 
 	if (section === 'user_name') {

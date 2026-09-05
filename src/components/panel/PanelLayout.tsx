@@ -28,12 +28,18 @@ const iconComponents = {
 	mail: <MailOutlined />,
 	appstore: <AppstoreOutlined />,
 };
-const toMenuItems = (menu: InitialMenuItem[], onTitleClick?: (key: string) => void): MenuItem[] => menu.filter((item) => !item.hidden).map((item) => ({
+/**
+ * 有子菜单的项**只展开，不跳转**。
+ *
+ * antd 的 SubMenu 标题点一下会同时触发展开和 onTitleClick，于是「想展开 base 看看有
+ * 哪些页面」变成了「被拽去 base 的仪表盘」。而仪表盘本来就是这些分组的第一个子项
+ * （`/panel/admin/base/dashboard`），标题上再挂一个入口只是重复，代价却是展开不能用了。
+ */
+const toMenuItems = (menu: InitialMenuItem[]): MenuItem[] => menu.filter((item) => !item.hidden).map((item) => ({
 	label: item.label,
 	key: item.key,
 	icon: iconComponents[item.icon as keyof typeof iconComponents],
-	children: item.children ? toMenuItems(item.children, onTitleClick) : undefined,
-	...(item.children && onTitleClick && item.dashboardPath ? { onTitleClick: () => onTitleClick(item.dashboardPath!) } : {}),
+	children: item.children ? toMenuItems(item.children) : undefined,
 }));
 const pageUrl = (path: string) => path === '/' ? path : `${path}${pageSuffix}`;
 
@@ -75,7 +81,7 @@ function AppRouter({ commonApi, children, navigation = [], dashboardPath, title 
 	const [current, setCurrent] = useState(() => getMenuPath(location.pathname)); // 同步选中状态
 	const [openKeys, setOpenKeys] = useState<string[]>(() => findParentKeys(navigation, getMenuPath(location.pathname)));
 	const navigate = useNavigate();
-	const items: MenuItem[] = toMenuItems(navigation, (path) => navigate(pageUrl(path)));
+	const items: MenuItem[] = toMenuItems(navigation);
 
 	const [collapsed, setCollapsed] = useState(false);
 	const {

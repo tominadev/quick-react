@@ -11,50 +11,54 @@ const apiSuffix = initialData?.apiSuffix ?? '';
 type PersonalCenterProps = { commonApi: CommonApi; user?: UserIdentity; title: string; initialResponse?: MeResponse };
 type MeResponse = FormPageResponse & { user?: UserIdentity; accountsNotice?: string; accountsCenter?: AccountCenterLink };
 
-/** 只读展示当前登录身份；账号资料在 Accounts 账号中心维护，入口始终在新页面打开。 */
+/**
+ * 个人中心：上半截展示当前身份，下半截是可编辑的三段表单。
+ *
+ * 两截共用 `/api/panel/me` 一个接口，所以这里**只取一次**，再把响应交给 FormPage——
+ * 让 FormPage 自己去取的话，一进页面就是两次一模一样的请求。
+ */
 export default function PersonalCenter({ commonApi, user: initialUser, title, initialResponse }: PersonalCenterProps) {
-	const [user, setUser] = useState<UserIdentity | undefined>(initialUser);
-	const [notice, setNotice] = useState(initialResponse?.accountsNotice ?? '');
-	const [accountsCenter, setAccountsCenter] = useState<AccountCenterLink | undefined>(initialResponse?.accountsCenter);
+	const [response, setResponse] = useState<MeResponse | undefined>(initialResponse);
+	const [user, setUser] = useState<UserIdentity | undefined>(initialResponse?.user ?? initialUser);
 	useEffect(() => {
 		if (initialResponse) {
+			setResponse(initialResponse);
 			if (initialResponse.user) setUser(initialResponse.user);
-			setNotice(initialResponse.accountsNotice ?? '');
-			setAccountsCenter(initialResponse.accountsCenter);
 			return;
 		}
 		let active = true;
-		commonApi.apiFetch(`/api/panel/me${apiSuffix}`).then(async (response) => {
-			const result = await response.json() as MeResponse;
+		commonApi.apiFetch(`/api/panel/me${apiSuffix}`).then(async (result) => {
+			const data = await result.json() as MeResponse;
 			if (!active) return;
-			if (result.user) setUser(result.user);
-			setNotice(result.accountsNotice ?? '');
-			setAccountsCenter(result.accountsCenter);
+			setResponse(data);
+			if (data.user) setUser(data.user);
 		}).catch((error) => console.error('加载个人中心信息失败', error));
 		return () => { active = false; };
 	}, [commonApi, initialResponse]);
 	return (
 		<Card title={title} style={{ maxWidth: 720, margin: '24px auto' }}>
-			{notice ? <Alert
+			{response?.accountsNotice ? <Alert
 				type="info"
 				showIcon
 				style={{ marginBottom: 16 }}
-				message={notice}
-				action={accountsCenter ? <Button href={accountsCenter.url} target="_blank" rel="noopener noreferrer">{accountsCenter.label}</Button> : undefined}
+				message={response.accountsNotice}
+				action={response.accountsCenter ? <Button href={response.accountsCenter.url} target="_blank" rel="noopener noreferrer">{response.accountsCenter.label}</Button> : undefined}
 			/> : null}
 			<Descriptions column={1} bordered>
 				<Descriptions.Item label="用户名">{user?.user_name ?? '—'}</Descriptions.Item>
 				<Descriptions.Item label="昵称">{user?.profile_nickname ?? '—'}</Descriptions.Item>
 				<Descriptions.Item label="角色">{user?.roles.map(roleLabel).join('、') || '—'}</Descriptions.Item>
 			</Descriptions>
-			{/* 同一个接口既给身份展示也给可编辑表单：用户名、昵称、密码都改自己这一行。 */}
-			<FormPage
+			{/* 响应到手才渲染表单：早渲染的话 FormPage 会自己再请求一次同一个接口。
+			    改完用户名或昵称后，保存响应里带着新身份，上面那块跟着更新。 */}
+			{response ? <FormPage
 				commonApi={commonApi}
 				apiPath={`/api/panel/me${apiSuffix}`}
 				title=""
 				submitMethod="PUT"
-				initialResponse={initialResponse}
-			/>
+				initialResponse={response}
+				onResponse={(result) => { const next = (result as MeResponse).user; if (next) setUser(next); }}
+			/> : null}
 		</Card>
 	);
 }

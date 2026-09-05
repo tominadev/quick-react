@@ -60,6 +60,8 @@ type FormProps = {
 	redirectOnFeedback?: boolean;
 	onSaved?: (values: Record<string, unknown>) => string | undefined | Promise<string | undefined>;
 	onCompleted?: () => void | Promise<void>;
+	/** 每次拿到接口响应都回调一次（首次加载与每次提交）。上层据此刷新表单之外的内容。 */
+	onResponse?: (result: FormPageResponse) => void;
 	embedded?: boolean;
 	/** API 启动模式下由首个页面请求携带的表单响应，避免重复读取同一接口。 */
 	initialResponse?: FormResponse;
@@ -117,7 +119,7 @@ const fieldControl = (field: FormPageField, readOnly: boolean) => {
 	return <Input type={field.type === 'password' ? 'password' : 'text'} placeholder={field.placeholder} maxLength={field.maxLength} readOnly={readOnly} disabled={readOnly} />;
 };
 
-export default function FormPage({ commonApi, apiPath, title, submitMethod = 'PUT', redirectOnFeedback = false, onSaved, onCompleted, embedded = false, initialResponse }: FormProps) {
+export default function FormPage({ commonApi, apiPath, title, submitMethod = 'PUT', redirectOnFeedback = false, onSaved, onCompleted, onResponse, embedded = false, initialResponse }: FormProps) {
 	const [form] = Form.useForm<Record<string, unknown>>();
 	const [messageApi, messageContextHolder] = message.useMessage();
 	const [loading, setLoading] = useState(true);
@@ -183,6 +185,8 @@ export default function FormPage({ commonApi, apiPath, title, submitMethod = 'PU
 			setLoading(false);
 			return;
 		}
+		// 注意：走到这里说明上层没有给出响应，本组件自己去取。同一个接口若还有别的消费者，
+		// 应由上层取一次后通过 initialResponse 传进来，否则一进页面就是两次请求。
 		let active = true;
 		commonApi.apiFetch(apiPath).then(async (response) => {
 			const result = await response.json() as FormResponse;
@@ -196,6 +200,7 @@ export default function FormPage({ commonApi, apiPath, title, submitMethod = 'PU
 	// 后端返回新的 formPage 表示流程还在继续，这时不安排跳转，避免多步表单在中间步骤被反馈倒计时带走。
 	const applyResult = async (result: FormResponse, values: Record<string, unknown>) => {
 		Modal.destroyAll();
+		onResponse?.(result);
 		setResponseFeedback(result.feedback);
 		if (result.formPage) {
 			const nextValues = isRecord(result.currentValues) ? result.currentValues : result.formPage.initialValues;
