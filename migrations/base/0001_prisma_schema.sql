@@ -288,9 +288,9 @@ CREATE TABLE "base_approvals" (
     "reverted_at" BIGINT,
     "reverted_duid" BIGINT,
     "revert_reason" TEXT NOT NULL DEFAULT '',
-    "restored_at" BIGINT,
-    "restored_duid" BIGINT,
-    "restore_reason" TEXT NOT NULL DEFAULT '',
+    "redone_at" BIGINT,
+    "redone_duid" BIGINT,
+    "redo_reason" TEXT NOT NULL DEFAULT '',
     "requeued_at" BIGINT,
     "requeued_duid" BIGINT,
     "requeue_reason" TEXT NOT NULL DEFAULT ''

@@ -90,8 +90,9 @@ const flipActions = (superUser: boolean) => [
 	// 它和「撤销」太近，读的人分不清哪个会改到数据。
 	{ key: 'withdraw' as const, label: '撤销申请', from: ['pending-mine'], confirm: '确认撤销这条还没生效的申请吗？数据不会被改动。' },
 	{ key: 'revert' as const, label: '回滚', from: ['applied'], confirm: '确认把这条已经生效的变更改回去吗？' },
-	// 两个「往回走」在不同的轴上，名字分开：还原动数据（回滚的逆），恢复动申请（驳回/撤销的逆）。
-	{ key: 'restore' as const, label: '还原', from: ['reverted'], confirm: '确认把这条回滚掉的变更再写回去吗？' },
+	// 两个「往回走」在不同的轴上，名字分开：重做动数据（回滚的逆，就是编辑器里的撤销/重做），
+	// 恢复动申请（驳回/撤销的逆）。
+	{ key: 'redo' as const, label: '重做', from: ['reverted'], confirm: '确认把这条回滚掉的变更再写回去吗？' },
 	// 驳回是审批人的决定，可以由审批人收回；撤销是申请人自己收回的，只有他自己能再放回去。
 	{ key: 'requeue' as const, label: '恢复', from: ['rejected', 'withdrawn-mine'], confirm: '确认把这条申请放回队列吗？数据不会被改动，等批准了才生效。' },
 ];
@@ -128,9 +129,9 @@ const columns = [
 	{ dataIndex: 'reverted_at', title: '回滚时间', dataType: 'js_timestamp' as const, dayjsFormat: 'YYYY-MM-DD HH:mm:ss' },
 	{ dataIndex: 'reverted_duid', title: '回滚人' },
 	{ dataIndex: 'revert_reason', title: '回滚理由' },
-	{ dataIndex: 'restored_at', title: '恢复时间', dataType: 'js_timestamp' as const, dayjsFormat: 'YYYY-MM-DD HH:mm:ss' },
-	{ dataIndex: 'restored_duid', title: '恢复人' },
-	{ dataIndex: 'restore_reason', title: '恢复理由' },
+	{ dataIndex: 'redone_at', title: '重做时间', dataType: 'js_timestamp' as const, dayjsFormat: 'YYYY-MM-DD HH:mm:ss' },
+	{ dataIndex: 'redone_duid', title: '重做人' },
+	{ dataIndex: 'redo_reason', title: '重做理由' },
 ];
 
 const publicEntry = (row: AuditEntryRow) => ({
@@ -159,9 +160,9 @@ const publicEntry = (row: AuditEntryRow) => ({
 	reverted_at: row.reverted_at ?? '',
 	reverted_duid: row.reverted_duid ?? '',
 	revert_reason: row.revert_reason ?? '',
-	restored_at: row.restored_at ?? '',
-	restored_duid: row.restored_duid ?? '',
-	restore_reason: row.restore_reason ?? '',
+	redone_at: row.redone_at ?? '',
+	redone_duid: row.redone_duid ?? '',
+	redo_reason: row.redo_reason ?? '',
 });
 
 const readIds = async (c: Parameters<ApiHandler>[0], routeId?: string) => {

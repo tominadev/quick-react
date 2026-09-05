@@ -340,7 +340,7 @@ const auditRouteFilter = async () => {
 		 * 凭证、资料），捞回账号那一行而漏掉凭证，账号看着正常却登不进去。审批页按操作分组，
 		 * 天然一起处理。
 		 *
-		 * 「恢复」在审批轴（rejected/withdrawn → pending），「还原」在数据轴（reverted →
+		 * 「恢复」在审批轴（rejected/withdrawn → pending），「重做」在数据轴（reverted →
 		 * applied），两个名字分开：状态上互斥，但可以先后发生在同一条记录上。
 		 */
 		assert.equal((await app.request('http://localhost/api/panel/admin/base/audit.php?action=requeue', { method: 'POST', headers: { ...headers, cookie }, body: JSON.stringify([String(queuedInserts[0].id)]) })).status, 200);
@@ -571,7 +571,7 @@ try {
 	const nameOf = async (id) => (await firstSql(acting, sql({ database: acting }).select({ table: 'base_users', columns: { name: 'name' }, where: [{ column: 'id', value: id }], deleted: 'all' }))).name;
 	const statusOf = async (entryId) => (await firstSql(acting, sql({ database: acting }).select({ table: 'base_approvals', columns: { data_status: 'data_status' }, where: [{ column: 'id', value: entryId }] }))).data_status;
 	const revert = (ids, reason = '') => transitionAuditEntries(acting, ids, 'revert', reason);
-	const restore = (ids, reason = '') => transitionAuditEntries(acting, ids, 'restore', reason);
+	const redo = (ids, reason = '') => transitionAuditEntries(acting, ids, 'redo', reason);
 	const entryById = async (id) => (await entries()).find((entry) => entry.id === id);
 
 	// 撤回不新开记录，而是把这一条翻到另一面。
@@ -579,7 +579,7 @@ try {
 	const daveEntry = await latestEntry();
 	const beforeRevert = (await entries()).length;
 	// 「恢复」按钮点在一条已生效的记录上（列表过期）：拒绝，而不是翻成相反方向。
-	assert.deepEqual(await restore([daveEntry.id]), [{ id: daveEntry.id, ok: false, message: '当前数据状态是「已生效」，不能执行这个操作' }], { immediate: true });
+	assert.deepEqual(await redo([daveEntry.id]), [{ id: daveEntry.id, ok: false, message: '当前数据状态是「已生效」，不能执行这个操作' }], { immediate: true });
 	assert.equal(await nameOf(alice.id), 'dave', '被拒绝时数据不变');
 	assert.deepEqual(await revert([daveEntry.id], '撤回理由：改错了'), [{ id: daveEntry.id, ok: true, message: '已回滚' }]);
 	assert.equal(await nameOf(alice.id), 'alice-3', '撤回后字段应恢复原值');
@@ -593,17 +593,17 @@ try {
 
 	// 回滚错了就再翻回来，不会堆出一串互相指向的记录。
 	//
-	// 这一个叫**还原**（数据轴：把回滚掉的变更再写回去）。审批轴上那个把被驳回/撤销的申请
-	// 放回队列的叫**恢复**，两个名字分开——见 TRANSITIONS 上的注释。
+	// 这一个叫**重做**（数据轴：把回滚掉的变更再写回去，就是编辑器里的撤销/重做）。
+	// 审批轴上那个把被驳回/撤销的申请放回队列的叫**恢复**，两个名字分开——见 TRANSITIONS 上的注释。
 	assert.deepEqual(await revert([daveEntry.id]), [{ id: daveEntry.id, ok: false, message: '当前数据状态是「已回滚」，不能执行这个操作' }]);
-	assert.deepEqual(await restore([daveEntry.id], '还原：撤错了'), [{ id: daveEntry.id, ok: true, message: '已还原' }]);
-	assert.equal(await nameOf(alice.id), 'dave', '还原后应回到变更后的值');
+	assert.deepEqual(await redo([daveEntry.id], '重做：撤错了'), [{ id: daveEntry.id, ok: true, message: '已重做' }]);
+	assert.equal(await nameOf(alice.id), 'dave', '重做后应回到变更后的值');
 	assert.equal(await statusOf(daveEntry.id), 'applied');
-	assert.equal((await entries()).length, beforeRevert, '还原同样不产生新记录');
-	// 回滚与还原各写自己那一组：还原不能把「谁回滚的」覆盖掉。
+	assert.equal((await entries()).length, beforeRevert, '重做同样不产生新记录');
+	// 回滚与重做各写自己那一组：重做不能把「谁回滚的」覆盖掉。
 	const afterRestore = await entryById(daveEntry.id);
-	assert.equal(afterRestore.restore_reason, '还原：撤错了');
-	assert.ok(Number(afterRestore.restored_at) > 0, '要记下什么时候恢复的');
+	assert.equal(afterRestore.redo_reason, '重做：撤错了');
+	assert.ok(Number(afterRestore.redone_at) > 0, '要记下什么时候重做的');
 	assert.equal(afterRestore.revert_reason, '撤回理由：改错了', '恢复不能覆盖撤回理由');
 	assert.ok(Number(afterRestore.reverted_at) > 0, '撤回时间要保留');
 	// 再撤回一次，把数据放回后面用例期望的位置。
@@ -637,7 +637,7 @@ try {
 	assert.equal(chained[0].id, stepC.id, '执行顺序必须是从新到旧，不沿用传入顺序');
 	assert.equal(await nameOf(alice.id), 'frank', '连续撤回后应回到最初值');
 	// 恢复方向相反：从旧到新才走得通。
-	const restored = await restore([stepC.id, stepB.id]);
+	const restored = await redo([stepC.id, stepB.id]);
 	assert.deepEqual(restored.map((r) => r.ok), [true, true], '链式恢复应全部成功');
 	assert.equal(restored[0].id, stepB.id, '恢复必须从旧到新');
 	assert.equal(await nameOf(alice.id), 'step-c', '连续恢复后应回到最后的值');
@@ -666,7 +666,7 @@ try {
 	assert.equal(Number(await deletedAtOf()), 0, '撤回软删除后记录应回到未删除');
 	assert.equal((await entries()).length, beforeFlip, '撤回软删除不产生新记录');
 	assert.equal(await statusOf(deleteEntry.id), 'reverted');
-	assert.equal((await restore([deleteEntry.id]))[0].ok, true);
+	assert.equal((await redo([deleteEntry.id]))[0].ok, true);
 	assert.equal(String(await deletedAtOf()), String(deletedAt), '恢复删除应写回原时间戳，而不是当前时间');
 	assert.equal((await revert([deleteEntry.id]))[0].ok, true);
 	assert.equal(Number(await deletedAtOf()), 0);
@@ -803,7 +803,7 @@ try {
 	assert.equal(afterRevert.data_status, 'reverted');
 	assert.equal(afterRevert.review_reason, '同意', '撤回不能覆盖审批意见');
 	assert.equal(afterRevert.revert_reason, '批错了');
-	assert.equal(afterRevert.restore_reason, '', '三组字段互不干扰');
+	assert.equal(afterRevert.redo_reason, '', '每组字段互不干扰');
 	assert.equal(await rolesOf(), originalRoles);
 
 	// 撤销申请自己一组字段：它和审批都从 pending 出发，但一个是审批人的决定、
