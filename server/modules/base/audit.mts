@@ -10,6 +10,8 @@ export type AuditEntryRow = {
 	id: string;
 	operation_id: string;
 	reason: string;
+	request_hostname: string;
+	request_path: string;
 	table_name: string;
 	row_id: string;
 	action: SqlAuditAction;
@@ -33,6 +35,8 @@ const entryColumns = {
 	id: { column: 'id', cast: 'text' as const },
 	operation_id: 'operation_id',
 	reason: 'reason',
+	request_hostname: 'request_hostname',
+	request_path: 'request_path',
 	table_name: 'table_name',
 	row_id: { column: 'row_id', cast: 'text' as const },
 	action: 'action',

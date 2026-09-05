@@ -137,7 +137,9 @@ const findPendingEntry = async (database: DatabaseAdapter, builder: ReturnType<t
 	}));
 };
 
-const recordStatement = async (database: DatabaseAdapter, metadata: SqlAuditMetadata, operationId: string, reason: string, status: 'applied' | 'pending') => {
+type RequestOrigin = { hostname: string; path: string };
+
+const recordStatement = async (database: DatabaseAdapter, metadata: SqlAuditMetadata, operationId: string, reason: string, origin: RequestOrigin, status: 'applied' | 'pending') => {
 	// 归属与可见性条件都在生成语句时定死了：调用方可能用显式上下文覆盖适配器。
 	const builder = sql({ database, subjectRoles: null, ownerTid: metadata.owner.tid, ownerBid: metadata.owner.bid, ownerUid: metadata.owner.uid, actorUid: metadata.owner.actor });
 	const columns = Object.keys(metadata.values);
@@ -161,6 +163,8 @@ const recordStatement = async (database: DatabaseAdapter, metadata: SqlAuditMeta
 		const values = {
 			operation_id: operationId,
 			reason,
+			request_hostname: origin.hostname,
+			request_path: origin.path,
 			table_name: metadata.table,
 			row_id: row.id,
 			action: actionOf(changes),
@@ -200,7 +204,16 @@ export const runOperation = async (
 	if (audited.length) {
 		operationId = crypto.randomUUID();
 		const reason = options.reason?.trim().slice(0, MAX_REASON_LENGTH) ?? readChangeReason(c);
-		for (const statement of audited) recorded += await recordStatement(database, statement.audit, operationId, reason, immediate ? 'applied' : 'pending');
+		// 域名与接口路径都由服务端自己看到，不听客户端的：页面路径要靠 referer 推断，
+		// 那是客户端说什么就是什么，写进审计等于给伪造留了口子。
+		//
+		// 解析不出来就记空串，不让它把整次写入带塌：留痕是为了留下证据，
+		// 为了一个"从哪来"的字段而使操作失败，是本末倒置。
+		const origin: RequestOrigin = (() => {
+			try { const url = new URL(c.req.url); return { hostname: url.hostname, path: url.pathname }; }
+			catch { return { hostname: '', path: '' }; }
+		})();
+		for (const statement of audited) recorded += await recordStatement(database, statement.audit, operationId, reason, origin, immediate ? 'applied' : 'pending');
 	}
 	// 待审批：记录已写，数据一条都不动。逐列比对下来没有任何变化时 recorded 为 0，
 	// 那本来就不是一次修改，不该拦下来让人去批一个空操作。

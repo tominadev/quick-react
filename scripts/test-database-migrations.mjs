@@ -86,6 +86,19 @@ const targetSchema = (source) => {
 		const columns = result[match[1]];
 		if (columns && !columns.includes(match[2])) columns.push(match[2]);
 	}
+	// SQLite 那边是把迁移真的跑进内存库再读结构，因此增量迁移天然生效；MySQL 与
+	// PostgreSQL 这边是文本解析，只认 CREATE TABLE 就会漏掉后续增量加的列。
+	// 这里把 ALTER TABLE 的加列/删列补上，两边才比得起来。
+	for (const statement of source.split(';')) {
+		const table = /ALTER\s+TABLE\s+[`"]?([A-Za-z_][A-Za-z0-9_]*)[`"]?/i.exec(statement);
+		if (!table || !result[table[1]]) continue;
+		for (const added of statement.matchAll(/ADD\s+COLUMN\s+[`"]?([A-Za-z_][A-Za-z0-9_]*)[`"]?/gi)) {
+			if (!result[table[1]].includes(added[1])) result[table[1]].push(added[1]);
+		}
+		for (const dropped of statement.matchAll(/DROP\s+COLUMN\s+[`"]?([A-Za-z_][A-Za-z0-9_]*)[`"]?/gi)) {
+			result[table[1]] = result[table[1]].filter((column) => column !== dropped[1]);
+		}
+	}
 	return result;
 };
 

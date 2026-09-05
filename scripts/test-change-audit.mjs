@@ -67,6 +67,23 @@ const auditRouteFilter = async () => {
 		const capped = await totals('&status=pending');
 		assert.equal(capped.rows, 200, '列表仍按上限返回');
 		assert.equal(capped.total, 252, '总数是真实条数，不是取回的条数');
+
+		// 操作的来源域名与接口路径要记进审计：多站点共用一套代码，只记「改了什么」
+		// 而不记「在哪改的」，事后分不清是哪个站点的管理员动的手。
+		await app.request('https://site-a.test/api/panel/me.php', { method: 'PUT', headers: { ...headers, cookie }, body: JSON.stringify({ _section: 'profile', profile_nickname: '甲甲', profile_qq: '', profile_wechat: '', profile_email: '' }) });
+		await app.request('https://site-b.test/api/panel/me.php', { method: 'PUT', headers: { ...headers, cookie }, body: JSON.stringify({ _section: 'profile', profile_nickname: '乙乙', profile_qq: '', profile_wechat: '', profile_email: '' }) });
+		const origins = await app.request('http://localhost/api/panel/admin/base/audit.php?include=schema,data&status=all&table_name=base_user_profiles', { headers: { ...headers, cookie } });
+		const originRows = (await origins.json()).table.dataSource;
+		assert.ok(originRows.length >= 1, '改昵称要留下审计记录');
+		// 第一次是新增资料行，新增不留痕（§3.2）；从第二次起才是更新。
+		assert.deepEqual([...new Set(originRows.map((row) => row.request_path))], ['/api/panel/me.php']);
+		assert.ok(originRows.some((row) => row.request_hostname === 'site-b.test'), '域名要如实记下来，而不是都记成同一个');
+		// 域名与接口路径由服务端自己看到，不听客户端的：页面路径要靠 referer 推断，
+		// 那是客户端说什么就是什么，写进审计等于给伪造留了口子。
+		const operation = await readFile(resolve(projectDirectory, 'server/modules/base/operation.mts'), 'utf8');
+		assert.match(operation, /new URL\(c\.req\.url\)/);
+		assert.doesNotMatch(operation, /request_path: [^,\n]*referer/i);
+
 	} finally {
 		if (previousFile === undefined) delete process.env.DEFAULT_DATABASE_FILE;
 		else process.env.DEFAULT_DATABASE_FILE = previousFile;
