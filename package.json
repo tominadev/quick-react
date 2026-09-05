@@ -46,6 +46,7 @@
 		"test:response-action": "node scripts/test-response-action.mjs",
 		"test:shell-fallback": "node scripts/test-shell-fallback.mjs",
 		"test:table-url-state": "node scripts/test-table-url-state.mjs",
+		"test:form-changes": "node scripts/test-form-changes.mjs",
 		"test:audit-scope": "node scripts/test-audit-scope.mjs",
 		"test:column-order": "node scripts/test-column-order.mjs",
 		"test:change-audit": "node scripts/test-change-audit.mjs",

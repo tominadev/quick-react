@@ -13,6 +13,7 @@ import { runAfterFeedback } from '@/utils/common/feedback.js';
 import { loginWithAccountsPopup } from '@/utils/common/passport.js';
 import { runApiNextAction } from '@/utils/common/response-action.js';
 import { isSystemField } from '@shared/system-fields.mjs';
+import { describeFormChanges } from './form-changes.js';
 
 const renderTemplate = (template: string, values: Record<string, React.ReactNode>) => template
 	.split(/(\{[^{}]+\})/g)
@@ -256,33 +257,21 @@ export default function FormPage({ commonApi, apiPath, title, submitMethod = 'PU
 	const controlHeaders = (values: Record<string, unknown>) => changeControlHeaders(values[CHANGE_CONTROL_FIELD], canSkipApproval);
 	const controlNames = [CHANGE_CONTROL_FIELD];
 
-	/** 值按人读的方式显示：开关说「开/关」，空值说「空」，对象照 JSON 原样。 */
-	const readableValue = (field: FormPageField | undefined, value: unknown) => {
-		if (field?.type === 'switch' || typeof value === 'boolean') return value ? '开' : '关';
-		if (value === undefined || value === null || value === '') return '空';
-		const option = field?.options?.find((item) => item.value === String(value));
-		if (option) return option.text;
-		return typeof value === 'object' ? JSON.stringify(value) : String(value);
-	};
-
 	const onFinish = async (values: Record<string, unknown>) => {
-		if (!dirty && formConfig?.confirmOnUnchangedSubmit) {
+		// 判据是「显示出来真的不一样」，而不是「这个字段被标记过」。
+		//
+		// 「还原默认」会把每个字段都标记成已改，不管值有没有真的变；用户打一个字又删掉
+		// 也会留下标记。照标记列的话，确认框里全是「8088 → 8088」这种自说自话的行。
+		const changedLines = describeFormChanges(formConfig?.fields, changedFields.current, initialValues, values, controlNames);
+		if (!changedLines.length && formConfig?.confirmOnUnchangedSubmit) {
 			const confirmed = await commonApi.modalConfirm([formConfig.confirmOnUnchangedSubmit]);
 			if (!confirmed) return;
 		}
 		// 改了东西时把改动逐条列出来让人确认：设置页一屏十几个开关，改完隔一会儿再回来
 		// 点保存，多半已经记不清动过哪些，而这些改动往往立刻影响整个站点的行为。
-		if (dirty && formConfig?.confirmChangedSubmit) {
-			const lines = [...changedFields.current]
-				.filter((name) => !controlNames.includes(name) && !isSystemField(name))
-				.map((name) => {
-					const field = formConfig.fields?.find((item) => item.name === name);
-					return `${field?.label || name}：${readableValue(field, initialValues[name])} → ${readableValue(field, values[name])}`;
-				});
-			if (lines.length) {
-				const confirmed = await commonApi.modalConfirm([formConfig.confirmChangedSubmit, ...lines]);
-				if (!confirmed) return;
-			}
+		if (changedLines.length && formConfig?.confirmChangedSubmit) {
+			const confirmed = await commonApi.modalConfirm([formConfig.confirmChangedSubmit, ...changedLines]);
+			if (!confirmed) return;
 		}
 		setSaving(true);
 		try {
