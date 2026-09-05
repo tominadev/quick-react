@@ -1,6 +1,6 @@
 export type UserIdentity = {
 	id: number | string;
-	username: string;
+	user_name: string;
 	roles: string[];
 	/** 账号所属租户（base_users.owner_tid）；平台自有账号为 null。 */
 	tenantId?: string | null;

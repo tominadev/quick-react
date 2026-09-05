@@ -67,7 +67,7 @@ const fingerprintData = JSON.stringify({ canvas_cyrb53: '4b5a6c7d8e9f', audio_cy
 	assert.deepEqual((await (await request('/api/sign.php')).json()).formPage.fields.map((field) => field.name), ['action']);
 	assert.deepEqual((await (await request('/api/sign.php', { host: 'global.test' })).json()).formPage.fields.map((field) => field.name), ['action']);
 	assert.deepEqual((await (await request('/api/sign.php', { host: 'business.test' })).json()).formPage.fields.map((field) => field.name), ['action']);
-	const staleLocalSubmit = await request('/api/sign.php', { method: 'POST', body: { username: 'old-form', password: 'password', remember: false } });
+	const staleLocalSubmit = await request('/api/sign.php', { method: 'POST', body: { user_name: 'old-form', password: 'password', remember: false } });
 	assert.equal(staleLocalSubmit.status, 409);
 	assert.match((await staleLocalSubmit.json()).feedback.message, /刷新页面/);
 
@@ -79,7 +79,7 @@ const fingerprintData = JSON.stringify({ canvas_cyrb53: '4b5a6c7d8e9f', audio_cy
 	writeAccountsLogin(false);
 	for (const host of ['passport.test', 'global.test', 'business.test']) {
 		const localForm = await (await request('/api/sign.php', { host })).json();
-		assert.deepEqual(localForm.formPage.fields.map((field) => field.name), ['username', 'password', 'remember']);
+		assert.deepEqual(localForm.formPage.fields.map((field) => field.name), ['user_name', 'password', 'remember']);
 	}
 	const staleAccountsSubmit = await request('/api/sign.php', { host: 'business.test', method: 'POST', body: { step: 'email', email: 'user@example.com' } });
 	assert.equal(staleAccountsSubmit.status, 409);
@@ -123,13 +123,17 @@ const fingerprintData = JSON.stringify({ canvas_cyrb53: '4b5a6c7d8e9f', audio_cy
 	assert.equal(loginResponse.status, 200);
 	const passportCookie = loginResponse.headers.get('set-cookie')?.split(';')[0];
 	assert.match(passportCookie ?? '', /^passport_session=/);
-	// 历史用户没有用户名，登录后先补全再回跳。
+	// 历史用户没有用户名，但已验证邮箱 user@example.com 的 @ 前面合规且没被占用，
+	// 自动定为用户名，于是跳过设置界面直接进设置密码。
 	const loginResult = await loginResponse.json();
-	assert.equal(loginResult.formPage.initialValues.step, 'set_username');
+	assert.equal(loginResult.formPage.initialValues.step, 'set_password');
+	const claimed = new DatabaseSync(process.env.DEFAULT_DATABASE_FILE, { readOnly: true });
+	assert.equal(claimed.prepare('SELECT name FROM passport_users WHERE user_id = ?').get(userId).name, 'user');
+	claimed.close();
 	assert.equal(loginResult.redirectTo, undefined);
 	const signedIn = await (await request('/api/accounts/sign.php', { cookie: passportCookie })).json();
 	assert.equal(signedIn.user.id, userId);
-	assert.equal(signedIn.user.username, 'PassportUser');
+	assert.equal(signedIn.user.user_name, 'PassportUser');
 	const passportDeviceDatabase = new DatabaseSync(process.env.DEFAULT_DATABASE_FILE, { readOnly: true });
 	assert.equal(passportDeviceDatabase.prepare('SELECT COUNT(*) AS count FROM passport_devices').get().count, 1);
 	assert.equal(passportDeviceDatabase.prepare('SELECT COUNT(*) AS count FROM passport_device_users').get().count, 1);

@@ -57,7 +57,7 @@ try {
 	const passportDatabase = new DatabaseSync(passportFile);
 	passportDatabase.prepare("INSERT INTO passport_users (user_id, name, status, created_at, updated_at) VALUES (?, ?, 'enabled', ?, ?)").run(userId, `passport_${userId}`, now, now)
 	passportDatabase.prepare("INSERT INTO passport_user_profiles (user_id, nickname, created_at, updated_at) VALUES (?, '分库用户', 0, 0)").run(userId);
-	passportDatabase.prepare("INSERT INTO passport_emails (id, email, verified, created_at, updated_at) VALUES (?, 'split@example.com', 1, ?, ?)").run(emailId, now, now);
+	passportDatabase.prepare("INSERT INTO passport_emails (id, email, verified, created_at, updated_at) VALUES (?, 'split.user@example.com', 1, ?, ?)").run(emailId, now, now);
 	passportDatabase.prepare('INSERT INTO passport_user_emails (user_id, email_id, is_primary, created_at, updated_at) VALUES (?, ?, 1, ?, ?)').run(userId, emailId, now, now);
 	passportDatabase.prepare("INSERT INTO passport_devices (key,fingerprint,status,last_seen_at,created_at,updated_at) VALUES (?,?,'active',?,?,?)").run(deviceKey, fingerprintData, now, now, now);
 	const deviceId = passportDatabase.prepare('SELECT id FROM passport_devices WHERE key = ?').get(deviceKey).id;
@@ -76,22 +76,23 @@ try {
 	};
 
 	// 登录页读的是 passport 库里的邮箱：已注册但没设置过密码时不给密码框，直接引导第三方登录。
-	const known = await (await request('/api/accounts/sign.php', { method: 'POST', body: { step: 'email', email: 'split@example.com' } })).json();
+	const known = await (await request('/api/accounts/sign.php', { method: 'POST', body: { step: 'email', email: 'split.user@example.com' } })).json();
 	assert.equal(known.formPage.initialValues.step, 'restart');
 	assert.match(known.formPage.description, /尚未设置密码/);
 	assert.equal(known.formPage.fields.some((field) => field.name === 'password'), false);
 	// 直接调用密码登录接口仍然会被挡住。
-	const forced = await request('/api/accounts/sign.php', { method: 'POST', body: { step: 'password', email: 'split@example.com', password: 'whatever' } });
+	const forced = await request('/api/accounts/sign.php', { method: 'POST', body: { step: 'password', email: 'split.user@example.com', password: 'whatever' } });
 	assert.equal(forced.status, 409);
 	assert.match((await forced.json()).feedback.message, /尚未设置密码/);
 	const unknown = await (await request('/api/accounts/sign.php', { method: 'POST', body: { step: 'password', email: 'nobody@example.com', password: 'whatever' } })).json();
 	assert.equal(unknown.formPage.initialValues.step, 'email_confirm');
 
 	// 用户名校验和补全流程只依赖 passport 库。
+	// 邮箱是 split.user@example.com，@ 前面带点不合规，自动取名取不到，回到手动设置界面。
 	const onboarding = await (await request('/api/accounts/sign.php', { cookie })).json();
-	assert.equal(onboarding.formPage.initialValues.step, 'set_username');
-	assert.equal((await request('/api/accounts/sign.php', { method: 'POST', cookie, body: { step: 'set_username', username: 'Split2026' } })).status, 400);
-	assert.equal((await request('/api/accounts/sign.php', { method: 'POST', cookie, body: { step: 'set_username', username: 'split2026' } })).status, 200);
+	assert.equal(onboarding.formPage.initialValues.step, 'set_user_name');
+	assert.equal((await request('/api/accounts/sign.php', { method: 'POST', cookie, body: { step: 'set_user_name', user_name: 'Split2026' } })).status, 400);
+	assert.equal((await request('/api/accounts/sign.php', { method: 'POST', cookie, body: { step: 'set_user_name', user_name: 'split2026' } })).status, 200);
 	// 身份数据落在 passport 库，global 库不参与。
 	const splitPassport = new DatabaseSync(passportFile, { readOnly: true });
 	assert.equal(splitPassport.prepare('SELECT name FROM passport_users WHERE user_id = ?').get(userId).name, 'split2026');
@@ -112,19 +113,19 @@ try {
 	otpDatabase.close();
 	assert.equal((await request(bindPath, { method: 'POST', cookie: verifiedCookie, body: { step: 'verify', code: deliveredCode } })).status, 200);
 	const boundEmails = await (await request(emailsPath, { cookie })).json();
-	assert.deepEqual(boundEmails.table.dataSource.map((row) => row.email), ['split@example.com', 'split-second@example.com']);
+	assert.deepEqual(boundEmails.table.dataSource.map((row) => row.email), ['split.user@example.com', 'split-second@example.com']);
 
 	// 概览与个人资料同样只读 passport 库。
 	const overview = await (await request('/api/panel/accounts/overview.php', { cookie })).json();
-	assert.equal(overview.dashboard.recentRows.find((row) => row.key === 'username').value, 'split2026');
+	assert.equal(overview.dashboard.recentRows.find((row) => row.key === 'user_name').value, 'split2026');
 	assert.equal(overview.dashboard.statistics.find((item) => item.key === 'emails').value, 2);
 
 	// 设置密码后可以直接用邮箱密码登录。
 	assert.equal((await request('/api/panel/accounts/security.php', { method: 'PUT', cookie, body: { password: 'split-password-1', password_confirm: 'split-password-1' } })).status, 200);
 	// 设置密码后，同一个邮箱走到的就是密码登录表单了。
-	const withPassword = await (await request('/api/accounts/sign.php', { method: 'POST', body: { step: 'email', email: 'split@example.com' } })).json();
+	const withPassword = await (await request('/api/accounts/sign.php', { method: 'POST', body: { step: 'email', email: 'split.user@example.com' } })).json();
 	assert.equal(withPassword.formPage.initialValues.step, 'password');
-	const passwordLogin = await request('/api/accounts/sign.php', { method: 'POST', body: { step: 'password', email: 'split@example.com', password: 'split-password-1' } });
+	const passwordLogin = await request('/api/accounts/sign.php', { method: 'POST', body: { step: 'password', email: 'split.user@example.com', password: 'split-password-1' } });
 	assert.equal(passwordLogin.status, 200);
 	assert.equal((await passwordLogin.json()).redirectTo, '/panel/accounts.html');
 

@@ -2,7 +2,7 @@ import type { ApiHandler } from '@server/modules/base/api-router.mjs';
 import { apiMessage, apiResponse } from '@server/modules/base/api-response.mjs';
 import { readStoredPassword } from '@server/modules/base/auth/index.mjs';
 import { allSql, sql } from '@server/database/sql.mjs';
-import { passportNicknameOf } from '@server/modules/passport/profile.mjs';
+import { passportProfileNicknameOf } from '@server/modules/passport/profile.mjs';
 import { setPassportPassword } from '@server/modules/passport/identity.mjs';
 import type { TableCrudDefinition } from '@server/modules/base/table-crud.mjs';
 
@@ -10,8 +10,8 @@ export const tableCrud: TableCrudDefinition = { table: 'passport_users', rowKey:
 
 const columns = [
 	{ dataIndex: 'user_id', title: 'ID', dataType: 'text' as const },
-	{ dataIndex: 'name', title: '用户名' },
-	{ dataIndex: 'nickname', title: '昵称' },
+	{ dataIndex: 'user_name', title: '用户名' },
+	{ dataIndex: 'profile_nickname', title: '昵称' },
 	{ dataIndex: 'password', title: '密码特征' },
 	{ dataIndex: 'status', title: '状态' },
 	{ dataIndex: 'created_at', title: '创建时间', dataType: 'js_timestamp' as const, dayjsFormat: 'YYYY-MM-DD HH:mm:ss' },
@@ -29,7 +29,7 @@ const handler: ApiHandler = async (c, next, params) => {
 		return apiMessage(c, 200, '密码已重设');
 	}
 	if (c.req.method !== 'GET') return next();
-	const rows = await allSql<Record<string, unknown>>(database, sql({ database }).select({ table: 'passport_users', alias: 'u', columns: { user_id: { column: 'u.user_id', cast: 'text' }, name: 'u.name', nickname: 'p.nickname', status: 'u.status', created_at: 'u.created_at', updated_at: 'u.updated_at' }, joins: [{ type: 'LEFT', table: 'passport_user_profiles', alias: 'p', left: 'p.user_id', right: 'u.user_id' }], orderBy: [{ column: 'u.created_at', direction: 'DESC' }] }));
+	const rows = await allSql<Record<string, unknown>>(database, sql({ database }).select({ table: 'passport_users', alias: 'u', columns: { user_id: { column: 'u.user_id', cast: 'text' }, user_name: 'u.name', profile_nickname: 'p.nickname', status: 'u.status', created_at: 'u.created_at', updated_at: 'u.updated_at' }, joins: [{ type: 'LEFT', table: 'passport_user_profiles', alias: 'p', left: 'p.user_id', right: 'u.user_id' }], orderBy: [{ column: 'u.created_at', direction: 'DESC' }] }));
 	const credentials = await allSql<Record<string, unknown>>(database, sql({ database }).select({ table: 'passport_user_credentials', columns: { user_id: { column: 'user_id', cast: 'text' }, password: 'password', created_at: 'created_at' }, orderBy: [{ column: 'created_at', direction: 'DESC' }] }));
 	const patterns = new Map<string, string>();
 	for (const credential of credentials) {
@@ -37,7 +37,7 @@ const handler: ApiHandler = async (c, next, params) => {
 		if (!patterns.has(userId)) patterns.set(userId, readStoredPassword(credential.password)?.pattern ?? '');
 	}
 	// 没设过资料就回落到用户名。
-	const dataSource = rows.map((row) => ({ ...row, nickname: passportNicknameOf(String(row.name ?? ''), row.nickname as string | null), password: patterns.get(String(row.user_id)) ?? '' }));
+	const dataSource = rows.map((row) => ({ ...row, profile_nickname: passportProfileNicknameOf(String(row.user_name ?? ''), row.profile_nickname as string | null), password: patterns.get(String(row.user_id)) ?? '' }));
 	return apiResponse(c, 200, { table: { option: { rowKey: 'user_id', actions: { row: [{ key: 'reset-password', label: '重设密码', form: { columns: passwordResetColumns } }] } }, columns, dataSource, totalRecords: dataSource.length } });
 };
 

@@ -1,6 +1,6 @@
 import type { DatabaseAdapter } from '@server/database/index.mjs';
 import { allSql, firstSql, sql } from '@server/database/sql.mjs';
-import { loadAccountUsername } from '@server/modules/passport/account.mjs';
+import { loadAccountUserName } from '@server/modules/passport/account.mjs';
 import { sha256 } from '@server/modules/passport/accounts/oidc.mjs';
 
 export type OidcClientRecord = { id: string; name: string; secret_hash: string; redirect_uris: string; backchannel_logout_uri: string; allowed_scopes: string; require_pkce: number; strict_redirect_uri: number; password_sync: number; status: string; created_at: number; updated_at: number };
@@ -22,19 +22,19 @@ export const accountUser = async (database: DatabaseAdapter, userId: string) => 
 	// 用户名，业务站点回落到本站用户名）。塞进 claim 的话下游分不清「这是昵称」还是
 	// 「这人没昵称、拿用户名顶上的」，照着同步就会把 passport 用户名灌进本站昵称——
 	// 凭空造出一个「用户设过昵称」的假状态。claim 里只放事实。
-	const row = await firstSql<{ sub: string; username: string; nickname: string | null; status: string }>(database, sql({ database }).select({
+	const row = await firstSql<{ sub: string; user_name: string; profile_nickname: string | null; status: string }>(database, sql({ database }).select({
 		table: 'passport_users', alias: 'u',
-		columns: { sub: { column: 'u.user_id', cast: 'text' }, username: 'u.name', nickname: 'p.nickname', status: 'u.status' },
+		columns: { sub: { column: 'u.user_id', cast: 'text' }, user_name: 'u.name', profile_nickname: 'p.nickname', status: 'u.status' },
 		joins: [{ type: 'LEFT', table: 'passport_user_profiles', alias: 'p', left: 'p.user_id', right: 'u.user_id' }],
 		where: [{ column: 'u.user_id', value: userId }],
 	}));
 	if (!row) return null;
-	const nickname = row.nickname?.trim() ?? '';
-	const user = { sub: row.sub, status: row.status, ...(nickname ? { name: nickname } : {}) };
+	const profileNickname = row.profile_nickname?.trim() ?? '';
+	const user = { sub: row.sub, status: row.status, ...(profileNickname ? { name: profileNickname } : {}) };
 	// 用户名是可选能力，只有设置过才作为 preferred_username 下发。
-	const username = await loadAccountUsername(database, userId);
+	const userName = await loadAccountUserName(database, userId);
 	const email = await firstSql<{ email: string }>(database, sql({ database }).select({ table: 'passport_user_emails', alias: 'ue', columns: { email: 'e.email' }, joins: [{ table: 'passport_emails', alias: 'e', left: 'e.id', right: 'ue.email_id' }], where: [{ column: 'ue.user_id', value: userId }, { column: 'ue.is_primary', value: 1 }, { column: 'e.verified', value: 1 }], limit: 1 }));
-	return { ...user, ...(username ? { preferred_username: username } : {}), email: email?.email };
+	return { ...user, ...(userName ? { preferred_username: userName } : {}), email: email?.email };
 };
 
 /**

@@ -49,7 +49,7 @@ const handler: ApiHandler = async (c) => {
 	if (client.require_pkce && (!/^[A-Za-z0-9_-]{43,128}$/.test(values.code_challenge) || values.code_challenge_method !== 'S256')) return browserError(c, 400, '该客户端要求 PKCE S256');
 	const current = await loadPassportSession(database, c.req.raw);
 	// 未登录，或者已登录但还没有合法用户名，都先回登录页；密码是可跳过项，不在这里拦截，否则跳过后会来回跳。
-	const pending = current ? (await accountOnboarding(database, String(current.id))).step === 'username' : false;
+	const pending = current ? (await accountOnboarding(database, String(current.id), c.get('siteSettings').userNameMinLength)).step === 'user_name' : false;
 	if (!current || pending) {
 		const id = requestId || crypto.randomUUID(), now = Date.now();
 		if (!requestId) await runSql(database, sql({ database }).insert('passport_oidc_authorization_requests', { request_id: id, client_id: values.client_id, redirect_uri: values.redirect_uri, scope: scopes.join(' '), state: values.state, nonce: values.nonce, code_challenge: values.code_challenge, code_challenge_method: values.code_challenge_method, expires_at: now + 600_000 }));

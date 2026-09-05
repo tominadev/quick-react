@@ -34,9 +34,9 @@ const commonApi = {
 		requests.push(String(url));
 		if (String(url) === '/api/sign.php') return new Response(JSON.stringify({
 			formPage: {
-				description: '使用本站账号登录', submitLabel: '登录', initialValues: { username: '', password: '', remember: false },
+				description: '使用本站账号登录', submitLabel: '登录', initialValues: { user_name: '', password: '', remember: false },
 				fields: [
-					{ name: 'username', label: '用户名', rules: [{ required: true, message: '请输入用户名' }] },
+					{ name: 'user_name', label: '用户名', rules: [{ required: true, message: '请输入用户名' }] },
 					{ name: 'password', label: '密码', type: 'password', rules: [{ required: true, message: '请输入密码' }] },
 				],
 			},
@@ -93,8 +93,8 @@ globalThis.fetch = async (input) => {
 	signRequests += 1;
 	return new Response(JSON.stringify({
 		formPage: {
-			description: '稳定引用登录表单', submitLabel: '登录', initialValues: { username: '', password: '' },
-			fields: [{ name: 'username', label: '用户名' }, { name: 'password', label: '密码', type: 'password' }],
+			description: '稳定引用登录表单', submitLabel: '登录', initialValues: { user_name: '', password: '' },
+			fields: [{ name: 'user_name', label: '用户名' }, { name: 'password', label: '密码', type: 'password' }],
 		},
 	}), { headers: { 'content-type': 'application/json' } });
 };
@@ -126,7 +126,7 @@ let logoutCalls = 0;
 	},
 };
 render(React.createElement(MemoryRouter, {}, React.createElement(AuthActions, {
-	auth: { component: 'dropdown', currentUser: { id: 1, username: 'logout_user' }, actions: [{ key: '/accounts/sign', label: '退出 Accounts', action: 'accounts-logout', icon: 'logout' }], pages: [] },
+	auth: { component: 'dropdown', currentUser: { id: 1, user_name: 'logoutuser' }, actions: [{ key: '/accounts/sign', label: '退出 Accounts', action: 'accounts-logout', icon: 'logout' }], pages: [] },
 	commonApi, apiSuffix: '.php', pageSuffix: '.html',
 })));
 const user = userEvent.setup({ document: dom.window.document });

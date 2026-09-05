@@ -33,9 +33,9 @@ export const resolveRegistrationMode = async (c: Context<AppEnv>): Promise<Regis
  * 昵称不在这里写——它拆到 base_user_profiles 之后是「没有行就回落到用户名」，
  * 不需要在建号时抄一份进去。抄过去反而会撞上别人挑走的昵称。
  */
-export const finishUserCreation = async (database: DatabaseAdapter, username: string, tenantId: DatabaseActorUid) => {
+export const finishUserCreation = async (database: DatabaseAdapter, userName: string, tenantId: DatabaseActorUid) => {
 	const scope = tenantId === null ? { column: 'owner_tid', operator: 'IS NULL' as const } : { column: 'owner_tid', value: tenantId };
-	const created = await firstSql<{ id: number | string | bigint }>(database, sql({ database }).select({ table: 'base_users', columns: { id: 'id' }, where: [{ column: 'name', value: username }, scope], limit: 1 }));
+	const created = await firstSql<{ id: number | string | bigint }>(database, sql({ database }).select({ table: 'base_users', columns: { id: 'id' }, where: [{ column: 'name', value: userName }, scope], limit: 1 }));
 	if (!created) return undefined;
 	// 账号行归属账号自己，不归创建它的人。
 	await runSystemSql(database, sql({ database }).update('base_users', { owner_uid: created.id }, { id: created.id }));

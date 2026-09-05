@@ -29,8 +29,8 @@ try {
 		});
 	};
 
-	assert.equal((await request('/api/sign.php', { method: 'PUT', body: { username: 'recycle_admin', password: 'test-password-123' } })).status, 201);
-	const login = await request('/api/sign.php', { method: 'POST', body: { username: 'recycle_admin', password: 'test-password-123' } });
+	assert.equal((await request('/api/sign.php', { method: 'PUT', body: { user_name: 'recycleadmin', password: 'test-password-123' } })).status, 201);
+	const login = await request('/api/sign.php', { method: 'POST', body: { user_name: 'recycleadmin', password: 'test-password-123' } });
 	const cookie = login.headers.get('set-cookie')?.split(';')[0];
 	assert.ok(cookie, '登录后应返回会话 Cookie');
 

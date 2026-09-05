@@ -3,7 +3,7 @@ import { apiMessage, apiMessageData, apiResponse } from '@server/modules/base/ap
 import { ensurePassportDevice } from '@server/modules/passport/device.mjs';
 import type { DatabaseAdapter, DatabaseBatchStatement } from '@server/database/index.mjs';
 import { normalizePassportEmail, setPassportPassword, verifyPassportPasswordHistory } from '@server/modules/passport/identity.mjs';
-import { hasAccountPassword, setAccountUsername, utcMinutes } from '@server/modules/passport/account.mjs';
+import { hasAccountPassword, setAccountUserName, utcMinutes } from '@server/modules/passport/account.mjs';
 import { accountOnboarding, loginRedirectTarget, onboardingForm, refreshOidcRequest, resetPasswordForm } from '@server/modules/passport/accounts/onboarding.mjs';
 import { clearPassportSessionCookie, createPassportSessionCookie, loadPassportSession, readPassportSessionId } from '@server/modules/passport/session.mjs';
 import { clearOidcRequestCookie, oidcRequestCookieName, readCookie, sha256 } from '@server/modules/passport/accounts/oidc.mjs';
@@ -238,9 +238,9 @@ const handler: ApiHandler = async (c, next) => {
 
 	/** 登录成功后依次补全：用户名（必填）、重设密码（三方验证后）、设置密码（可跳过）。 */
 	const completeLogin = async (userId: string, message: string) => {
-		const onboarding = await accountOnboarding(database, userId);
+		const onboarding = await accountOnboarding(database, userId, c.get('siteSettings').userNameMinLength);
 		const resetting = readCookie(c.req.raw, passwordResetCookieName);
-		const formPage = onboarding.step === 'username' ? onboardingForm(onboarding)
+		const formPage = onboarding.step === 'user_name' ? onboardingForm(onboarding)
 			: resetting ? resetPasswordForm()
 			: onboarding.step === 'password' ? onboardingForm(onboarding)
 			: undefined;
@@ -260,9 +260,9 @@ const handler: ApiHandler = async (c, next) => {
 			pendingToken ? pendingExternalIdentity(database, pendingToken) : null,
 		]);
 		if (user) {
-			const onboarding = await accountOnboarding(database, String(user.id));
+			const onboarding = await accountOnboarding(database, String(user.id), c.get('siteSettings').userNameMinLength);
 			const resetting = readCookie(c.req.raw, passwordResetCookieName);
-			const pendingForm = onboarding.step === 'username' ? onboardingForm(onboarding)
+			const pendingForm = onboarding.step === 'user_name' ? onboardingForm(onboarding)
 				: resetting ? resetPasswordForm()
 				: onboarding.step === 'password' ? onboardingForm(onboarding)
 				: undefined;
@@ -290,7 +290,7 @@ const handler: ApiHandler = async (c, next) => {
 	}
 	if (c.req.method !== 'POST') return next();
 	const body = await parseBody(c), step = text(body.step) || 'email', action = c.req.query('action')?.trim();
-	if (!('step' in body) && ('username' in body || 'remember' in body)) return apiMessage(c, 409, '登录方式已切换为 Accounts 登录，请刷新页面后重试');
+	if (!('step' in body) && ('user_name' in body || 'remember' in body)) return apiMessage(c, 409, '登录方式已切换为 Accounts 登录，请刷新页面后重试');
 
 	/** 登录页的第三方按钮：Telegram 走邮箱 + 消息批准，其余跳转到外部身份源。 */
 	if (action?.startsWith('provider:')) {
@@ -358,8 +358,8 @@ const handler: ApiHandler = async (c, next) => {
 	if (action === 'skip_password') {
 		const user = await loadPassportSession(database, c.req.raw);
 		if (!user) return apiMessage(c, 401, '登录状态已失效，请重新登录');
-		const pendingOnboarding = await accountOnboarding(database, String(user.id));
-		if (pendingOnboarding.step === 'username') {
+		const pendingOnboarding = await accountOnboarding(database, String(user.id), c.get('siteSettings').userNameMinLength);
+		if (pendingOnboarding.step === 'user_name') {
 			const formPage = onboardingForm(pendingOnboarding);
 			return apiResponse(c, 200, { formPage, currentValues: formPage.initialValues, feedback: { component: 'inline' as const, type: 'warning' as const, message: '请先设置用户名' } });
 		}
@@ -367,12 +367,12 @@ const handler: ApiHandler = async (c, next) => {
 	}
 	if (action) return apiMessage(c, 400, '不支持的操作');
 
-	if (step === 'set_username' || step === 'set_password') {
+	if (step === 'set_user_name' || step === 'set_password') {
 		const user = await loadPassportSession(database, c.req.raw);
 		if (!user) return apiMessage(c, 401, '登录状态已失效，请重新登录');
 		const userId = String(user.id);
-		if (step === 'set_username') {
-			try { await setAccountUsername(c, database, userId, text(body.username)); }
+		if (step === 'set_user_name') {
+			try { await setAccountUserName(c, database, userId, text(body.user_name), c.get('siteSettings').userNameMinLength); }
 			catch (error) { return apiMessage(c, 400, error instanceof Error ? error.message : '用户名不合法'); }
 			return completeLogin(userId, '用户名已设置');
 		}

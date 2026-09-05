@@ -23,8 +23,8 @@ const handler: ApiHandler = async (c, next) => {
 			{ dataIndex: 'value', title: '内容' },
 		],
 		recentRows: [
-			{ key: 'username', item: '用户名', value: profile.username ?? '未设置' },
-			{ key: 'nickname', item: '昵称', value: profile.nickname },
+			{ key: 'user_name', item: '用户名', value: profile.user_name ?? '未设置' },
+			{ key: 'profile_nickname', item: '昵称', value: profile.profile_nickname },
 			{ key: 'email', item: '主邮箱', value: profile.primaryEmail || '未设置' },
 			{ key: 'password', item: '密码', value: profile.hasPassword ? '已设置' : '未设置' },
 			{ key: 'avatar', item: '头像', value: avatarUrl ? '已同步到对象存储' : '未同步' },

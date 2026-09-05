@@ -10,9 +10,9 @@ import { sql, type SqlQuery } from '@server/database/sql.mjs';
  * 不同的是**这里的昵称不唯一**：本站昵称是人自己挑的，而 Accounts 的昵称来自外部
  * 提供方，没有昵称的微信用户一律叫「微信用户」。加唯一约束会让第二个这样的用户登不进来。
  */
-export const passportNicknameOf = (username: string, nickname?: string | null) => nickname?.trim() || username;
+export const passportProfileNicknameOf = (userName: string, profileNickname?: string | null) => profileNickname?.trim() || userName;
 
-export type PassportProfileFields = { nickname?: string; qq?: string; wechat?: string };
+export type PassportProfileFields = { profile_nickname?: string; profile_qq?: string; profile_wechat?: string };
 
 /**
  * 生成资料写入语句。昵称清空且没有别的字段时删掉整行——回落到用户名。
@@ -25,11 +25,13 @@ export const passportProfileStatement = (database: DatabaseAdapter, userId: stri
 	const values = Object.fromEntries(Object.entries(fields)
 		.filter(([, value]) => value !== undefined)
 		.map(([key, value]) => [key, String(value).trim()]));
+	// 对外字段带 profile_ 前缀，数据库列不带——映射只在这一处。
+	const writable: Record<string, unknown> = Object.fromEntries(Object.entries(values).map(([key, value]) => [key.replace(/^profile_/, ''), value]));
 	// 昵称清空写 NULL 而不是空串：与 base 一致，NULL 才是「没设昵称」，显示时回落到用户名。
-	const writable = { ...values, ...(values.nickname === '' ? { nickname: null } : {}) };
+	if (values.profile_nickname === '') writable.nickname = null;
 	return sql({ database }).upsert('passport_user_profiles', ['user_id'], { user_id: userId, ...writable }, [...Object.keys(writable), 'updated_at']);
 };
 
 /** 建号时与 passport_users 一起写入的语句，交给同一个 batch 执行。 */
-export const passportProfileInsert = (database: DatabaseAdapter, userId: string | number | bigint, nickname: string): SqlQuery[] =>
-	nickname.trim() ? [sql({ database }).insert('passport_user_profiles', { user_id: userId, nickname: nickname.trim() })] : [];
+export const passportProfileInsert = (database: DatabaseAdapter, userId: string | number | bigint, profileNickname: string): SqlQuery[] =>
+	profileNickname.trim() ? [sql({ database }).insert('passport_user_profiles', { user_id: userId, nickname: profileNickname.trim() })] : [];

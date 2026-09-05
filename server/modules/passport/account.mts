@@ -3,30 +3,32 @@ import type { AppEnv } from '@server/modules/base/types.mjs';
 import type { DatabaseAdapter, DatabaseBatchStatement } from '@server/database/index.mjs';
 import { allSql, firstSql, runSql, runSystemSql, sql } from '@server/database/sql.mjs';
 import { PendingApprovalError, runOperationSql } from '@server/modules/base/operation.mjs';
+import { isValidUserName, nicknameError, userNameError } from '@shared/account-name.mjs';
 import { passportProfileStatement } from './profile.mjs';
 import { hashPassword, verifyPassword } from '@server/modules/base/auth/index.mjs';
 import { normalizePassportEmail } from './identity.mjs';
 import { getPassportSnowflakeGenerator } from './snowflake.mjs';
 
-/** 用户名只允许小写字母开头的小写字母数字组合，长度 6-12。 */
-const usernamePattern = /^[a-z][a-z0-9]{5,11}$/;
-const reservedUsernames = new Set(['admin', 'root', 'system', 'support', 'official', 'passport', 'accounts', 'service', 'security']);
+const reservedUserNames = new Set(['admin', 'root', 'system', 'support', 'official', 'passport', 'accounts', 'service', 'security']);
 
-export const normalizeAccountUsername = (value: string) => {
-	const username = value.trim();
-	if (!usernamePattern.test(username)) throw new Error('用户名必须以小写字母开头，只能包含小写字母和数字，长度 6 到 12 位');
-	if (reservedUsernames.has(username)) throw new Error('该用户名属于系统保留名称，请更换后重试');
-	return username;
+export const normalizeAccountUserName = (value: string, minLength?: number) => {
+	const userName = value.trim();
+	const error = userNameError(userName, minLength);
+	if (error) throw new Error(error);
+	if (reservedUserNames.has(userName)) throw new Error('该用户名属于系统保留名称，请更换后重试');
+	return userName;
 };
 
-export const normalizeAccountNickname = (value: string) => {
+/** 用户自己设的昵称：不合规就报错，不做截断——截断会把人设的名字悄悄改掉。 */
+export const normalizeProfileNickname = (value: string) => {
 	const normalized = value.normalize('NFKC').replace(/\s+/g, ' ').trim();
-	if (!normalized) throw new Error('昵称不能为空');
-	return Array.from(normalized).slice(0, 12).join('');
+	const error = nicknameError(normalized);
+	if (error) throw new Error(error);
+	return normalized;
 };
 
-/** 合法用户名：小写字母开头的小写字母数字组合，长度 6-12，且不是保留名称。 */
-export const isValidAccountUsername = (value: string) => usernamePattern.test(value) && !reservedUsernames.has(value);
+/** 合法用户名：小写字母开头的小写字母数字组合，长度合规，且不是保留名称。 */
+export const isValidAccountUserName = (value: string, minLength?: number) => isValidUserName(value, minLength) && !reservedUserNames.has(value);
 
 /** 新账号先使用雪花 ID 组成的占位名；该值只表示正式用户名尚未设置。 */
 export const passportPlaceholderName = (userId: string) => `passport_${userId}`;
@@ -34,41 +36,67 @@ const loadAccountName = async (database: DatabaseAdapter, userId: string) => (
 	await firstSql<{ name: string }>(database, sql({ database }).select({ table: 'passport_users', columns: { name: 'name' }, where: [{ column: 'user_id', value: userId }] }))
 )?.name;
 
-export const accountUsernameState = async (database: DatabaseAdapter, userId: string) => {
-	const username = await loadAccountName(database, userId);
-	if (!username || username.startsWith('passport_')) return { state: 'missing' as const, username: username ?? '' };
-	if (!isValidAccountUsername(username)) return { state: 'invalid' as const, username };
-	return { state: 'ready' as const, username };
+export const accountUserNameState = async (database: DatabaseAdapter, userId: string, minLength?: number) => {
+	const userName = await loadAccountName(database, userId);
+	if (!userName || userName.startsWith('passport_')) return { state: 'missing' as const, user_name: userName ?? '' };
+	if (!isValidAccountUserName(userName, minLength)) return { state: 'invalid' as const, user_name: userName };
+	return { state: 'ready' as const, user_name: userName };
 };
 
-export const loadAccountUsername = async (database: DatabaseAdapter, userId: string) => (
-	(await accountUsernameState(database, userId)).state === 'ready' ? loadAccountName(database, userId) : undefined
+/**
+ * 用邮箱 @ 前面那一段自动定下用户名，省掉「设置用户名」这一步。
+ *
+ * 只在**合规且没被占用**时才落定；不合规（带点、加号、下划线、太短太长、保留名）或
+ * 已被占用就返回 undefined，调用方照常走手动设置界面——自动补一个带后缀的名字看着聪明，
+ * 实际是替用户做了他没同意的决定。
+ *
+ * 这不是人工操作，用 runSql 而不是 runOperationSql：它没有「操作原因」可写，
+ * 也不该进审批队列。并发下两个人抢同一个名字由唯一索引兜底，抢输的那个回落到手动设置。
+ */
+export const claimUserNameFromEmail = async (database: DatabaseAdapter, userId: string, minLength?: number) => {
+	const emails = await listAccountEmails(database, userId);
+	// 只认已验证的邮箱：未验证的邮箱不能证明是本人的，拿它定用户名等于让别人替你占名字。
+	const primary = emails.find((item) => item.is_primary && item.verified) ?? emails.find((item) => item.verified);
+	const candidate = (primary?.email ?? '').split('@')[0].trim().toLowerCase();
+	if (!candidate || !isValidAccountUserName(candidate, minLength)) return undefined;
+	const taken = await firstSql<{ user_id: string }>(database, sql({ database }).select({
+		table: 'passport_users', columns: { user_id: { column: 'user_id', cast: 'text' } },
+		where: [{ column: 'name', value: candidate }, { column: 'user_id', operator: '!=', value: userId }], limit: 1,
+	}));
+	if (taken) return undefined;
+	try { await runSql(database, sql({ database }).update('passport_users', { name: candidate }, { user_id: userId })); }
+	catch { return undefined; }
+	return candidate;
+};
+
+export const loadAccountUserName = async (database: DatabaseAdapter, userId: string) => (
+	(await accountUserNameState(database, userId)).state === 'ready' ? loadAccountName(database, userId) : undefined
 );
 
-export const setAccountUsername = async (c: Context<AppEnv>, database: DatabaseAdapter, userId: string, rawUsername: string) => {
-	const username = normalizeAccountUsername(rawUsername);
+export const setAccountUserName = async (c: Context<AppEnv>, database: DatabaseAdapter, userId: string, rawUserName: string, minLength?: number) => {
+	const userName = normalizeAccountUserName(rawUserName, minLength);
 	const current = await loadAccountName(database, userId);
 	if (!current) throw new Error('Accounts 用户不存在');
 	// 同上：user_id 是雪花 ID，必须按文本读取，否则用户名被占用时会抛数值溢出错误。
-	const taken = await firstSql<{ user_id: string }>(database, sql({ database }).select({ table: 'passport_users', columns: { user_id: { column: 'user_id', cast: 'text' } }, where: [{ column: 'name', value: username }, { column: 'user_id', operator: '!=', value: userId }] }));
+	const taken = await firstSql<{ user_id: string }>(database, sql({ database }).select({ table: 'passport_users', columns: { user_id: { column: 'user_id', cast: 'text' } }, where: [{ column: 'name', value: userName }, { column: 'user_id', operator: '!=', value: userId }] }));
 	if (taken) throw new Error('该用户名已被占用，请更换后重试');
 	try {
-		await runOperationSql(c, database, sql({ database }).update('passport_users', { name: username }, { user_id: userId }));
+		await runOperationSql(c, database, sql({ database }).update('passport_users', { name: userName }, { user_id: userId }));
 	} catch (error) {
 		if (error instanceof PendingApprovalError) throw error;
 		throw new Error('该用户名已被占用，请更换后重试');
 	}
-	return username;
+	return userName;
 };
 
 export const hasAccountPassword = async (database: DatabaseAdapter, userId: string) => Boolean(
 	await firstSql(database, sql({ database }).select({ table: 'passport_user_credentials', columns: { id: 'id' }, where: [{ column: 'user_id', value: userId }], limit: 1 })),
 );
 
-export const updateAccountNickname = async (c: Context<AppEnv>, database: DatabaseAdapter, userId: string, rawNickname: string) => {
-	const nickname = normalizeAccountNickname(rawNickname);
-	await runOperationSql(c, database, passportProfileStatement(database, userId, { nickname }));
-	return nickname;
+export const updateProfileNickname = async (c: Context<AppEnv>, database: DatabaseAdapter, userId: string, rawNickname: string) => {
+	const profileNickname = normalizeProfileNickname(rawNickname);
+	await runOperationSql(c, database, passportProfileStatement(database, userId, { profile_nickname: profileNickname }));
+	return profileNickname;
 };
 
 /** 统一的时间展示格式，避免依赖运行时的本地化能力。 */
@@ -267,9 +295,9 @@ export const unbindAccountIdentity = async (c: Context<AppEnv>, database: Databa
 
 /** 账户中心概览需要的聚合信息。 */
 export const loadAccountProfile = async (database: DatabaseAdapter, userId: string) => {
-	const [user, username, emails, hasPassword, identities, telegramAccounts] = await Promise.all([
-		firstSql<{ nickname: string | null; created_at: number }>(database, sql({ database }).select({ table: 'passport_users', alias: 'u', columns: { nickname: 'p.nickname', created_at: 'u.created_at' }, joins: [{ type: 'LEFT', table: 'passport_user_profiles', alias: 'p', left: 'p.user_id', right: 'u.user_id' }], where: [{ column: 'u.user_id', value: userId }] })),
-		loadAccountUsername(database, userId),
+	const [user, userName, emails, hasPassword, identities, telegramAccounts] = await Promise.all([
+		firstSql<{ profile_nickname: string | null; created_at: number }>(database, sql({ database }).select({ table: 'passport_users', alias: 'u', columns: { profile_nickname: 'p.nickname', created_at: 'u.created_at' }, joins: [{ type: 'LEFT', table: 'passport_user_profiles', alias: 'p', left: 'p.user_id', right: 'u.user_id' }], where: [{ column: 'u.user_id', value: userId }] })),
+		loadAccountUserName(database, userId),
 		listAccountEmails(database, userId),
 		hasAccountPassword(database, userId),
 		allSql<{ provider: string }>(database, sql({ database }).select({ table: 'passport_external_identities', columns: { provider: 'provider' }, where: [{ column: 'user_id', value: userId }] })),
@@ -277,9 +305,9 @@ export const loadAccountProfile = async (database: DatabaseAdapter, userId: stri
 	]);
 	return {
 		userId,
-		nickname: user?.nickname ?? '',
+		profile_nickname: user?.profile_nickname ?? '',
 		createdAt: user?.created_at ?? 0,
-		username,
+		user_name: userName,
 		emails,
 		primaryEmail: emails.find((item) => item.is_primary)?.email ?? '',
 		hasPassword,

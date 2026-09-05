@@ -38,7 +38,7 @@ const deviceKey = '00000000-0000-4000-8000-000000000001';
 	// 登录页是本站账号密码表单，不下发 Accounts 登录入口。
 	const signForm = await (await request('/api/sign.php')).json();
 	assert.equal(signForm.formPage.passportLogin, undefined);
-	assert.deepEqual(signForm.formPage.fields.map((field) => field.name), ['username', 'password', 'remember']);
+	assert.deepEqual(signForm.formPage.fields.map((field) => field.name), ['user_name', 'password', 'remember']);
 
 	// 误触发的 SDK 登录请求要给出明确提示，不能落到本地密码登录报"用户名或密码错误"。
 	const sdkLogin = await request('/api/sign.php', { method: 'POST', body: { action: 'login' } });
@@ -46,8 +46,8 @@ const deviceKey = '00000000-0000-4000-8000-000000000001';
 	assert.match((await sdkLogin.json()).feedback.message, /未启用 Accounts 登录/);
 
 	// 本站账号密码登录不受影响。
-	assert.equal((await request('/api/sign.php', { method: 'PUT', body: { username: 'local_admin', password: 'test-password-123' } })).status, 201);
-	const login = await request('/api/sign.php', { method: 'POST', body: { username: 'local_admin', password: 'test-password-123' } });
+	assert.equal((await request('/api/sign.php', { method: 'PUT', body: { user_name: 'localadmin', password: 'test-password-123' } })).status, 201);
+	const login = await request('/api/sign.php', { method: 'POST', body: { user_name: 'localadmin', password: 'test-password-123' } });
 	assert.equal(login.status, 200);
 	assert.ok(login.headers.get('set-cookie'));
 	assert.deepEqual((await login.clone().json()).next, { action: 'navigate', path: '/', refreshAuth: true });
@@ -87,7 +87,7 @@ const deviceKey = '00000000-0000-4000-8000-000000000001';
 		['local-login', 'accounts-login'],
 		'both 模式下两个登录入口都要出现',
 	);
-	assert.equal((await request('/api/sign.php', { method: 'POST', body: { username: 'local_admin', password: 'test-password-123' } })).status, 200, 'both 模式下本站密码登录仍然可用');
+	assert.equal((await request('/api/sign.php', { method: 'POST', body: { user_name: 'localadmin', password: 'test-password-123' } })).status, 200, 'both 模式下本站密码登录仍然可用');
 	// Accounts 那条路径的请求要放行给下游，不能被当成本地登录挡掉。
 	assert.notEqual((await request('/api/sign.php', { method: 'POST', body: { action: 'login' } })).status, 409);
 

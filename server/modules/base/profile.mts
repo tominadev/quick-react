@@ -1,12 +1,6 @@
 import type { DatabaseAdapter } from '@server/database/index.mjs';
 import { firstSql, sql, type SqlQuery } from '@server/database/sql.mjs';
-
-export const maxNicknameLength = 32;
-/**
- * 昵称的字符集比用户名宽得多：中文、字母、数字都行。
- * 挡掉的是控制字符——它们看不见，却能造出两个"看起来一样"的昵称。首尾空白先 trim。
- */
-const nicknamePattern = /^[^\p{C}]+$/u;
+import { nicknameError } from '@shared/account-name.mjs';
 
 /**
  * 本站账号的资料，与账号本体分表。
@@ -15,17 +9,17 @@ const nicknamePattern = /^[^\p{C}]+$/u;
  * ——抄过去还会撞上别人挑走的昵称，那时候要么让建号失败（为便利功能挡住合法注册），
  * 要么悄悄放弃默认值（用户看到昵称是空的，不知道为什么）。回落没有这个两难。
  */
-export const nicknameOf = (username: string, nickname?: string | null) => nickname?.trim() || username;
+export const profileNicknameOf = (userName: string, profileNickname?: string | null) => profileNickname?.trim() || userName;
 
 export const readProfileNickname = async (database: DatabaseAdapter, userId: string | number | bigint) => {
-	const row = await firstSql<{ nickname: string }>(database, sql({ database }).select({
-		table: 'base_user_profiles', columns: { nickname: 'nickname' },
+	const row = await firstSql<{ profile_nickname: string }>(database, sql({ database }).select({
+		table: 'base_user_profiles', columns: { profile_nickname: 'nickname' },
 		where: [{ column: 'user_id', value: userId }], limit: 1,
 	}));
-	return row?.nickname ?? undefined;
+	return row?.profile_nickname ?? undefined;
 };
 
-export type ProfileFields = { nickname?: string; qq?: string; wechat?: string; email?: string };
+export type ProfileFields = { profile_nickname?: string; profile_qq?: string; profile_wechat?: string; profile_email?: string };
 export type ProfileCheck = { error: string } | { statement: SqlQuery } | { clear: SqlQuery };
 
 /**
@@ -44,10 +38,11 @@ export const profileStatement = async (
 		.filter(([, value]) => value !== undefined)
 		.map(([key, value]) => [key, String(value).trim()]));
 	if (!Object.keys(values).length) return { clear: sql({ database }).softDelete('base_user_profiles', { user_id: userId }) };
-	const nickname = values.nickname;
+	const nickname = values.profile_nickname;
 	if (nickname !== undefined && nickname) {
-		if (nickname.length > maxNicknameLength) return { error: `昵称最长 ${maxNicknameLength} 个字符` };
-		if (!nicknamePattern.test(nickname)) return { error: '昵称不能包含控制字符' };
+		// 字符集与长度规则和 passport 共用一份：昵称按半角宽度计长，全角记 2。
+		const error = nicknameError(nickname);
+		if (error) return { error };
 		// 昵称没设时回落到用户名，所以不能占用别的账号的用户名——否则两个账号显示成同一个名字。
 		// 跨表的约束数据库管不了，只能写入前查。
 		const takenAsUsername = await firstSql(database, sql({ database }).select({
@@ -65,6 +60,9 @@ export const profileStatement = async (
 	}
 	// 昵称清空写 NULL 而不是空串：唯一索引里空串互相相等，第二个不设昵称的账号就建不出来。
 	// 也不删整行——只清昵称不该把联系方式一起带走，而留一行全空的资料是无害的。
-	const writable = { ...values, ...(values.nickname === '' ? { nickname: null } : {}) };
+	// 对外字段带 profile_ 前缀，数据库列不带——两边的映射只在这一处。
+	const writable: Record<string, unknown> = Object.fromEntries(Object.entries(values).map(([key, value]) => [key.replace(/^profile_/, ''), value]));
+	// 昵称清空写 NULL，其余列空串就是空串。
+	if (values.profile_nickname === '') writable.nickname = null;
 	return { statement: sql({ database }).upsert('base_user_profiles', ['user_id'], { user_id: userId, ...writable }, [...Object.keys(writable), 'updated_at']) };
 };

@@ -136,6 +136,41 @@ Accounts 登录成功时，把凭证同步到本站账号，使本站登录用�
 
 回落是**显示层**的事，各系统各回各的——passport 页面回落到 passport 用户名，业务站点回落到本站用户名。claim 里只放事实。
 
+### 6.7 字段命名：`user_name` / `profile_nickname`
+
+**`username` 这个词只留给外部协议**——OIDC 的 `preferred_username`、Telegram 的 bot username、DSN 里的连接凭据。本系统自己的账号字段一律带表名词干前缀，一眼能看出是谁的名字、来自哪张表：
+
+| 数据库列 | 对外字段 |
+| --- | --- |
+| `base_users.name` / `passport_users.name` | `user_name` |
+| `base_user_profiles.nickname` / `passport_user_profiles.nickname` | `profile_nickname` |
+| `base_user_profiles.qq` / `.wechat` / `.email` | `profile_qq` / `profile_wechat` / `profile_email` |
+
+数据库列名不变，映射只发生在两处（`profileStatement` 与 `passportProfileStatement`）。前缀取自**列所在的表**：昵称若哪天挪进 `users` 表，就该叫 `user_nickname`。
+
+外部提供方给的昵称（Google、微信、Telegram）保持裸 `nickname`——它本来就属于要被区分出来的外部一侧。
+
+### 6.8 名字的规则
+
+规则在 `shared/account-name.mts` 里只写一份，base 与 passport 共用。
+
+**用户名**：小写字母开头，只含小写字母和数字，最长 16 位；最短默认 3 位，由站点设置 `userNameMinLength` 调整（1–16）。上限不给调——放宽只会让界面难排版。
+
+**昵称**：允许各国语言字符，按**半角宽度**计长，4 到 16，也就是 2 到 8 个全角字符。不能按字符个数限长：8 个汉字和 8 个字母在界面上占的宽度差一倍。base 与 passport 同一套。
+
+两条昵称路径分得很清：
+- **用户自己设的**（个人中心、账户资料）不合规就报错，不截断——截断会把人挑的名字悄悄改掉。
+- **外部提供方给的**（Telegram、Google、微信）只截断不报错：它不是用户在本站挑的，太短就拒绝会让人登不进来；截断后仍不足 4 个半角就回落到 `TG<数字>` 兜底名。
+
+### 6.9 用户名自动取自邮箱
+
+passport 登录后不再强制手动设置用户名：取**已验证邮箱** `@` 前面那一段，合规且在用户表中没被占用就直接定下，设置界面不出现。
+
+- 只认已验证邮箱：未验证的邮箱不能证明是本人的，拿它定用户名等于让别人替你占名字。
+- 取不到就照常走手动设置界面——不合规（带点、加号、下划线、太短太长、保留名）、没有邮箱、名字已被占用，都归为取不到。**不自动补后缀**：`alice2` 看着聪明，实际是替用户做了他没同意的决定。
+- 只在用户名**缺失**时自动取。已有但不再符合规则（`invalid`）的名字是用户自己定过的，替他换成邮箱前缀等于悄悄改掉他挑的名字，那必须由他确认。
+- 不是人工操作，走 `runSql` 而非 `runOperationSql`：它没有「操作原因」可写，也不该进审批队列。无事务环境下两个人抢同一个名字由唯一索引兜底，抢输的回落到手动设置。
+
 ## 7. 数据结构变更
 
 - **凭证从 `base_users` 拆到 `base_user_credentials`**，与 `passport_user_credentials` 同构。
@@ -148,7 +183,7 @@ Accounts 登录成功时，把凭证同步到本站账号，使本站登录用�
 
   代价是唯一性要多查一条：昵称不能等于**别的账号的用户名**——否则两个账号会显示成同一个名字。这一条数据库约束管不了（跨表），只能在写入前查。
 - `base_oidc_login_requests` 新增 `pending_bind` 状态与被绑账号 ID。
-- `site-settings` 新增 `localLoginEnabled: boolean`（默认 `false`）。
+- `site-settings` 新增 `localLoginEnabled: boolean`（默认 `false`）与 `userNameMinLength: number`（默认 3，范围 1–16）。
 
 ## 8. 验收标准
 

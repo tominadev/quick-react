@@ -5,6 +5,7 @@ import { passwordError } from '@server/modules/base/auth/password-policy.mjs';
 import { createStoredPassword } from '@server/modules/base/auth/index.mjs';
 import { setCredential } from '../credentials.mjs';
 import { accountsOidcConfigKey, defaultAccountsOidcConfig, normalizeAccountsOidcConfig } from '@server/modules/passport/accounts/client.mjs';
+import { userNameError } from '@shared/account-name.mjs';
 import { parseRoles, serializeRoles } from '@shared/types/role.mjs';
 
 type MaintenanceInput = Record<string, unknown>;
@@ -12,7 +13,6 @@ type AdminRow = { id: string | number | bigint; name: string; password: string; 
 
 const inputValue = (input: MaintenanceInput, key: string) => typeof input[key] === 'string' ? input[key] as string : '';
 const inputText = (input: MaintenanceInput, key: string) => inputValue(input, key).trim();
-const usernamePattern = /^[a-zA-Z0-9_.-]{3,64}$/;
 
 const readAdmin = async (database: DatabaseAdapter) => firstSql<AdminRow>(database, sql({ database }).select({
 	table: 'base_users',
@@ -21,45 +21,47 @@ const readAdmin = async (database: DatabaseAdapter) => firstSql<AdminRow>(databa
 	deleted: 'all',
 }));
 
-const assertUsernameAvailable = async (database: DatabaseAdapter, username: string) => {
-	if (!usernamePattern.test(username)) throw new Error('用户名至少 3 个字符，只能包含字母、数字、点、下划线和短横线');
+const assertUserNameAvailable = async (database: DatabaseAdapter, userName: string) => {
+	// 救援入口拿不到站点设置，用默认下限——它只会比站点设置更严，救援不会因此建出非法名字。
+	const error = userNameError(userName);
+	if (error) throw new Error(error);
 	const conflict = await firstSql<{ id: string | number | bigint }>(database, sql({ database }).select({
 		table: 'base_users',
 		columns: { id: 'id' },
-		where: [{ column: 'name', value: username }],
+		where: [{ column: 'name', value: userName }],
 		limit: 1,
 	}));
 	// 用户名现在是租户内唯一，本可以只检查同租户。但救援入口跑在无请求上下文的 CLI 里，
 	// 拿不到租户，且 id = 1 的 owner_tid 取决于它当初是被救援创建（NULL）还是经 HTTP 注册
 	// 创建（默认租户），无法可靠判定。因此保留全库检查：它比唯一索引更严格，只会多拒不会漏放，
 	// 代价仅是救援时不能取一个其他租户已用的名字。
-	if (conflict && String(conflict.id) !== '1') throw new Error(`用户名“${username}”已被其他账号占用`);
+	if (conflict && String(conflict.id) !== '1') throw new Error(`用户名“${userName}”已被其他账号占用`);
 };
 
 const ensureAdmin = async (database: DatabaseAdapter, input: MaintenanceInput) => {
 	const existing = await readAdmin(database);
-	const requestedName = inputText(input, 'username');
-	const username = requestedName || existing?.name || 'admin';
-	await assertUsernameAvailable(database, username);
+	const requestedName = inputText(input, 'user_name');
+	const userName = requestedName || existing?.name || 'admin';
+	await assertUserNameAvailable(database, userName);
 	const password = inputValue(input, 'password');
 	if (password && passwordError(password)) throw new Error(passwordError(password)!);
 	if (!existing && !password) throw new Error('base_users.id = 1 不存在，重建管理员时必须提供密码');
 	if (existing?.deleted_at && String(existing.deleted_at) !== '0') await runSql(database, sql({ database }).restore('base_users', { id: 1 }));
-	const values: Record<string, unknown> = { name: username, roles: serializeRoles([...new Set([...parseRoles(existing?.roles), 'platform_admin'])]), status: 'enabled' };
+	const values: Record<string, unknown> = { name: userName, roles: serializeRoles([...new Set([...parseRoles(existing?.roles), 'platform_admin'])]), status: 'enabled' };
 	if (existing) await runSql(database, sql({ database }).update('base_users', values, { id: 1 }));
 	else await runSql(database, sql({ database }).insert('base_users', { id: 1, ...values }));
 	// 凭证分表：救援时只在给了密码的情况下重设，没给就保留原有凭证。
 	if (password) await setCredential(database, 1, password);
-	return `基础管理员 id=1 已恢复：用户名 ${username}，角色已包含 platform_admin，状态已启用`;
+	return `基础管理员 id=1 已恢复：用户名 ${userName}，角色已包含 platform_admin，状态已启用`;
 };
 
-const setAdminUsername = async (database: DatabaseAdapter, input: MaintenanceInput) => {
-	const username = inputText(input, 'username');
-	if (!username) throw new Error('请提供管理员用户名');
-	await assertUsernameAvailable(database, username);
+const setAdminUserName = async (database: DatabaseAdapter, input: MaintenanceInput) => {
+	const userName = inputText(input, 'user_name');
+	if (!userName) throw new Error('请提供管理员用户名');
+	await assertUserNameAvailable(database, userName);
 	if (!await readAdmin(database)) throw new Error('base_users.id = 1 不存在，请先执行基础管理员恢复');
-	await runSql(database, sql({ database }).update('base_users', { name: username }, { id: 1 }));
-	return `基础管理员 id=1 的用户名已设置为 ${username}`;
+	await runSql(database, sql({ database }).update('base_users', { name: userName }, { id: 1 }));
+	return `基础管理员 id=1 的用户名已设置为 ${userName}`;
 };
 
 const setAdminPassword = async (database: DatabaseAdapter, input: MaintenanceInput) => {
@@ -100,7 +102,7 @@ export const executeMaintenanceAction = async (database: DatabaseAdapter, action
 	switch (action) {
 		case 'admin-status': return adminStatus(database);
 		case 'restore-admin': return ensureAdmin(database, input);
-		case 'set-admin-username': return setAdminUsername(database, input);
+		case 'set-admin-user-name': return setAdminUserName(database, input);
 		case 'set-admin-password': return setAdminPassword(database, input);
 		case 'accounts-oidc-status': return accountsOidcStatus(database);
 		case 'disable-accounts-oidc': return setAccountsOidcEnabled(database, false);

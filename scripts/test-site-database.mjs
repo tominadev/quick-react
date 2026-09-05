@@ -27,8 +27,8 @@ try {
 		if (!headers.has('x-change-immediate')) headers.set('x-change-immediate', '1');
 		return app.request(`http://localhost${requestUrl.pathname}${requestUrl.search}`, { method: options.method, headers, body: options.body === undefined ? undefined : JSON.stringify(options.body) });
 	};
-	assert.equal((await request('/api/sign.php', { method: 'PUT', body: { username: 'site_admin', password: 'test-password-123' } })).status, 201);
-	const login = await request('/api/sign.php', { method: 'POST', body: { username: 'site_admin', password: 'test-password-123' } });
+	assert.equal((await request('/api/sign.php', { method: 'PUT', body: { user_name: 'siteadmin', password: 'test-password-123' } })).status, 201);
+	const login = await request('/api/sign.php', { method: 'POST', body: { user_name: 'siteadmin', password: 'test-password-123' } });
 	const cookie = login.headers.get('set-cookie')?.split(';')[0];
 	const message = async (response) => (await response.json()).feedback.message;
 

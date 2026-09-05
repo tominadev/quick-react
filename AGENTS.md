@@ -29,7 +29,7 @@
 - Base 和 Passport 的设备表都属于可审计业务表，统一记录 `created_duid`、`updated_duid`；Passport 使用自己的 `passport_devices`、`passport_device_users` 管理 Accounts 设备，二者不得共用设备用户关联表。Passport 设备和 Base 设备分别只服务各自的身份与会话域，跨站点通过 `passport_user_id + passport_device_id` 的服务端关联对应；客户端 `fingerprint` 可能碰撞，只能作为分析证据，禁止作为设备唯一键或注销依据。
 - `passport_devices` 的全局拉黑只允许管理员或安全管理员执行；普通账号只能拉黑或解除自己在 `passport_device_users` 中的设备关系。退出登录只撤销会话，不能被实现为设备拉黑。
 - 所有业务表默认只查询 `deleted_at = 0` 的记录；回收站必须显式使用删除范围查询，不得让已删除记录混入正常业务。软删除、恢复和清理操作必须由公共数据层统一提供。
-- 业务唯一字段（例如 `session_token_hash`、`username`、外部平台账号标识和幂等键）必须使用 `UNIQUE` 约束或唯一索引，不得继续作为表主键；主键统一使用本表自增 `id`。
+- 业务唯一字段（例如 `session_token_hash`、`base_users.name`、外部平台账号标识和幂等键）必须使用 `UNIQUE` 约束或唯一索引，不得继续作为表主键；主键统一使用本表自增 `id`。
 - 租户内唯一的索引一律 **`owner_tid` 打头**（`@@unique([owner_tid, …, deleted_at])`）。可见性判定给几乎每次读取都追加 `owner_tid = ?`，因此"只按租户过滤"是常态：`owner_tid` 在前，这类查询能把索引当租户前缀用；业务列在前则完全用不上。精确查找两种顺序一样快（各列都是等值），差别只在部分谓词上。`ON CONFLICT` 按列集合匹配唯一约束、不看顺序，因此调整顺序不影响 `upsert` 与 `ignoreInsert`。
 
 - 后端负责页面、导航、按钮、查询字段、文案和权限配置；前端保持通用渲染逻辑。

@@ -116,7 +116,7 @@ export const resolvePageStatus = async (
 		path: requestPath,
 		status: 403,
 		title: '无权访问',
-		description: `当前账号 ${c.get('currentUser')?.username ?? c.get('passportUser')?.username ?? ''} 没有访问 ${requestPath} 的权限，请联系管理员分配对应角色。`,
+		description: `当前账号 ${c.get('currentUser')?.user_name ?? c.get('passportUser')?.user_name ?? ''} 没有访问 ${requestPath} 的权限，请联系管理员分配对应角色。`,
 		actions: [{ key: '/panel/me', label: '个人中心', action: 'navigate', icon: 'user' }, home],
 	};
 };

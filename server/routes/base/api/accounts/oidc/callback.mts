@@ -2,7 +2,7 @@ import type { ApiHandler } from '@server/modules/base/api-router.mjs';
 import { apiMessage } from '@server/modules/base/api-response.mjs';
 import { clearAccountsLoginCookie, accountsLoginCookieName, loadAccountsOidcConfig, loadDiscovery, oidcFetch, verifyIdToken } from '@server/modules/passport/accounts/client.mjs';
 import { readCookie } from '@server/modules/passport/accounts/oidc.mjs';
-import { isValidAccountUsername } from '@server/modules/passport/account.mjs';
+import { isValidAccountUserName } from '@server/modules/passport/account.mjs';
 import { baseSessionMaxAge, createSessionCookie, hashSessionToken } from '@server/modules/base/auth/index.mjs';
 import { ensureBaseDevice } from '@server/modules/base/device.mjs';
 import { hasCredential, setCredential } from '@server/modules/base/credentials.mjs';
@@ -26,17 +26,17 @@ const popupClosePage = (returnPath: string, context?: ApiContext) => {
 };
 
 /** 未设置 Accounts 用户名时的本站占位用户名，带下划线，永远不会与合法用户名冲突。 */
-const placeholderUsername = (subject: string) => `passport_${subject}`;
-const generatedUsername = (username: string) => username.startsWith('passport_') || username.startsWith('accounts_');
+const placeholderUserName = (subject: string) => `passport_${subject}`;
+const generatedUserName = (userName: string) => userName.startsWith('passport_') || userName.startsWith('accounts_');
 
 /** Accounts 设置用户名后同步改写本站占位用户名；管理员手工改过的名字不覆盖。 */
-const syncLocalUsername = async (database: Parameters<typeof runSql>[0], userId: number, username: string, tenantId: string | null) => {
-	const current = await firstSql<{ username: string }>(database, sql({ database: database }).select({ table: 'base_users', columns: { username: 'name' }, where: [{ column: 'id', value: userId }] }));
-	if (!current || current.username === username || !generatedUsername(current.username)) return;
+const syncLocalUserName = async (database: Parameters<typeof runSql>[0], userId: number, userName: string, tenantId: string | null) => {
+	const current = await firstSql<{ user_name: string }>(database, sql({ database: database }).select({ table: 'base_users', columns: { user_name: 'name' }, where: [{ column: 'id', value: userId }] }));
+	if (!current || current.user_name === userName || !generatedUserName(current.user_name)) return;
 	// 用户名租户内唯一，占用检查同样限本租户。
-	const taken = await firstSql(database, sql({ database: database }).select({ table: 'base_users', columns: { id: 'id' }, where: [{ column: 'name', value: username }, tenantId === null ? { column: 'owner_tid', operator: 'IS NULL' as const } : { column: 'owner_tid', value: tenantId }] }));
+	const taken = await firstSql(database, sql({ database: database }).select({ table: 'base_users', columns: { id: 'id' }, where: [{ column: 'name', value: userName }, tenantId === null ? { column: 'owner_tid', operator: 'IS NULL' as const } : { column: 'owner_tid', value: tenantId }] }));
 	if (taken) return;
-	await runSql(database, sql({ database: database }).update('base_users', { name: username }, { id: userId }));
+	await runSql(database, sql({ database: database }).update('base_users', { name: userName }, { id: userId }));
 };
 
 /**
@@ -50,9 +50,9 @@ const syncLocalUsername = async (database: Parameters<typeof runSql>[0], userId:
  * 只在本站昵称为空时补上，人工设过的一律不覆盖。撞名（撞别人的昵称或用户名）就跳过，
  * 显示层自会回落到用户名——登录不该因为一个显示名失败。
  */
-const syncLocalNickname = async (database: Parameters<typeof runSql>[0], userId: number, nickname: string, tenantScope: { column: string; value?: unknown; operator?: 'IS NULL' }) => {
+const syncLocalProfileNickname = async (database: Parameters<typeof runSql>[0], userId: number, profileNickname: string, tenantScope: { column: string; value?: unknown; operator?: 'IS NULL' }) => {
 	if (await readProfileNickname(database, userId)) return;
-	const result = await profileStatement(database, userId, { nickname }, tenantScope);
+	const result = await profileStatement(database, userId, { profile_nickname: profileNickname }, tenantScope);
 	if ('statement' in result) await runSql(database, result.statement);
 };
 
@@ -89,9 +89,9 @@ const handler: ApiHandler = async (c) => {
 		const preferred = typeof claims.preferred_username === 'string' ? claims.preferred_username : '';
 		if (!account) {
 			// 先用占位用户名建号，再按 Accounts 用户名改写，避免撞上本站已有的同名账号。
-			const username = placeholderUsername(subject);
-			await runSql(systemDatabase, sql({ database: systemDatabase }).ignoreInsert('base_users', ['name', 'owner_tid'], { name: username, roles: [], status: 'enabled' }));
-			const user = await firstSql<{ id: number; status: string }>(systemDatabase, sql({ database: systemDatabase }).select({ table: 'base_users', columns: { id: 'id', status: 'status' }, where: [{ column: 'name', value: username }, tenantScope('owner_tid')] }));
+			const userName = placeholderUserName(subject);
+			await runSql(systemDatabase, sql({ database: systemDatabase }).ignoreInsert('base_users', ['name', 'owner_tid'], { name: userName, roles: [], status: 'enabled' }));
+			const user = await firstSql<{ id: number; status: string }>(systemDatabase, sql({ database: systemDatabase }).select({ table: 'base_users', columns: { id: 'id', status: 'status' }, where: [{ column: 'name', value: userName }, tenantScope('owner_tid')] }));
 			if (!user) throw new Error('无法创建本站 Accounts 用户');
 			// 凭证分表之后，「有没有本地密码」就是「有没有凭证行」——不用再拿 '!oidc' 当哨兵。
 			if (await hasCredential(systemDatabase, user.id)) throw new Error('本站已存在同名用户，无法绑定 Accounts 身份');
@@ -104,10 +104,10 @@ const handler: ApiHandler = async (c) => {
 		} else {
 			await runSql(systemDatabase, sql({ database: systemDatabase }).update('base_oidc_users', { profile: JSON.stringify(claims) }, [{ column: 'issuer', value: config.issuer }, { column: 'subject', value: subject }, tenantScope('owner_tid')]));
 		}
-		if (isValidAccountUsername(preferred)) await syncLocalUsername(systemDatabase, account.user_id, preferred, tenantId);
+		if (isValidAccountUserName(preferred, c.get('siteSettings').userNameMinLength)) await syncLocalUserName(systemDatabase, account.user_id, preferred, tenantId);
 		// name 只在 Accounts 那边**真设过昵称**时才下发；没设就没这个 claim，本站保持回落到用户名。
-		const remoteNickname = typeof claims.name === 'string' ? claims.name.trim() : '';
-		if (remoteNickname) await syncLocalNickname(systemDatabase, account.user_id, remoteNickname, tenantScope('owner_tid'));
+		const remoteProfileNickname = typeof claims.name === 'string' ? claims.name.trim() : '';
+		if (remoteProfileNickname) await syncLocalProfileNickname(systemDatabase, account.user_id, remoteProfileNickname, tenantScope('owner_tid'));
 		// 密码同步：两侧都要开。Accounts 那边给这个客户端打开「下发密码」才会带上 claim，
 		// 本站再打开「同步 Accounts 密码」才会写入。单向——本站改了密码，下次登录会被覆盖回去。
 		if (c.get('siteSettings').passwordSyncEnabled && readStoredPassword(credentialClaim)) {
@@ -134,8 +134,8 @@ const handler: ApiHandler = async (c) => {
 		await runSql(systemDatabase, sql({ database: systemDatabase }).delete('base_oidc_login_requests', { request_id: request.id }));
 		const secure = isSecureRequest(c);
 		c.header('Set-Cookie', clearAccountsLoginCookie(secure)); c.header('Set-Cookie', createSessionCookie(sessionToken, secure, maxAge), { append: true });
-		const localUser = await firstSql<{ id: number; username: string; roles: string }>(systemDatabase, sql({ database: systemDatabase }).select({ table: 'base_users', columns: { id: 'id', username: 'name', roles: 'roles' }, where: [{ column: 'id', value: account.user_id }] }));
-		if (localUser) c.set('currentUser', { id: localUser.id, username: localUser.username, roles: parseRoles(localUser.roles) });
+		const localUser = await firstSql<{ id: number; user_name: string; roles: string }>(systemDatabase, sql({ database: systemDatabase }).select({ table: 'base_users', columns: { id: 'id', user_name: 'name', roles: 'roles' }, where: [{ column: 'id', value: account.user_id }] }));
+		if (localUser) c.set('currentUser', { id: localUser.id, user_name: localUser.user_name, roles: parseRoles(localUser.roles) });
 		const context = await c.get('apiContext')?.(request.return_path);
 		// 登录只在弹窗里完成：直接返回关闭窗口的页面，不再中转到额外的回调页面。
 		return c.html(popupClosePage(request.return_path, context));

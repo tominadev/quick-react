@@ -1,4 +1,5 @@
 import { createStoredPassword, hashPassword, verifyPassword, verifyStoredPassword } from '@server/modules/base/auth/index.mjs';
+import { clampNickname } from '@shared/account-name.mjs';
 import type { DatabaseAdapter, DatabaseBatchStatement } from '@server/database/index.mjs';
 import { allSql, firstSql, runSql, sql } from '@server/database/sql.mjs';
 import { passportProfileInsert } from '@server/modules/passport/profile.mjs';
@@ -25,9 +26,8 @@ export const normalizePassportEmail = (value: string) => {
 };
 
 export const normalizePassportNickname = (value: string, telegramUserId: string | number | bigint) => {
-	const normalized = value.normalize('NFKC').replace(/\s+/g, ' ').trim();
-	const fallback = `TG${decimalId(telegramUserId, true).slice(-10)}`;
-	return Array.from(normalized || fallback).slice(0, 12).join('');
+	// 外部昵称不是用户在本站挑的，太短就拒绝会让人登不进来，所以只截断不报错。
+	return clampNickname(value, `TG${decimalId(telegramUserId, true).slice(-10)}`);
 };
 
 const generateOtpCode = () => {

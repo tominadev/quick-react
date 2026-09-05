@@ -13,6 +13,7 @@ import { randomToken, sha256Base64Url } from '@server/modules/passport/accounts/
 import { isSecureRequest, requestOrigin, requestPagePath } from '@server/modules/base/request-origin.mjs';
 import { clearPassportSessionCookie } from '@server/modules/passport/session.mjs';
 import { passwordError } from '@server/modules/base/auth/password-policy.mjs';
+import { userNameError } from '@shared/account-name.mjs';
 import { parseRoles } from '@shared/types/role.mjs';
 
 const parseCredentials = async (c: Parameters<ApiHandler>[0]) => {
@@ -20,7 +21,7 @@ const parseCredentials = async (c: Parameters<ApiHandler>[0]) => {
 	try { body = await c.req.json<Record<string, unknown>>(); }
 	catch { /* Invalid JSON is handled as empty credentials. */ }
 	return {
-		username: String(body.username ?? '').trim().slice(0, 64),
+		user_name: String(body.user_name ?? '').trim().slice(0, 64),
 		password: String(body.password ?? ''),
 		remember: body.remember === true,
 	};
@@ -38,10 +39,10 @@ const localSign: ApiHandler = async (c, next) => {
 	if (c.req.method === 'GET') {
 		const isSignUp = new URL(c.req.url).searchParams.get('mode') === 'sign-up';
 		const formPage: FormPageConfig = {
-			initialValues: { username: '', password: '', ...(isSignUp ? { password_confirm: '' } : {}), remember: false },
+			initialValues: { user_name: '', password: '', ...(isSignUp ? { password_confirm: '' } : {}), remember: false },
 			submitLabel: isSignUp ? '注册' : '登录',
 			fields: [
-				{ name: 'username', label: '用户名', maxLength: 64, rules: [{ required: true, message: '请输入用户名' }] },
+				{ name: 'user_name', label: '用户名', maxLength: 64, rules: [{ required: true, message: '请输入用户名' }] },
 				{ name: 'password', label: '密码', type: 'password', rules: [{ required: true, message: '请输入密码' }] },
 				...(isSignUp ? [{ name: 'password_confirm', label: '确认密码', type: 'password' as const, rules: [{ required: true, message: '请确认密码' }] }] : []),
 				...(!isSignUp ? [{ name: 'remember', label: '记住我', type: 'switch' as const }] : []),
@@ -58,7 +59,7 @@ const localSign: ApiHandler = async (c, next) => {
 		const mode = await resolveRegistrationMode(c);
 		if (mode === 'closed') return apiMessage(c, 409, '本站未开放注册');
 		const credentials = await parseCredentials(c);
-		if (!/^[a-zA-Z0-9_.-]{3,64}$/.test(credentials.username) || passwordError(credentials.password)) {
+		if (userNameError(credentials.user_name, c.get('siteSettings').userNameMinLength) || passwordError(credentials.password)) {
 			return apiMessage(c, 400, '用户名至少 3 个合法字符，密码至少 8 个字符');
 		}
 		const storedPassword = await createStoredPassword(credentials.password);
@@ -66,9 +67,9 @@ const localSign: ApiHandler = async (c, next) => {
 		// 因此也没有「认领了但没建号」的中间态需要回滚。
 		if (mode === 'open') {
 			try {
-				await runSql(systemDatabase, sql({ database: systemDatabase }).insert('base_users', { name: credentials.username, roles: [], status: 'enabled' }));
+				await runSql(systemDatabase, sql({ database: systemDatabase }).insert('base_users', { name: credentials.user_name, roles: [], status: 'enabled' }));
 			} catch { return apiMessage(c, 409, '用户名已存在'); }
-			const userId = await finishUserCreation(systemDatabase, credentials.username, tenantId);
+			const userId = await finishUserCreation(systemDatabase, credentials.user_name, tenantId);
 			if (userId !== undefined) await setCredential(systemDatabase, userId, storedPassword);
 			return apiMessage(c, 201, '注册成功，请登录');
 		}
@@ -82,8 +83,8 @@ const localSign: ApiHandler = async (c, next) => {
 		if (Number(claimed.meta?.changes ?? 0) !== 1) return apiMessage(c, 409, '初始管理员已经存在');
 		try {
 			// 初始管理员是平台管理员：控制面与救援入口都要求它。
-			await runSql(systemDatabase, sql({ database: systemDatabase }).insert('base_users', { name: credentials.username, roles: ['platform_admin'], status: 'enabled' }));
-			const userId = await finishUserCreation(systemDatabase, credentials.username, tenantId);
+			await runSql(systemDatabase, sql({ database: systemDatabase }).insert('base_users', { name: credentials.user_name, roles: ['platform_admin'], status: 'enabled' }));
+			const userId = await finishUserCreation(systemDatabase, credentials.user_name, tenantId);
 			if (userId === undefined) throw new Error('无法创建初始管理员');
 			await setCredential(systemDatabase, userId, storedPassword);
 		} catch (error) {
@@ -97,7 +98,7 @@ const localSign: ApiHandler = async (c, next) => {
 		const credentials = await parseCredentials(c);
 		// 用户名只在租户内唯一，登录必须按当前请求租户过滤：否则跨租户同名账号会被验到别人头上。
 		const tenantId = c.get('tenantId');
-		const user = await firstSql<{ id: number; username: string; roles: string }>(systemDatabase, sql({ database: systemDatabase }).select({ table: 'base_users', columns: { id: 'id', username: 'name', roles: 'roles' }, where: [{ column: 'name', value: credentials.username }, { column: 'status', value: 'enabled' }, tenantId === null ? { column: 'owner_tid', operator: 'IS NULL' as const } : { column: 'owner_tid', value: tenantId }] }));
+		const user = await firstSql<{ id: number; user_name: string; roles: string }>(systemDatabase, sql({ database: systemDatabase }).select({ table: 'base_users', columns: { id: 'id', user_name: 'name', roles: 'roles' }, where: [{ column: 'name', value: credentials.user_name }, { column: 'status', value: 'enabled' }, tenantId === null ? { column: 'owner_tid', operator: 'IS NULL' as const } : { column: 'owner_tid', value: tenantId }] }));
 		// 凭证分表存放：没有凭证行就是没有本地密码（例如 OIDC 建出来的账号）。
 		// 提示统一成「用户名或密码错误」，不区分「无此用户」「没有本地密码」与「密码错」。
 		if (!user || !await verifyCredential(systemDatabase, user.id, credentials.password)) return apiMessage(c, 401, '用户名或密码错误', { component: 'modal', type: 'error' });
@@ -111,8 +112,8 @@ const localSign: ApiHandler = async (c, next) => {
 		const owned = withDatabaseActors(systemDatabase, { baseUserId: user.id });
 		await runSql(owned, sql({ database: owned }).insert('base_sessions', { token_hash: await hashSessionToken(sessionToken), user_id: user.id, device_id: deviceId, expires_at: now + maxAge * 1000 }));
 		c.header('Set-Cookie', createSessionCookie(sessionToken, new URL(c.req.url).protocol === 'https:', maxAge));
-		c.set('currentUser', { id: user.id, username: user.username, roles: parseRoles(user.roles) });
-		return apiMessageData(c, 200, '登录成功', { user: { id: user.id, username: user.username }, next: { action: 'navigate', path: requestPagePath(c), refreshAuth: true } });
+		c.set('currentUser', { id: user.id, user_name: user.user_name, roles: parseRoles(user.roles) });
+		return apiMessageData(c, 200, '登录成功', { user: { id: user.id, user_name: user.user_name }, next: { action: 'navigate', path: requestPagePath(c), refreshAuth: true } });
 	}
 	if (c.req.method === 'DELETE') {
 		const sessionToken = readSessionId(c.req.raw);
@@ -184,7 +185,7 @@ const handler: ApiHandler = async (c, next) => {
 	if (c.req.method === 'POST') {
 		try {
 			const body = await c.req.json<Record<string, unknown>>().catch(() => ({}));
-			if ('username' in body || 'remember' in body) return apiMessage(c, 409, '登录方式已切换为 Accounts 登录，请刷新页面后重试');
+			if ('user_name' in body || 'remember' in body) return apiMessage(c, 409, '登录方式已切换为 Accounts 登录，请刷新页面后重试');
 			const discovery = await loadDiscovery(c, config.issuer), id = crypto.randomUUID(), state = randomToken(), nonce = randomToken(), verifier = randomToken(48), now = Date.now();
 			const database = c.get('database');
 			let returnPath = '/';

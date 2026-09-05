@@ -46,7 +46,11 @@ try {
 	assert.ok(Number((rollbackSafe >> 22n) + passport.PASSPORT_SNOWFLAKE_EPOCH) > Date.now());
 
 	const firstIdentity = { botId: '1', telegramUserId: '9000000001', chatId: '9000000001', nickname: 'Very Long Telegram Nickname' };
-	assert.equal(Array.from(passport.normalizePassportNickname(firstIdentity.nickname, firstIdentity.telegramUserId)).length, 12);
+	// 外部昵称按半角宽度截断：全角记 2，ASCII 昵称因此截到 16 个字符。
+	assert.equal(passport.normalizePassportNickname(firstIdentity.nickname, firstIdentity.telegramUserId), 'Very Long Telegr');
+	assert.equal(passport.normalizePassportNickname('张三李四王五赵六孙七', firstIdentity.telegramUserId), '张三李四王五赵六');
+	// 截断后仍不足 4 个半角就回落到 TG 兜底名。
+	assert.match(passport.normalizePassportNickname('a', firstIdentity.telegramUserId), /^TG\d+$/);
 	const firstOtp = await passport.issueTelegramEmailOtp(database, firstIdentity, 'First@Example.com');
 	assert.equal((await passport.verifyTelegramEmailOtp(database, 7, firstIdentity, '000000')).status, 'invalid');
 	const created = await passport.verifyTelegramEmailOtp(database, 7, firstIdentity, firstOtp.code);

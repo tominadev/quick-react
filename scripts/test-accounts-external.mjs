@@ -196,27 +196,31 @@ try {
 	assert.equal(verified.status, 200);
 	const wechatSession = cookie(verified, 'passport_session');
 	assert.ok(wechatSession);
-	// 建号后立即进入用户名补全，不直接跳转。
+	// 邮箱 wechat@example.com 的 @ 前面合规且没被占用，用户名自动定为 wechat，
+	// 不再打扰用户；接着才是可跳过的设置密码。
 	const verifiedResult = await verified.json();
-	assert.equal(verifiedResult.formPage.initialValues.step, 'set_username');
+	assert.equal(verifiedResult.formPage.initialValues.step, 'set_password');
 	assert.equal(verifiedResult.redirectTo, undefined);
 	const completed = new DatabaseSync(process.env.DEFAULT_DATABASE_FILE, { readOnly: true });
 	assert.equal(completed.prepare("SELECT COUNT(*) AS count FROM passport_external_identities WHERE provider = 'wechat'").get().count, 2);
 	assert.equal(completed.prepare("SELECT COUNT(*) AS count FROM passport_emails WHERE email = 'wechat@example.com' AND verified = 1").get().count, 1);
 	assert.equal(completed.prepare("SELECT COUNT(*) AS count FROM passport_external_pending_identities WHERE status = 'completed'").get().count, 2);
 	completed.close();
-	// 用户名必填且有格式限制，密码可以跳过。
-	assert.equal((await (await app.request('http://accounts.test/api/accounts/sign.php', { headers: withFingerprint({ cookie: wechatSession }) })).json()).formPage.initialValues.step, 'set_username');
-	for (const username of ['abc', 'Wechat1', 'wechat_1', '1wechat', 'admin', 'wechatuser2026x']) {
-		const rejected = await jsonRequest(app, '/api/accounts/sign.php', { step: 'set_username', username }, wechatSession);
-		assert.equal(rejected.status, 400, `用户名 ${username} 应该被拒绝`);
+	// 用户名已自动定下，改名仍走同一个 step，格式限制不变。
+	const autoNamed = new DatabaseSync(process.env.DEFAULT_DATABASE_FILE, { readOnly: true });
+	assert.equal(autoNamed.prepare("SELECT name FROM passport_users WHERE name = 'wechat'").get()?.name, 'wechat');
+	autoNamed.close();
+	// 下限 3、上限 16；大写、下划线、数字开头、保留名、超长都要拒。
+	for (const candidate of ['ab', 'Wechat1', 'wechat_1', '1wechat', 'admin', 'wechatuser2026xyz']) {
+		const rejected = await jsonRequest(app, '/api/accounts/sign.php', { step: 'set_user_name', user_name: candidate }, wechatSession);
+		assert.equal(rejected.status, 400, `用户名 ${candidate} 应该被拒绝`);
 	}
-	const namedResponse = await jsonRequest(app, '/api/accounts/sign.php', { step: 'set_username', username: 'wechat2026' }, wechatSession);
+	const namedResponse = await jsonRequest(app, '/api/accounts/sign.php', { step: 'set_user_name', user_name: 'wechat2026' }, wechatSession);
 	const named = await namedResponse.json();
 	assert.equal(namedResponse.status, 200);
 	assert.equal(named.formPage.initialValues.step, 'set_password');
 	assert.deepEqual(named.formPage.actions.map((action) => action.key), ['skip_password']);
-	assert.equal((await jsonRequest(app, '/api/accounts/sign.php', { step: 'set_username', username: 'wechat2027' }, wechatSession)).status, 200);
+	assert.equal((await jsonRequest(app, '/api/accounts/sign.php', { step: 'set_user_name', user_name: 'wechat2027' }, wechatSession)).status, 200);
 	const skipped = await (await app.request('http://accounts.test/api/accounts/sign.php?action=skip_password', { method: 'POST', headers: withFingerprint({ 'content-type': 'application/json', cookie: wechatSession }), body: JSON.stringify({ step: 'set_password' }) })).json();
 	assert.equal(skipped.redirectTo, '/panel/accounts.html');
 	// 跳过只对本次登录生效，下次进入登录页仍然提示设置密码。
@@ -259,7 +263,7 @@ try {
 	boundIdentities.close();
 
 	// 用户名被占用时也要给出明确提示，而不是数值溢出错误。
-	const takenUsername = await jsonRequest(app, '/api/accounts/sign.php', { step: 'set_username', username: 'wechat2027' }, googleSession);
+	const takenUsername = await jsonRequest(app, '/api/accounts/sign.php', { step: 'set_user_name', user_name: 'wechat2027' }, googleSession);
 	assert.equal(takenUsername.status, 400);
 	assert.match((await takenUsername.json()).feedback.message, /已被占用/);
 

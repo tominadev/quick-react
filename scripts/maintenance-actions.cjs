@@ -132,20 +132,20 @@ const createMaintenanceActions = ({
 				label: '恢复基础管理员 id=1',
 				description: '恢复删除标记、启用状态并确保 admin 角色',
 				run: async ({ ask } = {}) => {
-					const username = await askValue(ask, env, 'MAINTENANCE_ADMIN_USERNAME', '请输入管理员用户名（留空使用现有用户名或 admin）：', { required: false });
+					const userName = await askValue(ask, env, 'MAINTENANCE_ADMIN_USER_NAME', '请输入管理员用户名（留空使用现有用户名或 admin）：', { required: false });
 					const password = configuredSecret(env, 'MAINTENANCE_ADMIN_PASSWORD');
 					if (!await confirmRescue(ask, '将恢复 base_users.id=1 的管理员状态；若记录不存在则使用提供的信息重建，确认继续？')) return '已取消';
-					return runRescueAction('restore-admin', { username, password });
+					return runRescueAction('restore-admin', { user_name: userName, password });
 				},
 			},
 			{
-				key: 'set-admin-username',
+				key: 'set-admin-user-name',
 				label: '设置基础管理员用户名',
 				description: '只修改 base_users.id=1 的用户名',
 				run: async ({ ask } = {}) => {
-					const username = await askValue(ask, env, 'MAINTENANCE_ADMIN_USERNAME', '请输入新的管理员用户名：');
-					if (!await confirmRescue(ask, `将把 base_users.id=1 的用户名设置为“${username}”，确认继续？`)) return '已取消';
-					return runRescueAction('set-admin-username', { username });
+					const userName = await askValue(ask, env, 'MAINTENANCE_ADMIN_USER_NAME', '请输入新的管理员用户名：');
+					if (!await confirmRescue(ask, `将把 base_users.id=1 的用户名设置为“${userName}”，确认继续？`)) return '已取消';
+					return runRescueAction('set-admin-user-name', { user_name: userName });
 				},
 			},
 			{

@@ -123,14 +123,14 @@ try {
 	assert.equal(registrationFormResult.registrationAvailable, true);
 	assert.ok(registrationFormResult.formPage);
 	const registrationResponse = await request('localhost', '/api/sign.php', {
-		method: 'PUT', body: { username: 'bootstrap_admin', password: 'test-password-123' },
+		method: 'PUT', body: { user_name: 'bootstrapadmin', password: 'test-password-123' },
 	});
 	assert.equal(registrationResponse.status, 201);
 	const registrationResult = await registrationResponse.json();
 	assert.ok(registrationResult.feedback);
 	assert.equal(Object.hasOwn(registrationResult, 'message'), false);
 	const login = await request('localhost', '/api/sign.php', {
-		method: 'POST', body: { username: 'bootstrap_admin', password: 'test-password-123' },
+		method: 'POST', body: { user_name: 'bootstrapadmin', password: 'test-password-123' },
 	});
 	assert.equal(login.status, 200);
 	const loginResult = await login.json();
@@ -181,14 +181,14 @@ try {
 	const localDeviceDatabase = new DatabaseSync(process.env.DEFAULT_DATABASE_FILE, { readOnly: true });
 	assert.equal(localDeviceDatabase.prepare('SELECT COUNT(*) AS count FROM base_devices').get().count, 1);
 	assert.equal(localDeviceDatabase.prepare('SELECT COUNT(*) AS count FROM base_device_users').get().count, 1);
-	const adminUserId = localDeviceDatabase.prepare("SELECT id FROM base_users WHERE name = 'bootstrap_admin'").get().id;
+	const adminUserId = localDeviceDatabase.prepare("SELECT id FROM base_users WHERE name = 'bootstrapadmin'").get().id;
 	localDeviceDatabase.close();
 	assert.equal((await request('localhost', `/api/panel/admin/base/users.php/${adminUserId}`, { method: 'PUT', cookie, body: { status: 'enabled' } })).status, 200);
 	const auditedUserDatabase = new DatabaseSync(process.env.DEFAULT_DATABASE_FILE, { readOnly: true });
 	assert.equal(String(auditedUserDatabase.prepare('SELECT updated_duid FROM base_users WHERE id = ?').get(adminUserId).updated_duid), '1');
 	auditedUserDatabase.close();
 	const invalidLogin = await request('localhost', '/api/sign.php', {
-		method: 'POST', body: { username: 'bootstrap_admin', password: 'wrong-password' },
+		method: 'POST', body: { user_name: 'bootstrapadmin', password: 'wrong-password' },
 	});
 	assert.equal(invalidLogin.status, 401);
 	const invalidLoginResult = await invalidLogin.json();
@@ -257,7 +257,7 @@ try {
 	assert.equal(createdProvider.client_secret, '');
 	assert.equal(createdProvider.secret_configured, '已配置');
 	const localSiteSign = await (await request('site1.test', '/api/sign.php')).json();
-	assert.equal(localSiteSign.formPage.fields[0].name, 'username');
+	assert.equal(localSiteSign.formPage.fields[0].name, 'user_name');
 	// API 页面启动（CDN 模式）下文档对所有页面一致以便缓存，标题回落到站点级；
 	// 页面标题由客户端取到上下文后再设置。
 	assert.match(await (await request('site1.test', '/')).text(), /<title>site1 \| site1<\/title>/);
@@ -363,7 +363,7 @@ try {
 	assert.equal(isolatedRegistrationResult.user, null);
 	assert.equal(isolatedRegistrationResult.registrationAvailable, true);
 	assert.ok(isolatedRegistrationResult.formPage);
-	assert.equal(isolatedRegistrationResult.formPage.fields[0].name, 'username');
+	assert.equal(isolatedRegistrationResult.formPage.fields[0].name, 'user_name');
 
 	const credentialsPath = '/api/panel/admin/global/cloud/credentials.php';
 	assert.equal((await request('localhost', credentialsPath, {

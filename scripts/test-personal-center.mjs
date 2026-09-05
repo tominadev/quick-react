@@ -31,8 +31,8 @@ try {
 			.run(at, at, JSON.stringify({ localLoginEnabled: true }));
 		setup.close();
 	}
-	assert.equal((await request('/api/sign.php', { method: 'PUT', body: { username: 'me_admin', password: 'test-password-123' } })).status, 201);
-	const login = await request('/api/sign.php', { method: 'POST', body: { username: 'me_admin', password: 'test-password-123' } });
+	assert.equal((await request('/api/sign.php', { method: 'PUT', body: { user_name: 'meadmin', password: 'test-password-123' } })).status, 201);
+	const login = await request('/api/sign.php', { method: 'POST', body: { user_name: 'meadmin', password: 'test-password-123' } });
 	const cookie = login.headers.get('set-cookie')?.split(';')[0];
 
 	// 导航里个人中心只有一个页面，没有子菜单。
@@ -48,7 +48,7 @@ try {
 
 	// 未启用 Accounts 登录时只有身份信息，没有任何外站入口。
 	const plain = await (await request('/api/panel/me.php', { cookie })).json();
-	assert.equal(plain.user.username, 'me_admin');
+	assert.equal(plain.user.user_name, 'meadmin');
 	assert.equal(plain.accountsCenter, undefined);
 	assert.equal(plain.accountsNotice, undefined);
 
@@ -67,30 +67,30 @@ try {
 	const mePath = '/api/panel/me.php';
 	assert.deepEqual(
 		(await (await request(mePath, { cookie })).json()).formPage.fields.map((field) => field.name),
-		['username', 'nickname', 'qq', 'wechat', 'email', 'currentPassword', 'newPassword'],
+		['user_name', 'profile_nickname', 'profile_qq', 'profile_wechat', 'profile_email', 'currentPassword', 'newPassword'],
 	);
 	const save = (body) => request(mePath, { method: 'PUT', cookie, body });
-	assert.equal((await save({ nickname: '小明', __changedFields: ['nickname'] })).status, 200, '昵称可以用中文');
-	assert.equal((await save({ nickname: 'a\u0000b', __changedFields: ['nickname'] })).status, 400, '昵称不能带控制字符');
+	assert.equal((await save({ profile_nickname: '小明', __changedFields: ['profile_nickname'] })).status, 200, '昵称可以用中文');
+	assert.equal((await save({ profile_nickname: 'a\u0000b', __changedFields: ['profile_nickname'] })).status, 400, '昵称不能带控制字符');
 	// 昵称租户内唯一，但留空存 NULL，因此多个用户都不设昵称不会互相撞车。
-	assert.equal((await save({ nickname: '', __changedFields: ['nickname'] })).status, 200, '留空表示不设置昵称');
+	assert.equal((await save({ profile_nickname: '', __changedFields: ['profile_nickname'] })).status, 200, '留空表示不设置昵称');
 	// 没设资料时昵称回落到用户名，因此不能把别的账号的用户名占成自己的昵称，
 	// 否则两个账号会显示成同一个名字——这一条数据库约束管不了，只能查。
-	assert.equal((await save({ nickname: 'me_admin', __changedFields: ['nickname'] })).status, 200, '自己的用户名可以');
+	assert.equal((await save({ profile_nickname: 'meadmin', __changedFields: ['profile_nickname'] })).status, 200, '自己的用户名可以');
 	// 联系方式与昵称同在一张资料表，可以单独改；只清昵称不该把联系方式一起删掉。
-	assert.equal((await save({ qq: '10001', wechat: 'wx_me', email: 'me@example.test', __changedFields: ['qq', 'wechat', 'email'] })).status, 200);
+	assert.equal((await save({ profile_qq: '10001', profile_wechat: 'wx_me', profile_email: 'me@example.test', __changedFields: ['profile_qq', 'profile_wechat', 'profile_email'] })).status, 200);
 	const withContact = await (await request(mePath, { cookie })).json();
 	assert.deepEqual(
-		[withContact.formPage.initialValues.qq, withContact.formPage.initialValues.wechat, withContact.formPage.initialValues.email],
+		[withContact.formPage.initialValues.profile_qq, withContact.formPage.initialValues.profile_wechat, withContact.formPage.initialValues.profile_email],
 		['10001', 'wx_me', 'me@example.test'],
 	);
-	assert.equal((await save({ nickname: '', __changedFields: ['nickname'] })).status, 200);
-	assert.equal((await (await request(mePath, { cookie })).json()).formPage.initialValues.qq, '10001', '清空昵称不该带走联系方式');
+	assert.equal((await save({ profile_nickname: '', __changedFields: ['profile_nickname'] })).status, 200);
+	assert.equal((await (await request(mePath, { cookie })).json()).formPage.initialValues.profile_qq, '10001', '清空昵称不该带走联系方式');
 	assert.equal((await save({ __changedFields: [] })).status, 400, '什么都没改要明确拒绝');
 	// 改密码必须先验当前密码：会话被盗时，能改密码就等于能永久接管账号。
 	assert.equal((await save({ newPassword: 'another-password-1', __changedFields: ['newPassword'] })).status, 403);
 	assert.equal((await save({ currentPassword: 'test-password-123', newPassword: 'another-password-1', __changedFields: ['newPassword'] })).status, 200);
-	assert.equal((await request('/api/sign.php', { method: 'POST', body: { username: 'me_admin', password: 'another-password-1' } })).status, 200, '新密码能登录');
+	assert.equal((await request('/api/sign.php', { method: 'POST', body: { user_name: 'meadmin', password: 'another-password-1' } })).status, 200, '新密码能登录');
 
 	console.log('personal center test passed');
 } finally {

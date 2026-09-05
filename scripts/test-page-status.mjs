@@ -77,8 +77,8 @@ try {
 	// 当前导航里也没有其它这类节点（分组节点按 404 处理），暂时没有可用的 fixture。
 	// 恢复该覆盖需要先造一个有角色、无组件的导航节点。
 
-	assert.equal((await request('/api/sign.php', { method: 'PUT', body: { username: 'page_admin', password: 'test-password-123' } })).status, 201);
-	const adminLogin = await request('/api/sign.php', { method: 'POST', body: { username: 'page_admin', password: 'test-password-123' } });
+	assert.equal((await request('/api/sign.php', { method: 'PUT', body: { user_name: 'pageadmin', password: 'test-password-123' } })).status, 201);
+	const adminLogin = await request('/api/sign.php', { method: 'POST', body: { user_name: 'pageadmin', password: 'test-password-123' } });
 	const adminCookie = adminLogin.headers.get('set-cookie')?.split(';')[0];
 	assert.ok(adminCookie);
 
@@ -88,9 +88,9 @@ try {
 	assert.equal(adminPanel.pageStatus, undefined);
 
 	assert.equal((await request('/api/panel/admin/base/users.php', {
-		method: 'POST', cookie: adminCookie, body: { username: 'page_user', password: 'test-password-123', roles: [], status: 'enabled' },
+		method: 'POST', cookie: adminCookie, body: { user_name: 'pageuser', password: 'test-password-123', roles: [], status: 'enabled' },
 	})).status, 201);
-	const userLogin = await request('/api/sign.php', { method: 'POST', body: { username: 'page_user', password: 'test-password-123' } });
+	const userLogin = await request('/api/sign.php', { method: 'POST', body: { user_name: 'pageuser', password: 'test-password-123' } });
 	const userCookie = userLogin.headers.get('set-cookie')?.split(';')[0];
 	assert.ok(userCookie);
 
@@ -98,7 +98,7 @@ try {
 	const forbidden = await document('/panel/admin/global/dashboard.html', { cookie: userCookie });
 	assert.equal(forbidden.pageStatus.status, 403);
 	assert.equal(forbidden.pageStatus.title, '无权访问');
-	assert.match(forbidden.pageStatus.description, /page_user/);
+	assert.match(forbidden.pageStatus.description, /pageuser/);
 	const forbiddenStatus = await (await request('/api/page-status.php?path=/panel/admin/global/dashboard', { cookie: userCookie })).json();
 	assert.equal(forbiddenStatus.pageStatus.status, 403);
 

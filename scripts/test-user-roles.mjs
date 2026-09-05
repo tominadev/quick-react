@@ -29,8 +29,8 @@ try {
 		});
 	};
 
-	assert.equal((await request('/api/sign.php', { method: 'PUT', body: { username: 'role_admin', password: 'test-password-123' } })).status, 201);
-	const login = await request('/api/sign.php', { method: 'POST', body: { username: 'role_admin', password: 'test-password-123' } });
+	assert.equal((await request('/api/sign.php', { method: 'PUT', body: { user_name: 'roleadmin', password: 'test-password-123' } })).status, 201);
+	const login = await request('/api/sign.php', { method: 'POST', body: { user_name: 'roleadmin', password: 'test-password-123' } });
 	const cookie = login.headers.get('set-cookie')?.split(';')[0];
 	assert.ok(cookie);
 	const usersPath = '/api/panel/admin/base/users.php';
@@ -51,19 +51,19 @@ try {
 	]);
 
 	// 历史 JSON 文本按数组返回，前端可以直接回填多选。
-	const bootstrap = list.table.dataSource.find((row) => row.username === 'role_admin');
+	const bootstrap = list.table.dataSource.find((row) => row.user_name === 'roleadmin');
 	assert.deepEqual(bootstrap.roles, ['platform_admin']);
 
 	// 新建用户接受数组角色。
-	assert.equal((await request(usersPath, { method: 'POST', cookie, body: { username: 'role_member', password: 'test-password-123', roles: [], status: 'enabled' } })).status, 201);
-	const created = (await (await request(usersPath, { cookie })).json()).table.dataSource.find((row) => row.username === 'role_member');
+	assert.equal((await request(usersPath, { method: 'POST', cookie, body: { user_name: 'rolemember', password: 'test-password-123', roles: [], status: 'enabled' } })).status, 201);
+	const created = (await (await request(usersPath, { cookie })).json()).table.dataSource.find((row) => row.user_name === 'rolemember');
 	assert.deepEqual(created.roles, []);
 	const detail = await (await request(`${usersPath}/${created.id}`, { cookie })).json();
 	assert.deepEqual(detail.roles, []);
 
 	// 隐式角色和未登记角色都不能被分配。
 	for (const roles of [['user'], ['public'], ['owner']]) {
-		const rejected = await request(usersPath, { method: 'POST', cookie, body: { username: `role_bad_${roles[0]}`, password: 'test-password-123', roles } });
+		const rejected = await request(usersPath, { method: 'POST', cookie, body: { user_name: `rolebad${roles[0].replace(/_/g, '')}`, password: 'test-password-123', roles } });
 		assert.equal(rejected.status, 400);
 		assert.match((await rejected.json()).feedback.message, /不支持的角色/);
 	}
@@ -83,14 +83,14 @@ try {
 	assert.equal((await request(usersPath, { method: 'DELETE', cookie, body: [] })).status, 400, '没选记录要给出明确提示');
 
 	// 注册开关：默认关闭，初始管理员那把一次性闩用掉之后就不再放行；开启后允许注册普通用户。
-	assert.equal((await request('/api/sign.php', { method: 'PUT', body: { username: 'walk_in', password: 'test-password-123' } })).status, 409, '默认不开放注册');
+	assert.equal((await request('/api/sign.php', { method: 'PUT', body: { user_name: 'walkin', password: 'test-password-123' } })).status, 409, '默认不开放注册');
 	const sitePath = '/api/panel/admin/base/settings/site.php';
 	const settings = (await (await request(sitePath, { cookie })).json()).currentValues;
 	assert.equal(settings.registrationEnabled, false, '开关默认关闭');
 	assert.equal((await request(sitePath, { method: 'PUT', cookie, body: { ...settings, registrationEnabled: true, __changedFields: ['registrationEnabled'] } })).status, 200);
-	assert.equal((await request('/api/sign.php', { method: 'PUT', body: { username: 'walk_in', password: 'test-password-123' } })).status, 201, '开启后允许注册');
-	assert.equal((await request('/api/sign.php', { method: 'PUT', body: { username: 'walk_in', password: 'test-password-123' } })).status, 409, '用户名冲突要挡住');
-	const walkIn = (await (await request(usersPath, { cookie })).json()).table.dataSource.find((row) => row.username === 'walk_in');
+	assert.equal((await request('/api/sign.php', { method: 'PUT', body: { user_name: 'walkin', password: 'test-password-123' } })).status, 201, '开启后允许注册');
+	assert.equal((await request('/api/sign.php', { method: 'PUT', body: { user_name: 'walkin', password: 'test-password-123' } })).status, 409, '用户名冲突要挡住');
+	const walkIn = (await (await request(usersPath, { cookie })).json()).table.dataSource.find((row) => row.user_name === 'walkin');
 	assert.deepEqual(walkIn.roles, [], '自助注册出来的是普通用户，不是管理员');
 	// 页面入口与接口用同一个判定，不能出现「有入口点进去被拒绝」。
 	assert.equal((await (await request('/api/sign.php?mode=sign-up')).json()).registrationAvailable, true);

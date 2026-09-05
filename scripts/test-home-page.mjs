@@ -48,7 +48,7 @@ try {
 	const accountsAuth = await readAuth();
 	assert.deepEqual(accountsAuth.actions.map((action) => [action.key, action.action]), [['/sign', 'local-login'], ['/sign-up', 'navigate']]);
 	// 建好初始管理员后入口消失：判断依据是本站数据库的引导状态，不是站点标识。
-	assert.equal((await app.request('http://localhost/api/sign.php', { method: 'PUT', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ username: 'home_admin', password: 'test-password-123' }) })).status, 201);
+	assert.equal((await app.request('http://localhost/api/sign.php', { method: 'PUT', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ user_name: 'homeadmin', password: 'test-password-123' }) })).status, 201);
 	const claimedAuth = await readAuth();
 	assert.deepEqual(claimedAuth.actions.map((action) => [action.key, action.action]), [['/sign', 'local-login']]);
 

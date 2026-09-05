@@ -5,32 +5,42 @@ import type { FormPageConfig } from '@shared/types/form-page.mjs';
 import { runSql, sql } from '@server/database/sql.mjs';
 import { clearOidcRequestCookie, oidcRequestCookie, oidcRequestCookieName, readCookie } from '@server/modules/passport/accounts/oidc.mjs';
 import { isSecureRequest } from '@server/modules/base/request-origin.mjs';
-import { accountUsernameState, hasAccountPassword } from '@server/modules/passport/account.mjs';
+import { maxUserNameLength } from '@shared/account-name.mjs';
+import { accountUserNameState, claimUserNameFromEmail, hasAccountPassword } from '@server/modules/passport/account.mjs';
 
-export type OnboardingStep = 'username' | 'password' | 'done';
-export type AccountOnboarding = { step: OnboardingStep; invalidUsername: string };
+export type OnboardingStep = 'user_name' | 'password' | 'done';
+export type AccountOnboarding = { step: OnboardingStep; invalidUserName: string };
 
 /**
  * 登录成功后必须补全的内容：用户名必填（占位或历史用户名也要改成合法用户名），
  * 密码可跳过，但每次登录都会再问。
+ *
+ * 用户名先试着从已验证邮箱的 @ 前面自动取——取到了就不打扰用户。取不到（没有邮箱、
+ * 本地部分不合规、名字已被占用）才回到手动设置界面。
+ *
+ * 只在 missing 时自动取：invalid 说明这个名字是**用户自己定过**的，只是不再符合规则，
+ * 替他换成邮箱前缀等于悄悄改掉他挑的名字，那必须由他自己确认。
  */
-export const accountOnboarding = async (database: DatabaseAdapter, userId: string): Promise<AccountOnboarding> => {
-	const username = await accountUsernameState(database, userId);
-	if (username.state !== 'ready') return { step: 'username', invalidUsername: username.state === 'invalid' ? username.username : '' };
-	if (!await hasAccountPassword(database, userId)) return { step: 'password', invalidUsername: '' };
-	return { step: 'done', invalidUsername: '' };
+export const accountOnboarding = async (database: DatabaseAdapter, userId: string, minLength?: number): Promise<AccountOnboarding> => {
+	let userName = await accountUserNameState(database, userId, minLength);
+	if (userName.state === 'missing' && await claimUserNameFromEmail(database, userId, minLength)) {
+		userName = await accountUserNameState(database, userId, minLength);
+	}
+	if (userName.state !== 'ready') return { step: 'user_name', invalidUserName: userName.state === 'invalid' ? userName.user_name : '' };
+	if (!await hasAccountPassword(database, userId)) return { step: 'password', invalidUserName: '' };
+	return { step: 'done', invalidUserName: '' };
 };
 
-export const usernameForm = (invalidUsername = ''): FormPageConfig => ({
-	description: invalidUsername
-		? `当前用户名 ${invalidUsername} 不符合规则，请改成以小写字母开头、只包含小写字母和数字、长度 6 到 12 位的用户名后再继续。`
-		: '请为账号设置用户名：以小写字母开头，只能包含小写字母和数字，长度 6 到 12 位。之后可以在账户资料中修改。',
+export const userNameForm = (invalidUserName = ''): FormPageConfig => ({
+	description: invalidUserName
+		? `当前用户名 ${invalidUserName} 不符合规则，请改成以小写字母开头、只包含小写字母和数字、最长 ${maxUserNameLength} 位的用户名后再继续。`
+		: `请为账号设置用户名：以小写字母开头，只能包含小写字母和数字，最长 ${maxUserNameLength} 位。之后可以在账户资料中修改。`,
 	submitLabel: '保存用户名',
 	actions: [{ key: 'logout', label: '退出登录', confirm: '确定退出 Accounts 登录吗？' }],
-	initialValues: { step: 'set_username', username: '' },
+	initialValues: { step: 'set_user_name', user_name: '' },
 	fields: [
 		{ name: 'step', label: '', type: 'hidden' },
-		{ name: 'username', label: '用户名', maxLength: 12, placeholder: '例如 alice2026', rules: [{ required: true, message: '请输入用户名' }] },
+		{ name: 'user_name', label: '用户名', maxLength: maxUserNameLength, placeholder: '例如 alice2026', rules: [{ required: true, message: '请输入用户名' }] },
 	],
 });
 
@@ -58,7 +68,7 @@ export const resetPasswordForm = (): FormPageConfig => ({
 	],
 });
 
-export const onboardingForm = (onboarding: AccountOnboarding) => onboarding.step === 'username' ? usernameForm(onboarding.invalidUsername) : passwordForm();
+export const onboardingForm = (onboarding: AccountOnboarding) => onboarding.step === 'user_name' ? userNameForm(onboarding.invalidUserName) : passwordForm();
 
 /**
  * 补全步骤会延长登录耗时，而 OIDC 授权请求和 cookie 的有效期都是 10 分钟，
@@ -77,7 +87,7 @@ export const refreshOidcRequest = async (c: Context<AppEnv>, database: DatabaseA
  * 否则会把弹窗带到错误的公共首页，业务站点拿不到登录结果。
  */
 export const postLoginRedirect = async (c: Context<AppEnv>, database: DatabaseAdapter, userId: string, requestIdOverride?: string) => {
-	const onboarding = await accountOnboarding(database, userId);
+	const onboarding = await accountOnboarding(database, userId, c.get('siteSettings').userNameMinLength);
 	// 用户名和密码都要按规则提示，补全完成后登录页再带 request_id 回授权端点。
 	if (onboarding.step !== 'done') {
 		await refreshOidcRequest(c, database);

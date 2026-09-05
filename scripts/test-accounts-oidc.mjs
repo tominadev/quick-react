@@ -38,7 +38,7 @@ try {
 	database.prepare(`INSERT INTO passport_oidc_clients (client_id, name, secret_hash, redirect_uris, allowed_scopes, require_pkce, status, created_at, updated_at, backchannel_logout_uri)
 		VALUES (?, 'Test Client', ?, '["https://client.test/callback","https://site1.test/api/accounts/oidc/callback"]', 'openid profile email', 1, 'enabled', ?, ?, 'https://site1.test/api/accounts/oidc/backchannel-logout')`).run(clientId, secretHash, now, now);
 	database.prepare(`INSERT INTO base_configs (created_at, updated_at, key, value) VALUES (?, ?, 'accounts-oidc-client', ?)`).run(now, now, JSON.stringify({ enabled: true, issuer: 'https://accounts.test', clientId, clientSecret }));
-	database.prepare(`INSERT INTO base_users (id, name, roles, status, created_at, updated_at) VALUES (77, 'local_admin', '["admin"]', 'enabled', ?, ?)`).run(now, now);
+	database.prepare(`INSERT INTO base_users (id, name, roles, status, created_at, updated_at) VALUES (77, 'localadmin', '["admin"]', 'enabled', ?, ?)`).run(now, now);
 	database.prepare(`INSERT INTO base_devices (id, user_id, key, fingerprint, status, last_seen_at, created_at, updated_at) VALUES (42, 77, ?, ?, 'active', ?, ?, ?)`).run(deviceKey, fingerprintData, now, now, now);
 	database.prepare(`INSERT INTO base_device_users (device_id, user_id, status, last_seen_at, created_at, updated_at) VALUES (42, 77, 'active', ?, ?, ?)`).run(now, now, now);
 	database.prepare(`INSERT INTO base_sessions (created_at, updated_at, token_hash, user_id, expires_at, device_id) VALUES (?, ?, ?, 77, ?, 42)`).run(now, now, sessionHash, now + 3600_000);
@@ -74,10 +74,10 @@ try {
 	assert.equal(cancelled.redirectTo, 'https://client.test');
 	assert.ok(returned.headers.getSetCookie().some((value) => value.startsWith('accounts_oidc_request=;')));
 
-	const usernameDatabase = new DatabaseSync(process.env.DEFAULT_DATABASE_FILE);
-	usernameDatabase.prepare('UPDATE passport_users SET name = ? WHERE user_id = ?').run('oidcuser1', String(userId));
-	usernameDatabase.prepare('INSERT INTO passport_user_credentials (user_id, password, created_at, updated_at) VALUES (?, ?, ?, ?)').run(String(userId), 'test-password-hash', Date.now(), Date.now());
-	usernameDatabase.close();
+	const userNameDatabase = new DatabaseSync(process.env.DEFAULT_DATABASE_FILE);
+	userNameDatabase.prepare('UPDATE passport_users SET name = ? WHERE user_id = ?').run('oidcuser1', String(userId));
+	userNameDatabase.prepare('INSERT INTO passport_user_credentials (user_id, password, created_at, updated_at) VALUES (?, ?, ?, ?)').run(String(userId), 'test-password-hash', Date.now(), Date.now());
+	userNameDatabase.close();
 	const authorized = await request(`${authorize.pathname}${authorize.search}`, { headers: { cookie: `passport_session=${sessionId}` } });
 	assert.equal(authorized.status, 302);
 	const callback = new URL(authorized.headers.get('location'));
@@ -107,7 +107,7 @@ try {
 	const selfSessionCookie = selfCallbackResponse.headers.getSetCookie().find((item) => item.startsWith('base_session='))?.split(';')[0];
 	assert.ok(selfSessionCookie);
 	const signedInPassport = await (await request('/api/sign.php', { headers: { cookie: selfSessionCookie } })).json();
-	assert.equal(signedInPassport.user.username, 'oidcuser1');
+	assert.equal(signedInPassport.user.user_name, 'oidcuser1');
 	const signedInAccounts = await (await request('/api/accounts/sign.php', { headers: { cookie: `passport_session=${sessionId}` } })).json();
 	assert.deepEqual(signedInAccounts.formPage.actions.map((action) => action.key), ['account_center', 'bind_identity', 'logout']);
 	const accountCenter = await request('/api/accounts/sign.php?action=account_center', { method: 'POST', headers: { cookie: `passport_session=${sessionId}`, 'content-type': 'application/json' }, body: '{}' });
@@ -141,8 +141,8 @@ try {
 	const modeDatabase = new DatabaseSync(process.env.DEFAULT_DATABASE_FILE);
 	modeDatabase.prepare(`UPDATE base_configs SET value = ? WHERE key = 'accounts-oidc-client'`).run(JSON.stringify({ enabled: false, issuer: 'https://accounts.test', clientId, clientSecret }));
 	const disabledLocalSession = await (await app.request('https://site1.test/api/sign.php', { headers: { cookie: `base_session=${sessionToken}`, 'x-device-key': deviceKey, 'x-device-fingerprint': fingerprintData } })).json();
-	assert.equal(disabledLocalSession.user.username, 'local_admin');
-	assert.equal(disabledLocalSession.formPage.fields[0].name, 'username');
+	assert.equal(disabledLocalSession.user.user_name, 'localadmin');
+	assert.equal(disabledLocalSession.formPage.fields[0].name, 'user_name');
 	modeDatabase.prepare(`UPDATE base_configs SET value = ? WHERE key = 'accounts-oidc-client'`).run(JSON.stringify({ enabled: true, issuer: 'https://accounts.test', clientId, clientSecret }));
 	modeDatabase.close();
 	// 业务站点不允许自动跳转到 Accounts，必须由用户点击按钮确认。
@@ -167,7 +167,7 @@ try {
 	const signedInBusiness = await (await app.request('https://site1.test/api/sign.php', { headers: { cookie: businessSessionCookie, 'x-device-key': deviceKey, 'x-device-fingerprint': fingerprintData } })).json();
 	// Accounts 用户名通过 preferred_username 下发，业务站点用它替换 passport_<user_id> 占位名。
 	assert.equal(claims.preferred_username, 'oidcuser1');
-	assert.equal(signedInBusiness.user.username, 'oidcuser1');
+	assert.equal(signedInBusiness.user.user_name, 'oidcuser1');
 	// 昵称走 name claim，和用户名是两套规则：本站昵称为空才补，人工设过的不覆盖。
 	assert.equal(claims.name, 'AccountsUser');
 	const syncedProfile = new DatabaseSync(process.env.DEFAULT_DATABASE_FILE, { readOnly: true });
@@ -176,7 +176,7 @@ try {
 	assert.deepEqual(signedInBusiness.formPage.passportLogin, { enabled: true });
 	const signedInAuth = await (await app.request('https://site1.test/api/home.php?include=auth&path=%2Fpanel%2Fadmin%2Fbase%2Fusers', { headers: { cookie: businessSessionCookie, 'x-device-key': deviceKey, 'x-device-fingerprint': fingerprintData } })).json();
 	assert.ok(signedInAuth.context);
-	assert.equal(signedInAuth.context.auth.currentUser.username, 'oidcuser1');
+	assert.equal(signedInAuth.context.auth.currentUser.user_name, 'oidcuser1');
 	assert.ok(Array.isArray(signedInAuth.context.siteNavigation));
 	assert.equal((await app.request('https://site1.test/api/auth.php')).status, 404, '认证上下文应由通用 API 响应层提供');
 	const businessUsers = new DatabaseSync(process.env.DEFAULT_DATABASE_FILE, { readOnly: true });

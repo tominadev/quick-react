@@ -83,18 +83,18 @@ try {
 	// 概览。
 	const overview = await (await request('/api/panel/accounts/overview.php', { cookie })).json();
 	assert.deepEqual(overview.dashboard.statistics.map((item) => [item.key, item.value]), [['emails', 1], ['providers', 0], ['telegram', 0]]);
-	assert.equal(overview.dashboard.recentRows.find((row) => row.key === 'username').value, 'center2026');
+	assert.equal(overview.dashboard.recentRows.find((row) => row.key === 'user_name').value, 'center2026');
 	assert.equal(overview.dashboard.recentRows.find((row) => row.key === 'password').value, '未设置');
 
 	// 个人资料：用户名和昵称都可改，且沿用统一格式校验。
 	const profile = await (await request('/api/panel/accounts/profile.php', { cookie })).json();
-	assert.equal(profile.currentValues.username, 'center2026');
+	assert.equal(profile.currentValues.user_name, 'center2026');
 	assert.equal(profile.currentValues.primary_email, 'center@example.com');
-	assert.equal(profile.formPage.fields.find((field) => field.name === 'username').readOnlyWhen, undefined);
-	assert.equal((await request('/api/panel/accounts/profile.php', { method: 'PUT', cookie, body: { nickname: '  ' } })).status, 400);
-	const savedProfile = await request('/api/panel/accounts/profile.php', { method: 'PUT', cookie, body: { username: 'center2027', nickname: '新昵称' } });
+	assert.equal(profile.formPage.fields.find((field) => field.name === 'user_name').readOnlyWhen, undefined);
+	assert.equal((await request('/api/panel/accounts/profile.php', { method: 'PUT', cookie, body: { profile_nickname: '  ' } })).status, 400);
+	const savedProfile = await request('/api/panel/accounts/profile.php', { method: 'PUT', cookie, body: { user_name: 'center2027', profile_nickname: '新昵称' } });
 	assert.equal(savedProfile.status, 200);
-	assert.deepEqual((await savedProfile.json()).currentValues, { locked: '1', username: 'center2027', nickname: '新昵称', primary_email: 'center@example.com' });
+	assert.deepEqual((await savedProfile.json()).currentValues, { locked: '1', user_name: 'center2027', profile_nickname: '新昵称', primary_email: 'center@example.com' });
 
 	// 邮箱管理提供绑定、设为主邮箱和解绑。
 	const emailsPath = '/api/panel/accounts/emails.php';
