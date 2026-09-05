@@ -4,7 +4,7 @@ import type { DatabaseAdapter } from '@server/database/index.mjs';
 import { allSql, firstSql, sql } from '@server/database/sql.mjs';
 import { describeAuditChanges, parseAuditChanges, transitionAuditEntries } from './audit.mjs';
 import { APPROVAL_SKIP_ROLES, readChangeReason } from './operation.mjs';
-import { assertNotSelfApproval } from './super-users.mjs';
+import { assertNotSelfApproval, isSuperUser, submitterIdsOf } from './super-users.mjs';
 
 export { PENDING_FIELD } from '@shared/types/table.mjs';
 export const WITHDRAW_ACTION = 'withdraw-pending';
@@ -13,10 +13,19 @@ export const REJECT_ACTION = 'reject-pending';
 
 type PendingEntry = { id: string; changes: string; reason: string; created_at: number; created_duid: string | null };
 
-/** 当前请求的操作者（device_user_id）；系统或无设备操作为 null。 */
-const actorOf = (database: DatabaseAdapter) => database.actorUidForTable?.('base_approvals') ?? database.actorUid ?? null;
-const sameActor = (entry: PendingEntry, actor: string | number | bigint | null) =>
-	actor !== null && entry.created_duid !== null && String(entry.created_duid) === String(actor);
+/**
+ * 这几条申请里哪些是**当前这个人**提的。
+ *
+ * 比到人，不比到设备：记录里存的是 created_duid（设备用户），直接拿它和当前请求的 duid 比，
+ * 同一个人换台设备就成了「两个人」——他会看到「批准」而不是「撤回」，点下去又被四眼原则
+ * 挡回来。四眼原则那一侧（assertNotSelfApproval）早就落到人了，这一侧要用同一把尺子。
+ */
+const mineOf = async (c: Context<AppEnv>, database: DatabaseAdapter, entries: readonly PendingEntry[]) => {
+	const me = String(c.get('currentUser')?.id ?? '');
+	if (!me || !entries.length) return new Set<string>();
+	const submitters = await submitterIdsOf(database, entries.map((entry) => String(entry.created_duid ?? '')));
+	return new Set(entries.filter((entry) => submitters.get(String(entry.created_duid ?? '')) === me).map((entry) => String(entry.id)));
+};
 
 /**
  * 这一行上还没落地的修改。
@@ -38,23 +47,70 @@ export const pendingEntriesFor = async (database: DatabaseAdapter, table: string
 	}));
 
 /**
- * 一次问清这一批行里哪些还有修改在等审批：逐行去查会把一次列表变成 N 次查询。
+ * 这一行等着审批的是**哪一种**申请、是不是**我自己**提的。
  *
- * 取的是这张表**全部**待审批行号再在内存里取交集，而不是按当前页的 id 过滤——
- * 待审批的行天然很少（它们在等人处理），为此给 SQL 层加一个 IN 运算符不划算。
+ * 两件事决定了行上该出现哪几个按钮：撤回只对自己提的有意义（替别人撤等于替别人做决定，
+ * 那是驳回该干的事），驳回只对别人提的有意义（自己的东西直接撤回就是了）。而新增与修改
+ * 要分开说：「撤回新增」会把那一行删掉，「撤回修改」一个字都不动数据，同一句话概括不了。
+ *
+ * 一次问清整批行：逐行去查会把一次列表变成 N 次查询。取的是这张表**全部**待审批记录
+ * 再在内存里取交集，而不是按当前页的 id 过滤——待审批的行天然很少（它们在等人处理），
+ * 为此给 SQL 层加一个 IN 运算符不划算。
  */
-export const pendingRowIds = async (database: DatabaseAdapter, table: string, rowIds: readonly string[]) => {
-	if (!rowIds.length) return new Set<string>();
-	const rows = await allSql<{ row_id: string }>(database, sql({ database }).select({
-		table: 'base_approvals', distinct: true,
-		// 同上：审批记录自己有没有被删，与正在浏览的那张表是不是回收站视图无关。
+export type PendingRowKind = 'insert' | 'update' | 'soft_delete' | 'restore';
+export type PendingRowState = { kind: PendingRowKind; mine: boolean };
+const KNOWN_KINDS: readonly string[] = ['insert', 'update', 'soft_delete', 'restore'];
+
+export const pendingRowStates = async (c: Context<AppEnv>, database: DatabaseAdapter, table: string, rowIds: readonly string[]) => {
+	const states = new Map<string, PendingRowState>();
+	if (!rowIds.length) return states;
+	const rows = await allSql<PendingEntry & { row_id: string; action: string }>(database, sql({ database }).select({
+		table: 'base_approvals',
+		// 审批记录自己有没有被删，与正在浏览的那张表是不是回收站视图无关。
 		deleted: 'active',
-		columns: { row_id: { column: 'row_id', cast: 'text' } },
+		columns: { id: { column: 'id', cast: 'text' }, row_id: { column: 'row_id', cast: 'text' }, action: 'action', created_duid: { column: 'created_duid', cast: 'text' }, changes: 'changes', reason: 'reason', created_at: 'created_at' },
 		where: [{ column: 'table_name', value: table }, { column: 'review_status', value: 'pending' }],
+		orderBy: [{ column: 'id' }],
 	}));
-	const pending = new Set(rows.map((row) => String(row.row_id)));
-	return new Set(rowIds.filter((id) => pending.has(id)));
+	const wanted = new Set(rowIds);
+	const relevant = rows.filter((row) => wanted.has(String(row.row_id)));
+	if (!relevant.length) return states;
+	const mine = await mineOf(c, database, relevant);
+	for (const row of relevant) {
+		const id = String(row.row_id);
+		const previous = states.get(id);
+		const kind = KNOWN_KINDS.includes(row.action) ? row.action as PendingRowKind : 'update';
+		states.set(id, {
+			// 新增压过其余：一行同时挂着新建与随后的改草稿时，「这一行还不存在」是更要紧的事。
+			// 其余按记录顺序取最后一条——那是这一行上最新的一次申请。
+			kind: previous?.kind === 'insert' ? 'insert' : kind,
+			// 只要有一条不是自己提的，整行就不算「我的申请」——撤回只撤得动自己那几条，
+			// 按钮显示成撤回却只撤走一半，比不显示更糟。
+			mine: (previous?.mine ?? true) && mine.has(String(row.id)),
+		});
+	}
+	return states;
 };
+
+/** 行上那一列的取值：`insert-mine`、`soft_delete-other` 之类；没有待审批就是空串。 */
+export const pendingRowToken = (state: PendingRowState | undefined) => state ? `${state.kind}-${state.mine ? 'mine' : 'other'}` : '';
+
+/**
+ * 四种申请各自的说法。
+ *
+ * 一句「撤回申请」概括不了它们:撤回新增会把那一行删掉,撤回修改一个字都不动数据,
+ * 撤回删除是让记录留在原处,撤回恢复是让它留在回收站里——后果各不相同,而这正是
+ * 点下去之前要知道的事。
+ */
+export const PENDING_KINDS: ReadonlyArray<{ kind: PendingRowKind; label: string; approve: string; reject: string; withdraw: string }> = [
+	// 一行上可能同时挂着好几条申请（新建之后又改过草稿，建号那三行还共享一个操作号），
+	// 点一次就是把这一行上的它们**一起**处理掉，因此措辞说的是「这一行上的申请」而不是
+	// 「这一条」——按钮上只写得下最要紧的那一种（新增压过其余），别让它听起来只动一条。
+	{ kind: 'insert', label: '新增', approve: '确认批准这一行上的申请吗？这一行会开始生效。', reject: '确认驳回这一行上的申请吗？这一行是新建的，驳回后会进回收站。', withdraw: '确认撤回这一行上还没生效的申请吗？这一行是新建的，撤回后会进回收站。' },
+	{ kind: 'update', label: '修改', approve: '确认批准这一行上的修改并立即生效吗？', reject: '确认驳回这一行上的修改吗？数据不会被改动。', withdraw: '确认撤回这一行上还没生效的修改吗？数据不会被改动。' },
+	{ kind: 'soft_delete', label: '删除', approve: '确认批准并把这条记录移入回收站吗？', reject: '确认驳回这条删除吗？记录会留在原处。', withdraw: '确认撤回这条还没生效的删除吗？记录会留在原处。' },
+	{ kind: 'restore', label: '恢复', approve: '确认批准并把这条记录放回列表吗？', reject: '确认驳回这条恢复吗？记录会留在回收站里。', withdraw: '确认撤回这条还没生效的恢复吗？记录会留在回收站里。' },
+];
 
 /** 配置项在 base_configs 里的行号；还没有这一行就没有待审批可言。 */
 export const configRowId = async (c: Context<AppEnv>, key: string) => {
@@ -87,15 +143,15 @@ export const pendingApprovalNotice = async (c: Context<AppEnv>, table: string, r
 	const database = c.get('database');
 	const entries = await pendingEntriesFor(database, table, rowId);
 	if (!entries.length) return undefined;
-	const actor = actorOf(database);
-	const mine = entries.filter((entry) => sameActor(entry, actor));
+	const mineIds = await mineOf(c, database, entries);
+	const mine = entries.filter((entry) => mineIds.has(String(entry.id)));
 	const approver = canApprove(c);
 	return {
 		type: 'warning' as const,
 		title: `有 ${entries.length} 项修改正在等待审批，尚未生效`,
 		lines: entries.map((entry) => {
 			const detail = describeAuditChanges(parseAuditChanges(entry.changes));
-			const who = sameActor(entry, actor) ? '（本人提交）' : '';
+			const who = mineIds.has(String(entry.id)) ? '（本人提交）' : '';
 			return entry.reason ? `${detail}${who}（原因：${entry.reason}）` : `${detail}${who}`;
 		}),
 		actions: [
@@ -124,7 +180,8 @@ export const handlePendingApprovalAction = async (c: Context<AppEnv>, table: str
 		if (selfApproval) return { ok: false as const, message: selfApproval };
 	}
 	// 撤销只动自己提的那几条：替别人撤等于替别人做决定，那是驳回该干的事。
-	const entries = action === WITHDRAW_ACTION ? all.filter((entry) => sameActor(entry, actorOf(database))) : all;
+	const mineIds = action === WITHDRAW_ACTION ? await mineOf(c, database, all) : undefined;
+	const entries = mineIds ? all.filter((entry) => mineIds.has(String(entry.id))) : all;
 	if (!entries.length) return { ok: false as const, message: action === WITHDRAW_ACTION ? '没有你自己提交的待审批申请' : '没有待审批的修改' };
 	const target = action === APPROVE_ACTION ? 'approve' as const : action === REJECT_ACTION ? 'reject' as const : 'withdraw' as const;
 	const results = await transitionAuditEntries(database, entries.map((entry) => entry.id), target, readChangeReason(c));

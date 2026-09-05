@@ -84,9 +84,9 @@ try {
 	// 正在浏览的业务表。于是这些查询跑去「已删除的审批记录」里找，一条都找不到：行上不
 	// 显示待审批（两个按钮被 visibleWhen 一起藏掉），点批准则报「审计记录不存在或无权访问」。
 	const binView = await (await request(recyclePath, { cookie })).json();
-	assert.equal(binView.table.dataSource.find((row) => row.id === fixture.id)?._pending, '1', '回收站里也要标出待审批');
-	const binActions = binView.table.option.actions.row.map((action) => action.key);
-	assert.ok(binActions.includes('withdraw-pending') && binActions.includes('approve-pending'), '回收站的行上也要有撤回和批准');
+	assert.equal(binView.table.dataSource.find((row) => row.id === fixture.id)?._pending, 'restore-mine', '回收站里也要标出待审批，并且说清等的是哪一种');
+	const binActions = binView.table.option.actions.row.filter((action) => action.visibleWhen?.values?.includes('restore-mine')).map((action) => action.label);
+	assert.deepEqual(binActions, ['撤回恢复', '批准恢复'], '回收站的行上要有说清动作的撤回与批准');
 	assert.equal((await request(`${recyclePath}&action=approve-pending`, { method: 'POST', cookie, keepPending: true, body: [fixture.id] })).status, 200, '就地批准');
 	const restored = await (await request(rowsPath, { cookie })).json();
 	assert.ok(restored.table.dataSource.some((row) => row.id === fixture.id), '批准后记录应回到普通列表');

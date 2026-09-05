@@ -260,20 +260,32 @@ const rowCondition = (entry: AuditEntryRow): SqlCondition => (
 );
 
 /**
- * 新建那一条走另一套写法：没有前后值，只有「这一行看不看得见」。
+ * 新建那一条走另一套写法。
  *
- * - **批准 / 恢复**：`pended_at` 归零 / 从回收站捞回来，这一行开始存在。
- * - **驳回 / 撤销**：把那一行**物理删掉**。它从未生效过，留着只是一份没人认领的草稿，
- *   而历史留在这条审批记录上（`rejected` / `withdrawn`），不靠那一行保存。
- * - **回滚**：它已经生效过，因此按普通删除处理——软删除，回收站里找得回来。
+ * 它的 `changes` 里既有「要新增的内容」(给审批人看)，也有 `pended_at: 提交时刻 → 0`
+ * (批准落到数据上就是这一列)。不能直接交给通用的写回路径：那条路径会拿每一列的前值
+ * 当并发条件，而内容列的前值记的是 null，行上却早就是真实值——第一步就判成「已被后续
+ * 修改覆盖」。所以这里只处理 `pended_at` 那一列。
+ *
+ * - **批准 / 恢复**：`pended_at` 归零，这一行开始对人可见。
+ * - **驳回 / 撤销**：**软删除**，并把 `pended_at` 一并归零。
+ * - **回滚**：同上——它已经生效过，按普通删除处理。
+ *
+ * 驳回原先是物理删除，理由是「它从未生效过，留着只是一份没人认领的草稿」。改成软删除
+ * 的理由更强：软删除本来就有保留期，被驳回的新建因此在回收站里待着，看得见、找得回，
+ * 而不是凭空消失——审批人手一抖驳回了别人半天的录入，那份录入不该就此不存在。
+ *
+ * `pended_at` 一起归零，是为了让它成为一条**普通的已删除记录**：留着非零的话，从回收站
+ * 恢复出来的行仍然对业务查询不可见，却又出现在管理列表里(那里看得见待审批的行)，
+ * 成了一个谁也说不清状态的幽灵。
  */
 const applyInsertTransition = async (database: DatabaseAdapter, entry: AuditEntryRow, to: ApprovalTransition) => {
 	const where = [rowCondition(entry)];
 	const builder = sql({ database, subjectRoles: null });
 	const statement = to === 'approve' ? builder.activate(entry.table_name, where)
+		// 恢复的对象是**被回滚过的**那一行，它当时是被软删除掉的，因此这里要动的是 deleted_at。
 		: to === 'restore' ? builder.restore(entry.table_name, where)
-			: to === 'revert' ? builder.softDelete(entry.table_name, where)
-				: builder.delete(entry.table_name, where);
+			: builder.revert(entry.table_name, { deleted_at: Date.now(), pended_at: 0 }, where);
 	const result = await runSystemSql(database, statement);
 	return Number(result.meta?.changes ?? 0) > 0;
 };

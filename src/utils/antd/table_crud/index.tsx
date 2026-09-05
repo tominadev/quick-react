@@ -923,7 +923,7 @@ const TableCRUD = ({ commonApi, resourcePath, initialResponse, initialQueryValue
 			// 其余每一行都空着，而横向空间是表格里最紧的资源。底色一眼看得出，一格不占。
 			// 用主题令牌而不是写死的浅黄：这一页跟着亮色/暗色主题走，写死的颜色在暗色下
 			// 会把文字压得读不出来。
-			onRow={(record) => (record[PENDING_FIELD] === '1'
+			onRow={(record) => (record[PENDING_FIELD]
 				? { style: { background: token.colorWarningBg }, title: '这一行有修改正在等待审批，尚未生效' }
 				: {})}
 		/>

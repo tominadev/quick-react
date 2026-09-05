@@ -208,10 +208,26 @@ const jsonKeyDiff = (before: unknown, after: unknown) => {
  *
  * 归属与时间戳也不写：它们每一行都有，写进来只会把真正要看的那几行挤下去。
  */
-const insertChanges = (values: Record<string, unknown>) => Object.fromEntries(Object.entries(values)
-	.filter(([name, value]) => value !== undefined && value !== null && value !== ''
-		&& !isHiddenValueColumn(name) && !isSystemField(name) && !name.startsWith('owner_'))
-	.map(([name, value]) => [name, { before: null, after: value }]));
+const insertChanges = (values: Record<string, unknown>, pendedAt: number) => ({
+	...Object.fromEntries(Object.entries(values)
+		.filter(([name, value]) => value !== undefined && value !== null && value !== ''
+			&& !isHiddenValueColumn(name) && !isSystemField(name) && !name.startsWith('owner_'))
+		.map(([name, value]) => [name, { before: null, after: value }])),
+	/**
+	 * 批准这条新建，落到数据上就是这一列：`pended_at: 提交时刻 → 0`。
+	 *
+	 * 记它是因为它**精确描述了批准会做什么**。行是真写进库里的（只是带着 pended_at 谁也
+	 * 看不见），所以这条申请说的不是「将来要造一行」，而是「把已经在那儿的这一行放出来」
+	 * ——那正是一次寻常的列变更。
+	 *
+	 * 时间戳因此要在**记录之前**生成，再原样交给那条 INSERT：两边各调一次 Date.now()
+	 * 就会差上几毫秒，记录里的 before 和行上的实际值对不上。
+	 *
+	 * 立即生效的那条路（个人中心一类）不记这一项：那里的行一开始 pended_at 就是 0，
+	 * 根本没有这个变化，记一条 `0 → 0` 是凭空造出来的。
+	 */
+	...(pendedAt ? { pended_at: { before: pendedAt, after: 0 } } : {}),
+});
 
 /**
  * 记一条「新建了这一行」。
@@ -234,6 +250,7 @@ const recordInsert = async (
 	origin: RequestOrigin,
 	scope: 'admin' | 'self',
 	immediate: boolean,
+	pendedAt: number,
 ) => {
 	const builder = sql({ database, subjectRoles: null, ownerTid: metadata.owner.tid, ownerBid: metadata.owner.bid, ownerUid: metadata.owner.uid, actorUid: metadata.owner.actor });
 	await runSystemSql(database, builder.insert(AUDIT_TABLE, {
@@ -247,7 +264,7 @@ const recordInsert = async (
 		row_id: 0,
 		row_key: metadata.rowKey,
 		action: 'insert',
-		changes: JSON.stringify(insertChanges(metadata.values)),
+		changes: JSON.stringify(insertChanges(metadata.values, pendedAt)),
 		review_status: immediate ? 'none' : 'pending',
 		data_status: immediate ? 'applied' : 'unwritten',
 	}));
@@ -370,7 +387,7 @@ export const runOperation = async (
 	// upsert 两种元数据都带，落到哪一路要查过才知道，因此这个数组在记录时才填。
 	const inserts: (SqlQuery & { insertAudit: SqlInsertAuditMetadata })[] = [];
 	const immediate = managed.length === 0 || skipsApproval(c, options);
-	let recorded = 0, operationId = '';
+	let recorded = 0, operationId = '', pendedAt = 0;
 	if (managed.length) {
 		operationId = options.operationId ?? crypto.randomUUID();
 		const reason = options.reason?.trim().slice(0, MAX_REASON_LENGTH) ?? readChangeReason(c);
@@ -391,9 +408,12 @@ export const runOperation = async (
 			} catch { return { hostname: '', path: '' }; }
 		})();
 		const scope = operationScope(c);
+		// 待审批的新行写进去时带的就是这个时刻。先算好再记录，两边同一个值——各调一次
+		// Date.now() 会差上几毫秒，记录里的 before 和行上的实际值就对不上了。
+		pendedAt = immediate ? 0 : Date.now();
 		const asInsert = async (statement: SqlQuery & { insertAudit: SqlInsertAuditMetadata }) => {
 			inserts.push(statement);
-			recorded += await recordInsert(database, statement.insertAudit, operationId, reason, origin, scope, immediate);
+			recorded += await recordInsert(database, statement.insertAudit, operationId, reason, origin, scope, immediate, pendedAt);
 		};
 		for (const statement of managed) {
 			if (statement.audit) {
@@ -429,7 +449,7 @@ export const runOperation = async (
 			try {
 				// 照原样重建那条 INSERT，只多一个 pended_at——不重新走 insert()，那会再发一个 key，
 				// 而审批记录里记的是原来那一个。
-				await runSystemSql(database, builder.insertExisting(statement.insertAudit.table, { ...statement.insertAudit.values, pended_at: Date.now() }));
+				await runSystemSql(database, builder.insertExisting(statement.insertAudit.table, { ...statement.insertAudit.values, pended_at: pendedAt }));
 				await backfillInsertRowId(database, builder, statement.insertAudit, operationId);
 			} catch (error) {
 				/**

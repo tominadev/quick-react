@@ -6,7 +6,8 @@ import { createDeviceKeyTransportCookie } from './device-fingerprint.mjs';
 import { isSecureRequest } from './request-origin.mjs';
 import { deletedScopeFromQuery, queryIncludes } from './query-options.mjs';
 import { APPROVAL_SKIP_ROLES, operationScope } from './operation.mjs';
-import { APPROVE_ACTION, PENDING_FIELD, WITHDRAW_ACTION, pendingRowIds } from './pending-approval.mjs';
+import { APPROVE_ACTION, PENDING_FIELD, PENDING_KINDS, REJECT_ACTION, WITHDRAW_ACTION, pendingRowStates, pendingRowToken } from './pending-approval.mjs';
+import { isSuperUser } from './super-users.mjs';
 import { tableCrudDatabase } from './table-crud.mjs';
 export type { ApiFeedback, ApiFeedbackOptions, ApiSuccessData } from '@shared/types/api-response.mjs';
 
@@ -75,8 +76,8 @@ const withPendingApproval = async (c: Context<AppEnv>, payload: Record<string, u
 	if (!tableName || !rowKey) return payload;
 	const ids = rows.map((row) => String((row as Record<string, unknown>)[rowKey] ?? '')).filter(Boolean);
 	if (!ids.length) return payload;
-	const pending = await pendingRowIds(database, tableName, ids);
-	const marked = rows.map((row) => ({ ...(row as Record<string, unknown>), [PENDING_FIELD]: pending.has(String((row as Record<string, unknown>)[rowKey] ?? '')) ? '1' : '' }));
+	const states = await pendingRowStates(c, database, tableName, ids);
+	const marked = rows.map((row) => ({ ...(row as Record<string, unknown>), [PENDING_FIELD]: pendingRowToken(states.get(String((row as Record<string, unknown>)[rowKey] ?? ''))) }));
 	// 只给要走审批的页面挂：问 operationScope，与「这一页看不看得见待审批的行」同一个答案。
 	const withActions = option && typeof option === 'object' && !Array.isArray(option) && operationScope(c) === 'admin';
 	if (!withActions) return { ...payload, table: { ...source, dataSource: marked } };
@@ -86,6 +87,26 @@ const withPendingApproval = async (c: Context<AppEnv>, payload: Record<string, u
 		: {};
 	const rowActions = Array.isArray(actions.row) ? actions.row : [];
 	const canApprove = (c.get('effectiveRoles') ?? []).some((role) => APPROVAL_SKIP_ROLES.includes(role));
+	/**
+	 * 按钮按「谁提的」和「哪一种申请」分开挂，不是一对通用的撤回/批准。
+	 *
+	 * - **撤回**只对自己提的出现：替别人撤等于替别人做决定，那是驳回该干的事。原先它对每
+	 *   一行都出现，点下去才被服务端挡回来（「没有你自己提交的待审批申请」）。
+	 * - **驳回**只对别人提的出现：自己的东西直接撤回就是了，多一个按钮只会让人犹豫该点哪个。
+	 * - **批准**自己提的那一份只给超级用户：其余人受四眼原则限制，点了必然失败（§13.5）。
+	 * - 新增与修改分开说：「撤回新增」会把那一行删掉，「撤回修改」一个字都不动数据。
+	 *
+	 * 同一个 key 出现两次没问题：`visibleWhen` 互斥，前端过滤之后一行上只会渲染其中一个。
+	 */
+	const superUser = isSuperUser(c);
+	const on = (values: string[]) => ({ visibleWhen: { field: PENDING_FIELD, values } });
+	const approvalRowActions = PENDING_KINDS.flatMap((item) => [
+		{ key: WITHDRAW_ACTION, label: `撤回${item.label}`, confirm: item.withdraw, ...on([`${item.kind}-mine`]) },
+		...(canApprove ? [
+			{ key: APPROVE_ACTION, label: `批准${item.label}`, confirm: item.approve, ...on(superUser ? [`${item.kind}-other`, `${item.kind}-mine`] : [`${item.kind}-other`]) },
+			{ key: REJECT_ACTION, label: `驳回${item.label}`, confirm: item.reject, ...on([`${item.kind}-other`]) },
+		] : []),
+	]);
 	return {
 		...payload,
 		table: {
@@ -95,11 +116,7 @@ const withPendingApproval = async (c: Context<AppEnv>, payload: Record<string, u
 				...optionSource,
 				actions: {
 					...actions,
-					row: [
-						...rowActions,
-						{ key: WITHDRAW_ACTION, label: '撤回申请', confirm: '确认撤回这一行还没生效的修改吗？数据不会被改动。', visibleWhen: { field: PENDING_FIELD, values: ['1'] } },
-						...(canApprove ? [{ key: APPROVE_ACTION, label: '立即批准', confirm: '确认立即批准并生效吗？', visibleWhen: { field: PENDING_FIELD, values: ['1'] } }] : []),
-					],
+					row: [...rowActions, ...approvalRowActions],
 				},
 			},
 		},

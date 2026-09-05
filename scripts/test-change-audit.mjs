@@ -139,11 +139,13 @@ const auditRouteFilter = async () => {
 		assert.equal((await app.request(`${usersApi}/${bob.id}`, { method: 'PUT', headers: { ...headers, cookie }, body: JSON.stringify({ status: 'disabled', __changedFields: ['status'] }) })).status, 202);
 		const marked = await (await app.request(`${usersApi}?include=schema,data`, { headers: { ...headers, cookie } })).json();
 		assert.equal(marked.table.columns.some((column) => column.dataIndex === '_pending'), false, '不开「审批」列：标记是数据不是列，前端拿它给那一行换底色');
-		assert.equal(marked.table.dataSource.find((row) => row.user_name === 'pendingbob')._pending, '1');
-		assert.deepEqual(
-			marked.table.option.actions.row.slice(-2).map((action) => action.key),
-			['withdraw-pending', 'approve-pending'],
-		);
+		assert.equal(marked.table.dataSource.find((row) => row.user_name === 'pendingbob')._pending, 'update-mine');
+		// 四种申请各挂一组按钮，由 visibleWhen 按行显隐：撤回只对自己提的出现，
+		// 驳回只对别人提的出现，批准自己那一份只给超级用户。
+		const markedActions = marked.table.option.actions.row.filter((action) => action.visibleWhen?.field === '_pending');
+		assert.ok(markedActions.some((action) => action.label === '撤回修改' && action.visibleWhen.values.includes('update-mine')));
+		assert.ok(markedActions.some((action) => action.label === '批准新增'));
+		assert.ok(markedActions.some((action) => action.label === '驳回删除' && action.visibleWhen.values.includes('soft_delete-other')));
 		assert.equal(marked.table.dataSource.find((row) => row.user_name === 'pendingbob').status, 'enabled', '还没批准就不该生效');
 		assert.equal((await app.request(`${usersApi}/${bob.id}?action=approve-pending`, { method: 'POST', headers: { ...headers, cookie }, body: '{}' })).status, 200);
 		const applied = await (await app.request(`${usersApi}?include=schema,data`, { headers: { ...headers, cookie } })).json();
@@ -188,12 +190,20 @@ const auditRouteFilter = async () => {
 		assert.equal(duplicate.status, 409, '重复的 key 是用户输入的正常结果，不是服务端故障');
 		assert.equal((await pendingIds()).length, queuedBefore, '失败的新建不该在队列里留下申请');
 
-		// 驳回：那一行物理消失。
+		// 驳回：那一行进回收站，不是凭空消失。
+		//
+		// 软删除本来就有保留期，被驳回的新建因此看得见、找得回——审批人手一抖驳回了别人
+		// 半天的录入，那份录入不该就此不存在。pended_at 一并归零，让它成为一条普通的
+		// 已删除记录：留着非零的话，从回收站恢复出来的行仍然对业务查询不可见，却又出现在
+		// 管理列表里，成了一个谁也说不清状态的幽灵。
 		assert.equal((await app.request(rowsApi, { method: 'POST', headers: { ...headers, cookie }, body: JSON.stringify({ key: 'audit_rejected', value: '{}' }) })).status, 202);
 		assert.equal((await decide('reject', await pendingIds())).status, 200);
-		assert.equal([...await visibleKeys(), ...await pendedKeys()].includes('audit_rejected'), false, '驳回之后行不该留下，数据管理里也不该有');
+		assert.equal([...await visibleKeys(), ...await pendedKeys()].includes('audit_rejected'), false, '驳回之后不该还在生效的行里');
 		const leftovers = new DatabaseSync(process.env.DEFAULT_DATABASE_FILE);
-		assert.equal(leftovers.prepare("SELECT COUNT(*) AS n FROM base_configs WHERE key = 'audit_rejected'").get().n, 0, '被驳回的新建要物理删掉，不是留在回收站');
+		const rejectedRow = leftovers.prepare("SELECT deleted_at, pended_at FROM base_configs WHERE key = 'audit_rejected'").get();
+		assert.ok(rejectedRow, '被驳回的新建留在回收站里，不是物理删掉');
+		assert.notEqual(Number(rejectedRow.deleted_at), 0, '进了回收站');
+		assert.equal(Number(rejectedRow.pended_at), 0, '并且是一条普通的已删除记录');
 		leftovers.close();
 
 		// 个人中心第一次设资料（资料行还不存在）也要留痕，只是立即生效。
@@ -218,7 +228,7 @@ const auditRouteFilter = async () => {
 		const pendingList = await (await app.request(`${usersApi}?include=schema,data`, { headers: { ...headers, cookie } })).json();
 		const queuedRow = pendingList.table.dataSource.find((row) => row.user_name === 'rejectme');
 		assert.ok(queuedRow, '待审批的新账号要出现在用户管理里');
-		assert.equal(queuedRow._pending, '1', '并且标成待审批');
+		assert.equal(queuedRow._pending, 'insert-mine', '标成「我提的新增」——按钮据此显示成「撤回新增」而不是笼统的「撤回申请」');
 		// 不为它开一列：`_pending` 是数据不是列，前端拿它给那几行换底色。
 		assert.equal(pendingList.table.columns.some((column) => column.dataIndex === '_pending'), false, '不该多出一列');
 		const rowActions = pendingList.table.option.actions.row.map((action) => action.key);
@@ -227,7 +237,7 @@ const auditRouteFilter = async () => {
 		// 否则删一行之后得整页刷新才看得见「撤回申请」。
 		const dataOnly = await (await app.request(`${usersApi}?include=data`, { headers: { ...headers, cookie } })).json();
 		assert.equal('option' in dataOnly.table, false, '只请求数据时不该下发结构');
-		assert.equal(dataOnly.table.dataSource.find((row) => row.user_name === 'rejectme')?._pending, '1', '只取数据也要带标记');
+		assert.equal(dataOnly.table.dataSource.find((row) => row.user_name === 'rejectme')?._pending, 'insert-mine', '只取数据也要带标记');
 
 		// 建号进队列之后再改一次:那条 insert 不能被 update 覆盖。
 		//
@@ -246,9 +256,14 @@ const auditRouteFilter = async () => {
 		assert.equal(new Set(queuedInserts.map((row) => row.operation_id)).size, 1, '三条共享一个操作号');
 		assert.equal((await app.request('http://localhost/api/panel/admin/base/audit.php?action=reject', { method: 'POST', headers: { ...headers, cookie }, body: JSON.stringify([String(queuedInserts[0].id)]) })).status, 200);
 		const afterReject = new DatabaseSync(process.env.DEFAULT_DATABASE_FILE);
-		assert.equal(afterReject.prepare("SELECT COUNT(*) AS n FROM base_users WHERE name = 'rejectme'").get().n, 0, '驳回要把账号那一行删掉');
-		assert.equal(afterReject.prepare('SELECT COUNT(*) AS n FROM base_user_credentials WHERE user_id NOT IN (SELECT id FROM base_users)').get().n, 0, '驳回不能留下指向不存在账号的凭证');
-		assert.equal(afterReject.prepare('SELECT COUNT(*) AS n FROM base_user_profiles WHERE user_id NOT IN (SELECT id FROM base_users)').get().n, 0, '资料同理');
+		// 三行一起进回收站，一行都不能落下——落下的那一行会指向一个已经不在生效列表里的账号。
+		const rejectedUser = afterReject.prepare("SELECT id, deleted_at, pended_at FROM base_users WHERE name = 'rejectme'").get();
+		assert.ok(rejectedUser, '驳回是软删除，账号那一行留在回收站里');
+		assert.notEqual(Number(rejectedUser.deleted_at), 0, '账号进了回收站');
+		assert.equal(Number(rejectedUser.pended_at), 0, '并且是一条普通的已删除记录');
+		const live = 'SELECT id FROM base_users WHERE deleted_at = 0 AND pended_at = 0';
+		assert.equal(afterReject.prepare(`SELECT COUNT(*) AS n FROM base_user_credentials WHERE deleted_at = 0 AND user_id NOT IN (${live})`).get().n, 0, '驳回不能留下指向已删除账号的凭证');
+		assert.equal(afterReject.prepare(`SELECT COUNT(*) AS n FROM base_user_profiles WHERE deleted_at = 0 AND user_id NOT IN (${live})`).get().n, 0, '资料同理');
 		afterReject.close();
 
 		// 列的先后要与 prisma 里的字段顺序一致：两处对照着看时不用来回找。
