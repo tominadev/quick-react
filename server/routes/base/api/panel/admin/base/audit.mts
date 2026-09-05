@@ -2,7 +2,7 @@ import type { ApiHandler } from '@server/modules/base/api-router.mjs';
 import { apiMessage, apiResponse } from '@server/modules/base/api-response.mjs';
 import { readChangeReason } from '@server/modules/base/operation.mjs';
 import type { SqlCondition } from '@server/database/sql.mjs';
-import { STATUS_LABELS, describeAuditChanges, listAuditEntries, parseAuditChanges, publicAuditChanges, readAuditEntry, transitionAuditEntries, type AuditEntryRow } from '@server/modules/base/audit.mjs';
+import { STATUS_LABELS, countAuditEntries, describeAuditChanges, listAuditEntries, parseAuditChanges, publicAuditChanges, readAuditEntry, transitionAuditEntries, type AuditEntryRow } from '@server/modules/base/audit.mjs';
 import { tableSort } from '@server/modules/base/query-options.mjs';
 
 const actionLabels: Record<string, string> = { update: '修改', soft_delete: '删除', restore: '恢复' };
@@ -100,7 +100,10 @@ const handler: ApiHandler = async (c, next, params) => {
 		if (tableFilter) filters.push({ column: 'table_name', value: tableFilter });
 		const rowFilter = c.req.query('row_id')?.trim();
 		if (rowFilter) filters.push({ column: 'row_id', value: rowFilter });
-		const rows = await listAuditEntries(database, filters, c.req.query('reason')?.trim(), undefined, tableSort(c));
+		const reason = c.req.query('reason')?.trim();
+		const rows = await listAuditEntries(database, filters, reason, undefined, tableSort(c));
+		// 列表有条数上限，总数单独计一次——拿列表长度当总数会在超过上限时谎报。
+		const totalRecords = await countAuditEntries(database, filters, reason);
 		return apiResponse(c, 200, { table: {
 			// 审计记录不可修改、不可删除，接口层因此没有新增、编辑与删除入口（§7.3）。
 			// 这一页的动作本身就是审批机制，不经过审批门：撤回、批准、驳回走的是
@@ -115,7 +118,7 @@ const handler: ApiHandler = async (c, next, params) => {
 			} },
 			columns,
 			dataSource: rows.map(publicEntry),
-			totalRecords: rows.length,
+			totalRecords,
 		} });
 	}
 	if (params.id && c.req.method === 'GET') {

@@ -46,6 +46,27 @@ const auditRouteFilter = async () => {
 		assert.deepEqual(await statuses('&status=applied'), ['applied']);
 		// 这就是 /panel/admin/base/audit.html?q.status=all 实际发出的请求。
 		assert.deepEqual(await statuses('&status=all'), ['applied', 'pending', 'pending', 'rejected'], 'status=all 要返回全部');
+
+		// 总数要跟着筛选条件走，而且不能拿列表长度充数——列表有 200 条上限，
+		// 库里更多时那样会谎报「共 200 条」。
+		const totals = async (query) => {
+			const response = await app.request(`http://localhost/api/panel/admin/base/audit.php?include=schema,data${query}`, { headers: { ...headers, cookie } });
+			const body = await response.json();
+			return { total: body.table.totalRecords, rows: body.table.dataSource.length };
+		};
+		assert.deepEqual(await totals('&status=all'), { total: 4, rows: 4 });
+		assert.deepEqual(await totals('&status=applied'), { total: 1, rows: 1 }, '总数要跟着筛选走');
+		assert.deepEqual(await totals(''), { total: 2, rows: 2 });
+		const overflow = new DatabaseSync(process.env.DEFAULT_DATABASE_FILE);
+		const now = Date.now();
+		for (let index = 0; index < 250; index += 1) {
+			overflow.prepare('INSERT INTO base_audit_entries (created_at,updated_at,operation_id,reason,table_name,row_id,action,changes,status) VALUES (?,?,?,?,?,?,?,?,?)')
+				.run(now, now, `bulk${index}`, '批量', 'base_users', String(index), 'update', '{}', 'pending');
+		}
+		overflow.close();
+		const capped = await totals('&status=pending');
+		assert.equal(capped.rows, 200, '列表仍按上限返回');
+		assert.equal(capped.total, 252, '总数是真实条数，不是取回的条数');
 	} finally {
 		if (previousFile === undefined) delete process.env.DEFAULT_DATABASE_FILE;
 		else process.env.DEFAULT_DATABASE_FILE = previousFile;

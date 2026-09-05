@@ -83,6 +83,20 @@ export const describeAuditChanges = (changes: AuditChanges) => Object.entries(ch
  *
  * `reasonKeyword` 走模糊匹配：操作原因是人写的自由文本，等值匹配没有意义。
  */
+/**
+ * 符合条件的记录**总数**，与 listAuditEntries 用同一组条件。
+ *
+ * 列表有 200 条上限，拿它的长度当总数会在超过上限时谎报（库里 250 条却显示「共 200 条」）。
+ * 计数单独查一次。
+ */
+export const countAuditEntries = async (database: DatabaseAdapter, where: SqlCondition[] = [], reasonKeyword?: string) => {
+	const row = await firstSql<{ count: number }>(database, sql({ database }).count(AUDIT_TABLE, [
+		...where,
+		...(reasonKeyword ? [{ column: 'reason', operator: 'LIKE' as const, value: `%${reasonKeyword}%` }] : []),
+	]));
+	return Number(row?.count ?? 0);
+};
+
 export const listAuditEntries = async (database: DatabaseAdapter, where: SqlCondition[] = [], reasonKeyword?: string, limit = 200, sort?: SqlSortOption) => allSql<AuditEntryRow>(database, sql({ database }).select({
 	table: AUDIT_TABLE,
 	columns: entryColumns,

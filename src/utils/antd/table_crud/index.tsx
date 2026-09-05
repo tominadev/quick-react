@@ -105,6 +105,13 @@ const TableCRUD = ({ commonApi, resourcePath, initialResponse, initialQueryValue
 	});
 	/** `<列>:<asc|desc>`，空串表示按后端默认排序。 */
 	const [sort, setSort] = useState<string>(initialTableState.sort);
+	/**
+	 * 总数是不是准确的。
+	 *
+	 * 游标分页（对象存储那类）拿不到总数，只知道"后面还有没有"，total 是按当前页估出来的。
+	 * 那种情况下不能写「共 N 条」——那是个会变的假数字。
+	 */
+	const [exactTotal, setExactTotal] = useState(true);
 	const [filters, setFilters] = useState<Record<string, FilterValue | null>>({});
 	const [dataSource, setDataSource] = useState<DataType[]>([]);
 	const [tableColumns, setTableColumns] = useState<TableColumnsType<DataType>>();
@@ -421,6 +428,7 @@ const TableCRUD = ({ commonApi, resourcePath, initialResponse, initialQueryValue
 			}
 
 			//setDrawerRow({ name: 'asdf' });
+			setExactTotal(resJSON.table?.hasMore === undefined);
 			setPagination((prev) => {
 				const current = prev.current ?? 1;
 				const pageSize = prev.pageSize ?? 10;
@@ -840,7 +848,14 @@ const TableCRUD = ({ commonApi, resourcePath, initialResponse, initialQueryValue
 		<Table<DataType>
 			key={String(appliedQueryValues.table ?? apiPath)}
 			rowSelection={rowSelection}
-			pagination={pagination}
+			pagination={{
+				...pagination,
+				// 总数默认不显示，得自己给。游标分页时 total 是估出来的，只报区间不报总数——
+				// 写一个会变的「共 N 条」比不写更糟。
+				showTotal: (total, range) => exactTotal
+					? `第 ${range[0]}-${range[1]} 条，共 ${total} 条`
+					: `第 ${range[0]}-${range[1]} 条`,
+			}}
 			onChange={onChange}
 			columns={sortedColumns}
 			dataSource={dataSource}
