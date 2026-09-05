@@ -141,6 +141,17 @@ model base_users {
   owner_tid     BigInt @default(1)
   owner_bid     BigInt @default(1)
   owner_uid     BigInt?
+  /// 发展这个账号的代理，指向同库 `base_users.id`；NULL 表示分站直属、无代理。
+  ///
+  /// **只存在这一张表。** 代理要看下级的业务数据走代查机制（每次显式指定一个账号并留痕），
+  /// 不靠行级谓词——把它铺满全表的话，下级换个代理就要跨 64 张表回写，而 D1 没有事务，
+  /// 改一半就是灾难（agent-tenants-and-management-views.md §4.2）。放在这里，换代理只改一行。
+  ///
+  /// 也不复用 owner_uid：那一列是行级可见性的判定依据（非管理员只看得到 owner_uid = 自己
+  /// 的行），改成代理之后用户连自己的账号都查不到，「昵称不能与别人的用户名相同」那道
+  /// 校验也会静悄悄失效。
+  agent_uid     BigInt?
+  @@index([agent_uid])
   name          String
   // 用户名在租户内唯一：不同租户可以各有同名账号。
   @@unique([owner_tid, name, deleted_at])
