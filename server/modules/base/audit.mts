@@ -183,7 +183,17 @@ export const listAuditEntries = async (database: DatabaseAdapter, where: SqlCond
 	limit,
 }));
 
-export const readAuditEntry = (database: DatabaseAdapter, id: string) => firstSql<AuditEntryRow>(database, sql({ database }).select({
+/**
+ * 「要处理的这条申请」用的构造器：审批表一律按 active 读。
+ *
+ * 适配器上的 deletedScope 说的是**正在浏览的那张表**。在某张业务表的回收站里点「立即批准」
+ * 时它是 deleted，于是这些查询会跑去「已删除的审批记录」里找，一条都找不到——界面报
+ * 「审计记录不存在或无权访问」。审批页自己的列表(listAuditEntries)不在此列：那一页浏览的
+ * 就是这张表，它的回收站视图是真要看已删除的审批记录。
+ */
+const approvalSql = (database: DatabaseAdapter) => sql({ database, deletedScope: 'active' });
+
+export const readAuditEntry = (database: DatabaseAdapter, id: string) => firstSql<AuditEntryRow>(database, approvalSql(database).select({
 	table: AUDIT_TABLE,
 	columns: entryColumns,
 	where: [{ column: 'id', value: id }],
@@ -388,7 +398,7 @@ export const DATA_LABELS: Record<DataStatus, string> = { unwritten: '未写入',
  */
 const withOperationSiblings = async (database: DatabaseAdapter, ids: readonly string[]) => {
 	if (!ids.length) return [...ids];
-	const selected = await allSql<{ id: string; operation_id: string; review_status: string }>(database, sql({ database }).select({
+	const selected = await allSql<{ id: string; operation_id: string; review_status: string }>(database, approvalSql(database).select({
 		table: AUDIT_TABLE,
 		columns: { id: { column: 'id', cast: 'text' }, operation_id: 'operation_id', review_status: 'review_status' },
 	}));

@@ -27,6 +27,11 @@ const sameActor = (entry: PendingEntry, actor: string | number | bigint | null) 
 export const pendingEntriesFor = async (database: DatabaseAdapter, table: string, rowId: string | number | bigint) =>
 	allSql<PendingEntry>(database, sql({ database }).select({
 		table: 'base_approvals',
+		// 回收站视图会把适配器的默认范围设成 deleted，那说的是**被浏览的那张表**。
+		// 不写死 active 的话，这里会去找「已删除的审批记录」，一条都找不到——
+		// 于是在回收站里恢复一条记录、进了队列，行上却不显示待审批，撤回和批准两个按钮
+		// 被 visibleWhen 一起藏掉。
+		deleted: 'active',
 		columns: { id: { column: 'id', cast: 'text' }, changes: 'changes', reason: 'reason', created_at: 'created_at', created_duid: { column: 'created_duid', cast: 'text' } },
 		where: [{ column: 'table_name', value: table }, { column: 'row_id', value: String(rowId) }, { column: 'review_status', value: 'pending' }],
 		orderBy: [{ column: 'id' }],
@@ -42,6 +47,8 @@ export const pendingRowIds = async (database: DatabaseAdapter, table: string, ro
 	if (!rowIds.length) return new Set<string>();
 	const rows = await allSql<{ row_id: string }>(database, sql({ database }).select({
 		table: 'base_approvals', distinct: true,
+		// 同上：审批记录自己有没有被删，与正在浏览的那张表是不是回收站视图无关。
+		deleted: 'active',
 		columns: { row_id: { column: 'row_id', cast: 'text' } },
 		where: [{ column: 'table_name', value: table }, { column: 'review_status', value: 'pending' }],
 	}));

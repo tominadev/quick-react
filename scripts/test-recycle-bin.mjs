@@ -78,7 +78,16 @@ try {
 	assert.equal((await request(`${recyclePath}&action=restore`, { method: 'POST', cookie, keepPending: true, body: [fixture.id] })).status, 202, '回收站的恢复要进审批队列');
 	const stillDeleted = await (await request(rowsPath, { cookie })).json();
 	assert.equal(stillDeleted.table.dataSource.some((row) => row.id === fixture.id), false, '没批准之前不该回到普通列表');
-	await approvePending();
+	// 待审批的恢复要能在**回收站里**看出来并就地处理。
+	//
+	// 审批表的查询原先跟着适配器的默认范围走，而回收站视图把它设成了 deleted——那说的是
+	// 正在浏览的业务表。于是这些查询跑去「已删除的审批记录」里找，一条都找不到：行上不
+	// 显示待审批（两个按钮被 visibleWhen 一起藏掉），点批准则报「审计记录不存在或无权访问」。
+	const binView = await (await request(recyclePath, { cookie })).json();
+	assert.equal(binView.table.dataSource.find((row) => row.id === fixture.id)?._pending, '1', '回收站里也要标出待审批');
+	const binActions = binView.table.option.actions.row.map((action) => action.key);
+	assert.ok(binActions.includes('withdraw-pending') && binActions.includes('approve-pending'), '回收站的行上也要有撤回和批准');
+	assert.equal((await request(`${recyclePath}&action=approve-pending`, { method: 'POST', cookie, keepPending: true, body: [fixture.id] })).status, 200, '就地批准');
 	const restored = await (await request(rowsPath, { cookie })).json();
 	assert.ok(restored.table.dataSource.some((row) => row.id === fixture.id), '批准后记录应回到普通列表');
 

@@ -172,6 +172,10 @@ const findPendingEntry = async (database: DatabaseAdapter, builder: ReturnType<t
 	];
 	return firstSql<{ id: string }>(database, builder.select({
 		table: AUDIT_TABLE, columns: { id: { column: 'id', cast: 'text' } }, where,
+		// 显式 active：回收站视图把适配器的默认范围设成 deleted，那说的是被浏览的那张表。
+		// 不写的话，从回收站发起的操作会去「已删除的审批记录」里找同一行的待审批申请，
+		// 永远找不到，于是同一个人对同一行的重复提交会在队列里堆成两条。
+		deleted: 'active',
 		orderBy: [{ column: 'id', direction: 'DESC' }], limit: 1,
 	}));
 };
