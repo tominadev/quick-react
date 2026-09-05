@@ -39,6 +39,19 @@ try {
 		return new Response(await response.text(), { status: 200, headers: response.headers });
 	};
 
+	/**
+	 * 把队列里剩下的都批掉。恢复现在也排队，用例要自己走完这一步。
+	 *
+	 * 走 request 而不是直接 app.request：设备标识那两个头由它统一带上，少带一个会被判成
+	 * 换了设备，会话当场作废——下一个请求就是 401。
+	 */
+	const approvePending = async () => {
+		const pending = await (await request('/api/panel/admin/base/audit.php?include=data&review_status=pending', { cookie })).json();
+		const ids = (pending.table?.dataSource ?? []).map((row) => String(row.id));
+		if (!ids.length) return;
+		assert.equal((await request('/api/panel/admin/base/audit.php?action=approve', { method: 'POST', cookie, keepPending: true, body: ids })).status, 200);
+	};
+
 	assert.equal((await request('/api/sign.php', { method: 'PUT', body: { user_name: 'recycleadmin', password: 'test-password-123' } })).status, 201);
 	const login = await request('/api/sign.php', { method: 'POST', body: { user_name: 'recycleadmin', password: 'test-password-123' } });
 	const cookie = login.headers.get('set-cookie')?.split(';')[0];
@@ -59,12 +72,15 @@ try {
 	const recyclePath = `${rowsPath}&include=deleted,schema,data`;
 	const deleted = await (await request(recyclePath, { cookie })).json();
 	assert.ok(deleted.table.dataSource.some((row) => row.id === fixture.id), '软删除记录应出现在回收站');
-	// 恢复**立即生效**，不再排一次队：把记录移进回收站那一步已经过了审批，恢复是它的
-	// 逆操作。keepPending 让这里看见真实状态码——排队的话会是 202，而外面那层会替它把
-	// 队走完，把「回收站救不了急」这个毛病盖住。
-	assert.equal((await request(`${recyclePath}&action=restore`, { method: 'POST', cookie, keepPending: true, body: [fixture.id] })).status, 200, '回收站的恢复要立即生效');
+	// 恢复**照常走审批**：它是把一条被批准删掉的记录重新对所有人可见，那是在推翻一个
+	// 已经做过的决定。keepPending 让这里看见真实状态码，先确认它真的进了队列，
+	// 再确认没批之前记录还留在回收站里。
+	assert.equal((await request(`${recyclePath}&action=restore`, { method: 'POST', cookie, keepPending: true, body: [fixture.id] })).status, 202, '回收站的恢复要进审批队列');
+	const stillDeleted = await (await request(rowsPath, { cookie })).json();
+	assert.equal(stillDeleted.table.dataSource.some((row) => row.id === fixture.id), false, '没批准之前不该回到普通列表');
+	await approvePending();
 	const restored = await (await request(rowsPath, { cookie })).json();
-	assert.ok(restored.table.dataSource.some((row) => row.id === fixture.id), '恢复后记录应回到普通列表');
+	assert.ok(restored.table.dataSource.some((row) => row.id === fixture.id), '批准后记录应回到普通列表');
 
 	assert.equal((await request(rowsPath, { method: 'DELETE', cookie, body: [fixture.id] })).status, 200);
 	assert.equal((await request(`${recyclePath}&action=purge`, { method: 'POST', cookie, keepPending: true, body: [fixture.id] })).status, 200, '彻底删除也不排队');
@@ -103,7 +119,8 @@ try {
 	const approvalBin = await (await request(`${approvals}?include=schema,data,deleted&review_status=all`, { cookie })).json();
 	assert.ok(approvalBin.table.dataSource.some((row) => String(row.id) === String(victim)), '软删除的审批记录要出现在审批页的回收站');
 	assert.deepEqual(approvalBin.table.option.actions.toolbar.map((action) => action.key), ['restore', 'purge']);
-	assert.equal((await request(`${approvals}/${victim}?include=deleted&action=restore`, { method: 'POST', cookie, keepPending: true, body: {} })).status, 200, '审批记录也要能从回收站恢复');
+	assert.equal((await request(`${approvals}/${victim}?include=deleted&action=restore`, { method: 'POST', cookie, keepPending: true, body: {} })).status, 202, '审批记录的恢复同样要进队列');
+	await approvePending();
 	const restoredApproval = await (await request(`${approvals}?include=data&review_status=all`, { cookie })).json();
 	assert.ok(restoredApproval.table.dataSource.some((row) => String(row.id) === String(victim)), '恢复后要回到审批列表');
 

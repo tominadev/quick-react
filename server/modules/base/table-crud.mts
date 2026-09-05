@@ -3,7 +3,7 @@ import type { AppEnv } from './types.mjs';
 import type { DatabaseAdapter } from '@server/database/index.mjs';
 import { listColumns, listTables } from '@server/database/schema.mjs';
 import { firstSql, runSql, sql, type SqlCondition } from '@server/database/sql.mjs';
-import { runOperationSql } from './operation.mjs';
+import { PendingApprovalError, runOperationSql } from './operation.mjs';
 import { apiMessage } from './api-response.mjs';
 import { deletedScopeFromQuery } from './query-options.mjs';
 import { APPROVE_ACTION, WITHDRAW_ACTION, handlePendingApprovalAction } from './pending-approval.mjs';
@@ -69,16 +69,27 @@ export const handleTableCrudAction = async (c: Context<AppEnv>, definition: Tabl
 		const existing = await firstSql(database, sql({ database }).select({ table, columns: { id: rowKey }, where, deleted: 'deleted', limit: 1 }));
 		if (!existing) return apiMessage(c, 404, `回收站中不存在记录：${id}`);
 	}
+	/**
+	 * 恢复**照常走审批**，彻底删除不排队。
+	 *
+	 * 原先恢复是立即生效的，理由是「回收站得是后悔药，删错一条不该等审批人有空才救得回来」。
+	 * 那个理由站不住：删除本身就要审批人签过字，所以删的时候已经等过一次了，「删错了」
+	 * 不是一个随手就能造成的状态。而恢复是把一条**被批准删掉的**记录重新对所有人可见，
+	 * 那是在推翻一个已经做过的决定，正是审批要管的事。
+	 *
+	 * 彻底删除仍然不排队也不留痕：物理 delete 不带审计元数据（§3.0），而它只给超级用户。
+	 *
+	 * 多条一起选时共用一个操作号并 defer：第一条就抛异常的话，后面几条根本不会进队列，
+	 * 用户看到「已提交审批」却只提交了一条。
+	 */
+	const operationId = crypto.randomUUID();
 	for (const id of ids) {
 		const where: SqlCondition[] = [...businessWhere, { column: rowKey, value: id }, { column: 'deleted_at', operator: '!=', value: 0 }];
 		const statement = action === 'restore' ? sql({ database }).restore(table, where) : sql({ database }).delete(table, where);
-		// 回收站里的恢复**立即生效**，只留痕不排队。
-		//
-		// 把记录移进回收站那一步已经过了审批（软删除是 UPDATE，走审批门）；恢复是它的
-		// 逆操作，做的是「把东西放回大家都看得见的地方」。再让它排一次队，回收站就不是
-		// 后悔药了——删错一条要等审批人有空才救得回来，而这段时间里记录是消失的。
-		await runOperationSql(c, database, statement, { immediate: true });
+		await runOperationSql(c, database, statement, action === 'restore' ? { operationId, defer: true } : { immediate: true });
 	}
+	const pending = c.get('pendingApproval');
+	if (pending?.operationId === operationId) throw new PendingApprovalError(pending.operationId, pending.entries);
 	await c.get('siteRouter').refresh();
 	return apiMessage(c, 200, action === 'restore' ? '记录已恢复' : '记录已彻底删除');
 };
