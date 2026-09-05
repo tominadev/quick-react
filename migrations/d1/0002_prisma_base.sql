@@ -290,7 +290,10 @@ CREATE TABLE "base_approvals" (
     "revert_reason" TEXT NOT NULL DEFAULT '',
     "restored_at" BIGINT,
     "restored_duid" BIGINT,
-    "restore_reason" TEXT NOT NULL DEFAULT ''
+    "restore_reason" TEXT NOT NULL DEFAULT '',
+    "requeued_at" BIGINT,
+    "requeued_duid" BIGINT,
+    "requeue_reason" TEXT NOT NULL DEFAULT ''
 );
 
 -- CreateTable

@@ -333,6 +333,30 @@ const auditRouteFilter = async () => {
 		assert.equal(afterReject.prepare(`SELECT COUNT(*) AS n FROM base_user_profiles WHERE deleted_at = 0 AND user_id NOT IN (${live})`).get().n, 0, '资料同理');
 		afterReject.close();
 
+		/**
+		 * 被驳回的申请可以**恢复**：整个操作一起放回队列，行也回到待审批的样子。
+		 *
+		 * 没有这一条的话，驳回错了只能去每张表的回收站里一行一行捞——建号写三行（账号、
+		 * 凭证、资料），捞回账号那一行而漏掉凭证，账号看着正常却登不进去。审批页按操作分组，
+		 * 天然一起处理。
+		 *
+		 * 「恢复」在审批轴（rejected/withdrawn → pending），「还原」在数据轴（reverted →
+		 * applied），两个名字分开：状态上互斥，但可以先后发生在同一条记录上。
+		 */
+		assert.equal((await app.request('http://localhost/api/panel/admin/base/audit.php?action=requeue', { method: 'POST', headers: { ...headers, cookie }, body: JSON.stringify([String(queuedInserts[0].id)]) })).status, 200);
+		const requeued = new DatabaseSync(process.env.DEFAULT_DATABASE_FILE);
+		const backRow = requeued.prepare("SELECT deleted_at, pended_at FROM base_users WHERE name = 'rejectme'").get();
+		assert.equal(Number(backRow.deleted_at), 0, '从回收站捞出来');
+		assert.notEqual(Number(backRow.pended_at), 0, '重新隐身，等着被批——时间戳取自记录里的 pended_at.before');
+		assert.equal(requeued.prepare("SELECT COUNT(*) AS n FROM base_approvals WHERE operation_id = ? AND review_status = 'pending'").get(queuedInserts[0].operation_id).n, 3, '只点一条，同一次操作的另外两条跟着回来');
+		requeued.close();
+		// 批准之后账号真的能用——凭证那一行也跟着回来了。
+		assert.equal((await decide('approve', await pendingIds())).status, 200);
+		assert.equal((await app.request('http://localhost/api/sign.php', {
+			method: 'POST', headers: { ...headers, 'x-device-key': '00000000-0000-4000-8000-0000000000ff' },
+			body: JSON.stringify({ user_name: 'rejectme', password: 'reject-password-1' }),
+		})).status, 200, '捞回来的账号能登录');
+
 		// 列的先后要与 prisma 里的字段顺序一致：两处对照着看时不用来回找。
 		// 只比相对次序——不是每个字段都显示（operation_id 就不显示），也允许有计算列。
 		const schema = await readFile(resolve(projectDirectory, 'prisma/base.prisma'), 'utf8');
@@ -567,15 +591,18 @@ try {
 	assert.ok(Number(flipped.reverted_at) > 0, '要记下什么时候撤的');
 	assert.equal(flipped.reason, daveEntry.reason, '原操作的理由不应被覆盖');
 
-	// 撤回错了就再翻回来，不会堆出一串互相指向的记录。
+	// 回滚错了就再翻回来，不会堆出一串互相指向的记录。
+	//
+	// 这一个叫**还原**（数据轴：把回滚掉的变更再写回去）。审批轴上那个把被驳回/撤销的申请
+	// 放回队列的叫**恢复**，两个名字分开——见 TRANSITIONS 上的注释。
 	assert.deepEqual(await revert([daveEntry.id]), [{ id: daveEntry.id, ok: false, message: '当前数据状态是「已回滚」，不能执行这个操作' }]);
-	assert.deepEqual(await restore([daveEntry.id], '恢复：撤错了'), [{ id: daveEntry.id, ok: true, message: '已恢复' }]);
-	assert.equal(await nameOf(alice.id), 'dave', '恢复后应回到变更后的值');
+	assert.deepEqual(await restore([daveEntry.id], '还原：撤错了'), [{ id: daveEntry.id, ok: true, message: '已还原' }]);
+	assert.equal(await nameOf(alice.id), 'dave', '还原后应回到变更后的值');
 	assert.equal(await statusOf(daveEntry.id), 'applied');
-	assert.equal((await entries()).length, beforeRevert, '恢复同样不产生新记录');
-	// 撤回与恢复各写自己那一组：恢复不能把「谁撤的」覆盖掉。
+	assert.equal((await entries()).length, beforeRevert, '还原同样不产生新记录');
+	// 回滚与还原各写自己那一组：还原不能把「谁回滚的」覆盖掉。
 	const afterRestore = await entryById(daveEntry.id);
-	assert.equal(afterRestore.restore_reason, '恢复：撤错了');
+	assert.equal(afterRestore.restore_reason, '还原：撤错了');
 	assert.ok(Number(afterRestore.restored_at) > 0, '要记下什么时候恢复的');
 	assert.equal(afterRestore.revert_reason, '撤回理由：改错了', '恢复不能覆盖撤回理由');
 	assert.ok(Number(afterRestore.reverted_at) > 0, '撤回时间要保留');

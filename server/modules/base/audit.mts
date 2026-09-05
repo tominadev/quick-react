@@ -213,7 +213,7 @@ export type AuditRevertResult = { id: string; ok: boolean; message: string };
  */
 export type ReviewStatus = 'none' | 'pending' | 'approved' | 'rejected' | 'withdrawn';
 export type DataStatus = 'unwritten' | 'applied' | 'reverted';
-export type ApprovalTransition = 'approve' | 'reject' | 'withdraw' | 'revert' | 'restore';
+export type ApprovalTransition = 'approve' | 'reject' | 'withdraw' | 'revert' | 'restore' | 'requeue';
 
 /**
  * 允许的迁移，其余一概拒绝。
@@ -236,7 +236,19 @@ const TRANSITIONS: Record<ApprovalTransition, {
 	reject: { label: '驳回', fromReview: ['pending'], review: 'rejected', write: 'none' },
 	withdraw: { label: '撤销申请', fromReview: ['pending'], review: 'withdrawn', write: 'none' },
 	revert: { label: '回滚', fromData: ['applied'], data: 'reverted', write: 'before' },
-	restore: { label: '恢复', fromData: ['reverted'], data: 'applied', write: 'after' },
+	/**
+	 * **两个「往回走」在不同的轴上，因此名字要分开。**
+	 *
+	 * - 「还原」在**数据轴**：把回滚掉的变更再写回去（reverted → applied）。
+	 * - 「恢复」在**审批轴**：把被驳回或撤销的申请放回队列（rejected/withdrawn → pending），
+	 *   让人再看一眼；数据一个字都不写回去，等批准了才写。
+	 *
+	 * 状态组合上互斥，一条记录同一时刻只可能用得上其中一个：被驳回的 data 是 unwritten，
+	 * 满足不了还原的起点；回滚过的 review 是 approved，满足不了恢复的起点。但它们**可以先后
+	 * 发生在同一条记录上**（驳回 → 恢复 → 批准 → 回滚 → 还原），所以时间/操作者各占一组列。
+	 */
+	restore: { label: '还原', fromData: ['reverted'], data: 'applied', write: 'after' },
+	requeue: { label: '恢复', fromReview: ['rejected', 'withdrawn'], review: 'pending', write: 'none' },
 };
 
 export const transitionLabel = (transition: ApprovalTransition) => TRANSITIONS[transition].label;
@@ -282,10 +294,17 @@ const rowCondition = (entry: AuditEntryRow): SqlCondition => (
 const applyInsertTransition = async (database: DatabaseAdapter, entry: AuditEntryRow, to: ApprovalTransition) => {
 	const where = [rowCondition(entry)];
 	const builder = sql({ database, subjectRoles: null });
+	/**
+	 * 「恢复」是把申请放回队列，因此那一行也要回到**待审批**的样子：从回收站捞出来，
+	 * 并把 `pended_at` 写回提交时那个时刻——它就记在这条记录的 `changes` 里，
+	 * 不用另猜一个时间戳，也就不会把「什么时候提交的」改掉。
+	 */
+	const pendedAt = to === 'requeue' ? Number(parseAuditChanges(entry.changes).pended_at?.before ?? 0) : 0;
 	const statement = to === 'approve' ? builder.activate(entry.table_name, where)
-		// 恢复的对象是**被回滚过的**那一行，它当时是被软删除掉的，因此这里要动的是 deleted_at。
+		// 还原的对象是**被回滚过的**那一行，它当时是被软删除掉的，因此这里要动的是 deleted_at。
 		: to === 'restore' ? builder.restore(entry.table_name, where)
-			: builder.revert(entry.table_name, { deleted_at: Date.now(), pended_at: 0 }, where);
+			: to === 'requeue' ? builder.revert(entry.table_name, { deleted_at: 0, pended_at: pendedAt || Date.now() }, where)
+				: builder.revert(entry.table_name, { deleted_at: Date.now(), pended_at: 0 }, where);
 	const result = await runSystemSql(database, statement);
 	return Number(result.meta?.changes ?? 0) > 0;
 };
@@ -305,7 +324,8 @@ const transitionOne = async (database: DatabaseAdapter, entry: AuditEntryRow, to
 	const statusFields = to === 'withdraw' ? { withdrawn_at: now, withdrawn_duid: actor }
 		: to === 'approve' || to === 'reject' ? { reviewed_at: now, reviewed_duid: actor, review_reason: reason }
 			: to === 'revert' ? { reverted_at: now, reverted_duid: actor, revert_reason: reason }
-				: { restored_at: now, restored_duid: actor, restore_reason: reason };
+				: to === 'requeue' ? { requeued_at: now, requeued_duid: actor, requeue_reason: reason }
+					: { restored_at: now, restored_duid: actor, restore_reason: reason };
 	// 新建：行已经在库里，区别只在看不看得见（驳回与撤销则把它删掉）。
 	if (entry.action === 'insert') {
 		if (!await applyInsertTransition(database, entry, to)) {
@@ -441,6 +461,7 @@ export const transitionAuditEntries = async (database: DatabaseAdapter, requeste
 	 * 中间那一刻凭证指向的账号已经不存在了。库里眼下一个外键约束都没有，所以现在不报错，
 	 * 但顺序错了就是错了。
 	 */
+	// 恢复是把申请装回队列，与批准同向：最旧的在前（先有账号才有凭证）。
 	const dismantling = to === 'revert' || to === 'reject' || to === 'withdraw';
 	entries.sort(dismantling ? newestFirst : (left, right) => newestFirst(right, left));
 	for (const entry of entries) results.push(await transitionOne(database, entry, to, reason));

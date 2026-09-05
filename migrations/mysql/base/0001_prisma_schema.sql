@@ -340,6 +340,9 @@ CREATE TABLE `base_approvals` (
     `restored_at` BIGINT NULL,
     `restored_duid` BIGINT NULL,
     `restore_reason` VARCHAR(191) NOT NULL DEFAULT '',
+    `requeued_at` BIGINT NULL,
+    `requeued_duid` BIGINT NULL,
+    `requeue_reason` VARCHAR(191) NOT NULL DEFAULT '',
 
     INDEX `base_approvals_owner_tid_created_at_idx`(`owner_tid`, `created_at`),
     INDEX `base_approvals_owner_bid_created_at_idx`(`owner_bid`, `created_at`),

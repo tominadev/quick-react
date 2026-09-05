@@ -90,7 +90,10 @@ const flipActions = (superUser: boolean) => [
 	// 它和「撤销」太近，读的人分不清哪个会改到数据。
 	{ key: 'withdraw' as const, label: '撤销申请', from: ['pending-mine'], confirm: '确认撤销这条还没生效的申请吗？数据不会被改动。' },
 	{ key: 'revert' as const, label: '回滚', from: ['applied'], confirm: '确认把这条已经生效的变更改回去吗？' },
-	{ key: 'restore' as const, label: '恢复', from: ['reverted'], confirm: '确认恢复这条变更吗？' },
+	// 两个「往回走」在不同的轴上，名字分开：还原动数据（回滚的逆），恢复动申请（驳回/撤销的逆）。
+	{ key: 'restore' as const, label: '还原', from: ['reverted'], confirm: '确认把这条回滚掉的变更再写回去吗？' },
+	// 驳回是审批人的决定，可以由审批人收回；撤销是申请人自己收回的，只有他自己能再放回去。
+	{ key: 'requeue' as const, label: '恢复', from: ['rejected', 'withdrawn-mine'], confirm: '确认把这条申请放回队列吗？数据不会被改动，等批准了才生效。' },
 ];
 
 const columns = [
@@ -190,9 +193,13 @@ const handler: ApiHandler = async (c, next, params) => {
 		// 设备不该变成两个人（与四眼原则用同一把尺子）。
 		const submitters = await submitterIdsOf(database, rows.map((row) => String(row.created_duid ?? '')));
 		const me = String(c.get('currentUser')?.id ?? '');
-		const stageOf = (row: AuditEntryRow) => row.review_status === 'pending'
-			? (me && submitters.get(String(row.created_duid ?? '')) === me ? 'pending-mine' : 'pending-other')
-			: row.data_status;
+		const mineRow = (row: AuditEntryRow) => Boolean(me) && submitters.get(String(row.created_duid ?? '')) === me;
+		const stageOf = (row: AuditEntryRow) => row.review_status === 'pending' ? (mineRow(row) ? 'pending-mine' : 'pending-other')
+			// 撤销分「我的」和「别人的」：只有申请人自己能把它放回队列。驳回不分——那是
+			// 审批人的决定，由有审批权的人收回。
+			: row.review_status === 'withdrawn' ? (mineRow(row) ? 'withdrawn-mine' : 'withdrawn-other')
+				: row.review_status === 'rejected' ? 'rejected'
+					: row.data_status;
 		// 列表有条数上限，总数单独计一次——拿列表长度当总数会在超过上限时谎报。
 		const totalRecords = await countAuditEntries(database, filters, reason);
 		return apiResponse(c, 200, { table: {

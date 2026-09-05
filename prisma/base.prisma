@@ -438,6 +438,14 @@ model base_approvals {
   restored_at    BigInt?
   restored_duid  BigInt?
   restore_reason String @default("")
+  /// 恢复申请（把被驳回或撤销的申请放回队列）的时间、操作者与理由。
+  ///
+  /// 与上面那组「还原」分开：它们一个在审批轴上（rejected/withdrawn → pending），
+  /// 一个在数据轴上（reverted → applied）。同一条记录可以先被驳回、恢复后重新批准、
+  /// 再回滚、再还原——合用一组的话，后发生的会把先发生的覆盖掉。
+  requeued_at    BigInt?
+  requeued_duid  BigInt?
+  requeue_reason String @default("")
   @@index([owner_tid, created_at])
   @@index([owner_bid, created_at])
   @@index([owner_uid, created_at])

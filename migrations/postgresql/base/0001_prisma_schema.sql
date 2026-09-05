@@ -341,6 +341,9 @@ CREATE TABLE "base_approvals" (
     "restored_at" BIGINT,
     "restored_duid" BIGINT,
     "restore_reason" TEXT NOT NULL DEFAULT '',
+    "requeued_at" BIGINT,
+    "requeued_duid" BIGINT,
+    "requeue_reason" TEXT NOT NULL DEFAULT '',
 
     CONSTRAINT "base_approvals_pkey" PRIMARY KEY ("id")
 );
