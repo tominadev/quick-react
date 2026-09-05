@@ -11,7 +11,7 @@ import { changedFieldsKey, type ChangedFieldsPayload } from '@shared/types/chang
 import { CountdownDisplay, formatCountdown } from '@/components/common/Countdown.js';
 import { runAfterFeedback } from '@/utils/common/feedback.js';
 import { loginWithAccountsPopup } from '@/utils/common/passport.js';
-import { applyApiResponseContext, runApiNextAction } from '@/utils/common/response-action.js';
+import { runApiNextAction } from '@/utils/common/response-action.js';
 import { isSystemField } from '@shared/system-fields.mjs';
 
 const renderTemplate = (template: string, values: Record<string, React.ReactNode>) => template
@@ -209,9 +209,6 @@ export default function FormPage({ commonApi, apiPath, title, submitMethod = 'PU
 	const applyResult = async (result: FormResponse, values: Record<string, unknown>) => {
 		Modal.destroyAll();
 		onResponse?.(result);
-		// 改了当前登录身份自己的响应会附带认证上下文，但没有跳转；这里就地应用，
-		// 右上角的昵称因此立刻更新。
-		if (!result.next) applyApiResponseContext(result.context);
 		setResponseFeedback(result.feedback);
 		if (result.formPage) {
 			const nextValues = isRecord(result.currentValues) ? result.currentValues : result.formPage.initialValues;

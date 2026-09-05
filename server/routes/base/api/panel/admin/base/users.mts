@@ -8,6 +8,7 @@ import { finishUserCreation } from '@server/modules/base/registration.mjs';
 import { credentialStatement, setCredential } from '@server/modules/base/credentials.mjs';
 import { profileNicknameOf, profileStatement } from '@server/modules/base/profile.mjs';
 import { userNameError } from '@shared/account-name.mjs';
+import { sortableColumns, tableOrderBy } from '@server/modules/base/query-options.mjs';
 import { enabledDisabledOptions, statusValues } from '@shared/types/status.mjs';
 import { assignableRoleOptions, parseRoles, serializeRoles, unknownAssignableRoles } from '@shared/types/role.mjs';
 import { passwordError } from '@server/modules/base/auth/password-policy.mjs';
@@ -29,6 +30,18 @@ const columns = [
 ];
 
 export const tableCrud: TableCrudDefinition = { table: 'base_users', rowKey: 'id' };
+
+// 列表选出来的列：既是查询的列，也是「哪些列可以排序」的白名单，两者不会走偏。
+const listColumns = {
+	id: 'u.id', user_name: 'u.name', profile_nickname: 'p.nickname',
+	profile_qq: 'p.qq', profile_wechat: 'p.wechat', profile_email: 'p.email',
+	roles: 'u.roles', status: 'u.status', password: 'c.password',
+	created_at: 'u.created_at', updated_at: 'u.updated_at',
+} as const;
+const listJoins = [
+	{ type: 'LEFT' as const, table: 'base_user_credentials', alias: 'c', left: 'c.user_id', right: 'u.id' },
+	{ type: 'LEFT' as const, table: 'base_user_profiles', alias: 'p', left: 'p.user_id', right: 'u.id' },
+];
 
 /** 个人简介字段统一从请求体里取；传了 changedFields 就只取这次真正改过的。 */
 const profileFieldsFrom = (body: Record<string, unknown>, changed?: Set<string>) => Object.fromEntries(
@@ -58,11 +71,11 @@ const handler: ApiHandler = async (c, next, params) => {
 	const tenantId = c.get('tenantId');
 	const tenantScope = (column = 'owner_tid') => ownerScope(column, tenantId);
 	if (c.req.method === 'GET' && !params.id) {
-		const rows = await allSql<Record<string, unknown>>(database, sql({ database }).select({ table: 'base_users', alias: 'u', columns: { id: 'u.id', user_name: 'u.name', profile_nickname: 'p.nickname', profile_qq: 'p.qq', profile_wechat: 'p.wechat', profile_email: 'p.email', roles: 'u.roles', status: 'u.status', password: 'c.password', created_at: 'u.created_at', updated_at: 'u.updated_at' }, joins: [{ type: 'LEFT', table: 'base_user_credentials', alias: 'c', left: 'c.user_id', right: 'u.id' }, { type: 'LEFT', table: 'base_user_profiles', alias: 'p', left: 'p.user_id', right: 'u.id' }], orderBy: [{ column: 'u.id', direction: 'DESC' }] }));
-		return apiResponse(c, 200, { table: { option: { rowKey: 'id', actions: { query: [{ key: 'search', label: '搜索' }], toolbar: [{ key: 'create', label: '新增' }, { key: 'delete', label: '删除' }], row: [{ key: 'edit', label: '编辑' }, { key: 'delete', label: '删除' }] } }, columns, dataSource: rows.map(publicUser), totalRecords: rows.length } });
+		const rows = await allSql<Record<string, unknown>>(database, sql({ database }).select({ table: 'base_users', alias: 'u', columns: listColumns, joins: listJoins, orderBy: tableOrderBy(c, listColumns, [{ column: 'u.id', direction: 'DESC' }]) }));
+		return apiResponse(c, 200, { table: { option: { rowKey: 'id', actions: { query: [{ key: 'search', label: '搜索' }], toolbar: [{ key: 'create', label: '新增' }, { key: 'delete', label: '删除' }], row: [{ key: 'edit', label: '编辑' }, { key: 'delete', label: '删除' }] } }, columns: sortableColumns(columns, listColumns), dataSource: rows.map(publicUser), totalRecords: rows.length } });
 	}
 	if (params.id && c.req.method === 'GET') {
-		const row = await firstSql<Record<string, unknown>>(database, sql({ database }).select({ table: 'base_users', alias: 'u', columns: { id: 'u.id', user_name: 'u.name', profile_nickname: 'p.nickname', profile_qq: 'p.qq', profile_wechat: 'p.wechat', profile_email: 'p.email', roles: 'u.roles', status: 'u.status', password: 'c.password', created_at: 'u.created_at', updated_at: 'u.updated_at' }, joins: [{ type: 'LEFT', table: 'base_user_credentials', alias: 'c', left: 'c.user_id', right: 'u.id' }, { type: 'LEFT', table: 'base_user_profiles', alias: 'p', left: 'p.user_id', right: 'u.id' }], where: [{ column: 'u.id', value: params.id }] }));
+		const row = await firstSql<Record<string, unknown>>(database, sql({ database }).select({ table: 'base_users', alias: 'u', columns: listColumns, joins: listJoins, where: [{ column: 'u.id', value: params.id }] }));
 		return row ? apiResponse(c, 200, publicUser(row)) : apiMessage(c, 404, '用户不存在');
 	}
 	if (!params.id && c.req.method === 'POST') {

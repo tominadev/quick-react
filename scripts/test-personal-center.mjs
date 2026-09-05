@@ -87,10 +87,10 @@ try {
 	const renamed = await save({ _section: 'user_name', user_name: 'meadmin2' });
 	assert.equal(renamed.status, 200);
 	const renamedBody = await renamed.json();
-	// 保存响应带着刷新过的身份和认证上下文：页面上半截和右上角都跟着变，不用再请求一次。
+	// 保存响应只带回身份本身，页面上半截和右上角都从它更新；整个认证上下文没必要搬。
 	assert.equal(renamedBody.user.user_name, 'meadmin2');
-	assert.equal(renamedBody.context.auth.currentUser.user_name, 'meadmin2');
-	assert.equal(renamedBody.context.auth.currentUser.profile_nickname, 'meadmin2', '没设昵称时回落到新用户名');
+	assert.equal(renamedBody.user.profile_nickname, 'meadmin2', '没设昵称时回落到新用户名');
+	assert.equal(renamedBody.context, undefined, '改自己的资料不该把整个认证上下文搬过来');
 	// 只回本段字段：整份回去的话，另外两段正在输入的内容会被一起重置。
 	assert.deepEqual(Object.keys(renamedBody.currentValues), ['user_name']);
 	assert.equal(renamedBody.formPage, undefined, '表单结构没变就不回 formPage');

@@ -26,7 +26,7 @@ import PersonalCenter from './components/panel/PersonalCenter.js';
 import ExternalCallback from './components/accounts/ExternalCallback.js';
 import StatusPage from './components/common/StatusPage.js';
 import HomePage from './components/common/HomePage.js';
-import { apiNavigationEvent, type ApiNavigationEventDetail } from '@/utils/common/response-action.js';
+import { apiNavigationEvent, planApiNavigation, type ApiNavigationEventDetail } from '@/utils/common/response-action.js';
 const { Content } = Layout;
 
 type MenuItem = Required<MenuProps>['items'][number];
@@ -229,18 +229,16 @@ export const App = ({ commonApi }: AppType) => {
 
 	useEffect(() => {
 		const onApiNavigation = (event: Event) => {
-			const detail = (event as CustomEvent<ApiNavigationEventDetail>).detail;
-			const next = detail?.next;
-			// 没有下一步动作时只更新认证状态：改完自己的昵称，右上角要变，页面不该动。
-			// 只取 auth 一项——这类响应不带导航树和页面状态，整份套上去会把它们清空。
-			if (!next) { if (detail?.context?.auth) setAuth(detail.context.auth); return; }
-			if (next.action !== 'navigate' || !next.refreshAuth) return;
+			const plan = planApiNavigation((event as CustomEvent<ApiNavigationEventDetail>).detail);
+			// 没有下一步动作时只更新身份显示：改完自己的昵称，右上角要变，页面不该动。
+			if (plan.kind === 'auth') { setAuth(plan.auth); return; }
+			if (plan.kind !== 'navigate') return;
 			try {
-				applyApiContext(detail.context);
-				navigate(next.path);
+				applyApiContext(plan.context);
+				navigate(plan.path);
 			} catch {
 				// 响应没有携带认证上下文时，完整页面导航重新建立状态。
-				window.location.assign(next.path);
+				window.location.assign(plan.path);
 			}
 		};
 		window.addEventListener(apiNavigationEvent, onApiNavigation);

@@ -148,10 +148,7 @@ export const apiResponse = async <T extends ApiSuccessData>(
 	const payload = data as Record<string, unknown>;
 	const next = payload.next;
 	const refreshesAuth = Boolean(next && typeof next === 'object' && !Array.isArray(next) && (next as { refreshAuth?: unknown }).refreshAuth === true);
-	// 三种情况附带认证上下文：请求显式要（include=auth）、下一步动作声明要刷新，
-	// 以及路由改了当前身份自己（refreshAuthContext）——最后一种没有跳转，纯粹为了让
-	// 右上角那块跟着变。
-	const includesAuth = requestsAuthContext(c) || c.get('refreshAuthContext') === true;
+	const includesAuth = requestsAuthContext(c);
 	const utilityPayload = withChangeControl(c, withTableUtilities(c, payload));
 	let responseData: Record<string, unknown> = selectTableResponse(utilityPayload, c);
 	const contextProvider = c.get('apiContext');

@@ -105,8 +105,9 @@ const handler: ApiHandler = async (c, next) => {
 	 * 只有「有没有本地密码」变化时才回新的 formPage：那一段的标题和字段要从「设置密码」
 	 * 翻成「修改密码」。其余情况不动表单结构。
 	 *
-	 * 身份连同刷新过的认证上下文一起回去：改完用户名或昵称，页面上半截和右上角都跟着变，
-	 * 不必再多问一次。
+	 * 只回**身份本身**（user），不回整个认证上下文：改个昵称而已，导航树、页面状态、
+	 * 可用动作一样都没变，整份传一遍既浪费又容易把没变的东西覆盖成空。界面上半截和
+	 * 右上角都从这一个字段更新。
 	 */
 	const hadCredential = await hasCredential(database, currentUser.id);
 	const saved = async (message: string, values: Record<string, unknown>) => {
@@ -117,9 +118,6 @@ const handler: ApiHandler = async (c, next) => {
 			profile_nickname: profileNicknameOf(row.user_name, row.profile_nickname),
 			roles: currentUser.roles, tenantId: currentUser.tenantId,
 		};
-		// 会话里的身份也要就地更新：下面附带的认证上下文是按它算出来的。
-		c.set('currentUser', identity);
-		c.set('refreshAuthContext', true);
 		const nowHasCredential = await hasCredential(database, currentUser.id);
 		return apiMessageData(c, 200, message, {
 			user: identity,

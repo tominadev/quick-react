@@ -66,6 +66,8 @@ export type TableColumn = TableColumnFormProperties & {
 	title: string;
 	ellipsis?: boolean;
 	hideInTable?: boolean;
+	/** 这一列能不能排序；由服务端按它是否真的可排序下发，前端不自行推断。 */
+	sortable?: boolean;
 	tableDisplay?: 'multiline' | 'reference';
 	tableDisplayTextField?: string;
 	form?: TableColumnFormModes;
