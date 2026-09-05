@@ -46,10 +46,11 @@ const columns = [
 	{ dataIndex: 'summary', title: '变更内容', tableDisplay: 'multiline' as const },
 	{ dataIndex: 'reason', title: '操作原因' },
 	{ dataIndex: 'created_duid', title: '操作者' },
-	{ dataIndex: 'owner_uid', title: '作用账号' },
-	{ dataIndex: 'status', title: '状态', options: statusOptions },
+	// 「在哪操作的」紧挨着「谁操作的」：追查时这两条总是一起看。
 	{ dataIndex: 'request_hostname', title: '操作域名' },
 	{ dataIndex: 'request_path', title: '操作接口' },
+	{ dataIndex: 'owner_uid', title: '作用账号' },
+	{ dataIndex: 'status', title: '状态', options: statusOptions },
 	{ dataIndex: 'reviewed_at', title: '审批时间', dataType: 'js_timestamp' as const, dayjsFormat: 'YYYY-MM-DD HH:mm:ss' },
 	{ dataIndex: 'reviewed_duid', title: '审批人' },
 	{ dataIndex: 'review_reason', title: '审批意见' },
