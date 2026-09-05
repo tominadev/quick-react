@@ -15,6 +15,7 @@ export type AuditEntryRow = {
 	request_path: string;
 	table_name: string;
 	row_id: string;
+	row_key: string;
 	action: SqlAuditAction;
 	changes: string;
 	review_status: ReviewStatus;
@@ -44,6 +45,7 @@ const entryColumns = {
 	request_path: 'request_path',
 	table_name: 'table_name',
 	row_id: { column: 'row_id', cast: 'text' as const },
+	row_key: 'row_key',
 	action: 'action',
 	changes: 'changes',
 	review_status: 'review_status',
@@ -237,6 +239,16 @@ export const transitionLabel = (transition: ApprovalTransition) => TRANSITIONS[t
  * 批准（`pending → applied`）与恢复（`reverted → applied`）因此是同一条路径：两种情况下
  * 行上都还是 `before`，都要写成 `after`。驳回不碰数据，只落状态。
  */
+/**
+ * 这条记录指的是哪一行。
+ *
+ * 有 key 就用 key：`row_id` 是自增值，跨库搬迁后会指到别的行去；key 建后不改，
+ * 正是为这种引用设计的。老记录没有 row_key，回落到 row_id。
+ */
+const rowCondition = (entry: AuditEntryRow): SqlCondition => (
+	entry.row_key ? { column: 'key', value: entry.row_key } : { column: 'id', value: entry.row_id }
+);
+
 const transitionOne = async (database: DatabaseAdapter, entry: AuditEntryRow, to: ApprovalTransition, reason: string): Promise<AuditRevertResult> => {
 	const allowed = TRANSITIONS[to];
 	if (allowed.fromReview && !allowed.fromReview.includes(entry.review_status)) {
@@ -270,7 +282,7 @@ const transitionOne = async (database: DatabaseAdapter, entry: AuditEntryRow, to
 			const current = await firstSql<Record<string, unknown>>(database, sql({ database }).select({
 				table: entry.table_name,
 				columns: Object.fromEntries(partial.map((column) => [column, column])),
-				where: [{ column: 'id', value: entry.row_id }],
+				where: [rowCondition(entry)],
 				deleted: 'all',
 			}));
 			if (!current) return { id: entry.id, ok: false, message: `原记录已不存在，无法${allowed.label}` };
@@ -299,7 +311,7 @@ const transitionOne = async (database: DatabaseAdapter, entry: AuditEntryRow, to
 		// 每一列都要求当前值仍等于迁移前那一侧，也就是这一列之后没有被人动过（§7.2）。
 		// 期望值为 NULL 时必须写成 IS NULL：SQL 里 col = NULL 求值为 unknown，永远不匹配。
 		const where: SqlCondition[] = [
-			{ column: 'id', value: entry.row_id },
+			rowCondition(entry),
 			...columns.map((column): SqlCondition => {
 				const value = merged.has(column) ? merged.get(column)!.expect : expect(column);
 				return value === null || value === undefined ? { column, operator: 'IS NULL' } : { column, value };

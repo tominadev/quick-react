@@ -176,7 +176,8 @@ const recordStatement = async (database: DatabaseAdapter, metadata: SqlAuditMeta
 	let recorded = 0;
 	const rows = await allSql<Record<string, unknown>>(database, builder.select({
 		table: metadata.table,
-		columns: Object.fromEntries(['id', ...columns].map((column) => [column, { column, cast: 'text' as const }])),
+		// key 一起读出来：审批记录靠它定位那一行——row_id 在跨库搬迁后会变，key 不会。
+		columns: Object.fromEntries(['id', 'key', ...columns].map((column) => [column, { column, cast: 'text' as const }])),
 		where: metadata.where,
 		deleted: 'all',
 	}));
@@ -200,6 +201,7 @@ const recordStatement = async (database: DatabaseAdapter, metadata: SqlAuditMeta
 			request_path: origin.path,
 			table_name: metadata.table,
 			row_id: row.id,
+			row_key: String(row.key ?? ''),
 			action: actionOf(changes),
 			changes: JSON.stringify(changes),
 			// 「没人批过」不叫「已批准」：直接生效的记录审批状态是 none，

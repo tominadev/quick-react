@@ -79,6 +79,8 @@ const columns = [
 	{ dataIndex: 'request_path', title: '操作接口' },
 	{ dataIndex: 'table_name', title: '数据表' },
 	{ dataIndex: 'row_id', title: '记录' },
+	// 定位用的是 key 不是 row_id：追查时看的也该是它。
+	{ dataIndex: 'row_key', title: '记录标识' },
 	{ dataIndex: 'action', title: '动作' },
 	// changes 的位置。一列一行；multiline 模式带 pre-wrap 与三行折叠，改得多也不会撑爆表格。
 	{ dataIndex: 'summary', title: '变更内容', tableDisplay: 'multiline' as const },
@@ -103,6 +105,7 @@ const publicEntry = (row: AuditEntryRow) => ({
 	created_at: row.created_at,
 	table_name: row.table_name,
 	row_id: row.row_id,
+	row_key: row.row_key,
 	action: actionLabels[row.action] ?? row.action,
 	summary: describeAuditChanges(parseAuditChanges(row.changes)),
 	reason: row.reason ?? '',

@@ -388,6 +388,16 @@ model base_approvals {
   request_path String @default("")
   table_name   String
   row_id       BigInt
+  /// 被改动那一行的 key。
+  ///
+  /// 定位一律用它而不是 row_id：新建时**行还没写进去**，自增主键要插进去才知道，而 key
+  /// 由 SQL 构造器在建语句时就生成好了——因此「先记录、后写行」这条顺序对新建也成立
+  /// （§6.2：「记了但没做」可核对，「做了但没记」事后查不出来）。
+  ///
+  /// 另一条好处是不必依赖 lastInsertRowid：PostgreSQL 拿它要给每条 INSERT 追加
+  /// RETURNING（本项目的 pg 适配器目前也没实现），而 key 三种方言一视同仁。
+  /// row_id 仍然记着，用于显示与筛选；跨库搬迁后自增值会变，key 不会。
+  row_key      String @db.VarChar(36) @default("")
   action       BaseApprovalAction
   /// JSON 对象：列名 -> { before, after }，只含实际发生变化的列。
   changes      Json @default("{}")

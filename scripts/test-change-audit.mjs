@@ -250,6 +250,8 @@ try {
 	assert.equal(String(all[0].row_id), String(alice.id));
 	assert.equal(all[0].action, 'update');
 	assert.equal(all[0].review_status, 'none', '没人批过就不叫已批准');
+	// 定位靠 key 不靠 row_id：row_id 是自增值，跨库搬迁后会指到别的行去。
+	assert.match(String(all[0].row_key), /^\d+$/, '记录要带上那一行的 key');
 	assert.equal(all[0].data_status, 'applied');
 	assert.equal(all[0].scope, 'admin');
 	assert.equal(all[0].reason, '客户改名申请 #1024', '操作原因要记下来——审计记了改了什么，这一列记为什么');
