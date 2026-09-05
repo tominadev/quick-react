@@ -37,19 +37,21 @@ const flipActions = [
 ];
 
 const columns = [
+	// 列的先后与 prisma/base.prisma 里 base_audit_entries 的字段顺序一致——两处对照着
+	// 看时不用来回找。计算列排在它所依据的那一列的位置上（summary 之于 changes）。
+	// 由 test:change-audit 守着，加了新列忘了对齐会直接报错。
 	{ dataIndex: 'id', title: 'ID', dataType: 'int' as const },
 	{ dataIndex: 'created_at', title: '时间', dataType: 'js_timestamp' as const, dayjsFormat: 'YYYY-MM-DD HH:mm:ss' },
+	{ dataIndex: 'created_duid', title: '操作者' },
+	{ dataIndex: 'owner_uid', title: '作用账号' },
+	{ dataIndex: 'reason', title: '操作原因' },
+	{ dataIndex: 'request_hostname', title: '操作域名' },
+	{ dataIndex: 'request_path', title: '操作接口' },
 	{ dataIndex: 'table_name', title: '数据表' },
 	{ dataIndex: 'row_id', title: '记录' },
 	{ dataIndex: 'action', title: '动作' },
-	// 一列一行；multiline 模式带 pre-wrap 与三行折叠，改得多也不会撑爆表格。
+	// changes 的位置。一列一行；multiline 模式带 pre-wrap 与三行折叠，改得多也不会撑爆表格。
 	{ dataIndex: 'summary', title: '变更内容', tableDisplay: 'multiline' as const },
-	{ dataIndex: 'reason', title: '操作原因' },
-	{ dataIndex: 'created_duid', title: '操作者' },
-	// 「在哪操作的」紧挨着「谁操作的」：追查时这两条总是一起看。
-	{ dataIndex: 'request_hostname', title: '操作域名' },
-	{ dataIndex: 'request_path', title: '操作接口' },
-	{ dataIndex: 'owner_uid', title: '作用账号' },
 	{ dataIndex: 'status', title: '状态', options: statusOptions },
 	{ dataIndex: 'reviewed_at', title: '审批时间', dataType: 'js_timestamp' as const, dayjsFormat: 'YYYY-MM-DD HH:mm:ss' },
 	{ dataIndex: 'reviewed_duid', title: '审批人' },

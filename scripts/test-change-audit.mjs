@@ -68,6 +68,17 @@ const auditRouteFilter = async () => {
 		assert.equal(capped.rows, 200, '列表仍按上限返回');
 		assert.equal(capped.total, 252, '总数是真实条数，不是取回的条数');
 
+		// 列的先后要与 prisma 里的字段顺序一致：两处对照着看时不用来回找。
+		// 只比相对次序——不是每个字段都显示（operation_id 就不显示），也允许有计算列。
+		const schema = await readFile(resolve(projectDirectory, 'prisma/base.prisma'), 'utf8');
+		const model = /model base_audit_entries \{([\s\S]*?)\n\}/.exec(schema);
+		assert.ok(model, '找不到 base_audit_entries 模型');
+		const schemaOrder = [...model[1].matchAll(/^\s{2}([a-z_]+)\s+\S/gm)].map((match) => match[1]);
+		const listed = (await (await app.request('http://localhost/api/panel/admin/base/audit.php?include=schema,data', { headers: { ...headers, cookie } })).json()).table.columns
+			.map((column) => column.dataIndex)
+			.filter((dataIndex) => schemaOrder.includes(dataIndex));
+		assert.deepEqual(listed, schemaOrder.filter((column) => listed.includes(column)), '后台列的先后必须与 prisma 字段顺序一致');
+
 		// 操作的来源域名与接口路径要记进审计：多站点共用一套代码，只记「改了什么」
 		// 而不记「在哪改的」，事后分不清是哪个站点的管理员动的手。
 		await app.request('https://site-a.test/api/panel/me.php', { method: 'PUT', headers: { ...headers, cookie }, body: JSON.stringify({ _section: 'profile', profile_nickname: '甲甲', profile_qq: '', profile_wechat: '', profile_email: '' }) });

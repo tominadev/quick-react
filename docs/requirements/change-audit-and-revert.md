@@ -436,6 +436,12 @@ if (c.get('pendingApproval') && c.res.status !== 202) {
 - 超过保留期的记录被物理删除，未到期的不受影响。
 - 审计写入失败时，业务写入一并失败。
 
+## 列的顺序
+
+管理后台列的先后与 `prisma/base.prisma` 里 `base_audit_entries` 的字段顺序**一致**：两处对照着看时不用来回找。不是每个字段都显示（`operation_id` 就不显示），因此比的是**相对次序**而不是完整相等；计算列排在它所依据的那一列的位置上（`summary` 之于 `changes`）。
+
+由 `test:change-audit` 守着——加了新列忘了对齐会直接报错。
+
 ## 记录操作来源
 
 每条审计记录都带上 `request_hostname` 与 `request_path`：这次操作是从哪个域名、哪个接口发起的。
