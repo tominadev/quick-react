@@ -57,7 +57,8 @@
 		"schema:check": "node scripts/schema-repair.mjs --check",
 		"schema:repair": "node scripts/schema-repair.mjs",
 		"test": "node esbuild.cjs",
-		"test:naming": "node scripts/test-naming-convention.mjs"
+		"test:naming": "node scripts/test-naming-convention.mjs",
+		"test:super-users": "node scripts/test-super-users.mjs"
 	},
 	"repository": {
 		"type": "git",

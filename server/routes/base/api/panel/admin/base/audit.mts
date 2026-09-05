@@ -1,11 +1,11 @@
 import type { ApiHandler } from '@server/modules/base/api-router.mjs';
 import { apiMessage, apiResponse } from '@server/modules/base/api-response.mjs';
 import { readChangeReason } from '@server/modules/base/operation.mjs';
-import type { SqlCondition } from '@server/database/sql.mjs';
+import { allSql, AUDIT_TABLE, sql, type SqlCondition } from '@server/database/sql.mjs';
 import { DATA_LABELS, REVIEW_LABELS, countAuditEntries, describeAuditChanges, listAuditEntries, parseAuditChanges, publicAuditChanges, readAuditEntry, transitionAuditEntries, type AuditEntryRow } from '@server/modules/base/audit.mjs';
 import { tableSort } from '@server/modules/base/query-options.mjs';
+import { assertNotSelfApproval } from '@server/modules/base/super-users.mjs';
 import type { TableCrudDefinition } from '@server/modules/base/table-crud.mjs';
-import { AUDIT_TABLE } from '@server/database/sql.mjs';
 
 const actionLabels: Record<string, string> = { update: '修改', soft_delete: '删除', restore: '恢复' };
 /**
@@ -179,6 +179,18 @@ const handler: ApiHandler = async (c, next, params) => {
 	if (flip) {
 		const ids = await readIds(c, params.id);
 		if (!ids.length) return apiMessage(c, 400, `请选择要${flip.label}的记录`);
+		// 批准与驳回是替别人的申请做决定，不能自己批自己；撤销申请与回滚不受这道判定管——
+		// 前者是收回自己提的东西，后者动的是已经生效的数据，两者都另有各自的权限门。
+		if (flip.key === 'approve' || flip.key === 'reject') {
+			const entries = await allSql<{ id: string; created_duid: string | null }>(database, sql({ database }).select({
+				table: AUDIT_TABLE,
+				columns: { id: { column: 'id', cast: 'text' }, created_duid: { column: 'created_duid', cast: 'text' } },
+				where: [{ column: 'review_status', value: 'pending' }],
+			}));
+			const selected = entries.filter((entry) => ids.includes(String(entry.id)));
+			const selfApproval = await assertNotSelfApproval(c, database, selected);
+			if (selfApproval) return apiMessage(c, 403, selfApproval);
+		}
 		const results = await transitionAuditEntries(database, ids, flip.key, readChangeReason(c));
 		const failed = results.filter((result) => !result.ok);
 		if (!failed.length) return apiMessage(c, 200, `已${flip.label} ${results.length} 条变更`);

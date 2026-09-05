@@ -4,6 +4,7 @@ import type { DatabaseAdapter } from '@server/database/index.mjs';
 import { allSql, firstSql, sql } from '@server/database/sql.mjs';
 import { describeAuditChanges, parseAuditChanges, transitionAuditEntries } from './audit.mjs';
 import { APPROVAL_SKIP_ROLES, readChangeReason } from './operation.mjs';
+import { assertNotSelfApproval } from './super-users.mjs';
 
 /** 标记列的字段名带下划线前缀，避免和业务列撞名。 */
 export const PENDING_FIELD = '_pending';
@@ -110,6 +111,12 @@ export const handlePendingApprovalAction = async (c: Context<AppEnv>, table: str
 	if (action !== WITHDRAW_ACTION && !canApprove(c)) return { ok: false as const, message: '没有审批权限' };
 	const database = c.get('database');
 	const all = await pendingEntriesFor(database, table, rowId);
+	// 批准和驳回都是替这条申请做决定，因此都挡住「自己批自己」；撤销不挡——那是把自己
+	// 提的东西收回去。
+	if (action !== WITHDRAW_ACTION) {
+		const selfApproval = await assertNotSelfApproval(c, database, all);
+		if (selfApproval) return { ok: false as const, message: selfApproval };
+	}
 	// 撤销只动自己提的那几条：替别人撤等于替别人做决定，那是驳回该干的事。
 	const entries = action === WITHDRAW_ACTION ? all.filter((entry) => sameActor(entry, actorOf(database))) : all;
 	if (!entries.length) return { ok: false as const, message: action === WITHDRAW_ACTION ? '没有你自己提交的待审批申请' : '没有待审批的修改' };

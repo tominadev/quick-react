@@ -7,6 +7,7 @@ import { runOperationSql } from './operation.mjs';
 import { apiMessage } from './api-response.mjs';
 import { deletedScopeFromQuery } from './query-options.mjs';
 import { APPROVE_ACTION, WITHDRAW_ACTION, handlePendingApprovalAction } from './pending-approval.mjs';
+import { isSuperUser } from './super-users.mjs';
 
 export type TableCrudDatabase = 'database' | 'passportDatabase' | 'globalDatabase';
 export type TableCrudValue = string | ((c: Context<AppEnv>) => string | undefined | Promise<string | undefined>);
@@ -59,6 +60,9 @@ export const handleTableCrudAction = async (c: Context<AppEnv>, definition: Tabl
 	if (!columns.some((column) => column.name === rowKey)) return apiMessage(c, 400, '数据表主键不存在');
 	const ids = await readIds(c, routeId);
 	if (!ids.length) return apiMessage(c, 400, '请选择要操作的记录');
+	// 彻底删除是全站唯一不可逆、也不留痕的操作（物理 delete 不审计，§3.0），因此只给
+	// 超级用户——那份名单在 .env 里，拿到数据库的人改不了它。
+	if (action === 'purge' && !isSuperUser(c)) return apiMessage(c, 403, '只有超级用户可以彻底删除记录');
 	const businessWhere = await definition.where?.(c) ?? [];
 	for (const id of ids) {
 		const where: SqlCondition[] = [...businessWhere, { column: rowKey, value: id }, { column: 'deleted_at', operator: '!=', value: 0 }];

@@ -13,6 +13,8 @@ import type { TableCrudDefinition } from './table-crud.mjs';
 export type RuntimeBindings = Record<string, unknown> & {
 	DEFAULT_DB?: unknown;
 	SNOWFLAKE_WORKER_ID?: string | number;
+	/** 可以自己批自己申请的用户（base_users.id，逗号分隔）。未设置时默认「1」，见 super-users.mts。 */
+	SUPER_USER_IDS?: string | number;
 	DATABASE_RESOLVER?: (site: SiteRequestContext) => Promise<DatabaseAdapter>;
 	MIGRATE_SITE?: (siteKey: string) => Promise<void>;
 	/** 按 DSN 打开站点数据库，用于连接测试和数据迁移；Worker 运行时不提供。 */

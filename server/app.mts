@@ -27,7 +27,7 @@ import { workerCodeSites, workerSiteNavigations } from './.generated/worker-api-
 import { executeMaintenanceAction } from './modules/base/maintenance/actions.mjs';
 import { purgeAuditRetention } from './modules/base/audit.mjs';
 import { primeSnowflake } from './modules/base/snowflake.mjs';
-import { resolveWorkerId } from './modules/base/worker-id.mjs';
+import { readEnvValue, resolveWorkerId } from './modules/base/worker-id.mjs';
 
 const env = process.env;
 const skipStartupChecks = env.SKIP_STARTUP_CHECKS === '1';
@@ -38,6 +38,8 @@ const staticSiteRouter = new SiteRouter(defaultDatabase);
 if (!skipStartupChecks) await migrateDefaultDatabase(defaultDatabase, resolve(projectDirectory, 'migrations'));
 // worker id 定下来才能发号；发号器备好号段之后，`key` 的生成就是纯内存的同步操作。
 const workerId = await resolveWorkerId(resolve(projectDirectory, '.env'));
+// 谁能自己批自己：名单放 .env，数据库被拿下的人不该能把自己写进去。
+const superUserIds = await readEnvValue(resolve(projectDirectory, '.env'), 'SUPER_USER_IDS');
 if (!skipStartupChecks) await primeSnowflake(defaultDatabase, workerId);
 const resolveSiteDsn = (dsn: string) => {
 	let key = dsn, factory: () => DatabaseAdapter;
@@ -204,6 +206,7 @@ nodeApp.all('*', (c) => worker.fetch(c.req.raw, {
 	// Worker entry point otherwise only receives the Request object.
 	incoming: (c.env as { incoming?: unknown } | undefined)?.incoming,
 	SNOWFLAKE_WORKER_ID: workerId,
+	SUPER_USER_IDS: superUserIds,
 	DATABASE_RESOLVER: async (site) => {
 		if (site.databaseTarget.kind === 'default') return defaultDatabase;
 		if (site.databaseTarget.kind !== 'dsn') {

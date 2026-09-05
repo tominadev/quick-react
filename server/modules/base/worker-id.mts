@@ -17,7 +17,7 @@ import { createHash } from 'node:crypto';
 const WORKER_ID_KEY = 'SNOWFLAKE_WORKER_ID';
 const WORKER_ID_SPACE = 1024;
 
-const readEnvFile = async (file: string) => {
+export const readEnvFile = async (file: string) => {
 	const text = await readFile(file, 'utf8').catch(() => '');
 	const values = new Map<string, string>();
 	for (const line of text.split('\n')) {
@@ -44,6 +44,16 @@ const parseWorkerId = (value: string | undefined) => {
 	const parsed = Number(value.trim());
 	return Number.isInteger(parsed) && parsed >= 0 && parsed < WORKER_ID_SPACE ? parsed : undefined;
 };
+
+/**
+ * 读一个配置项：环境变量优先，其次 `.env`，两处都没有返回 undefined。
+ *
+ * 返回 undefined 与返回空串是两回事——调用方据此区分「没配」和「配成空」，
+ * 超级用户名单就靠这一点区分「默认给初始管理员」和「主人明确要求没有超级用户」。
+ */
+export const readEnvValue = async (envFile: string, name: string, environment: NodeJS.ProcessEnv = process.env) => (
+	environment[name] ?? (await readEnvFile(envFile)).get(name)
+);
 
 export const resolveWorkerId = async (envFile: string, environment: NodeJS.ProcessEnv = process.env) => {
 	const fromEnvironment = parseWorkerId(environment[WORKER_ID_KEY]);
