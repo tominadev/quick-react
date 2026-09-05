@@ -17,7 +17,8 @@ const storedPassword = async (password) => {
 	const salt = crypto.getRandomValues(new Uint8Array(16));
 	const material = await crypto.subtle.importKey('raw', new TextEncoder().encode(password), 'PBKDF2', false, ['deriveBits']);
 	const bits = new Uint8Array(await crypto.subtle.deriveBits({ name: 'PBKDF2', hash: 'SHA-256', salt: salt.buffer, iterations: 210_000 }, material, 256));
-	return JSON.stringify({ hash: `pbkdf2-sha256$210000$${toBase64(salt)}$${toBase64(bits)}`, pattern: 'L'.repeat(password.length) });
+	// 摘要参数分开存，与 server/modules/base/auth/index.mts 的 createStoredPassword 同形。
+	return JSON.stringify({ algorithm: 'pbkdf2-sha256', iterations: 210_000, salt: toBase64(salt), hash: toBase64(bits), pattern: 'L'.repeat(password.length) });
 };
 const originalFetch = globalThis.fetch;
 

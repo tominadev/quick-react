@@ -25,18 +25,72 @@ const derivePassword = async (password: string, salt: Uint8Array, count: number)
 	return new Uint8Array(await crypto.subtle.deriveBits({ name: 'PBKDF2', hash: 'SHA-256', salt: saltBuffer, iterations: count }, material, 256));
 };
 
-export const hashPassword = async (password: string) => {
-	const salt = crypto.getRandomValues(new Uint8Array(16));
-	const hash = await derivePassword(password, salt, iterations);
-	return `pbkdf2-sha256$${iterations}$${toBase64(salt)}$${toBase64(hash)}`;
+/**
+ * 口令摘要的各个参数分开存，不再挤进一个 `$` 分隔的字符串。
+ *
+ * `password` 本来就是 JSON 列，把算法、迭代次数、盐和摘要拼成一行字符串只是徒增一层
+ * 自定义编码：解析要自己 split、校验要自己数段数，出错了还得肉眼数 `$`。分开之后
+ * 每个参数各占一个字段，读写都是普通的对象访问，审计里看到的也是四个具名值。
+ *
+ * 算法一并存进去而不是写死在代码里：将来换算法时，旧记录带着自己的参数，还能照常校验。
+ */
+export type PasswordDigest = {
+	algorithm: 'pbkdf2-sha256';
+	iterations: number;
+	/** base64，16 字节随机盐。 */
+	salt: string;
+	/** base64，256 位派生摘要。 */
+	hash: string;
 };
 
-export type StoredPassword = {
-	hash: string;
+const minimumIterations = 100_000;
+
+export const createPasswordDigest = async (password: string): Promise<PasswordDigest> => {
+	const salt = crypto.getRandomValues(new Uint8Array(16));
+	return { algorithm: 'pbkdf2-sha256', iterations, salt: toBase64(salt), hash: toBase64(await derivePassword(password, salt, iterations)) };
+};
+
+export const readPasswordDigest = (value: unknown): PasswordDigest | undefined => {
+	if (!value || typeof value !== 'object') return undefined;
+	const { algorithm, iterations: count, salt, hash } = value as Partial<PasswordDigest>;
+	// 迭代次数下限在这里挡住：读到一条被人手工改小的记录时，宁可校验失败也不要用它。
+	if (algorithm !== 'pbkdf2-sha256' || !Number.isInteger(count) || (count as number) < minimumIterations) return undefined;
+	if (typeof salt !== 'string' || !salt || typeof hash !== 'string' || !hash) return undefined;
+	return { algorithm, iterations: count as number, salt, hash };
+};
+
+export const verifyPasswordDigest = async (password: string, digest: PasswordDigest) => {
+	const expected = fromBase64(digest.hash);
+	const actual = await derivePassword(password, fromBase64(digest.salt), digest.iterations);
+	if (actual.length !== expected.length) return false;
+	// 逐字节异或后再判断，比较耗时与匹配前缀长度无关。
+	let difference = 0;
+	for (let index = 0; index < actual.length; index += 1) difference |= actual[index] ^ expected[index];
+	return difference === 0;
+};
+
+/**
+ * 一次性验证码的摘要存在 TEXT 列（`*.code_hash`）里，只能是一个字符串，
+ * 因此保留 `算法$迭代次数$盐$摘要` 这种拼接编码。验证码不是密码，不共用存储形态。
+ */
+export const hashPassword = async (password: string) => {
+	const digest = await createPasswordDigest(password);
+	return `${digest.algorithm}$${digest.iterations}$${digest.salt}$${digest.hash}`;
+};
+
+export const verifyPassword = async (password: string, encoded: string) => {
+	const [algorithm, countText, salt, hash] = encoded.split('$');
+	const digest = readPasswordDigest({ algorithm, iterations: Number(countText), salt, hash });
+	return digest ? verifyPasswordDigest(password, digest) : false;
+};
+
+/** 存进 `password` JSON 列的完整内容：摘要参数 + 密码字符类布局。 */
+export type StoredPassword = PasswordDigest & {
+	/** 每个字符按 D(数字)/U(大写)/L(小写)/S(其他) 归类，用户管理页显示密码规律。 */
 	pattern: string;
 };
 
-export const createStoredPassword = async (password: string) => {
+export const createStoredPassword = async (password: string): Promise<StoredPassword> => {
 	let pattern = '';
 	for (const character of password) {
 		if (/^[0-9]$/.test(character)) pattern += 'D';
@@ -45,7 +99,7 @@ export const createStoredPassword = async (password: string) => {
 		else pattern += 'S';
 	}
 	// 返回对象而不是 JSON 文本：password 是 JSON 列，序列化交给数据库适配器统一做。
-	return { hash: await hashPassword(password), pattern } satisfies StoredPassword;
+	return { ...await createPasswordDigest(password), pattern };
 };
 
 export const readStoredPassword = (value: unknown): StoredPassword | undefined => {
@@ -54,12 +108,9 @@ export const readStoredPassword = (value: unknown): StoredPassword | undefined =
 	if (typeof value !== 'string' && (typeof value !== 'object' || value === null)) return undefined;
 	try {
 		const parsed = (typeof value === 'string' ? JSON.parse(value) : value) as Partial<StoredPassword>;
-		const pattern = parsed.pattern;
-		if (
-			typeof parsed.hash !== 'string'
-			|| typeof pattern !== 'string' || !/^[DULS]*$/.test(pattern)
-		) return undefined;
-		return { hash: parsed.hash, pattern };
+		const digest = readPasswordDigest(parsed);
+		if (!digest || typeof parsed.pattern !== 'string' || !/^[DULS]*$/.test(parsed.pattern)) return undefined;
+		return { ...digest, pattern: parsed.pattern };
 	} catch {
 		return undefined;
 	}
@@ -67,19 +118,7 @@ export const readStoredPassword = (value: unknown): StoredPassword | undefined =
 
 export const verifyStoredPassword = async (password: string, value: unknown) => {
 	const stored = readStoredPassword(value);
-	return stored ? verifyPassword(password, stored.hash) : false;
-};
-
-export const verifyPassword = async (password: string, encoded: string) => {
-	const [algorithm, countText, saltText, hashText] = encoded.split('$');
-	const count = Number(countText);
-	if (algorithm !== 'pbkdf2-sha256' || !Number.isInteger(count) || count < 100_000 || !saltText || !hashText) return false;
-	const expected = fromBase64(hashText);
-	const actual = await derivePassword(password, fromBase64(saltText), count);
-	if (actual.length !== expected.length) return false;
-	let difference = 0;
-	for (let index = 0; index < actual.length; index += 1) difference |= actual[index] ^ expected[index];
-	return difference === 0;
+	return stored ? verifyPasswordDigest(password, stored) : false;
 };
 
 export const sessionCookieName = 'base_session';
