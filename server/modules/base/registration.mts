@@ -34,8 +34,10 @@ export const resolveRegistrationMode = async (c: Context<AppEnv>): Promise<Regis
  * 不需要在建号时抄一份进去。抄过去反而会撞上别人挑走的昵称。
  */
 export const finishUserCreation = async (database: DatabaseAdapter, userName: string, tenantId: DatabaseActorUid) => {
+	// deleted: 'all' 才读得到刚建的行：走审批的新建带着 pended_at，普通查询看不到它，
+	// 而收尾（把归属指回账号自己）恰恰要在批准之前做完。
 	const scope = ownerScope('owner_tid', tenantId);
-	const created = await firstSql<{ id: number | string | bigint }>(database, sql({ database }).select({ table: 'base_users', columns: { id: 'id' }, where: [{ column: 'name', value: userName }, scope], limit: 1 }));
+	const created = await firstSql<{ id: number | string | bigint }>(database, sql({ database }).select({ table: 'base_users', columns: { id: 'id' }, deleted: 'all', where: [{ column: 'name', value: userName }, scope], limit: 1 }));
 	if (!created) return undefined;
 	// 账号行归属账号自己，不归创建它的人。
 	await runSystemSql(database, sql({ database }).update('base_users', { owner_uid: created.id }, { id: created.id }));

@@ -88,19 +88,32 @@ const handler: ApiHandler = async (c, next, params) => {
 		const unknownRoles = unknownAssignableRoles(roles);
 		if (unknownRoles.length) return apiMessage(c, 400, `不支持的角色：${unknownRoles.join('、')}`);
 		try {
-			await runSql(database, sql({ database }).insert('base_users', { name: userName, roles: serializeRoles(roles), status: String(body.status ?? 'enabled') }));
-			// 收尾：把行归属给账号自己，昵称留空时默认用用户名。都是新建流程的一部分，
-			// 不是人做的修改——新增本就不留痕（§3.2），单独给这几步记一条只会是噪音。
+			/**
+			 * 建号要写三行：账号、凭证、资料（资料只有填了才写）。三行共享一个操作号，
+			 * 批准或驳回时一起处理——只批账号那一行，得到的是「能登录但没有密码」；
+			 * 只驳回账号那一行，凭证和资料就成了指向不存在账号的垃圾。
+			 *
+			 * 后两行的 user_id 要等账号行插进去才知道，一次 runOperation 传不完，
+			 * 因此用 defer 让它排队但不抛异常，三步都走完再由这里收尾。
+			 */
+			const operationId = crypto.randomUUID();
+			const queued = { operationId, defer: true } as const;
+			await runOperationSql(c, database, sql({ database }).insert('base_users', { name: userName, roles: serializeRoles(roles), status: String(body.status ?? 'enabled') }), queued);
+			// 收尾：把行归属给账号自己。这是创建的一部分，不是人做的修改，因此不另记一条。
 			const createdId = await finishUserCreation(database, userName, tenantId);
 			if (createdId !== undefined) {
-				await setCredential(database, createdId, password);
+				// 新账号必定没有凭证行，因此这里是纯 insert 而不是 upsert——upsert 冲突时
+				// 走的是 UPDATE，操作层不会把它记成新建。
+				await runOperationSql(c, database, sql({ database }).insert('base_user_credentials', { user_id: createdId, password: await createStoredPassword(password) }), queued);
 				const profile = profileFieldsFrom(body);
 				if (Object.values(profile).some(Boolean)) {
-					const result = await profileStatement(database, createdId, profile, tenantScope());
+					const result = await profileStatement(database, createdId, profile, tenantScope(), { create: true });
 					if ('error' in result) return apiMessage(c, 400, result.error);
-					if ('statement' in result) await runSystemSql(database, result.statement);
+					if ('statement' in result) await runOperationSql(c, database, result.statement, queued);
 				}
 			}
+			const pending = c.get('pendingApproval');
+			if (pending?.operationId === operationId) throw new PendingApprovalError(pending.operationId, pending.entries);
 			return apiMessageData(c, 201, '用户已创建', { id: createdId, user_name: userName });
 		} catch (error) {
 			if (error instanceof PendingApprovalError) throw error;

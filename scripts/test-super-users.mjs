@@ -33,10 +33,13 @@ try {
 	assert.ok(superCookie, '超级用户应能登录');
 
 	// 第二个管理员：有审批权，但不在超级用户名单里。
+	// 建号进审批队列（§13.6）：超级用户可以自己批自己，因此这里一步就能建完。
 	assert.equal((await app.request('http://localhost/api/panel/admin/base/users.php', {
 		method: 'POST', headers: superHeaders,
 		body: JSON.stringify({ user_name: 'reviewer', password: 'super-password-2', roles: ['platform_admin'], status: 'enabled' }),
-	})).status, 201);
+	})).status, 202);
+	const queued = await (await app.request('http://localhost/api/panel/admin/base/audit.php?include=data&review_status=pending', { headers: superHeaders })).json();
+	assert.equal((await app.request('http://localhost/api/panel/admin/base/audit.php?action=approve', { method: 'POST', headers: superHeaders, body: JSON.stringify(queued.table.dataSource.map((row) => String(row.id))) })).status, 200);
 	const reviewerCookie = await signIn('reviewer', 'super-password-2', 2);
 	const reviewerHeaders = { ...device(2), cookie: reviewerCookie, 'x-change-reason': encodeURIComponent('测试') };
 	// 同一个人的第二台设备：duid 不同、人相同，仍然算「自己」。

@@ -63,8 +63,8 @@ try {
 	const bootstrap = list.table.dataSource.find((row) => row.user_name === 'roleadmin');
 	assert.deepEqual(bootstrap.roles, ['platform_admin']);
 
-	// 新建用户接受数组角色。
-	assert.equal((await request(usersPath, { method: 'POST', cookie, body: { user_name: 'rolemember', password: 'test-password-123', roles: [], status: 'enabled' } })).status, 201);
+	// 新建用户接受数组角色。建号现在也进审批队列，外层包装会替它把队走完。
+	assert.equal((await request(usersPath, { method: 'POST', cookie, body: { user_name: 'rolemember', password: 'test-password-123', roles: [], status: 'enabled' } })).status, 200);
 	const created = (await (await request(usersPath, { cookie })).json()).table.dataSource.find((row) => row.user_name === 'rolemember');
 	assert.deepEqual(created.roles, []);
 	const detail = await (await request(`${usersPath}/${created.id}`, { cookie })).json();

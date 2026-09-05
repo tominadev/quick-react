@@ -16,6 +16,21 @@ export type OperationOptions = {
 	reason?: string;
 	/** 跳过审批直接生效；缺省时从请求头 X-Change-Immediate 里取，且只对管理员生效。 */
 	immediate?: boolean;
+	/**
+	 * 同一次业务操作的多次调用共用一个操作号。
+	 *
+	 * 建号要写三行（账号、凭证、资料），而后两行的 user_id 要等账号行插进去才知道，
+	 * 一次 runOperation 传不完。共用操作号之后，这三条记录批准/驳回时一起处理——
+	 * 批一半就是「账号能登录但没有密码」。
+	 */
+	operationId?: string;
+	/**
+	 * 进了队列也不抛异常，由调用方决定什么时候抛。
+	 *
+	 * 多步操作要接着往下走（账号行写完才拿得到 id），中途抛出去后面两行就不写了。
+	 * 排队与否仍然记在 `c.get('pendingApproval')` 上，调用方据此收尾。
+	 */
+	defer?: boolean;
 };
 
 /**
@@ -280,7 +295,7 @@ export const runOperation = async (
 	const immediate = audited.length + inserts.length === 0 || skipsApproval(c, options);
 	let recorded = 0, operationId = '';
 	if (audited.length || inserts.length) {
-		operationId = crypto.randomUUID();
+		operationId = options.operationId ?? crypto.randomUUID();
 		const reason = options.reason?.trim().slice(0, MAX_REASON_LENGTH) ?? readChangeReason(c);
 		// 域名与接口路径都由服务端自己看到，不听客户端的：页面路径要靠 referer 推断，
 		// 那是客户端说什么就是什么，写进审计等于给伪造留了口子。
@@ -305,6 +320,8 @@ export const runOperation = async (
 	// 待审批：记录已写，数据一条都不动。逐列比对下来没有任何变化时 recorded 为 0，
 	// 那本来就不是一次修改，不该拦下来让人去批一个空操作。
 	if (!immediate && recorded > 0) {
+		// 已经排过队就把条数累加上去：一次业务操作分几次调用时，202 里报的是总条数。
+		const already = c.get('pendingApproval');
 		// 新建的行照写，只是带上 pended_at 让它不可见——批准就是把它归零。
 		// 值因此不必抄进审批表，凭证也就不会在那里躺满保留期。
 		for (const statement of inserts) {
@@ -315,8 +332,10 @@ export const runOperation = async (
 		}
 		// 除了抛异常，还在上下文里留个标记：万一某处 catch 把异常吞了，最外层中间件
 		// 仍会把响应改成 202。正确性不能依赖「每一处 catch 都记得重新抛出」。
-		c.set('pendingApproval', { operationId, entries: recorded });
-		throw new PendingApprovalError(operationId, recorded);
+		const entries = (already?.operationId === operationId ? already.entries : 0) + recorded;
+		c.set('pendingApproval', { operationId, entries });
+		if (options.defer) return [];
+		throw new PendingApprovalError(operationId, entries);
 	}
 	const results: DatabaseRunResult[] = [];
 	for (const statement of statements) results.push(await runSystemSql(database, statement));

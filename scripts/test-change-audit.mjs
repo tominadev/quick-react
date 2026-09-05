@@ -122,7 +122,17 @@ const auditRouteFilter = async () => {
 		cleanup.prepare("DELETE FROM base_approvals WHERE changes = '{}'").run();
 		cleanup.close();
 		const usersApi = 'http://localhost/api/panel/admin/base/users.php';
+		// 建号也进审批队列（§13.6），三行共享一个操作号；先批掉，后面验的是「改」不是「建」。
 		await app.request(usersApi, { method: 'POST', headers: { ...headers, cookie }, body: JSON.stringify({ user_name: 'pendingbob', password: 'bob-password-123', roles: [], status: 'enabled' }) });
+		{
+			const queued = await (await app.request('http://localhost/api/panel/admin/base/audit.php?include=data&review_status=pending', { headers: { ...headers, cookie } })).json();
+			const ids = queued.table.dataSource.map((row) => String(row.id));
+			// 只批一条：同一个操作号的其余记录会跟着一起生效——只批账号那一行，
+			// 得到的是「能登录但没有密码」。
+			assert.equal((await app.request('http://localhost/api/panel/admin/base/audit.php?action=approve', { method: 'POST', headers: { ...headers, cookie }, body: JSON.stringify(ids.slice(0, 1)) })).status, 200);
+			const left = await (await app.request('http://localhost/api/panel/admin/base/audit.php?include=data&review_status=pending', { headers: { ...headers, cookie } })).json();
+			assert.equal(left.table.dataSource.length, 0, '同一次操作的记录要一起批准');
+		}
 		const listBefore = await (await app.request(`${usersApi}?include=schema,data`, { headers: { ...headers, cookie } })).json();
 		const bob = listBefore.table.dataSource.find((row) => row.user_name === 'pendingbob');
 		assert.ok(bob, '新建的账号应该在列表里');

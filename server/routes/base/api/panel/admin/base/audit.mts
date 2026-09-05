@@ -73,6 +73,8 @@ const columns = [
 	{ dataIndex: 'created_at', title: '时间', dataType: 'js_timestamp' as const, dayjsFormat: 'YYYY-MM-DD HH:mm:ss' },
 	{ dataIndex: 'created_duid', title: '操作者' },
 	{ dataIndex: 'owner_uid', title: '作用账号' },
+	// 审批是按**一次操作**走的：同一个操作号的记录批准/驳回时一起处理。
+	{ dataIndex: 'operation_id', title: '操作号' },
 	{ dataIndex: 'reason', title: '操作原因' },
 	{ dataIndex: 'scope', title: '来源', options: scopeOptions },
 	{ dataIndex: 'request_hostname', title: '操作域名' },
@@ -108,6 +110,7 @@ const publicEntry = (row: AuditEntryRow) => ({
 	row_key: row.row_key,
 	action: actionLabels[row.action] ?? row.action,
 	summary: describeAuditChanges(parseAuditChanges(row.changes)),
+	operation_id: row.operation_id,
 	reason: row.reason ?? '',
 	created_duid: row.created_duid ?? '',
 	owner_uid: row.owner_uid ?? '',

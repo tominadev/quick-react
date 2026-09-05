@@ -33,6 +33,12 @@ export const profileStatement = async (
 	userId: string | number | bigint,
 	fields: ProfileFields,
 	tenantScope: { column: string; value?: unknown; operator?: 'IS NULL' },
+	/**
+	 * 建号时用纯 insert 而不是 upsert：新账号必定还没有资料行，而 upsert 冲突时走的是
+	 * UPDATE，操作层不会把它记成新建——那样建号的三行里就有一行不进审批队列，
+	 * 驳回时它会留下来变成指向不存在账号的孤儿。
+	 */
+	options: { create?: boolean } = {},
 ): Promise<ProfileCheck> => {
 	const values: Record<string, string> = Object.fromEntries(Object.entries(fields)
 		.filter(([, value]) => value !== undefined)
@@ -74,5 +80,8 @@ export const profileStatement = async (
 	const writable: Record<string, unknown> = Object.fromEntries(Object.entries(values).map(([key, value]) => [key.replace(/^profile_/, ''), value]));
 	// 昵称清空写 NULL，其余列空串就是空串。
 	if (values.profile_nickname === '') writable.nickname = null;
-	return { statement: sql({ database }).upsert('base_user_profiles', ['user_id'], { user_id: userId, ...writable }, [...Object.keys(writable), 'updated_at']) };
+	const builder = sql({ database });
+	return { statement: options.create
+		? builder.insert('base_user_profiles', { user_id: userId, ...writable })
+		: builder.upsert('base_user_profiles', ['user_id'], { user_id: userId, ...writable }, [...Object.keys(writable), 'updated_at']) };
 };

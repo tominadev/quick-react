@@ -379,7 +379,29 @@ export const DATA_LABELS: Record<DataStatus, string> = { unwritten: '未写入',
  * 当前值是 C，只有先撤 B→C 才能接着撤 A→B。落到 applied 的方向正好相反，按时间升序走。
  * 某一条被拒绝时其余照常执行，最后逐条返回结果。
  */
-export const transitionAuditEntries = async (database: DatabaseAdapter, ids: readonly string[], to: ApprovalTransition, reason = ''): Promise<AuditRevertResult[]> => {
+/**
+ * 把同一次操作的其余记录一并带上。
+ *
+ * 一次建号写三行（账号、凭证、资料），它们共享一个 `operation_id`。只批其中一条就是
+ * 「账号能登录但没有密码」这种谁也没打算要的中间态——审批的对象是**一次操作**，
+ * 不是一条记录。回滚与撤销同理：一次操作要么整个翻回去，要么原样留着。
+ */
+const withOperationSiblings = async (database: DatabaseAdapter, ids: readonly string[]) => {
+	if (!ids.length) return [...ids];
+	const selected = await allSql<{ id: string; operation_id: string; review_status: string }>(database, sql({ database }).select({
+		table: AUDIT_TABLE,
+		columns: { id: { column: 'id', cast: 'text' }, operation_id: 'operation_id', review_status: 'review_status' },
+	}));
+	const chosen = selected.filter((entry) => ids.includes(String(entry.id)));
+	const operations = new Set(chosen.map((entry) => entry.operation_id).filter(Boolean));
+	const statuses = new Set(chosen.map((entry) => entry.review_status));
+	// 只带上**同一状态**的兄弟：同一次操作里已经批过的那几条不该被再处理一遍。
+	const siblings = selected.filter((entry) => operations.has(entry.operation_id) && statuses.has(entry.review_status));
+	return [...new Set([...ids, ...siblings.map((entry) => String(entry.id))])];
+};
+
+export const transitionAuditEntries = async (database: DatabaseAdapter, requested: readonly string[], to: ApprovalTransition, reason = ''): Promise<AuditRevertResult[]> => {
+	const ids = await withOperationSiblings(database, requested);
 	const entries: AuditEntryRow[] = [];
 	const results: AuditRevertResult[] = [];
 	for (const id of ids) {
