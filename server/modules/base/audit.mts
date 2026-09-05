@@ -2,7 +2,7 @@ import { withDatabaseActors, type DatabaseAdapter } from '@server/database/index
 import { createDatabaseConfigStore } from './config-store.mjs';
 import { normalizeSiteSettings } from './site-settings.mjs';
 import { allSql, AUDIT_TABLE, firstSql, runSql, runSystemSql, sql, type SqlAuditAction, type SqlCondition, type SqlSortOption } from '@server/database/sql.mjs';
-import { isHiddenValueColumn } from '@shared/audit-tables.mjs';
+import { isHiddenValueColumn, isHiddenValueKey } from '@shared/audit-tables.mjs';
 
 export type AuditChange = { before: unknown; after: unknown };
 export type AuditChanges = Record<string, AuditChange>;
@@ -68,18 +68,77 @@ export const parseAuditChanges = (value: unknown): AuditChanges => {
 const displayValue = (value: unknown) => value === null || value === undefined ? '空'
 	: typeof value === 'object' ? JSON.stringify(value) : String(value);
 
+const plainObject = (value: unknown): value is Record<string, unknown> =>
+	Boolean(value) && typeof value === 'object' && !Array.isArray(value);
+
+/** 存进 JSON 列的值回读时是文本，写入那一刻还是对象，两种都要认。 */
+const asObject = (value: unknown): Record<string, unknown> | undefined => {
+	if (plainObject(value)) return value;
+	if (typeof value !== 'string' || !value.trim().startsWith('{')) return undefined;
+	try { const parsed: unknown = JSON.parse(value); return plainObject(parsed) ? parsed : undefined; }
+	catch { return undefined; }
+};
+
+/**
+ * JSON 列按**键**求差异：改了哪个键就只列哪个键。
+ *
+ * 整块 JSON 一起显示时，改一个页脚会甩出整个站点配置，「改了什么」等于没答。逐键之后
+ * 还有一层收益：`base_configs.value` 原先因为「整块里混着 OIDC 客户端密钥，无法逐列
+ * 区分」而整列隐藏，现在能只藏掉密钥那几个键，其余照常可见。
+ *
+ * 嵌套对象继续往下拆，路径用点连接；数组整体比较——数组的差异是位置和顺序的问题，
+ * 拆成下标反而更难读。
+ */
+const jsonDiff = (before: Record<string, unknown>, after: Record<string, unknown>, prefix = ''): Array<{ path: string; before: unknown; after: unknown }> => {
+	const paths = [...new Set([...Object.keys(before), ...Object.keys(after)])];
+	return paths.flatMap((key) => {
+		const path = prefix ? `${prefix}.${key}` : key;
+		const left = before[key];
+		const right = after[key];
+		if (plainObject(left) && plainObject(right)) return jsonDiff(left, right, path);
+		if (JSON.stringify(left ?? null) === JSON.stringify(right ?? null)) return [];
+		return [{ path, before: left, after: right }];
+	});
+};
+
+/**
+ * 一列的变更摊平成「路径 → 前后值」。JSON 列摊成逐键，其余保持整列一条。
+ *
+ * 键名也走 isHiddenValueColumn：JSON 里的 `clientSecret`、`password` 与同名的列一样
+ * 不该显示，脱敏规则只有一套。
+ */
+const flattenChange = (column: string, change: { before?: unknown; after?: unknown }) => {
+	// 整列隐藏的列**绝不展开**：password 也是 JSON 列，逐键拆开就等于把
+	// password.hash 明明白白写在页面上。隐藏与否先在最外层定死。
+	if (isHiddenValueColumn(column)) return [{ path: column, before: change.before, after: change.after, hidden: true }];
+	const before = asObject(change.before);
+	const after = asObject(change.after);
+	if (!before || !after) return [{ path: column, before: change.before, after: change.after, hidden: false }];
+	const diff = jsonDiff(before, after);
+	// 两侧都是对象却比不出差异（例如只是键序不同）：仍要留一条，否则记录看起来像什么都没改。
+	if (!diff.length) return [{ path: column, before: change.before, after: change.after, hidden: false }];
+	return diff.map((item) => ({
+		path: `${column}.${item.path}`,
+		before: item.before,
+		after: item.after,
+		hidden: item.path.split('.').some((key) => isHiddenValueKey(key)),
+	}));
+};
+
+const flattenChanges = (changes: AuditChanges) => Object.entries(changes).flatMap(([column, change]) => flattenChange(column, change));
+
 /**
  * 凭证列照常记录、照常撤回，只是**接口不返回它的前后值**：撤回由服务端直接写回，
  * 不需要任何人看见它（见需求文档 §5）。脱敏发生在这里，不在存储层。
  */
-export const publicAuditChanges = (changes: AuditChanges) => Object.fromEntries(Object.entries(changes).map(([column, change]) => [
-	column,
-	isHiddenValueColumn(column) ? { hidden: true } : { before: change.before ?? null, after: change.after ?? null },
+export const publicAuditChanges = (changes: AuditChanges) => Object.fromEntries(flattenChanges(changes).map((item) => [
+	item.path,
+	item.hidden ? { hidden: true } : { before: item.before ?? null, after: item.after ?? null },
 ]));
 
 /** 一列一行：多列一起改时挤在一行要靠眼睛找箭头，列表用 multiline 模式渲染。 */
-export const describeAuditChanges = (changes: AuditChanges) => Object.entries(changes)
-	.map(([column, change]) => isHiddenValueColumn(column) ? `${column}：已变更` : `${column}：${displayValue(change.before)} → ${displayValue(change.after)}`)
+export const describeAuditChanges = (changes: AuditChanges) => flattenChanges(changes)
+	.map((item) => item.hidden ? `${item.path}：已变更` : `${item.path}：${displayValue(item.before)} → ${displayValue(item.after)}`)
 	.join('\n');
 
 /**
@@ -157,16 +216,51 @@ const transitionOne = async (database: DatabaseAdapter, entry: AuditEntryRow, to
 		const toApplied = to === 'applied';
 		const write = (column: string) => toApplied ? changes[column].after : changes[column].before;
 		const expect = (column: string) => toApplied ? changes[column].before : changes[column].after;
+		// JSON 列记的是差异（只有变了的那几个键），写回时要合并进当前值——整块覆盖会把
+		// 这条记录没提到的键一起抹掉。读一次当前行，合并出目标值，并用**读到的整值**
+		// 作为并发条件：读—改—写之间被人插一手，条件就匹配不上，写入落空。
+		const merged = new Map<string, { expect: unknown; write: unknown }>();
+		const partial = columns.filter((column) => plainObject(expect(column)) || plainObject(write(column)));
+		if (partial.length) {
+			const current = await firstSql<Record<string, unknown>>(database, sql({ database }).select({
+				table: entry.table_name,
+				columns: Object.fromEntries(partial.map((column) => [column, column])),
+				where: [{ column: 'id', value: entry.row_id }],
+				deleted: 'all',
+			}));
+			if (!current) return { id: entry.id, ok: false, message: `原记录已不存在，无法${allowed.label}` };
+			for (const column of partial) {
+				const value = asObject(current[column]);
+				if (!value) return { id: entry.id, ok: false, message: `该记录已被后续修改覆盖，无法${allowed.label}` };
+				// 这条记录提到的每个键，当前值都必须还停在迁移前那一侧；别的键随便别人怎么改。
+				const from = asObject(expect(column)) ?? {};
+				for (const [key, expected] of Object.entries(from)) {
+					if (JSON.stringify(value[key] ?? null) !== JSON.stringify(expected ?? null)) {
+						return { id: entry.id, ok: false, message: `该记录已被后续修改覆盖，无法${allowed.label}` };
+					}
+				}
+				// 按当前值的键序重建，只替换这条记录提到的键：JSON 的键序本无语义，但保持稳定
+				// 能让存储和后续 diff 都可读，也免得每次撤回都把整行的文本形态搅一遍。
+				const replacement = asObject(write(column)) ?? {};
+				const target: Record<string, unknown> = {};
+				for (const [key, existing] of Object.entries(value)) {
+					if (key in replacement) target[key] = replacement[key];
+					else if (!(key in from)) target[key] = existing;
+				}
+				for (const [key, next] of Object.entries(replacement)) if (!(key in target)) target[key] = next;
+				merged.set(column, { expect: current[column], write: target });
+			}
+		}
 		// 每一列都要求当前值仍等于迁移前那一侧，也就是这一列之后没有被人动过（§7.2）。
 		// 期望值为 NULL 时必须写成 IS NULL：SQL 里 col = NULL 求值为 unknown，永远不匹配。
 		const where: SqlCondition[] = [
 			{ column: 'id', value: entry.row_id },
 			...columns.map((column): SqlCondition => {
-				const value = expect(column);
+				const value = merged.has(column) ? merged.get(column)!.expect : expect(column);
 				return value === null || value === undefined ? { column, operator: 'IS NULL' } : { column, value };
 			}),
 		];
-		const values = Object.fromEntries(columns.map((column) => [column, write(column) ?? null]));
+		const values = Object.fromEntries(columns.map((column) => [column, (merged.has(column) ? merged.get(column)!.write : write(column)) ?? null]));
 		// 不走 runOperation：这次迁移的留痕就是原记录上的状态，不该再开一条，更不该再排一次队。
 		const result = await runSystemSql(database, sql({ database }).revert(entry.table_name, values, where));
 		if (Number(result.meta?.changes ?? 0) === 0) {

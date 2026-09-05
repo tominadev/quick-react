@@ -87,7 +87,9 @@ const auditRouteFilter = async () => {
 		const originRows = (await origins.json()).table.dataSource;
 		assert.ok(originRows.length >= 1, '改昵称要留下审计记录');
 		// 第一次是新增资料行，新增不留痕（§3.2）；从第二次起才是更新。
-		assert.deepEqual([...new Set(originRows.map((row) => row.request_path))], ['/api/panel/me.php']);
+		// 记的是去掉后缀的逻辑路径：`.php` 是站点可配的接口后缀，记原样会让同一件事
+		// 在审计里长出好几种写法，按路径筛选也就筛不干净。
+		assert.deepEqual([...new Set(originRows.map((row) => row.request_path))], ['/api/panel/me']);
 		assert.ok(originRows.some((row) => row.request_hostname === 'site-b.test'), '域名要如实记下来，而不是都记成同一个');
 		// 域名与接口路径由服务端自己看到，不听客户端的：页面路径要靠 referer 推断，
 		// 那是客户端说什么就是什么，写进审计等于给伪造留了口子。
@@ -374,10 +376,14 @@ try {
 	await op(sql({ database: acting }).update('base_user_credentials', { password: { hash: 'hash-2', pattern: 'LLLL' } }, { user_id: alice.id }));
 	const passwordEntry = await latestEntry();
 	const storedChanges = parseAuditChanges(passwordEntry.changes);
-	assert.deepEqual(storedChanges.password, { before: { hash: 'hash-1', pattern: 'LLLL' }, after: { hash: 'hash-2', pattern: 'LLLL' } }, '存储层照常记录凭证前后值，且按 JSON 列的形态记');
+	// 只记变了的键：pattern 没变就不进记录。撤回按键合并回去，下面那条断言验证了合并结果。
+	assert.deepEqual(storedChanges.password, { before: { hash: 'hash-1' }, after: { hash: 'hash-2' } }, '存储层只记变化的键，且不做加密');
 	assert.deepEqual(publicAuditChanges(storedChanges), { password: { hidden: true } }, '接口不得返回凭证值');
 	assert.equal((await revert([passwordEntry.id]))[0].ok, true, '凭证列仍然可以撤回');
-	assert.equal((await firstSql(acting, sql({ database: acting }).select({ table: 'base_user_credentials', columns: { password: 'password' }, where: [{ column: 'user_id', value: alice.id }] }))).password, '{"hash":"hash-1","pattern":"LLLL"}', '撤回后凭证应还原');
+	// 比对象而不是比 JSON 文本：键序在 JSON 里没有语义，拿文本比会为了一个无关的差别失败。
+	// 撤回只写回记录里提到的键（hash），没提到的（pattern）保持当前值——这正是差异存储换来的：
+	// 中途被别人改过的其他键不会被一起抹掉。
+	assert.deepEqual(JSON.parse((await firstSql(acting, sql({ database: acting }).select({ table: 'base_user_credentials', columns: { password: 'password' }, where: [{ column: 'user_id', value: alice.id }] }))).password), { hash: 'hash-1', pattern: 'LLLL' }, '撤回后凭证应还原');
 
 	// 多列一起改时，摘要一列一行，不挤在一行里。
 	const { describeAuditChanges } = await import(pathToFileURL(moduleFile));
@@ -386,6 +392,44 @@ try {
 		'name：a → b\nstatus：enabled → disabled',
 	);
 	assert.equal(describeAuditChanges({ password: { before: 'x', after: 'y' } }), 'password：已变更', '凭证列只说已变更');
+	// password 也是 JSON 列，但整列隐藏的列**绝不逐键展开**——展开就等于把 password.hash
+	// 明明白白写在页面上。隐藏与否先在最外层定死。
+	assert.equal(
+		describeAuditChanges({ password: { before: { hash: 'h1', pattern: 'LLL' }, after: { hash: 'h2', pattern: 'LLLL' } } }),
+		'password：已变更',
+	);
+	assert.deepEqual(
+		publicAuditChanges({ password: { before: { hash: 'h1' }, after: { hash: 'h2' } } }),
+		{ password: { hidden: true } },
+		'凭证列展开就是泄密',
+	);
+	// JSON 列按键求差异：改一个页脚不该甩出整块站点配置。
+	assert.equal(
+		describeAuditChanges({ value: { before: { footer: '甲' }, after: { footer: '乙' } } }),
+		'value.footer：甲 → 乙',
+		'只列改动的键',
+	);
+	// 回读时 JSON 列是文本，写入那一刻是对象，两种都要认。
+	assert.equal(
+		describeAuditChanges({ value: { before: '{"footer":"甲"}', after: '{"footer":"乙"}' } }),
+		'value.footer：甲 → 乙',
+	);
+	// 嵌套继续往下拆；没变的键一个都不出现。
+	assert.equal(
+		describeAuditChanges({ value: { before: { a: { b: 1, c: 2 } }, after: { a: { b: 9, c: 2 } } } }),
+		'value.a.b：1 → 9',
+	);
+	// 键名与列名走同一套脱敏规则：base_configs.value 原先因为混着客户端密钥而整列隐藏，
+	// 逐键之后只藏密钥那一个，其余照常可见。
+	assert.equal(
+		describeAuditChanges({ value: { before: { footer: '甲', client_secret: 'x' }, after: { footer: '乙', client_secret: 'y' } } }),
+		'value.footer：甲 → 乙\nvalue.client_secret：已变更',
+	);
+	assert.deepEqual(
+		publicAuditChanges({ value: { before: { footer: '甲', client_secret: 'x' }, after: { footer: '乙', client_secret: 'y' } } }),
+		{ 'value.footer': { before: '甲', after: '乙' }, 'value.client_secret': { hidden: true } },
+	);
+	// 数组整体比较：数组的差异是位置和顺序的问题，拆成下标反而更难读。
 	assert.equal(describeAuditChanges({ roles: { before: [], after: ['a', 'b'] } }), 'roles：[] → ["a","b"]', '数组按 JSON 显示');
 
 	// ---- 审批（§11）----

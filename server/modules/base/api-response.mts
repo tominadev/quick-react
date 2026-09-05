@@ -60,8 +60,8 @@ const withTableUtilities = (c: Context<AppEnv>, payload: Record<string, unknown>
 					actions: {
 						...actions,
 						toolbar: [
-							{ key: 'restore', label: '恢复选中记录', confirm: '确认恢复选中的记录吗？' },
-							{ key: 'purge', label: '彻底删除选中记录', confirm: '彻底删除后无法恢复，确认继续吗？' },
+							{ key: 'restore', label: '恢复选中记录', confirm: '确认恢复选中的记录吗？', selection: true },
+							{ key: 'purge', label: '彻底删除选中记录', confirm: '彻底删除后无法恢复，确认继续吗？', selection: true },
 						],
 						row: [
 							{ key: 'restore', label: '恢复', confirm: '确认恢复这条记录吗？' },

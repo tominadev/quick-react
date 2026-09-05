@@ -20,15 +20,22 @@ const loadConstants = async () => {
 	}
 };
 
-const { HIDDEN_VALUE_COLUMNS, isHiddenValueColumn, ...constants } = await loadConstants();
+const { HIDDEN_VALUE_COLUMNS, isHiddenValueColumn, isHiddenValueKey, ...constants } = await loadConstants();
 
 // 受管范围里**一个表级例外都没有**：人和机器的分界线不在表名上，由 runOperation 显式声明。
 // 审计表自己也不例外——递归由 runSystemSql 挡住（审计模块自身的写入不留痕），
 // 因此改一条审计记录会照常留痕，留下的那条新记录就是「谁动了审计」的证据。
 assert.deepEqual(Object.keys(constants).filter((name) => /TABLES$/.test(name)), [], '不该再有按表划分的清单');
 
-// 凭证列照常记录、照常撤回，只是接口不返回值（§5）。
-assert.ok(isHiddenValueColumn('password') && isHiddenValueColumn('value') && !isHiddenValueColumn('name'));
+// 凭证列照常记录、照常撤回，只是接口不返回值（§5）。整列隐藏的列绝不逐键展开。
+assert.ok(isHiddenValueColumn('password') && !isHiddenValueColumn('name'));
+// base_configs.value 不再整列隐藏：JSON 按键求差异之后能逐键区分，密钥那几个键单独藏，
+// 其余（页脚、联系邮箱这些）照常可见——原先整列藏掉，站点配置改了什么完全看不见。
+assert.ok(!isHiddenValueColumn('value'));
+// JSON 里的键名列不全，除了同名列的名单还要按名字兜底；驼峰先折成下划线。
+assert.ok(isHiddenValueKey('clientSecret') && isHiddenValueKey('client_secret') && isHiddenValueKey('apiToken'));
+assert.ok(isHiddenValueKey('password') && isHiddenValueKey('privateKey'));
+assert.ok(!isHiddenValueKey('footer') && !isHiddenValueKey('contactEmail') && !isHiddenValueKey('issuer'));
 assert.ok(HIDDEN_VALUE_COLUMNS.includes('access_key_secret'));
 assert.equal(new Set(HIDDEN_VALUE_COLUMNS).size, HIDDEN_VALUE_COLUMNS.length, 'HIDDEN_VALUE_COLUMNS 有重复项');
 

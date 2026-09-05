@@ -723,9 +723,7 @@ const TableCRUD = ({ commonApi, resourcePath, initialResponse, initialQueryValue
 	const toolbarActionHandlers: Record<string, (action: TableAction) => React.ReactNode> = {
 		create: (action) => <Button key={action.key} type="primary" onClick={() => onAddNew(action)} icon={<PlusOutlined />} disabled={loading || action.disabled}>{action.label}</Button>,
 		delete: (action) => <Button key={action.key} danger type="primary" disabled={selectedRowKeys.length === 0 || action.disabled} onClick={() => onDelete(action)} icon={<DeleteOutlined />}>{action.label}</Button>,
-		restore: (action) => <Button key={action.key} type="primary" disabled={selectedRowKeys.length === 0 || loading || action.disabled} onClick={() => void onToolbarSelectionAction(action)}>{action.label}</Button>,
-		purge: (action) => <Button key={action.key} danger disabled={selectedRowKeys.length === 0 || loading || action.disabled} onClick={() => void onToolbarSelectionAction(action)}>{action.label}</Button>,
-		revert: (action) => <Button key={action.key} type="primary" disabled={selectedRowKeys.length === 0 || loading || action.disabled} onClick={() => void onToolbarSelectionAction(action)}>{action.label}</Button>,
+
 		upload: (action) => <Button key={action.key} type="primary" icon={<UploadOutlined />} disabled={loading || action.disabled || uploadState?.phase === 'signing' || uploadState?.phase === 'uploading'} onClick={() => {
 			const input = document.createElement('input');
 			input.type = 'file';
@@ -819,8 +817,11 @@ const TableCRUD = ({ commonApi, resourcePath, initialResponse, initialQueryValue
 		</Flex>
 		<Flex wrap gap="small">
 			{(resJsonTableOption.actions?.toolbar ?? []).filter((action) => showRecycleBin || action.key !== 'recycle-bin').map((action) => action.modalPath ? renderModalAction(action) : toolbarActionHandlers[action.key]?.(action)
-				?? (action.form ? <Button key={action.key} disabled={loading || action.disabled} onClick={() => onToolbarFormAction(action)}>{action.label}</Button>
-					: <Button key={action.key} disabled={loading || action.disabled} onClick={() => onToolbarSimpleAction(action)}>{action.label}</Button>))}
+				// 作用于选中行的动作由服务端声明（selection），不按 key 名去猜：猜的话每加一个
+				// 批量动作都要回来改前端，漏改的表现是「明明选了行却提示请先选择记录」。
+				?? (action.selection ? <Button key={action.key} type="primary" disabled={selectedRowKeys.length === 0 || loading || action.disabled} onClick={() => void onToolbarSelectionAction(action)}>{action.label}</Button>
+					: action.form ? <Button key={action.key} disabled={loading || action.disabled} onClick={() => onToolbarFormAction(action)}>{action.label}</Button>
+						: <Button key={action.key} disabled={loading || action.disabled} onClick={() => onToolbarSimpleAction(action)}>{action.label}</Button>))}
 		</Flex>
 		<Modal open={Boolean(modalAction)} title={modalAction?.title} footer={null} destroyOnHidden width={modalAction?.component === 'table' ? '90vw' : 560} onCancel={() => setModalAction(undefined)}>
 			{modalAction?.component === 'table'

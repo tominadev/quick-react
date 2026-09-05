@@ -27,10 +27,23 @@ export const HIDDEN_VALUE_COLUMNS = [
 	'token', 'token_hash', 'secret_token', 'secret_hash',
 	'access_key_secret', 'api_token_secret', 'client_secret',
 	'authorization_code_hash', 'code_hash',
-	// base_configs.value 整块 JSON 里混着 OIDC 客户端密钥，无法逐列区分。
-	'value',
 ] as const;
 
 const hiddenValueColumns: ReadonlySet<string> = new Set(HIDDEN_VALUE_COLUMNS);
 
 export const isHiddenValueColumn = (column: string) => hiddenValueColumns.has(column);
+
+/**
+ * JSON 值里的键该不该隐藏。
+ *
+ * 列名有限、可以逐个列举；JSON 里的键是各处配置自己定的，列不全。因此除了同名列的
+ * 那份名单，再加一条按名字判断的兜底——`clientSecret` 这种驼峰写法先折成下划线，
+ * 名字里带 secret / password / token / credential 的一律当敏感处理。
+ *
+ * 宁可多藏也不少藏：藏错了只是看不到一个无关紧要的值，漏藏就是把密钥写进了可见页面。
+ */
+const secretNamePattern = /(^|_)(secret|secrets|password|token|credential|credentials|private)(_|$)/;
+export const isHiddenValueKey = (key: string) => {
+	const normalized = key.replace(/([a-z0-9])([A-Z])/g, '$1_$2').toLowerCase();
+	return hiddenValueColumns.has(normalized) || secretNamePattern.test(normalized);
+};

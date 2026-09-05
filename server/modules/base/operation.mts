@@ -139,6 +139,24 @@ const findPendingEntry = async (database: DatabaseAdapter, builder: ReturnType<t
 
 type RequestOrigin = { hostname: string; path: string };
 
+/**
+ * 两侧都是普通对象时，只留变了的那几个键；否则返回 undefined，按整值记录。
+ *
+ * 嵌套对象整块留下：撤回要把这几个键原样写回去，留半截会把没提到的子键抹掉。
+ * 顶层逐键已经足够回答「改了什么」，再往下拆只会让写回的逻辑变复杂。
+ */
+const jsonKeyDiff = (before: unknown, after: unknown) => {
+	const isPlain = (value: unknown): value is Record<string, unknown> => Boolean(value) && typeof value === 'object' && !Array.isArray(value);
+	if (!isPlain(before) || !isPlain(after)) return undefined;
+	const keys = [...new Set([...Object.keys(before), ...Object.keys(after)])]
+		.filter((key) => JSON.stringify(before[key] ?? null) !== JSON.stringify(after[key] ?? null));
+	if (!keys.length) return undefined;
+	return {
+		before: Object.fromEntries(keys.filter((key) => key in before).map((key) => [key, before[key]])),
+		after: Object.fromEntries(keys.filter((key) => key in after).map((key) => [key, after[key]])),
+	};
+};
+
 const recordStatement = async (database: DatabaseAdapter, metadata: SqlAuditMetadata, operationId: string, reason: string, origin: RequestOrigin, status: 'applied' | 'pending') => {
 	// 归属与可见性条件都在生成语句时定死了：调用方可能用显式上下文覆盖适配器。
 	const builder = sql({ database, subjectRoles: null, ownerTid: metadata.owner.tid, ownerBid: metadata.owner.bid, ownerUid: metadata.owner.uid, actorUid: metadata.owner.actor });
@@ -157,7 +175,11 @@ const recordStatement = async (database: DatabaseAdapter, metadata: SqlAuditMeta
 		// 只记实际发生变化的列：业务表单常整体提交，照单全收会让"改了什么"失去答案。
 		for (const column of columns) {
 			const [before, after] = logicalPair(row[column], metadata.values[column]);
-			if (!sameValue(before, after)) changes[column] = { before, after };
+			if (sameValue(before, after)) continue;
+			// JSON 列只记**变了的那几个键**：改一个页脚而把整块站点配置抄进审计，
+			// 「改了什么」等于没答，记录也会随配置一起膨胀。
+			// 撤回时按键合并回去，不整块覆盖，见 audit.mts 的 transitionOne。
+			changes[column] = jsonKeyDiff(before, after) ?? { before, after };
 		}
 		if (!Object.keys(changes).length) continue;
 		const values = {
@@ -210,8 +232,15 @@ export const runOperation = async (
 		// 解析不出来就记空串，不让它把整次写入带塌：留痕是为了留下证据，
 		// 为了一个"从哪来"的字段而使操作失败，是本末倒置。
 		const origin: RequestOrigin = (() => {
-			try { const url = new URL(c.req.url); return { hostname: url.hostname, path: url.pathname }; }
-			catch { return { hostname: '', path: '' }; }
+			try {
+				const url = new URL(c.req.url);
+				// 记去掉后缀的逻辑路径：`.php` 是站点可配的接口后缀，同一个接口在不同站点
+				// 可能是 /api/panel/me.php、/api/panel/me.json 或干脆没有后缀。记原样的话，
+				// 同一件事在审计里长出好几种写法，按路径筛选也就筛不干净。
+				const suffix = c.get('techStackConfig')?.apiSuffix ?? '';
+				const path = suffix && url.pathname.endsWith(suffix) ? url.pathname.slice(0, -suffix.length) : url.pathname;
+				return { hostname: url.hostname, path };
+			} catch { return { hostname: '', path: '' }; }
 		})();
 		for (const statement of audited) recorded += await recordStatement(database, statement.audit, operationId, reason, origin, immediate ? 'applied' : 'pending');
 	}

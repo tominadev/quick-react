@@ -120,7 +120,7 @@ const handler: ApiHandler = async (c, next, params) => {
 				query: [{ key: 'search', label: '搜索' }],
 				// 撤回不新开记录，而是把这一条翻到另一面；已撤回的再点一次就恢复。
 				// 撤回与恢复是互斥的两个动作，一行上只显示其中适用的那个。
-				toolbar: flipActions.map((action) => ({ key: action.key, label: `${action.label}选中记录`, confirm: action.confirm })),
+				toolbar: flipActions.map((action) => ({ key: action.key, label: `${action.label}选中记录`, confirm: action.confirm, selection: true })),
 				row: flipActions.map((action) => ({ key: action.key, label: action.label, confirm: action.confirm, visibleWhen: { field: 'status', values: [action.from] } })),
 			} },
 			columns,
