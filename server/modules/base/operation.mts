@@ -199,13 +199,21 @@ const findPendingEntry = async (database: DatabaseAdapter, builder: ReturnType<t
 };
 
 /**
- * 这一行上有没有一条**别的**存在性申请在等审批；有就返回它的动作名。
+ * 这一行上有没有**别的动作**的申请在等审批；有就返回它的中文名。
+ *
+ * **一行上同时只允许一种动作的申请。** 同一个动作重新提交是「重说一遍」，照旧覆盖；
+ * 换一个动作就是叠加，一律挡住。
+ *
+ * 这条比「存在性申请挡住内容申请」更严，理由是按钮上写不下第二种动作：一行同时挂着
+ * 「修改」和「删除」时，`?action=withdraw-pending` 这个请求本身说不清撤的是哪一件，
+ * 而界面只显示得出一对按钮——点「撤回删除」却把别人那条修改也一起撤了。要么把动作也
+ * 编进每一个请求里，要么根本不让这种局面出现；后者简单得多，代价只是「先撤回再改」。
  *
  * 不看是谁提的：一行的去留没定下来，谁来改都一样要等——挡的是「叠加」，不是「越权」。
  */
-const EXISTENCE_ACTIONS: Record<string, string> = { insert: '新增', soft_delete: '删除', restore: '恢复' };
+const PENDING_ACTION_LABELS: Record<string, string> = { insert: '新增', update: '修改', soft_delete: '删除', restore: '恢复' };
 
-const findExistenceLock = async (database: DatabaseAdapter, builder: ReturnType<typeof sql>, table: string, rowId: unknown, action: SqlAuditAction) => {
+const findConflictingPending = async (database: DatabaseAdapter, builder: ReturnType<typeof sql>, table: string, rowId: unknown, action: SqlAuditAction) => {
 	const rows = await allSql<{ action: string }>(database, builder.select({
 		table: AUDIT_TABLE, columns: { action: 'action' },
 		where: [
@@ -215,8 +223,8 @@ const findExistenceLock = async (database: DatabaseAdapter, builder: ReturnType<
 		],
 		deleted: 'active',
 	}));
-	const blocking = rows.map((row) => String(row.action)).find((pending) => pending !== action && EXISTENCE_ACTIONS[pending]);
-	return blocking ? EXISTENCE_ACTIONS[blocking] : undefined;
+	const blocking = rows.map((row) => String(row.action)).find((pending) => pending !== action);
+	return blocking ? PENDING_ACTION_LABELS[blocking] ?? blocking : undefined;
 };
 
 type RequestOrigin = { hostname: string; path: string };
@@ -401,12 +409,12 @@ const recordStatement = async (database: DatabaseAdapter, metadata: SqlAuditMeta
 		// 立即生效的情况：他已经自己把这一行改掉了，原先那条申请随之作废，留着就是
 		// 一条谁也批不动的孤儿记录（before 已经对不上）。两种情况都是同一件事的最新版本。
 		/**
-		 * 存在性申请挂着的时候，只接受同一个动作的重新提交（那是「重说一遍」，照旧覆盖）。
+		 * 这一行已经有申请在排队时，只接受**同一个动作**的重新提交（那是「重说一遍」，照旧覆盖）。
 		 *
 		 * 只在走审批的路径上判：立即生效的自助操作不排队，也不该被后台的待审批申请挡住。
 		 */
 		if (!immediate) {
-			const blocking = await findExistenceLock(database, builder, metadata.table, row.id, values.action);
+			const blocking = await findConflictingPending(database, builder, metadata.table, row.id, values.action);
 			if (blocking) throw new PendingLockError(metadata.table, blocking);
 		}
 		const existing = await findPendingEntry(database, builder, metadata.table, row.id, values.action);

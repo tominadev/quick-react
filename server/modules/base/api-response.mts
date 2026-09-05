@@ -6,7 +6,7 @@ import { createDeviceKeyTransportCookie } from './device-fingerprint.mjs';
 import { isSecureRequest } from './request-origin.mjs';
 import { deletedScopeFromQuery, queryIncludes } from './query-options.mjs';
 import { APPROVAL_SKIP_ROLES, operationScope } from './operation.mjs';
-import { APPROVE_ACTION, CONTENT_ACTION_VALUES, PENDING_FIELD, PENDING_IDS_FIELD, PENDING_KINDS, REJECT_ACTION, WITHDRAW_ACTION, pendingRowStates, pendingRowToken } from './pending-approval.mjs';
+import { APPROVE_ACTION, EDIT_ACTION_VALUES, IDLE_ACTION_VALUES, PENDING_FIELD, PENDING_IDS_FIELD, PENDING_KINDS, REJECT_ACTION, WITHDRAW_ACTION, pendingRowStates, pendingRowToken } from './pending-approval.mjs';
 import { isSuperUser } from './super-users.mjs';
 import { tableCrudDatabase } from './table-crud.mjs';
 export type { ApiFeedback, ApiFeedbackOptions, ApiSuccessData } from '@shared/types/api-response.mjs';
@@ -122,18 +122,18 @@ const withPendingApproval = async (c: Context<AppEnv>, payload: Record<string, u
 				actions: {
 					...actions,
 					/**
-					 * 挂着存在性申请（新增/删除/恢复）的行收起编辑、删除与恢复。
+					 * 有申请在排队的行收起那些会发出**另一种动作**的按钮。
 					 *
-					 * 那一行在不在还没定下来，再叠一条内容申请只会让审批人做心算；重复提交同一个
-					 * 存在性申请也没有意义。要改就先撤回。已经自带 visibleWhen 的动作不碰——
-					 * 那是路由自己的判定，覆盖掉会把它的语义弄丢。
+					 * 编辑发的是「修改」，挂着的也是修改时它可以留着（重新提交等于重说一遍，
+					 * 照旧覆盖）；删除与恢复发的是别的动作，只在这一行干干净净时出现。
+					 * 已经自带 visibleWhen 的动作不碰——那是路由自己的判定，覆盖掉会把语义弄丢。
 					 */
 					row: [
 						...rowActions.map((action) => {
 							const item = action as Record<string, unknown>;
 							const key = String(item.key ?? '');
 							if (item.visibleWhen || !['edit', 'delete', 'restore'].includes(key)) return action;
-							return { ...item, visibleWhen: { field: PENDING_FIELD, values: CONTENT_ACTION_VALUES } };
+							return { ...item, visibleWhen: { field: PENDING_FIELD, values: key === 'edit' ? EDIT_ACTION_VALUES : IDLE_ACTION_VALUES } };
 						}),
 						...approvalRowActions,
 					],

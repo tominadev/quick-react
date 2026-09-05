@@ -254,7 +254,22 @@ const auditRouteFilter = async () => {
 		// 同一个动作重新提交仍然照旧覆盖——那是「重说一遍」，不是叠加。
 		assert.equal((await app.request(mixApi, { method: 'DELETE', headers: { ...headers, cookie }, body: JSON.stringify([String(mixTarget.id)]) })).status, 202);
 		assert.deepEqual(await mixQueue(), ['soft_delete'], '还是一条');
-		// 收拾干净，别影响后面的用例。
+		// 反过来也一样：挂着修改申请时不给删除按钮，也不接受删除申请——
+		// 一行同时挂着「修改」和「删除」的话，`?action=withdraw-pending` 这个请求本身说不清
+		// 撤的是哪一件，而界面只显示得出一对按钮，点「撤回删除」会把那条修改一起撤了。
+		assert.equal((await app.request(`${mixApi}/${mixTarget.id}?action=withdraw-pending`, { method: 'POST', headers: { ...headers, cookie }, body: JSON.stringify({ _pending_ids: lockedRow._pending_ids }) })).status, 200);
+		assert.equal((await app.request(`${mixApi}/${mixTarget.id}`, { method: 'PUT', headers: { ...headers, cookie }, body: JSON.stringify({ status: 'enabled', __changedFields: ['status'] }) })).status, 202);
+		const editingTable = await mixList();
+		const editingRow = editingTable.dataSource.find((row) => String(row.id) === String(mixTarget.id));
+		assert.equal(editingRow._pending, 'update-mine');
+		assert.deepEqual(
+			editingTable.option.actions.row.filter((action) => !action.visibleWhen || action.visibleWhen.values.includes(editingRow._pending)).map((action) => action.label),
+			['编辑', '撤回修改', '批准修改'],
+			'编辑留着（重新提交等于重说一遍，覆盖上一条），删除收起来',
+		);
+		const blockedDelete = await app.request(mixApi, { method: 'DELETE', headers: { ...headers, cookie }, body: JSON.stringify([String(mixTarget.id)]) });
+		assert.equal(blockedDelete.status, 409);
+		assert.match((await blockedDelete.json()).feedback?.message ?? '', /「修改」申请正在等待审批/);
 		assert.equal((await decide('withdraw', await pendingIds())).status, 200);
 
 		// 个人中心第一次设资料（资料行还不存在）也要留痕，只是立即生效。
