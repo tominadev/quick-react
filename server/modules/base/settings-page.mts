@@ -31,6 +31,13 @@ export type SettingsPage<T> = {
 	parse: (c: Ctx, body: Record<string, unknown>, current: T) => Promise<T | string> | T | string;
 	/** 回给前端的值，默认原样；客户端密钥一类不能回显的在这里抹掉。 */
 	present?: (c: Ctx, value: T) => Promise<unknown> | unknown;
+	/**
+	 * 真正写进配置库的值，默认整个 value。
+	 *
+	 * 站点配置那三张表单共用一个 SiteSettings 对象，却各存各的一条——这里把对象裁成
+	 * 这张表单管的那几个字段，否则三条各存一份全量，谁最后保存谁说了算。
+	 */
+	project?: (value: T) => unknown;
 	/** 写回本次请求上下文，让同一个响应里别处读到的是新值。 */
 	apply?: (c: Ctx, value: T) => void;
 	/** 保存成功的提示语。 */
@@ -73,7 +80,7 @@ export const settingsPageHandler = <T,>(page: SettingsPage<T>): ApiHandler => as
 		const parsed = await page.parse(c, body, current);
 		if (typeof parsed === 'string') return apiMessage(c, 400, parsed);
 		try {
-			await c.get('configStore').put(page.key, parsed);
+			await c.get('configStore').put(page.key, page.project ? page.project(parsed) : parsed);
 		} catch (error) {
 			// 进了审批队列。就地接住而不是让它冒到全局处理器：那里只回一句话，页面上
 			// 既看不到刚提交的申请，也没法撤销，非得刷新一次才认。回整页数据就地更新。

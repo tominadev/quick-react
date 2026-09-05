@@ -29,4 +29,20 @@ export const normalizeSiteSettings = (value: unknown): SiteSettings => {
 		adminMenuFoldable: typeof source.adminMenuFoldable === 'boolean' ? source.adminMenuFoldable : false,
 	};
 };
-export const loadSiteSettings = async (store: ConfigStore) => normalizeSiteSettings(await store.get('site_settings'));
+/**
+ * 站点配置分三条存，与三张设置表单一一对应。
+ *
+ * **一条存不行**：待审批记录是按「表 + 行」挂的，同一个人对同一行的重复提交会覆盖自己
+ * 上一条申请（那条规则本身是对的——否则队列里堆着同一行的多份申请，先批的会让后批的
+ * 值校验失败）。三张表单共用一行的话，在前台设置里提交的待审批，会被随后在后台设置里
+ * 的提交静悄悄顶掉。分三条之后各排各的队。
+ *
+ * 运行时仍然是一个 SiteSettings 对象：读的地方（`c.get('siteSettings').footer`）遍布全站，
+ * 没有理由让它们关心这个值存在哪一条里。
+ */
+export const siteSettingsKeys = { frontend: 'site_frontend', backend: 'site_backend', admin: 'admin_settings' } as const;
+
+export const loadSiteSettings = async (store: ConfigStore) => {
+	const parts = await Promise.all(Object.values(siteSettingsKeys).map((key) => store.get(key)));
+	return normalizeSiteSettings(Object.assign({}, ...parts.map((part) => part && typeof part === 'object' ? part : {})));
+};

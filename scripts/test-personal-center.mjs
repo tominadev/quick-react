@@ -27,8 +27,9 @@ try {
 	{
 		const setup = new DatabaseSync(process.env.DEFAULT_DATABASE_FILE);
 		const at = Date.now();
-		setup.prepare("INSERT INTO base_configs (created_at, updated_at, key, value) VALUES (?, ?, 'site_settings', ?)")
-			.run(at, at, JSON.stringify({ localLoginEnabled: true }));
+		// 保留本站登录属于「前台后端设置」那一条。
+		setup.prepare("UPDATE base_configs SET value = ? WHERE key = 'site_backend'")
+			.run(JSON.stringify({ localLoginEnabled: true }));
 		setup.close();
 	}
 	assert.equal((await request('/api/sign.php', { method: 'PUT', body: { user_name: 'meadmin', password: 'test-password-123' } })).status, 201);

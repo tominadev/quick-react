@@ -2,6 +2,7 @@ import { readdir, readFile } from 'node:fs/promises';
 import { join } from 'node:path';
 import type { DatabaseAdapter } from './index.mjs';
 import { firstSql, runSql, sql } from './sql.mjs';
+import { siteSettingsKeys } from '../modules/base/site-settings.mjs';
 
 const ensureMigrationTable = async (database: DatabaseAdapter) => {
 	const keyType = database.dialect === 'mysql' ? 'VARCHAR(512)' : 'TEXT';
@@ -49,6 +50,16 @@ const seedBaseDatabase = async (database: DatabaseAdapter) => {
 	// 每个域名都必须绑定分站，所以每个租户都要有主分站——新建租户时同样要建一个。
 	await runSql(database, sql({ database }).ignoreInsert('base_tenants', ['key'], { key: 'default', title: '默认租户', status: 'enabled' }));
 	await runSql(database, sql({ database }).ignoreInsert('base_branches', ['key', 'owner_tid'], { key: 'main', title: '主分站', status: 'enabled' }));
+	// 三条站点配置先建成空行。
+	//
+	// 不建的话，每张设置表单的**第一次保存**是 INSERT，而新增不留痕、也就不走审批
+	// （§3.0）——刚建好的站点上，谁先动哪一页，那一页就有一次免审的机会。行先在那儿，
+	// 之后所有保存都是 UPDATE，一律排队。
+	//
+	// 值留空而不是写一份默认值：默认值属于代码（各 normalize* 补齐），不属于数据。
+	for (const key of Object.values(siteSettingsKeys)) {
+		await runSql(database, sql({ database }).ignoreInsert('base_configs', ['key', 'owner_tid'], { key, value: {} }));
+	}
 };
 
 export const migrateDefaultDatabase = async (database: DatabaseAdapter, migrationsRoot: string) => {

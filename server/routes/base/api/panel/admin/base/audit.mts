@@ -31,16 +31,17 @@ const scopeOptions = [
 	{ value: 'self', text: '用户自助', color: 'default' },
 ];
 /**
- * 查询条件。**审批状态默认「待审批」**：进这一页最常做的事是处理积压的申请，
- * 而不是翻历史；要看全部把它选成「全部」即可。
+ * 查询条件。**三个筛选都不预设默认值**：进来先看到全部。
+ *
+ * 「待审批」当过默认值，问题是它把这一页从「变更记录」悄悄变成了「待办列表」——
+ * 刚提交完想确认一下记下来没有，翻半天以为没记；而真要处理积压，选一下筛选也只是一步。
  */
-const DEFAULT_STATUS = 'pending';
 // 「全部」用显式哨兵值而不是空串：空串在 antd 的 Select 里等于「没有选中」，
 // 选完会显示成空白。顺带让 URL 自解释——review_status=all 比 review_status= 一眼看得懂。
 const ALL_STATUS = 'all';
 const allOption = { value: ALL_STATUS, text: '全部' };
 const queryFields = [
-	{ dataIndex: 'review_status', label: '审批状态', component: 'select' as const, defaultValue: DEFAULT_STATUS, options: [allOption, ...reviewOptions] },
+	{ dataIndex: 'review_status', label: '审批状态', component: 'select' as const, defaultValue: ALL_STATUS, options: [allOption, ...reviewOptions] },
 	{ dataIndex: 'data_status', label: '数据状态', component: 'select' as const, defaultValue: ALL_STATUS, options: [allOption, ...dataOptions] },
 	{ dataIndex: 'scope', label: '来源', component: 'select' as const, defaultValue: ALL_STATUS, options: [allOption, ...scopeOptions] },
 	{ dataIndex: 'table_name', label: '数据表', component: 'textbox' as const, placeholder: '例如 base_users' },
@@ -138,7 +139,7 @@ const handler: ApiHandler = async (c, next, params) => {
 		// 参数缺失用默认值；选了「全部」或传空串都表示不过滤。
 		// 客户端首次请求发出时还没带上查询默认值——它拿到 schema 之后才填，而那一步
 		// 刻意跳过了重新请求（避免首屏两次请求）。默认值因此要由服务端认。
-		const review = (c.req.query('review_status') ?? DEFAULT_STATUS).trim();
+		const review = (c.req.query('review_status') ?? ALL_STATUS).trim();
 		if (review !== ALL_STATUS && reviewOptions.some((option) => option.value === review)) filters.push({ column: 'review_status', value: review });
 		const dataStatus = (c.req.query('data_status') ?? ALL_STATUS).trim();
 		if (dataStatus !== ALL_STATUS && dataOptions.some((option) => option.value === dataStatus)) filters.push({ column: 'data_status', value: dataStatus });

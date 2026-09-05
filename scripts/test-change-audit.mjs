@@ -42,7 +42,9 @@ const auditRouteFilter = async () => {
 			const response = await app.request(`http://localhost/api/panel/admin/base/audit.php?include=schema,data${query}`, { headers: { ...headers, cookie } });
 			return (await response.json()).table.dataSource.map((row) => row.review_status).sort();
 		};
-		assert.deepEqual(await statuses(''), ['pending', 'pending'], '参数缺失回落到默认的待审批');
+		// 三个筛选都不预设默认值：参数缺失就是「全部」。「待审批」当过默认值，问题是它把
+		// 这一页从「变更记录」悄悄变成了「待办列表」——刚提交完想确认记下来没有，翻半天以为没记。
+		assert.deepEqual(await statuses(''), ['approved', 'pending', 'pending', 'rejected'], '参数缺失就是全部');
 		assert.deepEqual(await statuses('&review_status=pending'), ['pending', 'pending']);
 		assert.deepEqual(await statuses('&review_status=approved'), ['approved']);
 		// 这就是 /panel/admin/base/audit.html?q.review_status=all 实际发出的请求。
@@ -59,7 +61,7 @@ const auditRouteFilter = async () => {
 		};
 		assert.deepEqual(await totals('&review_status=all'), { total: 4, rows: 4 });
 		assert.deepEqual(await totals('&review_status=approved'), { total: 1, rows: 1 }, '总数要跟着筛选走');
-		assert.deepEqual(await totals(''), { total: 2, rows: 2 });
+		assert.deepEqual(await totals(''), { total: 4, rows: 4 }, '参数缺失就是全部');
 		const overflow = new DatabaseSync(process.env.DEFAULT_DATABASE_FILE);
 		const now = Date.now();
 		for (let index = 0; index < 250; index += 1) {
@@ -75,9 +77,10 @@ const auditRouteFilter = async () => {
 		// 表单显示的仍是旧值，用户以为没保存成功，于是再改一次，队列里堆出第二条。
 		const settings = 'http://localhost/api/panel/admin/base/settings/site-frontend.php';
 		const put = (body) => app.request(settings, { method: 'PUT', headers: { ...headers, cookie }, body: JSON.stringify(body) });
-		// 第一次保存把 base_configs 那一行建出来。新增不留痕（§3.0），因此这一次不排队，
-		// 直接落库——后面那次才是真正的「改」，也才有前值可比。
+		// 三条站点配置在建库时就是空行（否则第一次保存是 INSERT，新增不留痕、也就免了审批），
+		// 所以这一次同样进队列；先批掉它，后面那次才有前值可比。
 		await put({ footer: '页脚甲', __changedFields: ['footer'] });
+		await app.request(`${settings}?action=approve-pending`, { method: 'POST', headers: { ...headers, cookie }, body: '{}' });
 		assert.equal((await put({ footer: '页脚乙', __changedFields: ['footer'] })).status, 202, '不勾立即生效就进审批队列');
 		const pendingPage = await (await app.request(settings, { headers: { ...headers, cookie } })).json();
 		// 提示块是独立的一块，不是塞进页面描述里：它要显眼，还要把按钮放在内容旁边。

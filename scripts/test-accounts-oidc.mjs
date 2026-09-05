@@ -61,7 +61,7 @@ try {
 	database.prepare(`INSERT INTO base_configs (created_at, updated_at, key, value) VALUES (?, ?, 'accounts_oidc_client', ?)`).run(now, now, JSON.stringify({ enabled: true, issuer: 'https://accounts.test', clientId, clientSecret }));
 	// 密码同步两侧都要开：Accounts 客户端的「下发密码」+ 本站的「同步 Accounts 密码」。
 	// 站点设置随请求配置一起缓存，必须在第一次请求之前写进去。
-	database.prepare(`INSERT INTO base_configs (created_at, updated_at, key, value) VALUES (?, ?, 'site_settings', ?)`).run(now, now, JSON.stringify({ passwordSyncEnabled: true }));
+	database.prepare("UPDATE base_configs SET value = ? WHERE key = 'site_backend'").run(JSON.stringify({ passwordSyncEnabled: true }));
 	const bindUserPassword = await storedPassword('accountspassword');
 	database.prepare('INSERT INTO passport_user_credentials (key, user_key, password, created_at, updated_at) VALUES (lower(hex(randomblob(16))), ?, ?, ?, ?)').run(secondUserId, bindUserPassword, now, now);
 
