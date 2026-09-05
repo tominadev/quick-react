@@ -31,6 +31,14 @@ type TableCrudProps = TableCrudType & {
 	initialQueryValues?: Record<string, string>;
 	/** 回收站 TableCRUD 不再显示自身的回收站入口，避免无限嵌套。 */
 	showRecycleBin?: boolean;
+	/**
+	 * 要不要把搜索、翻页、排序记进地址栏。
+	 *
+	 * 只有页面主表该记：弹窗里的回收站是临时看一眼的东西，它翻页排序也去改地址栏的话，
+	 * 会把主表的状态覆盖掉——关掉弹窗后主表还停在原处，地址栏说的却是回收站那一套，
+	 * 刷新就跳到别的地方去了。
+	 */
+	urlState?: boolean;
 };
 
 type UploadState = {
@@ -56,7 +64,7 @@ const rowConfirmText = (template: string, record: DataType) => template.replace(
 });
 
 
-const TableCRUD = ({ commonApi, resourcePath, initialResponse, initialQueryValues, showRecycleBin = true }: TableCrudProps) => {
+const TableCRUD = ({ commonApi, resourcePath, initialResponse, initialQueryValues, showRecycleBin = true, urlState = true }: TableCrudProps) => {
 	const initialData = (window as Window & {
 		__INITIAL_DATA__?: { apiSuffix?: string };
 	}).__INITIAL_DATA__;
@@ -84,9 +92,10 @@ const TableCRUD = ({ commonApi, resourcePath, initialResponse, initialQueryValue
 		};
 	})();
 
-	const initialTableState = useRef(readTableUrlState(typeof window === 'undefined' ? '' : window.location.search)).current;
+	// 弹窗里的表格既不读也不写地址栏：读的话它会连主表的翻页与排序一起继承过来。
+	const initialTableState = useRef(readTableUrlState(!urlState || typeof window === 'undefined' ? '' : window.location.search)).current;
 	const rememberTableState = (state: Parameters<typeof writeTableUrlState>[1]) => {
-		if (typeof window === 'undefined') return;
+		if (!urlState || typeof window === 'undefined') return;
 		try {
 			const url = new URL(window.location.href);
 			const search = writeTableUrlState(url.search, state);
@@ -843,6 +852,7 @@ const TableCRUD = ({ commonApi, resourcePath, initialResponse, initialQueryValue
 					resourcePath={modalAction.path}
 					initialQueryValues={{ ...appliedQueryValues, include: 'deleted' }}
 					showRecycleBin={false}
+					urlState={false}
 				/>
 				: modalAction ? <FormPage embedded commonApi={commonApi} apiPath={`/api${modalAction.path}${initialData?.apiSuffix ?? ''}`} title={modalAction.title} submitMethod="POST" onCompleted={() => { setModalAction(undefined); void fetchData(); }} /> : null}
 		</Modal>
