@@ -45,7 +45,6 @@ const MAX_REASON_LENGTH = 500;
  * 头部只能放 ASCII，因此客户端 encodeURIComponent 后再发。
  */
 export const CHANGE_REASON_HEADER = 'x-change-reason';
-export const CHANGE_IMMEDIATE_HEADER = 'x-change-immediate';
 export const readChangeReason = (c: Context<AppEnv>) => {
 	const raw = c.req.header(CHANGE_REASON_HEADER);
 	if (!raw) return '';

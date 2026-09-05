@@ -48,8 +48,13 @@ export type SqlCondition =
 	| { raw: string; column?: undefined; value?: undefined; operator?: undefined };
 
 /** 该条件是否需要绑定一个参数值。raw 与 IS NULL 系列都不绑定。 */
-/** 审计表与它自己的动作常量。审计表自身不被审计，否则记录一条变更会再产生一条变更。 */
-export const AUDIT_TABLE = 'base_audit_entries';
+/**
+ * 变更审批表与它自己的动作常量。这张表自身不被审计，否则记录一条变更会再产生一条变更。
+ *
+ * 表名叫 base_approvals 而不是 base_audit_entries：这里存的不是"谁看了什么"的审计流水，
+ * 而是每一次后台修改的申请与它的去向——待审批、已生效、已驳回、已撤销、已回滚。
+ */
+export const AUDIT_TABLE = 'base_approvals';
 /**
  * 列表查询的排序。
  *

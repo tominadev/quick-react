@@ -1,5 +1,5 @@
 export type TableData = Record<string, unknown>;
-export type TableColumnComponent = 'textbox' | 'url' | 'avatar' | 'avatar_text' | 'textarea' | 'select' | 'switch' | 'datepicker' | 'datepicker_rangepicker' | 'inputnumber' | 'upload' | 'change-control';
+export type TableColumnComponent = 'textbox' | 'url' | 'avatar' | 'avatar_text' | 'textarea' | 'select' | 'switch' | 'datepicker' | 'datepicker_rangepicker' | 'inputnumber' | 'upload';
 export type TableDataType = 'js_timestamp' | 'int' | 'float' | 'string' | 'datetime';
 export type TableColumnRule = { required: boolean; message: string };
 export type TableColumnRemoteOptions = { action: string; dependencies: string[]; clearFields?: string[] };
@@ -18,8 +18,6 @@ export type TableColumnFormProperties = {
 	checkedValue?: string | boolean;
 	uncheckedValue?: string | boolean;
 	dataType?: TableDataType;
-	/** 仅 change-control 组件使用：要不要渲染「立即生效」勾选。 */
-	allowImmediate?: boolean;
 	/**
 	 * 表单里的分组名。任一列带上它，编辑抽屉就按分组渲染成可切换的 Tab；
 	 * 没带的列归到第一个分组。只影响表单，不影响列表。
@@ -86,11 +84,6 @@ export type TableOption = {
 	queryFields?: TableQueryField[];
 	/** 这个页面要不要收集「变更说明」；由服务端按请求路径注入，登录与注册页不需要。 */
 	changeControl?: boolean;
-	/**
-	 * 当前用户有没有审批权。由服务端在 apiResponse 里统一注入，前端据此决定
-	 * 渲不渲染「批准 / 驳回」按钮；放行与否服务端另有一道校验，不看这个字段。
-	 */
-	canSkipApproval?: boolean;
 };
 export type TableSelectOption = {
 	value: string;

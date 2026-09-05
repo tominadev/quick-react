@@ -205,13 +205,7 @@ const withChangeControl = (c: Context<AppEnv>, payload: Record<string, unknown>)
 	// 自己的数据——改个昵称还要写「变更理由」是荒谬的，那些操作照常留痕但不问理由。
 	const changeControl = c.req.path.startsWith('/api/panel/admin/');
 	if (!changeControl) return payload;
-	const canSkipApproval = (c.get('effectiveRoles') ?? []).some((role) => APPROVAL_SKIP_ROLES.includes(role));
-	// 路由显式声明的优先：有些后台页面的动作压根不经过审批门（审计页的撤回、批准、
-	// 驳回走的是 runSystemSql），在那里显示「立即生效」是误导——勾了不改变任何行为。
-	const fill = (target: Record<string, unknown>) => ({
-		changeControl: target.changeControl ?? changeControl,
-		canSkipApproval: target.canSkipApproval ?? canSkipApproval,
-	});
+	const fill = (target: Record<string, unknown>) => ({ changeControl: target.changeControl ?? changeControl });
 	let result = payload;
 	const table = payload.table;
 	if (table && typeof table === 'object') {

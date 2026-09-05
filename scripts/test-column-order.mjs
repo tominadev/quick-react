@@ -14,7 +14,7 @@ const projectDirectory = resolve(import.meta.dirname, '..');
  * 猜出来的那张未必是列表主表，猜错了这个测试就成了摆设。
  */
 const routeTables = {
-	'base/api/panel/admin/base/audit.mts': 'base_audit_entries',
+	'base/api/panel/admin/base/audit.mts': 'base_approvals',
 	'base/api/panel/admin/base/users.mts': 'base_users',
 	'global/api/panel/admin/global/cloud/credentials.mts': 'global_cloud_credentials',
 	'global/api/panel/admin/global/cloud/email/bindings.mts': 'global_cloud_email_bindings',

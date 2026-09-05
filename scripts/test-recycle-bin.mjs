@@ -58,17 +58,20 @@ try {
 	const recyclePath = `${rowsPath}&include=deleted,schema,data`;
 	const deleted = await (await request(recyclePath, { cookie })).json();
 	assert.ok(deleted.table.dataSource.some((row) => row.id === fixture.id), '软删除记录应出现在回收站');
-	assert.equal((await request(`${recyclePath}&action=restore`, { method: 'POST', cookie, body: [fixture.id] })).status, 200);
+	// 恢复**立即生效**，不再排一次队：把记录移进回收站那一步已经过了审批，恢复是它的
+	// 逆操作。keepPending 让这里看见真实状态码——排队的话会是 202，而外面那层会替它把
+	// 队走完，把「回收站救不了急」这个毛病盖住。
+	assert.equal((await request(`${recyclePath}&action=restore`, { method: 'POST', cookie, keepPending: true, body: [fixture.id] })).status, 200, '回收站的恢复要立即生效');
 	const restored = await (await request(rowsPath, { cookie })).json();
 	assert.ok(restored.table.dataSource.some((row) => row.id === fixture.id), '恢复后记录应回到普通列表');
 
 	assert.equal((await request(rowsPath, { method: 'DELETE', cookie, body: [fixture.id] })).status, 200);
-	assert.equal((await request(`${recyclePath}&action=purge`, { method: 'POST', cookie, body: [fixture.id] })).status, 200);
+	assert.equal((await request(`${recyclePath}&action=purge`, { method: 'POST', cookie, keepPending: true, body: [fixture.id] })).status, 200, '彻底删除也不排队');
 	const purged = await (await request(recyclePath, { cookie })).json();
 	assert.equal(purged.table.dataSource.some((row) => row.id === fixture.id), false, '彻底删除后回收站不应保留记录');
 	// 审计表本身也受管：从「数据管理」改一条审计记录会照常留痕、照常走审批。
 	// 递归由 runSystemSql 挡住（审计模块自己的写入不留痕），不靠把这张表排除在外。
-	const auditBase = '/api/panel/admin/base/data/rows.php?table=base_audit_entries';
+	const auditBase = '/api/panel/admin/base/data/rows.php?table=base_approvals';
 	const auditList = await (await request(`${auditBase}&include=schema,data`, { cookie })).json();
 	assert.ok(auditList.table.dataSource.length, '前面的操作应该已经留下审计记录');
 	const entryId = auditList.table.dataSource[0].id;
@@ -82,7 +85,7 @@ try {
 	assert.equal((await request(auditBase.replace('?', `/${entryId}?`), { method: 'PUT', cookie, body: { reason: '改写了' } })).status, 200);
 	const afterTamper = await (await request(`${auditBase}&include=schema,data`, { cookie })).json();
 	assert.equal(afterTamper.table.dataSource.find((row) => String(row.id) === String(entryId)).reason, '改写了');
-	assert.ok(afterTamper.table.dataSource.some((row) => row.table_name === 'base_audit_entries'), '改审计表也要留痕');
+	assert.ok(afterTamper.table.dataSource.some((row) => row.table_name === 'base_approvals'), '改审计表也要留痕');
 
 	console.log('recycle-bin test passed');
 } finally {

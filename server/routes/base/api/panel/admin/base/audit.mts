@@ -41,7 +41,7 @@ const flipActions = [
 ];
 
 const columns = [
-	// 列的先后与 prisma/base.prisma 里 base_audit_entries 的字段顺序一致——两处对照着
+	// 列的先后与 prisma/base.prisma 里 base_approvals 的字段顺序一致——两处对照着
 	// 看时不用来回找。计算列排在它所依据的那一列的位置上（summary 之于 changes）。
 	// 由 test:change-audit 守着，加了新列忘了对齐会直接报错。
 	{ dataIndex: 'id', title: 'ID', dataType: 'int' as const },
@@ -125,7 +125,7 @@ const handler: ApiHandler = async (c, next, params) => {
 			// 这一页的动作本身就是审批机制，不经过审批门：撤回、批准、驳回走的是
 			// runSystemSql，勾「立即生效」不改变任何行为，因此显式关掉这个勾选框。
 			// 操作原因仍然要收：它会写进审批意见、撤回理由或恢复理由。
-			option: { rowKey: 'id', canSkipApproval: false, queryFields, actions: {
+			option: { rowKey: 'id', queryFields, actions: {
 				query: [{ key: 'search', label: '搜索' }],
 				// 撤回不新开记录，而是把这一条翻到另一面；已撤回的再点一次就恢复。
 				// 撤回与恢复是互斥的两个动作，一行上只显示其中适用的那个。

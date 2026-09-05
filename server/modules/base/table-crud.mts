@@ -68,7 +68,12 @@ export const handleTableCrudAction = async (c: Context<AppEnv>, definition: Tabl
 	for (const id of ids) {
 		const where: SqlCondition[] = [...businessWhere, { column: rowKey, value: id }, { column: 'deleted_at', operator: '!=', value: 0 }];
 		const statement = action === 'restore' ? sql({ database }).restore(table, where) : sql({ database }).delete(table, where);
-		await runOperationSql(c, database, statement);
+		// 回收站里的恢复**立即生效**，只留痕不排队。
+		//
+		// 把记录移进回收站那一步已经过了审批（软删除是 UPDATE，走审批门）；恢复是它的
+		// 逆操作，做的是「把东西放回大家都看得见的地方」。再让它排一次队，回收站就不是
+		// 后悔药了——删错一条要等审批人有空才救得回来，而这段时间里记录是消失的。
+		await runOperationSql(c, database, statement, { immediate: true });
 	}
 	await c.get('siteRouter').refresh();
 	return apiMessage(c, 200, action === 'restore' ? '记录已恢复' : '记录已彻底删除');

@@ -18,7 +18,7 @@ enum BaseTenantStatus {
   disabled
 }
 
-enum BaseAuditAction {
+enum BaseApprovalAction {
   update
   soft_delete
   restore
@@ -27,7 +27,7 @@ enum BaseAuditAction {
 /// 「撤销申请」与「回滚」是两件事：前者收回的是还没生效的申请（数据从未动过），
 /// 后者把已经生效的变更改回去（数据被改回）。用「回滚」而不是「撤回」，是因为
 /// 「撤回/撤销」两个词太近，读的人分不清哪个动的是数据。
-enum BaseAuditStatus {
+enum BaseApprovalStatus {
   /// 已提交，等审批：记录已写，数据还没动。
   pending
   applied
@@ -299,7 +299,7 @@ model base_device_snapshots {
 
 /// 变更留痕：受管表上每一次业务字段变更的前后值，同时用作操作日志与撤回依据。
 /// 只覆盖 update（软删除与恢复同为 UPDATE），不覆盖 insert 与物理 delete。
-model base_audit_entries {
+model base_approvals {
   id           BigInt @id @default(autoincrement())
   created_at   BigInt
   updated_at   BigInt
@@ -322,11 +322,11 @@ model base_audit_entries {
   request_path String @default("")
   table_name   String
   row_id       BigInt
-  action       BaseAuditAction
+  action       BaseApprovalAction
   /// JSON 对象：列名 -> { before, after }，只含实际发生变化的列。
   changes      Json @default("{}")
   /// applied ↔ reverted 可以来回翻：回滚不新开记录，而是把这一条翻到另一面。
-  status       BaseAuditStatus @default(applied)
+  status       BaseApprovalStatus @default(applied)
   /// 审批的时间、审批人与意见。pending → applied/rejected 时写一次就定了。
   reviewed_at   BigInt?
   reviewed_duid BigInt?

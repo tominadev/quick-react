@@ -14,7 +14,7 @@ export const REJECT_ACTION = 'reject-pending';
 type PendingEntry = { id: string; changes: string; reason: string; created_at: number; created_duid: string | null };
 
 /** 当前请求的操作者（device_user_id）；系统或无设备操作为 null。 */
-const actorOf = (database: DatabaseAdapter) => database.actorUidForTable?.('base_audit_entries') ?? database.actorUid ?? null;
+const actorOf = (database: DatabaseAdapter) => database.actorUidForTable?.('base_approvals') ?? database.actorUid ?? null;
 const sameActor = (entry: PendingEntry, actor: string | number | bigint | null) =>
 	actor !== null && entry.created_duid !== null && String(entry.created_duid) === String(actor);
 
@@ -26,7 +26,7 @@ const sameActor = (entry: PendingEntry, actor: string | number | bigint | null) 
  */
 export const pendingEntriesFor = async (database: DatabaseAdapter, table: string, rowId: string | number | bigint) =>
 	allSql<PendingEntry>(database, sql({ database }).select({
-		table: 'base_audit_entries',
+		table: 'base_approvals',
 		columns: { id: { column: 'id', cast: 'text' }, changes: 'changes', reason: 'reason', created_at: 'created_at', created_duid: { column: 'created_duid', cast: 'text' } },
 		where: [{ column: 'table_name', value: table }, { column: 'row_id', value: String(rowId) }, { column: 'status', value: 'pending' }],
 		orderBy: [{ column: 'id' }],
@@ -41,7 +41,7 @@ export const pendingEntriesFor = async (database: DatabaseAdapter, table: string
 export const pendingRowIds = async (database: DatabaseAdapter, table: string, rowIds: readonly string[]) => {
 	if (!rowIds.length) return new Set<string>();
 	const rows = await allSql<{ row_id: string }>(database, sql({ database }).select({
-		table: 'base_audit_entries', distinct: true,
+		table: 'base_approvals', distinct: true,
 		columns: { row_id: { column: 'row_id', cast: 'text' } },
 		where: [{ column: 'table_name', value: table }, { column: 'status', value: 'pending' }],
 	}));

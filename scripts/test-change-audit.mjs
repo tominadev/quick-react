@@ -26,7 +26,7 @@ const auditRouteFilter = async () => {
 		const seed = new DatabaseSync(process.env.DEFAULT_DATABASE_FILE);
 		const at = Date.now();
 		for (const [id, status] of [['1', 'pending'], ['2', 'applied'], ['3', 'rejected'], ['4', 'pending']]) {
-			seed.prepare('INSERT INTO base_audit_entries (created_at,updated_at,operation_id,reason,table_name,row_id,action,changes,status) VALUES (?,?,?,?,?,?,?,?,?)')
+			seed.prepare('INSERT INTO base_approvals (created_at,updated_at,operation_id,reason,table_name,row_id,action,changes,status) VALUES (?,?,?,?,?,?,?,?,?)')
 				.run(at, at, id, `理由${id}`, 'base_users', id, 'update', '{}', status);
 		}
 		seed.close();
@@ -60,7 +60,7 @@ const auditRouteFilter = async () => {
 		const overflow = new DatabaseSync(process.env.DEFAULT_DATABASE_FILE);
 		const now = Date.now();
 		for (let index = 0; index < 250; index += 1) {
-			overflow.prepare('INSERT INTO base_audit_entries (created_at,updated_at,operation_id,reason,table_name,row_id,action,changes,status) VALUES (?,?,?,?,?,?,?,?,?)')
+			overflow.prepare('INSERT INTO base_approvals (created_at,updated_at,operation_id,reason,table_name,row_id,action,changes,status) VALUES (?,?,?,?,?,?,?,?,?)')
 				.run(now, now, `bulk${index}`, '批量', 'base_users', String(index), 'update', '{}', 'pending');
 		}
 		overflow.close();
@@ -71,8 +71,10 @@ const auditRouteFilter = async () => {
 		// 待审批的修改要在页面上看得见、也动得了：进了队列却什么都看不出来的话，
 		// 表单显示的仍是旧值，用户以为没保存成功，于是再改一次，队列里堆出第二条。
 		const settings = 'http://localhost/api/panel/admin/base/settings/site.php';
-		const put = (body, immediate) => app.request(settings, { method: 'PUT', headers: { ...headers, cookie, ...(immediate ? { 'x-change-immediate': '1' } : {}) }, body: JSON.stringify(body) });
-		await put({ footer: '页脚甲', __changedFields: ['footer'] }, true);
+		const put = (body) => app.request(settings, { method: 'PUT', headers: { ...headers, cookie }, body: JSON.stringify(body) });
+		// 第一次保存把 base_configs 那一行建出来。新增不留痕（§3.0），因此这一次不排队，
+		// 直接落库——后面那次才是真正的「改」，也才有前值可比。
+		await put({ footer: '页脚甲', __changedFields: ['footer'] });
 		assert.equal((await put({ footer: '页脚乙', __changedFields: ['footer'] })).status, 202, '不勾立即生效就进审批队列');
 		const pendingPage = await (await app.request(settings, { headers: { ...headers, cookie } })).json();
 		// 提示块是独立的一块，不是塞进页面描述里：它要显眼，还要把按钮放在内容旁边。
@@ -111,7 +113,7 @@ const auditRouteFilter = async () => {
 		// 先清掉上面为测总数塞的假记录：它们的 table_name 也是 base_users、row_id 是 0..249，
 		// 会和新建账号的 id 撞上，让这一段测到的是那些假记录。
 		const cleanup = new DatabaseSync(process.env.DEFAULT_DATABASE_FILE);
-		cleanup.prepare("DELETE FROM base_audit_entries WHERE changes = '{}'").run();
+		cleanup.prepare("DELETE FROM base_approvals WHERE changes = '{}'").run();
 		cleanup.close();
 		const usersApi = 'http://localhost/api/panel/admin/base/users.php';
 		await app.request(usersApi, { method: 'POST', headers: { ...headers, cookie }, body: JSON.stringify({ user_name: 'pendingbob', password: 'bob-password-123', roles: [], status: 'enabled' }) });
@@ -135,8 +137,8 @@ const auditRouteFilter = async () => {
 		// 列的先后要与 prisma 里的字段顺序一致：两处对照着看时不用来回找。
 		// 只比相对次序——不是每个字段都显示（operation_id 就不显示），也允许有计算列。
 		const schema = await readFile(resolve(projectDirectory, 'prisma/base.prisma'), 'utf8');
-		const model = /model base_audit_entries \{([\s\S]*?)\n\}/.exec(schema);
-		assert.ok(model, '找不到 base_audit_entries 模型');
+		const model = /model base_approvals \{([\s\S]*?)\n\}/.exec(schema);
+		assert.ok(model, '找不到 base_approvals 模型');
 		const schemaOrder = [...model[1].matchAll(/^\s{2}([a-z_]+)\s+\S/gm)].map((match) => match[1]);
 		const listed = (await (await app.request('http://localhost/api/panel/admin/base/audit.php?include=schema,data', { headers: { ...headers, cookie } })).json()).table.columns
 			.map((column) => column.dataIndex)
@@ -208,7 +210,7 @@ try {
 	});
 	const op = (statement, options) => runOperationSql(context(), acting, statement, { immediate: true, ...options });
 
-	const entries = async () => (await allSql(acting, sql({ database: acting }).select({ table: 'base_audit_entries', includeAll: true, orderBy: [{ column: 'id', direction: 'ASC' }] }))).map((entry) => ({ ...entry, id: String(entry.id) }));
+	const entries = async () => (await allSql(acting, sql({ database: acting }).select({ table: 'base_approvals', includeAll: true, orderBy: [{ column: 'id', direction: 'ASC' }] }))).map((entry) => ({ ...entry, id: String(entry.id) }));
 	const changesOf = (entry) => JSON.parse(entry.changes);
 	const latestEntry = async () => (await entries()).at(-1);
 
@@ -325,7 +327,7 @@ try {
 	const failWrite = async () => { throw new Error('audit write failed'); };
 	const failing = withDatabaseActors({
 		...database,
-		prepare: (query) => query.startsWith('INSERT INTO "base_audit_entries"') || query.startsWith('UPDATE "base_audit_entries"')
+		prepare: (query) => query.startsWith('INSERT INTO "base_approvals"') || query.startsWith('UPDATE "base_approvals"')
 			? { bind: () => ({ run: failWrite, first: failWrite, all: failWrite }) }
 			: database.prepare(query),
 	}, { subjectRoles: ['platform_admin'], humanOperation: true });
@@ -338,7 +340,7 @@ try {
 
 	// ---- 撤回（§7）----
 	const nameOf = async (id) => (await firstSql(acting, sql({ database: acting }).select({ table: 'base_users', columns: { name: 'name' }, where: [{ column: 'id', value: id }], deleted: 'all' }))).name;
-	const statusOf = async (entryId) => (await firstSql(acting, sql({ database: acting }).select({ table: 'base_audit_entries', columns: { status: 'status' }, where: [{ column: 'id', value: entryId }] }))).status;
+	const statusOf = async (entryId) => (await firstSql(acting, sql({ database: acting }).select({ table: 'base_approvals', columns: { status: 'status' }, where: [{ column: 'id', value: entryId }] }))).status;
 	const revert = (ids, reason = '') => transitionAuditEntries(acting, ids, 'reverted', reason);
 	const restore = (ids, reason = '') => transitionAuditEntries(acting, ids, 'applied', reason);
 	const entryById = async (id) => (await entries()).find((entry) => entry.id === id);
@@ -621,7 +623,7 @@ try {
 	assert.equal((await entries()).length, total);
 	const oldest = (await entries()).slice(0, 3).map((entry) => entry.id);
 	const staleAt = Date.now() - 400 * 86400_000;
-	for (const id of oldest) database.prepare('UPDATE base_audit_entries SET created_at = ? WHERE id = ?').bind(staleAt, id).run();
+	for (const id of oldest) database.prepare('UPDATE base_approvals SET created_at = ? WHERE id = ?').bind(staleAt, id).run();
 	assert.equal(await purgeExpiredAuditEntries(database, 365, { batchSize: 2 }), 3, '过期记录应被物理删除，且分批可重入');
 	assert.equal((await entries()).length, total - 3, '未到期的记录不受影响');
 	assert.equal(await purgeExpiredAuditEntries(database, 365), 0, '再跑一次没有可清理的记录');
@@ -629,7 +631,7 @@ try {
 	// 保留期按租户独立：读各租户自己的站点设置。
 	await runSql(database, sql({ database }).ignoreInsert('base_tenants', ['key'], { key: 'default', name: '默认租户', status: 'enabled' }));
 	const remaining = (await entries()).find((entry) => String(entry.owner_tid) === '1');
-	database.prepare('UPDATE base_audit_entries SET created_at = ? WHERE id = ?').bind(staleAt, remaining.id).run();
+	database.prepare('UPDATE base_approvals SET created_at = ? WHERE id = ?').bind(staleAt, remaining.id).run();
 	assert.equal(await purgeAuditRetention(database), 1, '未配置保留期的租户应回落到默认的 365 天');
 
 	console.log('change audit ok');

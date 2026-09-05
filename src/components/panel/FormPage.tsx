@@ -249,8 +249,6 @@ export default function FormPage({ commonApi, apiPath, title, submitMethod = 'PU
 		}
 	};
 
-	// 「立即生效」默认不勾，且只对管理员渲染；放行与否服务端另有一道校验。
-	const canSkipApproval = Boolean(formConfig?.canSkipApproval);
 	// 登录、注册这类不留痕的页面不注入变更说明；服务端按路径决定。
 	// 变更说明不再当成表单里的一个字段：它不是配置项，混在字段中间既容易被当成要填的内容，
 	// 又会跟着「还原默认」一起被重置。改成在提交前的确认框里收集。
@@ -264,7 +262,7 @@ export default function FormPage({ commonApi, apiPath, title, submitMethod = 'PU
 		// 「还原默认」会把每个字段都标记成已改，不管值有没有真的变；用户打一个字又删掉
 		// 也会留下标记。照标记列的话，确认框里全是「8088 → 8088」这种自说自话的行。
 		const changedLines = describeFormChanges(formConfig?.fields, changedFields.current, initialValues, values, controlNames);
-		// 确认框里一并收集变更说明：改了什么、为什么改、要不要立即生效，在同一个地方问完。
+		// 确认框里一并收集变更说明：改了什么、为什么改，在同一个地方问完。
 		// **没改动就不问原因**：一次什么都没变的提交没有「原因」可言，摆个必填框只会逼人瞎写。
 		let control: ChangeControlValues | undefined;
 		if (changedLines.length) {

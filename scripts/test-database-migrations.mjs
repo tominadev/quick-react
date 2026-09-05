@@ -67,35 +67,40 @@ const tableBody = (source, openIndex) => {
 
 const definitionKeywords = ['PRIMARY', 'UNIQUE', 'CONSTRAINT', 'FOREIGN', 'KEY', 'CHECK', 'INDEX'];
 
-/** 方言迁移按文件顺序累积：先建表，再应用后续迁移补的列，和真实全新安装一致。 */
+/**
+ * 方言迁移按文件顺序累积：先建表，再应用后续迁移补的列与删掉的表，和真实全新安装一致。
+ *
+ * 逐条语句按出现顺序处理，而不是先扫一遍 CREATE 再扫一遍 ALTER：改表名这样的迁移里
+ * DROP TABLE 与 CREATE TABLE 同时出现，分趟做会把先后颠倒，结果正好相反。
+ * CREATE TABLE 的表体里不会有分号，因此按分号切分是安全的。
+ */
 const targetSchema = (source) => {
 	const result = {};
-	for (const match of source.matchAll(/CREATE TABLE(?:\s+IF NOT EXISTS)?\s+[\`"]?([A-Za-z_][A-Za-z0-9_]*)[\`"]?\s*\(/gi)) {
-		const body = tableBody(source, match.index + match[0].length - 1);
-		const columns = [];
-		for (const definition of splitDefinitions(body)) {
-			const trimmed = definition.trim();
-			if (!trimmed) continue;
-			// 约束一律大写书写，被引号包起来的同名列（例如 MySQL 的 `key`）不算约束。
-			const raw = trimmed.split(/\s+/)[0];
-			if (!definitionKeywords.includes(raw)) columns.push(raw.replaceAll('`', '').replaceAll('"', ''));
-		}
-		result[match[1]] = columns;
-	}
-	for (const match of source.matchAll(/ALTER TABLE\s+([A-Za-z_][A-Za-z0-9_]*)\s+ADD COLUMN\s+(?:IF NOT EXISTS\s+)?([A-Za-z_][A-Za-z0-9_]*)/gi)) {
-		const columns = result[match[1]];
-		if (columns && !columns.includes(match[2])) columns.push(match[2]);
-	}
-	// SQLite 那边是把迁移真的跑进内存库再读结构，因此增量迁移天然生效；MySQL 与
-	// PostgreSQL 这边是文本解析，只认 CREATE TABLE 就会漏掉后续增量加的列。
-	// 这里把 ALTER TABLE 的加列/删列补上，两边才比得起来。
 	for (const statement of source.split(';')) {
+		const created = /CREATE TABLE(?:\s+IF NOT EXISTS)?\s+[`"]?([A-Za-z_][A-Za-z0-9_]*)[`"]?\s*\(/i.exec(statement);
+		if (created) {
+			const body = tableBody(statement, created.index + created[0].length - 1);
+			const columns = [];
+			for (const definition of splitDefinitions(body)) {
+				const trimmed = definition.trim();
+				if (!trimmed) continue;
+				// 约束一律大写书写，被引号包起来的同名列（例如 MySQL 的 `key`）不算约束。
+				const raw = trimmed.split(/\s+/)[0];
+				if (!definitionKeywords.includes(raw)) columns.push(raw.replaceAll('`', '').replaceAll('"', ''));
+			}
+			result[created[1]] = columns;
+			continue;
+		}
+		const droppedTable = /DROP TABLE(?:\s+IF EXISTS)?\s+[`"]?([A-Za-z_][A-Za-z0-9_]*)[`"]?/i.exec(statement);
+		if (droppedTable) { delete result[droppedTable[1]]; continue; }
+		// SQLite 那边是把迁移真的跑进内存库再读结构，因此增量迁移天然生效；MySQL 与
+		// PostgreSQL 这边是文本解析，只认 CREATE TABLE 就会漏掉后续增量加的列。
 		const table = /ALTER\s+TABLE\s+[`"]?([A-Za-z_][A-Za-z0-9_]*)[`"]?/i.exec(statement);
 		if (!table || !result[table[1]]) continue;
-		for (const added of statement.matchAll(/ADD\s+COLUMN\s+[`"]?([A-Za-z_][A-Za-z0-9_]*)[`"]?/gi)) {
+		for (const added of statement.matchAll(/ADD\s+COLUMN\s+(?:IF NOT EXISTS\s+)?[`"]?([A-Za-z_][A-Za-z0-9_]*)[`"]?/gi)) {
 			if (!result[table[1]].includes(added[1])) result[table[1]].push(added[1]);
 		}
-		for (const dropped of statement.matchAll(/DROP\s+COLUMN\s+[`"]?([A-Za-z_][A-Za-z0-9_]*)[`"]?/gi)) {
+		for (const dropped of statement.matchAll(/DROP\s+COLUMN\s+(?:IF EXISTS\s+)?[`"]?([A-Za-z_][A-Za-z0-9_]*)[`"]?/gi)) {
 			result[table[1]] = result[table[1]].filter((column) => column !== dropped[1]);
 		}
 	}
