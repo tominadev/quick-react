@@ -11,6 +11,7 @@ export const tableCrud: TableCrudDefinition = { table: 'global_cloud_object_stor
 import { getChangedFields } from '@server/modules/base/changed-fields.mjs';
 import { allSql, firstSql, runSql, sql } from '@server/database/sql.mjs';
 import { PendingApprovalError, runOperationSql } from '@server/modules/base/operation.mjs';
+import { tableSort } from '@server/modules/base/query-options.mjs';
 
 const purposes = [
 	{ value: 'uploads', text: '上传文件' },
@@ -74,7 +75,7 @@ const handler: ApiHandler = async (c, next, params) => {
 	};
 	if (!params.id && c.req.method === 'GET') {
 		const [rows, purposeRows, options] = await Promise.all([
-			allSql<Record<string, unknown>>(database, sql({ database }).select({ table: 'global_cloud_object_storage_bindings', alias: 'b', columns: { id: 'b.id', site_key: 'b.site_key', site_name: 's.name', bucket_id: 'b.bucket_id', bucket: 'bkt.bucket', credential_name: 'c.name', provider: 'c.provider', key_prefix: 'b.key_prefix', status: 'b.status', created_at: 'b.created_at', updated_at: 'b.updated_at' }, joins: [{ table: 'global_sites', alias: 's', left: 's.key', right: 'b.site_key' }, { table: 'global_cloud_object_storage_buckets', alias: 'bkt', left: 'bkt.id', right: 'b.bucket_id' }, { table: 'global_cloud_credentials', alias: 'c', left: 'c.id', right: 'bkt.cloud_credential_id' }], orderBy: [{ column: 'b.id', direction: 'DESC' }] })),
+			allSql<Record<string, unknown>>(database, sql({ database }).select({ table: 'global_cloud_object_storage_bindings', alias: 'b', columns: { id: 'b.id', site_key: 'b.site_key', site_name: 's.name', bucket_id: 'b.bucket_id', bucket: 'bkt.bucket', credential_name: 'c.name', provider: 'c.provider', key_prefix: 'b.key_prefix', status: 'b.status', created_at: 'b.created_at', updated_at: 'b.updated_at' }, joins: [{ table: 'global_sites', alias: 's', left: 's.key', right: 'b.site_key' }, { table: 'global_cloud_object_storage_buckets', alias: 'bkt', left: 'bkt.id', right: 'b.bucket_id' }, { table: 'global_cloud_credentials', alias: 'c', left: 'c.id', right: 'bkt.cloud_credential_id' }], sort: tableSort(c), orderBy: [{ column: 'b.id', direction: 'DESC' }] })),
 			allSql<BindingPurposeRow>(database, sql({ database }).select({ table: 'global_cloud_object_storage_binding_purposes', columns: { binding_id: 'binding_id', purpose: 'purpose', is_default: 'is_default' }, orderBy: [{ column: 'purpose' }] })),
 			listOptions(),
 		]);

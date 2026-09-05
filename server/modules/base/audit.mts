@@ -1,7 +1,7 @@
 import { withDatabaseActors, type DatabaseAdapter } from '@server/database/index.mjs';
 import { createDatabaseConfigStore } from './config-store.mjs';
 import { normalizeSiteSettings } from './site-settings.mjs';
-import { allSql, AUDIT_TABLE, firstSql, runSql, runSystemSql, sql, type SqlAuditAction, type SqlCondition } from '@server/database/sql.mjs';
+import { allSql, AUDIT_TABLE, firstSql, runSql, runSystemSql, sql, type SqlAuditAction, type SqlCondition, type SqlSortOption } from '@server/database/sql.mjs';
 import { isHiddenValueColumn } from '@shared/audit-tables.mjs';
 
 export type AuditChange = { before: unknown; after: unknown };
@@ -83,9 +83,10 @@ export const describeAuditChanges = (changes: AuditChanges) => Object.entries(ch
  *
  * `reasonKeyword` 走模糊匹配：操作原因是人写的自由文本，等值匹配没有意义。
  */
-export const listAuditEntries = async (database: DatabaseAdapter, where: SqlCondition[] = [], reasonKeyword?: string, limit = 200) => allSql<AuditEntryRow>(database, sql({ database }).select({
+export const listAuditEntries = async (database: DatabaseAdapter, where: SqlCondition[] = [], reasonKeyword?: string, limit = 200, sort?: SqlSortOption) => allSql<AuditEntryRow>(database, sql({ database }).select({
 	table: AUDIT_TABLE,
 	columns: entryColumns,
+	sort,
 	// 关键字直接当模式片段用：`%` 与 `_` 在这里就是通配符。转义需要 ESCAPE 子句，
 	// 三种方言的默认转义字符并不一致，为一个搜索框引入那套规则不划算。
 	where: [...where, ...(reasonKeyword ? [{ column: 'reason', operator: 'LIKE' as const, value: `%${reasonKeyword}%` }] : [])],

@@ -6,6 +6,7 @@ import { allSql, runSql, sql } from '@server/database/sql.mjs';
 import { runOperationSql } from '@server/modules/base/operation.mjs';
 import { oidcClient, oidcClients } from '@server/modules/passport/accounts/repository.mjs';
 import type { TableCrudDefinition } from '@server/modules/base/table-crud.mjs';
+import { tableSort } from '@server/modules/base/query-options.mjs';
 
 export const tableCrud: TableCrudDefinition = { table: 'passport_oidc_clients', rowKey: 'client_id', database: 'passportDatabase' };
 
@@ -72,7 +73,7 @@ const handler: ApiHandler = async (c, next, params) => {
 	const database = c.get('passportDatabase');
 	if (!database) return apiMessage(c, 404);
 	if (!params.id && c.req.method === 'GET') {
-		const rows: Array<Record<string, unknown>> = await oidcClients(database);
+		const rows: Array<Record<string, unknown>> = await oidcClients(database, tableSort(c));
 		const redirectUriOptions = await loadRedirectUriOptions(c);
 		const dataSource = rows.map((row) => clientFormRow(row, redirectUriOptions));
 		redirectUriOptions.push({ value: '__custom__', text: '自定义回调地址', fieldValues: {} });

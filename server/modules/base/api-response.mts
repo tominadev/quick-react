@@ -11,6 +11,33 @@ const isSuccessStatus = (status: number) => status >= 200 && status < 300;
 const requestsAuthContext = (c: Context<AppEnv>) => queryIncludes(c, 'include', 'auth');
 
 /** 所有 TableCRUD 统一提供回收站入口；具体回收、恢复和彻底删除动作仍由原接口驱动。 */
+/**
+ * 标注哪些列可排序。
+ *
+ * 名单来自列表查询自己（tableSort 在查询执行时写进请求上下文），因此「能排序的列」
+ * 永远等于「这条查询选出来的列」。放在这里统一做，路由不必各写一遍，加列减列也不会走偏。
+ *
+ * 与回收站等表格工具分开：那一套只在 tableCrud 路由上生效，而排序是所有列表都该有的。
+ */
+const withSortableColumns = (c: Context<AppEnv>, payload: Record<string, unknown>) => {
+	const fields = c.get('sortableFields');
+	const table = payload.table;
+	if (!fields?.length || !table || typeof table !== 'object' || Array.isArray(table)) return payload;
+	const source = table as Record<string, unknown>;
+	if (!Array.isArray(source.columns)) return payload;
+	const allowed = new Set(fields);
+	return {
+		...payload,
+		table: {
+			...source,
+			columns: source.columns.map((column) => {
+				const item = column as Record<string, unknown>;
+				return allowed.has(String(item.dataIndex)) ? { ...item, sortable: true } : item;
+			}),
+		},
+	};
+};
+
 const withTableUtilities = (c: Context<AppEnv>, payload: Record<string, unknown>) => {
 	if (!c.get('tableCrud')) return payload;
 	const table = payload.table;
@@ -149,7 +176,7 @@ export const apiResponse = async <T extends ApiSuccessData>(
 	const next = payload.next;
 	const refreshesAuth = Boolean(next && typeof next === 'object' && !Array.isArray(next) && (next as { refreshAuth?: unknown }).refreshAuth === true);
 	const includesAuth = requestsAuthContext(c);
-	const utilityPayload = withChangeControl(c, withTableUtilities(c, payload));
+	const utilityPayload = withChangeControl(c, withSortableColumns(c, withTableUtilities(c, payload)));
 	let responseData: Record<string, unknown> = selectTableResponse(utilityPayload, c);
 	const contextProvider = c.get('apiContext');
 	if ((includesAuth || refreshesAuth) && contextProvider) {

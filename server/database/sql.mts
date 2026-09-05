@@ -50,6 +50,18 @@ export type SqlCondition =
 /** 该条件是否需要绑定一个参数值。raw 与 IS NULL 系列都不绑定。 */
 /** 审计表与它自己的动作常量。审计表自身不被审计，否则记录一条变更会再产生一条变更。 */
 export const AUDIT_TABLE = 'base_audit_entries';
+/**
+ * 列表查询的排序。
+ *
+ * `request` 是请求里要求的排序，`expose` 由查询回调给上层，告诉它**这条查询选出了哪些列**
+ * ——能排序的恰好就是这些，因此不需要另维护一份白名单，也不会随着列的增减走偏。
+ * 请求里出现的字段名只是查这张表的键，拼不进 SQL。
+ */
+export type SqlSortOption = {
+	request?: { field: string; direction: 'ASC' | 'DESC' };
+	expose?: (fields: string[]) => void;
+};
+
 /** 与 Prisma schema 里 owner_tid / owner_bid 的 @default(1) 对应：不写这两列时数据库落到默认租户与主分站。 */
 const DEFAULT_OWNER_ID = 1;
 export type SqlAuditAction = 'update' | 'soft_delete' | 'restore';
@@ -81,7 +93,7 @@ const renderCondition = (condition: SqlCondition, dialect: SqlDialect, nextPlace
 export type SqlJoin = { type?: 'INNER' | 'LEFT'; table: string; alias?: string; left: string; right: string };
 export type SqlColumn = string | { column: string; cast?: 'text' };
 /** Normal queries see active rows; recycle-bin code must explicitly request deleted/all rows. */
-export type SqlSelectOptions = { table: string; alias?: string; distinct?: boolean; columns?: Record<string, SqlColumn>; includeAll?: boolean; sqliteRowIdAlias?: string; joins?: SqlJoin[]; where?: SqlCondition[]; orderBy?: Array<{ column: string; direction?: 'ASC' | 'DESC' }>; limit?: number; offset?: number; deleted?: DeletedScope };
+export type SqlSelectOptions = { table: string; alias?: string; distinct?: boolean; columns?: Record<string, SqlColumn>; sort?: SqlSortOption; includeAll?: boolean; sqliteRowIdAlias?: string; joins?: SqlJoin[]; where?: SqlCondition[]; orderBy?: Array<{ column: string; direction?: 'ASC' | 'DESC' }>; limit?: number; offset?: number; deleted?: DeletedScope };
 
 export abstract class SqlBuilder {
 	constructor(readonly dialect: SqlDialect, readonly actorContext: SqlActorContext = null, readonly defaultDeletedScope: DeletedScope = 'active', readonly ownerContext: SqlActorContext = null, readonly tenantContext: SqlActorContext = null, readonly branchContext: SqlActorContext = null, readonly subjectRoles: readonly string[] | null = null) {}
@@ -172,7 +184,15 @@ export abstract class SqlBuilder {
 		const conditions = [...deletedConditions, ...this.visibilityConditions(options.table, options.alias), ...(options.where ?? [])], boundConditions = conditions.filter(bindsValue);
 		let parameterIndex = 0;
 		if (conditions.length) query += ` WHERE ${conditions.map((condition) => renderCondition(condition, this.dialect, () => this.placeholder(++parameterIndex))).join(' AND ')}`;
-		if (options.orderBy?.length) query += ` ORDER BY ${options.orderBy.map((order) => `${quoteIdentifier(order.column, this.dialect)} ${order.direction ?? 'ASC'}`).join(', ')}`;
+		const selectable = Object.keys(options.columns ?? {});
+		options.sort?.expose?.(selectable);
+		const requested = options.sort?.request;
+		const requestedColumn = requested && selectable.includes(requested.field) ? options.columns?.[requested.field] : undefined;
+		const requestedName = typeof requestedColumn === 'string' ? requestedColumn : (requestedColumn && typeof requestedColumn === 'object' ? requestedColumn.column : '');
+		// 请求的排序排在前面，原有排序留在后面兜底：按状态这类重复值很多的列排时，
+		// 同值行之间还要有个稳定的次序，否则翻页会看到同一行出现两次、另一行一次都不出现。
+		const orderBy = requestedName && requested ? [{ column: requestedName, direction: requested.direction }, ...(options.orderBy ?? [])] : options.orderBy;
+		if (orderBy?.length) query += ` ORDER BY ${orderBy.map((order) => `${quoteIdentifier(order.column, this.dialect)} ${order.direction ?? 'ASC'}`).join(', ')}`;
 		if (options.limit !== undefined) { query += ` LIMIT ${this.placeholder(boundConditions.length + 1)}`; if (options.offset !== undefined) query += ` OFFSET ${this.placeholder(boundConditions.length + 2)}`; }
 		return { query, values: [...boundConditions.map((condition) => condition.value as SqlValue), ...(options.limit !== undefined ? [options.limit, ...(options.offset !== undefined ? [options.offset] : [])] : [])] };
 	}

@@ -8,7 +8,7 @@ import { finishUserCreation } from '@server/modules/base/registration.mjs';
 import { credentialStatement, setCredential } from '@server/modules/base/credentials.mjs';
 import { profileNicknameOf, profileStatement } from '@server/modules/base/profile.mjs';
 import { userNameError } from '@shared/account-name.mjs';
-import { sortableColumns, tableOrderBy } from '@server/modules/base/query-options.mjs';
+import { tableSort } from '@server/modules/base/query-options.mjs';
 import { enabledDisabledOptions, statusValues } from '@shared/types/status.mjs';
 import { assignableRoleOptions, parseRoles, serializeRoles, unknownAssignableRoles } from '@shared/types/role.mjs';
 import { passwordError } from '@server/modules/base/auth/password-policy.mjs';
@@ -71,8 +71,8 @@ const handler: ApiHandler = async (c, next, params) => {
 	const tenantId = c.get('tenantId');
 	const tenantScope = (column = 'owner_tid') => ownerScope(column, tenantId);
 	if (c.req.method === 'GET' && !params.id) {
-		const rows = await allSql<Record<string, unknown>>(database, sql({ database }).select({ table: 'base_users', alias: 'u', columns: listColumns, joins: listJoins, orderBy: tableOrderBy(c, listColumns, [{ column: 'u.id', direction: 'DESC' }]) }));
-		return apiResponse(c, 200, { table: { option: { rowKey: 'id', actions: { query: [{ key: 'search', label: '搜索' }], toolbar: [{ key: 'create', label: '新增' }, { key: 'delete', label: '删除' }], row: [{ key: 'edit', label: '编辑' }, { key: 'delete', label: '删除' }] } }, columns: sortableColumns(columns, listColumns), dataSource: rows.map(publicUser), totalRecords: rows.length } });
+		const rows = await allSql<Record<string, unknown>>(database, sql({ database }).select({ table: 'base_users', alias: 'u', columns: listColumns, joins: listJoins, sort: tableSort(c), orderBy: [{ column: 'u.id', direction: 'DESC' }] }));
+		return apiResponse(c, 200, { table: { option: { rowKey: 'id', actions: { query: [{ key: 'search', label: '搜索' }], toolbar: [{ key: 'create', label: '新增' }, { key: 'delete', label: '删除' }], row: [{ key: 'edit', label: '编辑' }, { key: 'delete', label: '删除' }] } }, columns, dataSource: rows.map(publicUser), totalRecords: rows.length } });
 	}
 	if (params.id && c.req.method === 'GET') {
 		const row = await firstSql<Record<string, unknown>>(database, sql({ database }).select({ table: 'base_users', alias: 'u', columns: listColumns, joins: listJoins, where: [{ column: 'u.id', value: params.id }] }));

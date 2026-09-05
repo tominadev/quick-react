@@ -9,6 +9,7 @@ import { getChangedFields } from '@server/modules/base/changed-fields.mjs';
 import { accountsIdentityApi } from '@server/modules/base/navigation.mjs';
 import { allSql, firstSql, runSql, sql } from '@server/database/sql.mjs';
 import { runOperationSql } from '@server/modules/base/operation.mjs';
+import { tableSort } from '@server/modules/base/query-options.mjs';
 
 const columns = [
 	{ dataIndex: 'id', title: 'ID' },
@@ -45,7 +46,7 @@ const removeHost = async (c: Parameters<ApiHandler>[0], id: number) => {
 const handler: ApiHandler = async (c, next, params) => {
 	const database = c.get('database');
 	if (!params.id && c.req.method === 'GET') {
-		const rows = await allSql<Record<string, unknown>>(database, sql({ database }).select({ table: 'global_site_hosts', columns: { id: 'id', hostname: 'hostname', site_key: 'site_key', status: 'status', created_at: 'created_at' }, orderBy: [{ column: 'id' }] }));
+		const rows = await allSql<Record<string, unknown>>(database, sql({ database }).select({ table: 'global_site_hosts', columns: { id: 'id', hostname: 'hostname', site_key: 'site_key', status: 'status', created_at: 'created_at' }, sort: tableSort(c), orderBy: [{ column: 'id' }] }));
 		const sites = await allSql<{ site_key: string; name: string }>(database, sql({ database }).select({ table: 'global_sites', columns: { site_key: 'key', name: 'name' }, where: [{ column: 'status', value: 'enabled' }, { column: 'migration_status', value: 'ready' }], orderBy: [{ column: 'key' }] }));
 		const siteOptions = sites.map((site) => ({ value: site.site_key, text: `${site.name} (${site.site_key})` }));
 		const tableColumns = columns.map((column) => column.dataIndex === 'site_key' ? { ...column, options: siteOptions } : column);

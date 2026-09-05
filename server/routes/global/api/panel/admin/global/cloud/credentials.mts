@@ -11,6 +11,7 @@ import { allSql, firstSql, runSql, sql } from '@server/database/sql.mjs';
 import { PendingApprovalError, runOperationSql } from '@server/modules/base/operation.mjs';
 import { enabledDisabledOptions, statusValues } from '@shared/types/status.mjs';
 import type { TableCrudDefinition } from '@server/modules/base/table-crud.mjs';
+import { tableSort } from '@server/modules/base/query-options.mjs';
 
 export const tableCrud: TableCrudDefinition = { table: 'global_cloud_credentials', rowKey: 'id' };
 
@@ -46,7 +47,7 @@ const deleteCredential = async (c: Context<AppEnv>, database: DatabaseAdapter, i
 const handler: ApiHandler = async (c, next, params) => {
 	const database = c.get('database');
 	if (!params.id && c.req.method === 'GET') {
-		const rows = await allSql<Record<string, unknown>>(database, sql({ database }).select({ table: 'global_cloud_credentials', columns: { id: 'id', name: 'name', provider: 'provider', account_id: 'account_id', access_key_id: 'access_key_id', status: 'status', created_at: 'created_at', updated_at: 'updated_at' }, orderBy: [{ column: 'id', direction: 'DESC' }] }));
+		const rows = await allSql<Record<string, unknown>>(database, sql({ database }).select({ table: 'global_cloud_credentials', columns: { id: 'id', name: 'name', provider: 'provider', account_id: 'account_id', access_key_id: 'access_key_id', status: 'status', created_at: 'created_at', updated_at: 'updated_at' }, sort: tableSort(c), orderBy: [{ column: 'id', direction: 'DESC' }] }));
 		return apiResponse(c, 200, { table: { option: { rowKey: 'id', actions: { query: [{ key: 'search', label: '搜索' }], toolbar: [{ key: 'create', label: '新增' }, { key: 'delete', label: '删除' }], row: [{ key: 'test', label: '测试' }, { key: 'edit', label: '编辑' }, { key: 'delete', label: '删除' }] } }, columns, dataSource: rows.map(publicRow), totalRecords: rows.length } });
 	}
 	if (!params.id && c.req.method === 'POST') {

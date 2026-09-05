@@ -10,6 +10,7 @@ export const tableCrud: TableCrudDefinition = { table: 'global_telegram_bots', r
 import { allSql, firstSql, runSql, sql } from '@server/database/sql.mjs';
 import { runOperationSql } from '@server/modules/base/operation.mjs';
 import { accountsIdentityApi } from '@server/modules/base/navigation.mjs';
+import { tableSort } from '@server/modules/base/query-options.mjs';
 
 const columns = [
 	{ dataIndex: 'id', title: 'ID', dataType: 'int' as const },
@@ -47,7 +48,7 @@ const accountsSiteKey = async (c: Parameters<ApiHandler>[0]) => (await c.get('si
 const passportHostOptions = async (c: Parameters<ApiHandler>[0], database: DatabaseAdapter) => {
 	const siteKey = await accountsSiteKey(c);
 	if (!siteKey) return [];
-	const rows = await allSql<{ hostname: string }>(database, sql({ database }).select({ table: 'global_site_hosts', columns: { hostname: 'hostname' }, where: [{ column: 'site_key', value: siteKey }, { column: 'status', value: 'enabled' }], orderBy: [{ column: 'hostname' }] }));
+	const rows = await allSql<{ hostname: string }>(database, sql({ database }).select({ table: 'global_site_hosts', columns: { hostname: 'hostname' }, where: [{ column: 'site_key', value: siteKey }, { column: 'status', value: 'enabled' }], sort: tableSort(c), orderBy: [{ column: 'hostname' }] }));
 	return rows.map((row) => ({ value: row.hostname, text: row.hostname }));
 };
 

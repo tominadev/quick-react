@@ -13,6 +13,7 @@ import type { TableCrudDefinition } from '@server/modules/base/table-crud.mjs';
 export const tableCrud: TableCrudDefinition = { table: 'global_cloud_object_storage_buckets', rowKey: 'id' };
 import { allSql, firstSql, runSql, sql } from '@server/database/sql.mjs';
 import { PendingApprovalError, runOperationSql } from '@server/modules/base/operation.mjs';
+import { tableSort } from '@server/modules/base/query-options.mjs';
 
 const baseColumns = [
 	{ dataIndex: 'id', title: 'ID', dataType: 'int' as const },
@@ -81,7 +82,7 @@ const handler: ApiHandler = async (c, next, params) => {
 	}
 	if (!params.id && c.req.method === 'GET') {
 		const [rows, columns] = await Promise.all([
-			allSql<Record<string, unknown>>(database, sql({ database }).select({ table: 'global_cloud_object_storage_buckets', alias: 'b', columns: { id: 'b.id', cloud_credential_id: 'b.cloud_credential_id', credential_name: 'c.name', provider: 'c.provider', endpoint: 'b.endpoint', region: 'b.region', bucket: 'b.bucket', path_style: 'b.path_style', public_base_url: 'b.public_base_url', status: 'b.status', created_at: 'b.created_at', updated_at: 'b.updated_at' }, joins: [{ table: 'global_cloud_credentials', alias: 'c', left: 'c.id', right: 'b.cloud_credential_id' }], orderBy: [{ column: 'b.id', direction: 'DESC' }] })),
+			allSql<Record<string, unknown>>(database, sql({ database }).select({ table: 'global_cloud_object_storage_buckets', alias: 'b', columns: { id: 'b.id', cloud_credential_id: 'b.cloud_credential_id', credential_name: 'c.name', provider: 'c.provider', endpoint: 'b.endpoint', region: 'b.region', bucket: 'b.bucket', path_style: 'b.path_style', public_base_url: 'b.public_base_url', status: 'b.status', created_at: 'b.created_at', updated_at: 'b.updated_at' }, joins: [{ table: 'global_cloud_credentials', alias: 'c', left: 'c.id', right: 'b.cloud_credential_id' }], sort: tableSort(c), orderBy: [{ column: 'b.id', direction: 'DESC' }] })),
 			columnsWithCredentials(database),
 		]);
 		const dataSource = rows.map((row) => ({ ...row, product: getCloudStorageProduct(String(row.provider)) }));

@@ -3,6 +3,7 @@ import { apiMessage, apiResponse } from '@server/modules/base/api-response.mjs';
 import { readChangeReason } from '@server/modules/base/operation.mjs';
 import type { SqlCondition } from '@server/database/sql.mjs';
 import { STATUS_LABELS, describeAuditChanges, listAuditEntries, parseAuditChanges, publicAuditChanges, readAuditEntry, transitionAuditEntries, type AuditEntryRow } from '@server/modules/base/audit.mjs';
+import { tableSort } from '@server/modules/base/query-options.mjs';
 
 const actionLabels: Record<string, string> = { update: '修改', soft_delete: '删除', restore: '恢复' };
 // 状态用带颜色的标签：绿色一眼看出这条变更此刻是生效的。
@@ -99,7 +100,7 @@ const handler: ApiHandler = async (c, next, params) => {
 		if (tableFilter) filters.push({ column: 'table_name', value: tableFilter });
 		const rowFilter = c.req.query('row_id')?.trim();
 		if (rowFilter) filters.push({ column: 'row_id', value: rowFilter });
-		const rows = await listAuditEntries(database, filters, c.req.query('reason')?.trim());
+		const rows = await listAuditEntries(database, filters, c.req.query('reason')?.trim(), undefined, tableSort(c));
 		return apiResponse(c, 200, { table: {
 			// 审计记录不可修改、不可删除，接口层因此没有新增、编辑与删除入口（§7.3）。
 			// 这一页的动作本身就是审批机制，不经过审批门：撤回、批准、驳回走的是

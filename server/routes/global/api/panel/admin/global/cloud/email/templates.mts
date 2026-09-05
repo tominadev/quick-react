@@ -16,6 +16,7 @@ export const tableCrud: TableCrudDefinition = { table: 'global_cloud_email_templ
 import { cloudProviderOptions, getCloudEmailRegionLabel, getCloudEmailRegionOptions, getCloudEmailRegions, providerSupportsEmailPush } from '@server/modules/global/cloud/catalog.mjs';
 import { allSql, firstSql, runSql, sql } from '@server/database/sql.mjs';
 import { PendingApprovalError, runOperationSql } from '@server/modules/base/operation.mjs';
+import { tableSort } from '@server/modules/base/query-options.mjs';
 
 const columns = [
 	{ dataIndex: 'id', title: 'ID', dataType: 'int' as const },
@@ -142,7 +143,7 @@ const handler: ApiHandler = async (c, next, params) => {
 	const database = c.get('database');
 	if (!params.id && c.req.method === 'GET') {
 		const [templates, publications, syncOptions] = await Promise.all([
-			allSql<Record<string, unknown>>(database, sql({ database }).select({ table: 'global_cloud_email_templates', columns: templateColumns, orderBy: [{ column: 'id', direction: 'DESC' }] })),
+			allSql<Record<string, unknown>>(database, sql({ database }).select({ table: 'global_cloud_email_templates', columns: templateColumns, sort: tableSort(c), orderBy: [{ column: 'id', direction: 'DESC' }] })),
 			allSql<{ template_id: number; status: string }>(database, sql({ database }).select({ table: 'global_cloud_email_template_publications', columns: { template_id: 'template_id', status: 'status' }, orderBy: [{ column: 'template_id' }] })),
 			loadSyncOptions(database),
 		]);

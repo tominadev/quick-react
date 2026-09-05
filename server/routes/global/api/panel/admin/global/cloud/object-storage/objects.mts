@@ -3,6 +3,7 @@ import { apiMessage, apiMessageData, apiResponse } from '@server/modules/base/ap
 import { getCloudStorageProduct } from '@server/modules/global/cloud/catalog.mjs';
 import { createCloudStorageAdapter, loadCloudStorageTarget } from '@server/modules/global/cloud/resolve.mjs';
 import { allSql, sql } from '@server/database/sql.mjs';
+import { tableSort } from '@server/modules/base/query-options.mjs';
 
 const parseBody = async (c: Parameters<ApiHandler>[0]): Promise<Record<string, unknown>> => c.req.json<Record<string, unknown>>().catch(() => ({}));
 const text = (value: unknown) => typeof value === 'string' ? value.trim() : '';

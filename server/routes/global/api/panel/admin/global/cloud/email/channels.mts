@@ -16,6 +16,7 @@ import type { TableCrudDefinition } from '@server/modules/base/table-crud.mjs';
 export const tableCrud: TableCrudDefinition = { table: 'global_cloud_email_channels', rowKey: 'id' };
 import { allSql, firstSql, runSql, sql } from '@server/database/sql.mjs';
 import { PendingApprovalError, runOperationSql } from '@server/modules/base/operation.mjs';
+import { tableSort } from '@server/modules/base/query-options.mjs';
 
 const columns = [
 	{ dataIndex: 'id', title: 'ID', dataType: 'int' as const },
@@ -83,7 +84,7 @@ const handler: ApiHandler = async (c, next, params) => {
 	}
 	if (!params.id && c.req.method === 'GET') {
 		const [rows, options] = await Promise.all([
-			allSql<Record<string, unknown>>(database, sql({ database }).select({ table: 'global_cloud_email_channels', alias: 'ch', columns: { id: 'ch.id', cloud_credential_id: 'ch.cloud_credential_id', credential_name: 'c.name', provider: 'c.provider', region: 'ch.region', account_name: 'ch.account_name', from_alias: 'ch.from_alias', reply_to_address: 'ch.reply_to_address', status: 'ch.status', created_at: 'ch.created_at', updated_at: 'ch.updated_at' }, joins: [{ table: 'global_cloud_credentials', alias: 'c', left: 'c.id', right: 'ch.cloud_credential_id' }], orderBy: [{ column: 'ch.id', direction: 'DESC' }] })),
+			allSql<Record<string, unknown>>(database, sql({ database }).select({ table: 'global_cloud_email_channels', alias: 'ch', columns: { id: 'ch.id', cloud_credential_id: 'ch.cloud_credential_id', credential_name: 'c.name', provider: 'c.provider', region: 'ch.region', account_name: 'ch.account_name', from_alias: 'ch.from_alias', reply_to_address: 'ch.reply_to_address', status: 'ch.status', created_at: 'ch.created_at', updated_at: 'ch.updated_at' }, joins: [{ table: 'global_cloud_credentials', alias: 'c', left: 'c.id', right: 'ch.cloud_credential_id' }], sort: tableSort(c), orderBy: [{ column: 'ch.id', direction: 'DESC' }] })),
 			credentialOptions(database),
 		]);
 		const tableColumns = columns.map((column) => column.dataIndex === 'cloud_credential_id' ? { ...column, options: options.credentials }

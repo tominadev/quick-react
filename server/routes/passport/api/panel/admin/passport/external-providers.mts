@@ -5,6 +5,7 @@ import { runOperationSql } from '@server/modules/base/operation.mjs';
 import { enabledDisabledOptions, statusValues } from '@shared/types/status.mjs';
 import { requestOrigin } from '@server/modules/base/request-origin.mjs';
 import type { TableCrudDefinition } from '@server/modules/base/table-crud.mjs';
+import { tableSort } from '@server/modules/base/query-options.mjs';
 
 export const tableCrud: TableCrudDefinition = { table: 'passport_external_providers', rowKey: 'provider', database: 'passportDatabase' };
 
@@ -36,7 +37,7 @@ const handler: ApiHandler = async (c, next, params) => {
 	const database = c.get('passportDatabase');
 	if (!database) return apiMessage(c, 404);
 	if (!params.id && c.req.method === 'GET') {
-		const rows = await allSql<ProviderRow>(database, sql({ database }).select({ table: 'passport_external_providers', columns: { id: 'id', provider: 'provider', display_name: 'display_name', client_id: 'client_id', client_secret: 'client_secret', wechat_mode: 'wechat_mode', wechat_redirect_domain: 'wechat_redirect_domain', status: 'status', created_at: 'created_at', updated_at: 'updated_at' }, orderBy: [{ column: 'created_at' }] }));
+		const rows = await allSql<ProviderRow>(database, sql({ database }).select({ table: 'passport_external_providers', columns: { id: 'id', provider: 'provider', display_name: 'display_name', client_id: 'client_id', client_secret: 'client_secret', wechat_mode: 'wechat_mode', wechat_redirect_domain: 'wechat_redirect_domain', status: 'status', created_at: 'created_at', updated_at: 'updated_at' }, sort: tableSort(c), orderBy: [{ column: 'created_at' }] }));
 		const origin = c.get('systemConfig').publicOrigin?.trim() || requestOrigin(c);
 		return apiResponse(c, 200, { table: { option: { rowKey: 'provider', actions: { toolbar: [{ key: 'create', label: '新增身份源' }], row: [{ key: 'edit', label: '编辑' }, { key: 'delete', label: '删除', confirm: '只能删除已停用且从未产生授权历史的身份源，确定继续吗？' }] } }, columns, dataSource: rows.map((row) => ({ ...row, client_secret: '', secret_configured: row.client_secret ? '已配置' : '未配置', callback_url: new URL(`/api/accounts/external/${row.provider}`, origin).toString() })), totalRecords: rows.length } });
 	}

@@ -11,6 +11,7 @@ import { runOperationSql } from '@server/modules/base/operation.mjs';
 import { buildDatabaseTarget, DatabaseTargetError, parseDatabaseTarget, type DatabaseTargetForm } from '@server/database/dsn.mjs';
 import { portableTableGroups, transferPortableDatabase, type PortableTableGroup } from '@server/database/transfer.mjs';
 import { listTables } from '@server/database/schema.mjs';
+import { tableSort } from '@server/modules/base/query-options.mjs';
 
 const siteKeyPattern = /^[a-z][a-z0-9_]*$/;
 const bindingPattern = /^(?:[A-Z][A-Z0-9_]{0,63})?$/;
@@ -85,7 +86,7 @@ const booleanValue = (value: unknown) => value === true || value === 1 || value 
 
 const list = async (c: Parameters<ApiHandler>[0]) => {
 	const database = c.get('database');
-	const rows = await allSql<Record<string, unknown>>(database, sql({ database }).select({ table: 'global_sites', columns: siteColumns, orderBy: [{ column: 'id' }] }));
+	const rows = await allSql<Record<string, unknown>>(database, sql({ database }).select({ table: 'global_sites', columns: siteColumns, sort: tableSort(c), orderBy: [{ column: 'id' }] }));
 	const parentOptions = [
 		{ value: 'base', text: '基础层 (base)' },
 		...rows

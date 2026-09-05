@@ -5,6 +5,7 @@ import { allSql, sql } from '@server/database/sql.mjs';
 import { passportProfileNicknameOf } from '@server/modules/passport/profile.mjs';
 import { setPassportPassword } from '@server/modules/passport/identity.mjs';
 import type { TableCrudDefinition } from '@server/modules/base/table-crud.mjs';
+import { tableSort } from '@server/modules/base/query-options.mjs';
 
 export const tableCrud: TableCrudDefinition = { table: 'passport_users', rowKey: 'user_id', database: 'passportDatabase' };
 
@@ -29,7 +30,7 @@ const handler: ApiHandler = async (c, next, params) => {
 		return apiMessage(c, 200, '密码已重设');
 	}
 	if (c.req.method !== 'GET') return next();
-	const rows = await allSql<Record<string, unknown>>(database, sql({ database }).select({ table: 'passport_users', alias: 'u', columns: { user_id: { column: 'u.user_id', cast: 'text' }, user_name: 'u.name', profile_nickname: 'p.nickname', status: 'u.status', created_at: 'u.created_at', updated_at: 'u.updated_at' }, joins: [{ type: 'LEFT', table: 'passport_user_profiles', alias: 'p', left: 'p.user_id', right: 'u.user_id' }], orderBy: [{ column: 'u.created_at', direction: 'DESC' }] }));
+	const rows = await allSql<Record<string, unknown>>(database, sql({ database }).select({ table: 'passport_users', alias: 'u', columns: { user_id: { column: 'u.user_id', cast: 'text' }, user_name: 'u.name', profile_nickname: 'p.nickname', status: 'u.status', created_at: 'u.created_at', updated_at: 'u.updated_at' }, joins: [{ type: 'LEFT', table: 'passport_user_profiles', alias: 'p', left: 'p.user_id', right: 'u.user_id' }], sort: tableSort(c), orderBy: [{ column: 'u.created_at', direction: 'DESC' }] }));
 	const credentials = await allSql<Record<string, unknown>>(database, sql({ database }).select({ table: 'passport_user_credentials', columns: { user_id: { column: 'user_id', cast: 'text' }, password: 'password', created_at: 'created_at' }, orderBy: [{ column: 'created_at', direction: 'DESC' }] }));
 	const patterns = new Map<string, string>();
 	for (const credential of credentials) {

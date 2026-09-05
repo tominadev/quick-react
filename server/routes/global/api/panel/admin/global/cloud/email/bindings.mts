@@ -12,6 +12,7 @@ import type { TableCrudDefinition } from '@server/modules/base/table-crud.mjs';
 export const tableCrud: TableCrudDefinition = { table: 'global_cloud_email_bindings', rowKey: 'id' };
 import { allSql, firstSql, runSql, sql } from '@server/database/sql.mjs';
 import { runOperationSql } from '@server/modules/base/operation.mjs';
+import { tableSort } from '@server/modules/base/query-options.mjs';
 
 const columns = [
 	{ dataIndex: 'id', title: 'ID', dataType: 'int' as const },
@@ -71,7 +72,7 @@ const handler: ApiHandler = async (c, next, params) => {
 	const database = c.get('database');
 	if (!params.id && c.req.method === 'GET') {
 		const [rows, options] = await Promise.all([
-			allSql<Record<string, unknown>>(database, sql({ database }).select({ table: 'global_cloud_email_bindings', alias: 'b', columns: { id: 'b.id', site_key: 'b.site_key', site_name: 's.name', channel_id: 'b.channel_id', account_name: 'ch.account_name', region: 'ch.region', credential_name: 'c.name', provider: 'c.provider', template_id: 'b.template_id', template_key: 't.key', template_name: 't.name', purpose: 'b.purpose', is_default: 'b.is_default', status: 'b.status', created_at: 'b.created_at', updated_at: 'b.updated_at' }, joins: [{ table: 'global_sites', alias: 's', left: 's.key', right: 'b.site_key' }, { table: 'global_cloud_email_channels', alias: 'ch', left: 'ch.id', right: 'b.channel_id' }, { table: 'global_cloud_credentials', alias: 'c', left: 'c.id', right: 'ch.cloud_credential_id' }, { table: 'global_cloud_email_templates', alias: 't', left: 't.id', right: 'b.template_id' }], orderBy: [{ column: 'b.id', direction: 'DESC' }] })),
+			allSql<Record<string, unknown>>(database, sql({ database }).select({ table: 'global_cloud_email_bindings', alias: 'b', columns: { id: 'b.id', site_key: 'b.site_key', site_name: 's.name', channel_id: 'b.channel_id', account_name: 'ch.account_name', region: 'ch.region', credential_name: 'c.name', provider: 'c.provider', template_id: 'b.template_id', template_key: 't.key', template_name: 't.name', purpose: 'b.purpose', is_default: 'b.is_default', status: 'b.status', created_at: 'b.created_at', updated_at: 'b.updated_at' }, joins: [{ table: 'global_sites', alias: 's', left: 's.key', right: 'b.site_key' }, { table: 'global_cloud_email_channels', alias: 'ch', left: 'ch.id', right: 'b.channel_id' }, { table: 'global_cloud_credentials', alias: 'c', left: 'c.id', right: 'ch.cloud_credential_id' }, { table: 'global_cloud_email_templates', alias: 't', left: 't.id', right: 'b.template_id' }], sort: tableSort(c), orderBy: [{ column: 'b.id', direction: 'DESC' }] })),
 			listOptions(database),
 		]);
 		const tableColumns = columns.map((column) => column.dataIndex === 'site_key' ? { ...column, options: options.sites }

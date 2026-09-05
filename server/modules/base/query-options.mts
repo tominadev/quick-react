@@ -33,27 +33,18 @@ export const sortFromQuery = (c: Context<AppEnv>): SortRequest | undefined => {
 };
 
 /**
- * 把请求里的排序换成 SQL 的 orderBy。
+ * 交给列表查询的排序参数。查询执行时会回调 expose，把它选出的列名记到请求上下文里，
+ * 响应层据此标注哪些列可排序（见 api-response 的 withTableUtilities）。
  *
- * `columns` 直接传 select() 用的那份列映射（dataIndex → 数据库列），因此**能排序的列
- * 恰好就是这张表选出来的列**，不需要另维护一份白名单，也不会漏掉或多出。请求里给了
- * 不在其中的字段就回落到默认排序——那多半是换了页面结构后浏览器还留着旧地址。
+ * 这样「能排序的列」永远等于「这条查询选出来的列」，加列减列都不用再改别处。
  */
-export const tableOrderBy = (
-	c: Context<AppEnv>,
-	columns: Record<string, unknown>,
-	fallback: Array<{ column: string; direction?: SortDirection }>,
-) => {
-	const sort = sortFromQuery(c);
-	if (!sort) return fallback;
-	const mapped = columns[sort.field];
-	const column = typeof mapped === 'string' ? mapped : (mapped && typeof mapped === 'object' && 'column' in mapped ? String((mapped as { column: unknown }).column) : '');
-	if (!column) return fallback;
-	// 次序里补上默认排序：按状态之类重复值很多的列排时，同值行之间还要有个稳定的次序，
-	// 否则翻页会看到同一行出现两次、另一行一次都不出现。
-	return [{ column, direction: sort.direction }, ...fallback];
-};
+export const tableSort = (c: Context<AppEnv>) => ({
+	request: sortFromQuery(c),
+	expose: (fields: string[]) => c.set('sortableFields', fields),
+});
 
 /** 列定义里标注哪些列可排序：能排的就是这张表选出来的列。 */
-export const sortableColumns = <T extends { dataIndex: string }>(columns: readonly T[], selected: Record<string, unknown>) =>
-	columns.map((column) => (column.dataIndex in selected ? { ...column, sortable: true } : column));
+export const sortableColumns = <T extends { dataIndex: string }>(columns: readonly T[], selected: readonly string[]) => {
+	const allowed = new Set(selected);
+	return columns.map((column) => (allowed.has(column.dataIndex) ? { ...column, sortable: true } : column));
+};

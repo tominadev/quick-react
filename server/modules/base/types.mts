@@ -55,6 +55,8 @@ export type AppEnv = {
 		pendingApproval?: { operationId: string; entries: number };
 		/** Base 响应层按 include=auth 请求当前认证、导航和页面状态；表格结构和数据用 include=schema,data 请求。 */
 		apiContext?: (path?: string) => Promise<ApiContext>;
+		/** 列表查询选出了哪些列；响应层据此标注哪些列可排序。由 tableSort 在查询执行时写入。 */
+		sortableFields?: string[];
 	};
 };
 
