@@ -72,6 +72,31 @@ const externalLoginIcons: Record<string, { icon: React.ReactNode; color: string 
 	telegram: { icon: <SendOutlined />, color: '#229ED9' },
 };
 
+/**
+ * 选项卡记在地址栏的查询串里，刷新后还能回到原来那一页。
+ *
+ * 用 history.replaceState 而不是 react-router 的 useSearchParams：FormPage 在浏览器
+ * 测试里是不套 Router 直接渲染的，用 router 的 hook 会当场抛。只改查询串不动路径，
+ * 路由匹配因此不受影响。
+ *
+ * replaceState 而非 pushState：切三次选项卡再按后退，应该离开这个页面，
+ * 而不是在几个选项卡之间倒着走。
+ */
+const SECTION_QUERY = 'tab';
+const sectionFromLocation = () => {
+	if (typeof window === 'undefined') return undefined;
+	try { return new URLSearchParams(window.location.search).get(SECTION_QUERY) ?? undefined; }
+	catch { return undefined; }
+};
+const rememberSection = (key: string) => {
+	if (typeof window === 'undefined') return;
+	try {
+		const url = new URL(window.location.href);
+		url.searchParams.set(SECTION_QUERY, key);
+		window.history.replaceState(window.history.state, '', `${url.pathname}${url.search}${url.hash}`);
+	} catch { /* 地址栏不可写时（例如测试环境）静默跳过：选项卡本身照常工作。 */ }
+};
+
 const hasInitialValue = (value: unknown) => value !== undefined && value !== null && value !== '' && value !== false;
 
 /** apiPath 可能已经带查询串（例如登录页的 ?mode=sign），必须按 URL 规则追加 action。 */
@@ -109,6 +134,7 @@ export default function FormPage({ commonApi, apiPath, title, submitMethod = 'PU
 	const [saved, setSaved] = useState(false);
 	const [responseFeedback, setResponseFeedback] = useState<FormResponse['feedback']>();
 	const [passportError, setPassportError] = useState('');
+	const [activeSection, setActiveSection] = useState<string | undefined>(sectionFromLocation);
 	const changedFields = useRef(new Set<string>());
 	const restoreDefaultsPending = useRef(false);
 	const applyFormPageResponse = (result: FormResponse) => {
@@ -341,11 +367,17 @@ export default function FormPage({ commonApi, apiPath, title, submitMethod = 'PU
 		{formConfig?.description ? <Alert type="info" showIcon message={formConfig.description} style={{ marginBottom: 24 }} /> : null}
 		{formConfig?.sections?.length ? (formConfig.sectionLayout === 'tabs' ? (
 			// 每段自带一个 Form 实例，选项卡切走也不会互相牵连，因此不需要 forceRender。
-			<Tabs items={formConfig.sections.map((section) => ({
-				key: section.key,
-				label: section.title ?? section.key,
-				children: <SectionForm section={section} initialValues={formConfig.initialValues} submitting={saving} onSubmit={submitSection} />,
-			}))} />
+			<Tabs
+				// 地址栏里的 tab 对不上任何一段时（页面改版、手工改过地址）回落到第一段，
+				// 而不是显示一个空白的选项卡。
+				activeKey={formConfig.sections.some((section) => section.key === activeSection) ? activeSection : formConfig.sections[0].key}
+				onChange={(key) => { setActiveSection(key); rememberSection(key); }}
+				items={formConfig.sections.map((section) => ({
+					key: section.key,
+					label: section.title ?? section.key,
+					children: <SectionForm section={section} initialValues={formConfig.initialValues} submitting={saving} onSubmit={submitSection} />,
+				}))}
+			/>
 		) : formConfig.sections.map((section) => (
 			<SectionForm key={section.key} section={section} initialValues={formConfig.initialValues} submitting={saving} onSubmit={submitSection} />
 		))) : <Form
