@@ -150,24 +150,25 @@ const logicalPair = (stored: unknown, written: unknown): [unknown, unknown] => {
 	return [asJson(stored) ?? stored ?? null, writtenJson];
 };
 
-const findPendingEntry = async (database: DatabaseAdapter, builder: ReturnType<typeof sql>, table: string, rowId: unknown) => {
+const findPendingEntry = async (database: DatabaseAdapter, builder: ReturnType<typeof sql>, table: string, rowId: unknown, action: SqlAuditAction) => {
 	const actor = builder.auditActor(AUDIT_TABLE);
 	const where: SqlCondition[] = [
 		{ column: 'table_name', value: table },
 		{ column: 'row_id', value: rowId },
 		{ column: 'review_status', value: 'pending' },
 		/**
-		 * **新建那条不算在内。**
+		 * **只覆盖同一个动作的申请。**
 		 *
-		 * 「覆盖同一个人挂在这一行上的申请」说的是修改与修改之间：后一次提交作废前一次。
-		 * 新建是另一回事——它是「这一行还不存在」，而在它被批准之前对那一行再改一笔，
-		 * 是在改一份还没生效的草稿，两者并存。
+		 * 「后一次提交作废前一次」说的是同一件事被重说了一遍：改完再改，前一条申请自然作废。
+		 * 但删除与修改是两件事——先申请删掉这一行、再申请改它的某几列，那是两个意图，
+		 * 谁也不该把谁抹掉。不按动作分的话，后提交的修改会把前面那条删除申请**静悄悄改写**，
+		 * 提交人以为两件都在队列里排着，实际只剩一件。
 		 *
-		 * 覆盖掉的后果实测过：建号进队列后再改一次 status，那条 insert 被改写成 update，
-		 * 于是批准时没有人再去把 pended_at 归零——行永远隐身，账号登不进去(401)，
+		 * 新建同理，而且后果更重：实测建号进队列后再改一次 status，那条 insert 被改写成
+		 * update，于是批准时没有人再去把 pended_at 归零——行永远隐身，账号登不进去（401），
 		 * 而审批列表显示一切正常。
 		 */
-		{ column: 'action', operator: '!=', value: 'insert' },
+		{ column: 'action', value: action },
 		actor === null ? { column: 'created_duid', operator: 'IS NULL' } : { column: 'created_duid', value: actor },
 	];
 	return firstSql<{ id: string }>(database, builder.select({
@@ -361,7 +362,7 @@ const recordStatement = async (database: DatabaseAdapter, metadata: SqlAuditMeta
 		// 而先批的那几条会因为值校验（§7.2）全部失败——它们的 before 是更早的值。
 		// 立即生效的情况：他已经自己把这一行改掉了，原先那条申请随之作废，留着就是
 		// 一条谁也批不动的孤儿记录（before 已经对不上）。两种情况都是同一件事的最新版本。
-		const existing = await findPendingEntry(database, builder, metadata.table, row.id);
+		const existing = await findPendingEntry(database, builder, metadata.table, row.id, values.action);
 		if (existing) await runSystemSql(database, builder.update(AUDIT_TABLE, values, [{ column: 'id', value: existing.id }, { column: 'review_status', value: 'pending' }]));
 		else await runSystemSql(database, builder.insert(AUDIT_TABLE, values));
 		recorded += 1;

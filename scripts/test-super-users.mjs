@@ -95,6 +95,18 @@ try {
 	assert.equal((await purge(reviewerHeaders)).status, 403, '普通管理员不能彻底删除');
 	assert.notEqual((await purge(superHeaders)).status, 403, '超级用户过得了这道门（记录不存在是另一回事）');
 
+	// 撤销与驳回互斥：自己提的只给撤销，别人提的才给驳回。提交人往往自己也有审批权，
+	// 原先三个按钮一起摆出来，让人分不清该点哪个——而它们本来就作用在不同的申请上。
+	const noticeActions = async (headers) => {
+		const page = await (await app.request(settings, { headers })).json();
+		return (page.formPage?.notice?.actions ?? []).map((action) => action.key);
+	};
+	assert.equal((await submit(reviewerHeaders, '页脚戊')).status, 202);
+	assert.deepEqual(await noticeActions(reviewerHeaders), ['withdraw-pending'], '自己提的：只有撤销——普通管理员批不动也驳不回自己的');
+	assert.deepEqual(await noticeActions(superHeaders), ['approve-pending', 'reject-pending'], '别人提的：批准与驳回，没有撤销');
+	// 驳回只动别人提的那几条，因此不会撞上四眼原则整批失败。
+	assert.equal((await app.request(`${settings}?action=reject-pending`, { method: 'POST', headers: superHeaders, body: '{}' })).status, 200);
+
 	console.log('super users test passed');
 } finally {
 	await rm(directory, { recursive: true, force: true });

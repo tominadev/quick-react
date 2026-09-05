@@ -86,7 +86,10 @@ const auditRouteFilter = async () => {
 		// 提示块是独立的一块，不是塞进页面描述里：它要显眼，还要把按钮放在内容旁边。
 		assert.match(pendingPage.formPage.notice.title, /有 1 项修改正在等待审批/);
 		assert.match(pendingPage.formPage.notice.lines.join('\n'), /value\.footer：页脚甲 → 页脚乙/, '提示里要写清改了什么');
-		assert.deepEqual(pendingPage.formPage.notice.actions.map((action) => action.key), ['withdraw-pending', 'approve-pending', 'reject-pending']);
+		// **撤销与驳回互斥**：自己提的叫撤销，别人提的叫驳回，同一批申请不会同时出现两个。
+		// 这里两条都是自己提的，因此没有「驳回」；「批准」在场是因为这个账号是超级用户
+		// （其余人受四眼原则限制，批不动自己提的，按钮也就不该出现）。
+		assert.deepEqual(pendingPage.formPage.notice.actions.map((action) => action.key), ['withdraw-pending', 'approve-pending']);
 		assert.equal(pendingPage.currentValues.footer, '页脚甲', '还没批准，页面上仍是旧值');
 		assert.equal((await app.request(`${settings}?action=approve-pending`, { method: 'POST', headers: { ...headers, cookie }, body: '{}' })).status, 200);
 		const approved = await (await app.request(settings, { headers: { ...headers, cookie } })).json();
@@ -109,7 +112,7 @@ const auditRouteFilter = async () => {
 		const systemPage = await (await app.request(systemSettings, { headers: { ...headers, cookie } })).json();
 		assert.match(systemPage.formPage.notice.title, /有 1 项修改正在等待审批/, '系统配置页也要显示待审批提示');
 		assert.match(systemPage.formPage.notice.lines.join('\n'), /unified-jia\.example → unified-yi\.example/);
-		assert.deepEqual(systemPage.formPage.notice.actions.map((action) => action.key), ['withdraw-pending', 'approve-pending', 'reject-pending']);
+		assert.deepEqual(systemPage.formPage.notice.actions.map((action) => action.key), ['withdraw-pending', 'approve-pending'], '自己提的只给撤销，不给驳回');
 		assert.equal((await app.request(`${systemSettings}?action=approve-pending`, { method: 'POST', headers: { ...headers, cookie }, body: '{}' })).status, 200);
 		const systemApproved = await (await app.request(systemSettings, { headers: { ...headers, cookie } })).json();
 		assert.equal(systemApproved.currentValues.domain, 'unified-yi.example', '批准后系统配置也要立刻生效');
@@ -205,6 +208,25 @@ const auditRouteFilter = async () => {
 		assert.notEqual(Number(rejectedRow.deleted_at), 0, '进了回收站');
 		assert.equal(Number(rejectedRow.pended_at), 0, '并且是一条普通的已删除记录');
 		leftovers.close();
+
+		// 删除与修改是两个意图，谁也不该把谁抹掉。
+		//
+		// 「后一次提交作废前一次」说的是同一件事被重说了一遍（改完再改）。不按动作分的话，
+		// 后提交的修改会把前面那条删除申请**静悄悄改写**：提交人以为两件都在队列里排着，
+		// 实际只剩一件。
+		const mixApi = 'http://localhost/api/panel/admin/base/users.php';
+		const mixTarget = (await (await app.request(`${mixApi}?include=data`, { headers: { ...headers, cookie } })).json())
+			.table.dataSource.find((row) => row.user_name === 'pendingbob');
+		const mixQueue = async () => (await (await app.request(`http://localhost/api/panel/admin/base/audit.php?include=data&review_status=pending&table_name=base_users&row_id=${mixTarget.id}`, { headers: { ...headers, cookie } })).json())
+			.table.dataSource.map((row) => row.action).sort();
+		assert.equal((await app.request(mixApi, { method: 'DELETE', headers: { ...headers, cookie }, body: JSON.stringify([String(mixTarget.id)]) })).status, 202);
+		assert.deepEqual(await mixQueue(), ['soft_delete']);
+		assert.equal((await app.request(`${mixApi}/${mixTarget.id}`, { method: 'PUT', headers: { ...headers, cookie }, body: JSON.stringify({ status: 'enabled', __changedFields: ['status'] }) })).status, 202);
+		assert.deepEqual(await mixQueue(), ['soft_delete', 'update'], '删除与修改并存');
+		assert.equal((await app.request(`${mixApi}/${mixTarget.id}`, { method: 'PUT', headers: { ...headers, cookie }, body: JSON.stringify({ user_name: 'pendingbob2', __changedFields: ['user_name'] }) })).status, 202);
+		assert.deepEqual(await mixQueue(), ['soft_delete', 'update'], '同一动作才互相覆盖：还是两条，不是三条');
+		// 收拾干净，别影响后面的用例。
+		assert.equal((await decide('withdraw', await pendingIds())).status, 200);
 
 		// 个人中心第一次设资料（资料行还不存在）也要留痕，只是立即生效。
 		//

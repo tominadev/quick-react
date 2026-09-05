@@ -125,6 +125,8 @@ export const configRowId = async (c: Context<AppEnv>, key: string) => {
 };
 
 const canApprove = (c: Context<AppEnv>) => (c.get('effectiveRoles') ?? []).some((role) => APPROVAL_SKIP_ROLES.includes(role));
+/** 只有超级用户能批自己提的（§13.5 四眼原则）。 */
+const canApproveOwn = (c: Context<AppEnv>) => canApprove(c) && isSuperUser(c);
 
 /**
  * 待审批提示块与可执行的动作。
@@ -145,7 +147,8 @@ export const pendingApprovalNotice = async (c: Context<AppEnv>, table: string, r
 	if (!entries.length) return undefined;
 	const mineIds = await mineOf(c, database, entries);
 	const mine = entries.filter((entry) => mineIds.has(String(entry.id)));
-	const approver = canApprove(c);
+	const others = entries.filter((entry) => !mineIds.has(String(entry.id)));
+	const approver = canApprove(c), superUser = canApproveOwn(c);
 	return {
 		type: 'warning' as const,
 		title: `有 ${entries.length} 项修改正在等待审批，尚未生效`,
@@ -154,12 +157,22 @@ export const pendingApprovalNotice = async (c: Context<AppEnv>, table: string, r
 			const who = mineIds.has(String(entry.id)) ? '（本人提交）' : '';
 			return entry.reason ? `${detail}${who}（原因：${entry.reason}）` : `${detail}${who}`;
 		}),
+		/**
+		 * **撤销与驳回互斥**：自己提的叫撤销，别人提的叫驳回，同一批申请不会同时出现两个。
+		 *
+		 * 原先这两个按钮的条件是「我提过」和「我有审批权」——而提交人往往自己就有审批权，
+		 * 于是三个按钮一起摆出来，让人分不清该点哪个。它们本来就作用在不同的申请上：
+		 * 撤销只动自己那几条，驳回只动别人那几条。
+		 *
+		 * 一行上两个人各提过一次时（谁的申请都不覆盖谁的），两个按钮才会同时出现——那时
+		 * 标题里写清各自管几条，说的仍然不是同一批东西。
+		 *
+		 * 批准自己那一份只给超级用户：其余人受四眼原则限制，点了必然失败（§13.5）。
+		 */
 		actions: [
 			...(mine.length ? [{ key: WITHDRAW_ACTION, label: mine.length === entries.length ? '撤销申请' : `撤销我的 ${mine.length} 项申请`, confirm: '确认撤销这些还没生效的申请吗？数据不会被改动。' }] : []),
-			...(approver ? [
-				{ key: APPROVE_ACTION, label: '批准并生效', confirm: '确认批准并立即生效吗？' },
-				{ key: REJECT_ACTION, label: '驳回', confirm: '确认驳回这些修改吗？数据不会被改动。', danger: true },
-			] : []),
+			...(approver && (superUser || !mine.length) ? [{ key: APPROVE_ACTION, label: '批准并生效', confirm: '确认批准并立即生效吗？' }] : []),
+			...(approver && others.length ? [{ key: REJECT_ACTION, label: others.length === entries.length ? '驳回' : `驳回其他人的 ${others.length} 项申请`, confirm: '确认驳回这些修改吗？数据不会被改动。', danger: true }] : []),
 		],
 	};
 };
@@ -179,10 +192,18 @@ export const handlePendingApprovalAction = async (c: Context<AppEnv>, table: str
 		const selfApproval = await assertNotSelfApproval(c, database, all);
 		if (selfApproval) return { ok: false as const, message: selfApproval };
 	}
-	// 撤销只动自己提的那几条：替别人撤等于替别人做决定，那是驳回该干的事。
-	const mineIds = action === WITHDRAW_ACTION ? await mineOf(c, database, all) : undefined;
-	const entries = mineIds ? all.filter((entry) => mineIds.has(String(entry.id))) : all;
-	if (!entries.length) return { ok: false as const, message: action === WITHDRAW_ACTION ? '没有你自己提交的待审批申请' : '没有待审批的修改' };
+	/**
+	 * 撤销只动自己提的，驳回只动别人提的——**两个动作作用在不相交的两批申请上**。
+	 *
+	 * 撤销是把自己提的东西收回去，替别人撤等于替别人做决定；驳回是审批人否掉别人的申请，
+	 * 自己的东西直接撤回就是了。分开之后，一行上两个人各提过一次时，两个按钮各管各的那几条，
+	 * 不会互相踩；驳回也不再会撞上四眼原则那道判定而整批失败。
+	 */
+	const mineIds = action === APPROVE_ACTION ? undefined : await mineOf(c, database, all);
+	const entries = !mineIds ? all
+		: action === WITHDRAW_ACTION ? all.filter((entry) => mineIds.has(String(entry.id)))
+			: all.filter((entry) => !mineIds.has(String(entry.id)));
+	if (!entries.length) return { ok: false as const, message: action === WITHDRAW_ACTION ? '没有你自己提交的待审批申请' : action === REJECT_ACTION ? '没有别人提交的待审批申请，自己的申请请用撤销' : '没有待审批的修改' };
 	const target = action === APPROVE_ACTION ? 'approve' as const : action === REJECT_ACTION ? 'reject' as const : 'withdraw' as const;
 	const results = await transitionAuditEntries(database, entries.map((entry) => entry.id), target, readChangeReason(c));
 	const failed = results.filter((result) => !result.ok);
