@@ -73,11 +73,10 @@ try {
 	database.exec("INSERT INTO base_bootstrap (created_at, updated_at, key, value) VALUES (0, 0, 'initial_admin', 'open')");
 	database.prepare(`INSERT INTO global_sites (key, title, base_site_key, dsn, status, migration_status, is_default, is_system)
 		VALUES ('passport', 'Passport', 'base', '', 'enabled', 'ready', 0, 1)`).run();
-	database.prepare(`INSERT INTO global_site_hosts (hostname, site_key, status, created_at)
-		VALUES ('passport.example.com', 'passport', 'enabled', 1)`).run();
-	for (const id of [7, 8]) database.prepare(`INSERT INTO global_telegram_bots
-		(id, title, token, username, secret_token, webhook_hostname, status, created_at, updated_at)
-		VALUES (?, ?, ?, ?, ?, 'passport.example.com', 'disabled', 1, 1)`).run(id, `bot-${id}`, `token-${id}`, `bot_${id}`, `secret-${id}`);
+	database.prepare(`INSERT INTO global_site_hosts (key, hostname, site_key, status, created_at)
+		VALUES (lower(hex(randomblob(16))), 'passport.example.com', 'passport', 'enabled', 1)`).run();
+	for (const id of [7, 8]) database.prepare(`INSERT INTO global_telegram_bots (key, id, title, token, username, secret_token, webhook_hostname, status, created_at, updated_at)
+		VALUES (lower(hex(randomblob(16))), ?, ?, ?, ?, ?, 'passport.example.com', 'disabled', 1, 1)`).run(id, `bot-${id}`, `token-${id}`, `bot_${id}`, `secret-${id}`);
 	database.close();
 
 	const parsed = parseLegacyPassportBackup(backup);
@@ -102,7 +101,7 @@ try {
 	assert.deepEqual(second.imported, { users: 0, telegramAccounts: 0, emails: 0, userEmails: 0, otps: 0, menus: 0 });
 
 	const resultDatabase = new DatabaseSync(databaseFile, { readOnly: true });
-	assert.deepEqual(resultDatabase.prepare('SELECT CAST(user_id AS TEXT) AS user_id FROM passport_users ORDER BY user_id').all().map((row) => row.user_id), [userOne, userTwo]);
+	assert.deepEqual(resultDatabase.prepare('SELECT CAST(key AS TEXT) AS user_key FROM passport_users ORDER BY key').all().map((row) => row.user_key), [userOne, userTwo]);
 	assert.equal(resultDatabase.prepare('SELECT COUNT(*) AS count FROM passport_telegram_accounts WHERE bot_id = 7').get().count, 3);
 	assert.equal(resultDatabase.prepare('SELECT COUNT(*) AS count FROM passport_user_emails').get().count, 3);
 	assert.equal(resultDatabase.prepare("SELECT COUNT(*) AS count FROM passport_email_otp WHERE status = 'expired'").get().count, 1);
@@ -111,9 +110,8 @@ try {
 	resultDatabase.close();
 
 	const conflictDatabase = new DatabaseSync(databaseFile);
-	conflictDatabase.prepare(`INSERT INTO passport_telegram_accounts
-		(user_id, bot_id, telegram_user_id, chat_id, nickname, created_at, updated_at)
-		VALUES (?, 8, ?, ?, 'conflict', 1, 1)`).run(BigInt(userTwo), BigInt(telegramOne), BigInt(telegramOne));
+	conflictDatabase.prepare(`INSERT INTO passport_telegram_accounts (key, user_key, bot_id, telegram_user_id, chat_id, nickname, created_at, updated_at)
+		VALUES (lower(hex(randomblob(16))), ?, 8, ?, ?, 'conflict', 1, 1)`).run(BigInt(userTwo), BigInt(telegramOne), BigInt(telegramOne));
 	conflictDatabase.close();
 	await assert.rejects(() => importLegacyPassportData({ parsed, databaseFile, botId: '8', dryRun: true }), /already owned by another user/);
 

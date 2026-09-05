@@ -32,24 +32,24 @@ try {
 	const { app } = await import(`../dist/server.mjs?accounts-center=${Date.now()}`);
 	const database = new DatabaseSync(process.env.DEFAULT_DATABASE_FILE);
 	const now = Date.now();
-	database.prepare("INSERT INTO global_site_hosts (hostname, site_key, status, created_at) VALUES ('accounts.test', 'passport', 'enabled', ?)").run(now);
-	database.prepare(`INSERT INTO global_cloud_credentials (id, title, provider, access_key_id, access_key_secret, status, created_at, updated_at)
-		VALUES (91, 'center-email', 'aliyun', 'mail-key', 'mail-secret', 'enabled', ?, ?)`).run(now, now);
-	database.prepare(`INSERT INTO global_cloud_email_channels (id, cloud_credential_id, region, account_name, from_alias, reply_to_address, status, created_at, updated_at)
-		VALUES (92, 91, 'cn-hangzhou', 'noreply@example.com', 'Accounts', 0, 'enabled', ?, ?)`).run(now, now);
+	database.prepare("INSERT INTO global_site_hosts (key, hostname, site_key, status, created_at) VALUES (lower(hex(randomblob(16))), 'accounts.test', 'passport', 'enabled', ?)").run(now);
+	database.prepare(`INSERT INTO global_cloud_credentials (key, id, title, provider, access_key_id, access_key_secret, status, created_at, updated_at)
+		VALUES (lower(hex(randomblob(16))), 91, 'center-email', 'aliyun', 'mail-key', 'mail-secret', 'enabled', ?, ?)`).run(now, now);
+	database.prepare(`INSERT INTO global_cloud_email_channels (key, id, cloud_credential_id, region, account_name, from_alias, reply_to_address, status, created_at, updated_at)
+		VALUES (lower(hex(randomblob(16))), 92, 91, 'cn-hangzhou', 'noreply@example.com', 'Accounts', 0, 'enabled', ?, ?)`).run(now, now);
 	database.prepare(`INSERT INTO global_cloud_email_templates (id, key, type, title, subject, body_text, body_html, status, created_at, updated_at)
 		VALUES (93, 'email_verification_center', 'email_verification', '账户中心邮箱验证码', '验证码 {{code}}', '验证码：{{code}}', '<p>验证码：{{code}}</p>', 'enabled', ?, ?)`).run(now, now);
-	database.prepare(`INSERT INTO global_cloud_email_template_publications (template_id, cloud_credential_id, region, provider_template_id, content_hash, status, created_at, updated_at)
-		VALUES (93, 91, 'cn-hangzhou', 'center-template', 'test', 'ready', ?, ?)`).run(now, now);
-	database.prepare(`INSERT INTO global_cloud_email_bindings (site_key, channel_id, template_id, purpose, is_default, status, created_at, updated_at)
-		VALUES ('passport', 92, 93, 'email_verification', 1, 'enabled', ?, ?)`).run(now, now);
-	database.prepare("INSERT INTO passport_users (user_id, name, status, created_at, updated_at) VALUES (?, 'center2026', 'enabled', ?, ?)").run(userId, now, now)
-	database.prepare("INSERT INTO passport_user_profiles (user_id, nickname, created_at, updated_at) VALUES (?, '账户中心用户', 0, 0)").run(userId);
-	database.prepare("INSERT INTO passport_emails (id, email, verified, created_at, updated_at) VALUES (?, 'center@example.com', 1, ?, ?)").run(primaryEmailId, now, now);
-	database.prepare('INSERT INTO passport_user_emails (user_id, email_id, is_primary, created_at, updated_at) VALUES (?, ?, 1, ?, ?)').run(userId, primaryEmailId, now, now);
+	database.prepare(`INSERT INTO global_cloud_email_template_publications (key, template_id, cloud_credential_id, region, provider_template_id, content_hash, status, created_at, updated_at)
+		VALUES (lower(hex(randomblob(16))), 93, 91, 'cn-hangzhou', 'center-template', 'test', 'ready', ?, ?)`).run(now, now);
+	database.prepare(`INSERT INTO global_cloud_email_bindings (key, site_key, channel_id, template_id, purpose, is_default, status, created_at, updated_at)
+		VALUES (lower(hex(randomblob(16))), 'passport', 92, 93, 'email_verification', 1, 'enabled', ?, ?)`).run(now, now);
+	database.prepare("INSERT INTO passport_users (key, name, status, created_at, updated_at) VALUES (?, 'center2026', 'enabled', ?, ?)").run(userId, now, now)
+	database.prepare("INSERT INTO passport_user_profiles (key, user_key, nickname, created_at, updated_at) VALUES (lower(hex(randomblob(16))), ?, '账户中心用户', 0, 0)").run(userId);
+	database.prepare("INSERT INTO passport_emails (key, id, email, verified, created_at, updated_at) VALUES (lower(hex(randomblob(16))), ?, 'center@example.com', 1, ?, ?)").run(primaryEmailId, now, now);
+	database.prepare('INSERT INTO passport_user_emails (key, user_key, email_id, is_primary, created_at, updated_at) VALUES (lower(hex(randomblob(16))), ?, ?, 1, ?, ?)').run(userId, primaryEmailId, now, now);
 	database.prepare("INSERT INTO passport_devices (id, key, fingerprint, status, last_seen_at, created_at, updated_at) VALUES (41, ?, ?, 'active', ?, ?, ?)").run(deviceKey, fingerprintData, now, now, now);
-	database.prepare("INSERT INTO passport_device_users (device_id, user_id, status, last_seen_at, created_at, updated_at) VALUES (41, ?, 'active', ?, ?, ?)").run(userId, now, now, now);
-	database.prepare('INSERT INTO passport_sessions (token_hash, user_id, device_id, expires_at, created_at, updated_at) VALUES (?, ?, 41, ?, ?, ?)').run(Buffer.from(await crypto.subtle.digest('SHA-256', new TextEncoder().encode(sessionId))).toString('hex'), userId, now + 3600_000, now, now);
+	database.prepare("INSERT INTO passport_device_users (key, device_id, user_key, status, last_seen_at, created_at, updated_at) VALUES (lower(hex(randomblob(16))), 41, ?, 'active', ?, ?, ?)").run(userId, now, now, now);
+	database.prepare('INSERT INTO passport_sessions (key, token_hash, user_key, device_id, expires_at, created_at, updated_at) VALUES (lower(hex(randomblob(16))), ?, ?, 41, ?, ?, ?)').run(Buffer.from(await crypto.subtle.digest('SHA-256', new TextEncoder().encode(sessionId))).toString('hex'), userId, now + 3600_000, now, now);
 	database.close();
 
 	const request = (path, options = {}) => {
@@ -72,10 +72,10 @@ try {
 	// 同时存在站点本地会话时，仍以 Accounts 昵称为准，两个中心入口和两套独立退出动作都给出。
 	const localDatabase = new DatabaseSync(process.env.DEFAULT_DATABASE_FILE);
 	const localNow = Date.now();
-	localDatabase.prepare("INSERT INTO base_users (id, name, roles, status, created_at, updated_at) VALUES (9, 'admin', '[\"tenant_admin\"]', 'enabled', ?, ?)").run(localNow, localNow);
+	localDatabase.prepare("INSERT INTO base_users (key, id, name, roles, status, created_at, updated_at) VALUES (lower(hex(randomblob(16))), 9, 'admin', '[\"tenant_admin\"]', 'enabled', ?, ?)").run(localNow, localNow);
 	localDatabase.prepare("INSERT INTO base_devices (id, user_id, key, fingerprint, status, last_seen_at, created_at, updated_at) VALUES (42, 9, ?, ?, 'active', ?, ?, ?)").run(deviceKey, fingerprintData, localNow, localNow, localNow);
-	localDatabase.prepare("INSERT INTO base_device_users (device_id, user_id, status, last_seen_at, created_at, updated_at) VALUES (42, 9, 'active', ?, ?, ?)").run(localNow, localNow, localNow);
-	localDatabase.prepare('INSERT INTO base_sessions (created_at, updated_at, token_hash, user_id, expires_at, device_id) VALUES (?, ?, ?, 9, ?, 42)').run(localNow, localNow, localSessionHash, localNow + 3600_000);
+	localDatabase.prepare("INSERT INTO base_device_users (key, device_id, user_id, status, last_seen_at, created_at, updated_at) VALUES (lower(hex(randomblob(16))), 42, 9, 'active', ?, ?, ?)").run(localNow, localNow, localNow);
+	localDatabase.prepare('INSERT INTO base_sessions (key, created_at, updated_at, token_hash, user_id, expires_at, device_id) VALUES (lower(hex(randomblob(16))), ?, ?, ?, 9, ?, 42)').run(localNow, localNow, localSessionHash, localNow + 3600_000);
 	localDatabase.close();
 	const bothDocument = await (await request('/', { cookie: `${cookie}; base_session=${localSessionToken}`, headers: { accept: 'text/html' } })).text();
 	assert.match(bothDocument, /示例账户中心/);
@@ -143,9 +143,9 @@ try {
 	const identitiesPath = '/api/panel/accounts/identities.php';
 	const identityDatabase = new DatabaseSync(process.env.DEFAULT_DATABASE_FILE);
 	const identityNow = Date.now();
-	identityDatabase.prepare("INSERT INTO passport_external_providers (provider,title,client_id,client_secret,status,created_at,updated_at) VALUES ('google','Google','g','s','enabled',?,?)").run(identityNow, identityNow);
-	identityDatabase.prepare("INSERT INTO passport_external_identities (user_id,provider,subject,profile,created_at,updated_at) VALUES (?,'google','google-sub','{\"name\":\"Google用户\"}',?,?)").run(userId, identityNow, identityNow);
-	identityDatabase.prepare("INSERT INTO global_telegram_bots (id,title,token,username,secret_token,webhook_hostname,status,created_at,updated_at) VALUES (7,'bot','7:token','center_bot','secret','accounts.test','enabled',?,?)").run(identityNow, identityNow);
+	identityDatabase.prepare("INSERT INTO passport_external_providers (key, provider,title,client_id,client_secret,status,created_at,updated_at) VALUES (lower(hex(randomblob(16))), 'google','Google','g','s','enabled',?,?)").run(identityNow, identityNow);
+	identityDatabase.prepare("INSERT INTO passport_external_identities (key, user_key,provider,subject,profile,created_at,updated_at) VALUES (lower(hex(randomblob(16))), ?,'google','google-sub','{\"name\":\"Google用户\"}',?,?)").run(userId, identityNow, identityNow);
+	identityDatabase.prepare("INSERT INTO global_telegram_bots (key, id,title,token,username,secret_token,webhook_hostname,status,created_at,updated_at) VALUES (lower(hex(randomblob(16))), 7,'bot','7:token','center_bot','secret','accounts.test','enabled',?,?)").run(identityNow, identityNow);
 	identityDatabase.close();
 
 	// 只剩最后一个登录方式且没有密码时，不允许解绑。
@@ -154,9 +154,9 @@ try {
 	assert.match((await lastIdentity.json()).feedback.message, /最后一个登录方式/);
 
 	const telegramDatabase = new DatabaseSync(process.env.DEFAULT_DATABASE_FILE);
-	telegramDatabase.prepare("INSERT INTO passport_external_identities (user_id,provider,subject,profile,created_at,updated_at) VALUES (?,'wechat','wx-appid:o6fZopenid','{\"nickname\":\"微信用户\"}',?,?)").run(userId, identityNow, identityNow);
-	telegramDatabase.prepare("INSERT INTO passport_external_providers (provider,title,client_id,client_secret,status,created_at,updated_at) VALUES ('wechat','微信','w','s','enabled',?,?)").run(identityNow, identityNow);
-	telegramDatabase.prepare('INSERT INTO passport_telegram_accounts (id,user_id,bot_id,telegram_user_id,chat_id,nickname,created_at,updated_at) VALUES (77,?,7,9001,9001,\'TG用户\',?,?)').run(userId, identityNow, identityNow);
+	telegramDatabase.prepare("INSERT INTO passport_external_identities (key, user_key,provider,subject,profile,created_at,updated_at) VALUES (lower(hex(randomblob(16))), ?,'wechat','wx-appid:o6fZopenid','{\"nickname\":\"微信用户\"}',?,?)").run(userId, identityNow, identityNow);
+	telegramDatabase.prepare("INSERT INTO passport_external_providers (key, provider,title,client_id,client_secret,status,created_at,updated_at) VALUES (lower(hex(randomblob(16))), 'wechat','微信','w','s','enabled',?,?)").run(identityNow, identityNow);
+	telegramDatabase.prepare('INSERT INTO passport_telegram_accounts (key, id,user_key,bot_id,telegram_user_id,chat_id,nickname,created_at,updated_at) VALUES (lower(hex(randomblob(16))), 77,?,7,9001,9001,\'TG用户\',?,?)').run(userId, identityNow, identityNow);
 	telegramDatabase.close();
 	const identities = await (await request(identitiesPath, { cookie })).json();
 	assert.deepEqual(identities.table.dataSource.map((row) => row.provider_label), ['Google', '微信', 'Telegram']);

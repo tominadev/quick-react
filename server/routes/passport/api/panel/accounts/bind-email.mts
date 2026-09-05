@@ -90,7 +90,7 @@ const handler: ApiHandler = async (c, next) => {
 		return apiResponse(c, 200, { formPage, currentValues: formPage.initialValues, feedback: { component: 'inline' as const, type: 'success' as const, message: '验证码已发送' } });
 	}
 	if (step === 'verify') {
-		const result = await verifyAccountEmailOtp(database, c.env.SNOWFLAKE_WORKER_ID, userId, String(body.code ?? ''));
+		const result = await verifyAccountEmailOtp(database, userId, String(body.code ?? ''));
 		if (result.status === 'bound') {
 			// 不再返回 formPage，通知通用弹窗流程已经完成，由列表关闭弹窗并重新加载数据。
 			return apiResponse(c, 200, { feedback: { component: 'message' as const, type: 'success' as const, message: `${result.email} 已绑定` } });

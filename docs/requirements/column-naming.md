@@ -23,6 +23,52 @@
 `title` 默认不唯一。个别表为了防重名仍然可以加唯一约束（`global_cloud_credentials`、
 `global_telegram_bots` 就是这样），但**唯一不等于可以被引用**——它照样会被人改。
 
+## 每张表都有 `key`
+
+`key` 是**每一行的稳定标识**，紧跟在 `id` 后面，`VARCHAR(36)`。值有三种来源，但角色是同一个：
+
+| 值 | 谁给的 | 例子 |
+| --- | --- | --- |
+| 人给的短串 | 建表时定死，写进配置和 URL | `global_sites.key = 'passport'`、`base_configs.key = 'site_settings'` |
+| 客户端 UUID | 客户端生成并回传 | `base_devices.key`、`passport_devices.key` |
+| 雪花号 | SQL 构造器在 INSERT 时补 | 其余 54 张表 |
+
+**一张表只有一个 `key`。** 已经有人给的 key 的表不再补雪花——两个都叫 key 就又回到了
+`name` 那种一词两义。
+
+**36 字节封顶**：雪花最长 19 位（2⁶³−1），人给的短串更短，客户端 UUID 正好 36。
+`VARCHAR(36)` 只管长度，字符集由**写入口**管：`sql.mts` 的 `assertRowKey` 挡住
+`[A-Za-z0-9_-]` 以外的字符。CHECK 约束 Prisma schema 写不出来，手写又破坏了「迁移全部由
+prisma 生成」，因此校验放在唯一必经之路上。
+
+两张表没有 `key`，都是基础设施而不是业务数据：`global_snowflake_state`（发号要先读它，
+给它加 key 就是死循环）和 `global_schema_migrations`（它在建库之前就要写入，那时号段还不存在）。
+
+### 发号器
+
+`server/modules/base/snowflake.mts`，全站共享，纪元与位宽沿用 Passport 老项目
+（41 位毫秒 + 10 位 worker + 12 位序列），因为 `passport_users.key` 就是老库里的
+`user_id`，值必须一模一样。
+
+**发号是同步的**：`key` 由 SQL 构造器在每次 INSERT 时补上，那是个同步函数，没法 await。
+因此号段一次预留 30000 个逻辑毫秒（一次写库，约 1.2 亿个号），之后全在内存里发，
+快用完时在后台续。预留走 `advanceNumber` 的原子推进，两个进程即使配了同一个 worker id
+也只会拿到彼此不相交的两段，重启后也不会把发过的号再发一遍。
+
+**发出来的是字符串**，不是 BigInt。老实现返回 BigInt，于是每个读它的查询都得
+`cast: 'text'`，漏一处就抛「Value is too large to be represented as a JavaScript number」；
+而 `Number()` 那一路更糟——不报错，静默算成另一个数。字符串从源头上断了这两条路。
+
+### worker id
+
+`SNOWFLAKE_WORKER_ID`（0–1023）。环境变量优先，其次 `.env`；两处都没有就按
+`/etc/machine-id`（拿不到就退回主机名）哈希后取模 1024，并**写回 `.env`**——
+worker id 必须跨重启稳定，每次启动重新随机会让两次运行落在同一毫秒时产生重号。
+`.env` 不进版本库。
+
+取模会撞：两台机器可能算出同一个号。撞了不会立刻出错（号段是原子预留的），但会白白
+消耗号段。集群规模上来之后应该显式配置，不要依赖推导。
+
 ## 配套规则
 
 - **`code`、`display_name`、`label` 一律不用。** 一个概念一个词：标识用 `key`，显示名用 `title`。
@@ -48,5 +94,9 @@ antd 的表格要求每一行有唯一的 `key`。**这个 `key` 与数据库的
 
 `npm run test:naming` 检查 prisma schema：
 - 不出现 `code`、`display_name`、`label` 列；
+- **每张表都有 `key`**，紧跟在 `id` 后面，声明 `@db.VarChar(36)`（例外只有发号器的状态表）；
 - 每个 `key` 列都必须落在某个 `@@unique` 里（可被引用的标识必须唯一）；
 - 不出现 `*_title` 形式的列（那意味着有人拿显示名当外键）。
+
+`npm run test:sql-builder` 守着写入口：key 由构造器补、调用方给的不被覆盖、非法字符与
+超长值被挡下。

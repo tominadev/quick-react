@@ -60,22 +60,22 @@ try {
 	const { app } = await import(`../dist/server.mjs?accounts-external=${Date.now()}`);
 	const database = new DatabaseSync(process.env.DEFAULT_DATABASE_FILE);
 	const now = Date.now();
-	database.prepare("INSERT INTO global_site_hosts (hostname, site_key, status, created_at) VALUES ('accounts.test', 'passport', 'enabled', ?)").run(now);
+	database.prepare("INSERT INTO global_site_hosts (key, hostname, site_key, status, created_at) VALUES (lower(hex(randomblob(16))), 'accounts.test', 'passport', 'enabled', ?)").run(now);
 	for (const provider of [
 		['google', 'Google', 'google-client', 'google-secret'],
 		['wechat', '微信', 'wechat-app-id', 'wechat-secret'],
-	]) database.prepare(`INSERT INTO passport_external_providers (provider, title, client_id, client_secret, status, created_at, updated_at)
-		VALUES (?, ?, ?, ?, 'enabled', ?, ?)`).run(...provider, now, now);
-	database.prepare(`INSERT INTO global_cloud_credentials (id, title, provider, access_key_id, access_key_secret, status, created_at, updated_at)
-		VALUES (91, 'external-email', 'aliyun', 'mail-key', 'mail-secret', 'enabled', ?, ?)`).run(now, now);
-	database.prepare(`INSERT INTO global_cloud_email_channels (id, cloud_credential_id, region, account_name, from_alias, reply_to_address, status, created_at, updated_at)
-		VALUES (92, 91, 'cn-hangzhou', 'noreply@example.com', 'Accounts', 0, 'enabled', ?, ?)`).run(now, now);
+	]) database.prepare(`INSERT INTO passport_external_providers (key, provider, title, client_id, client_secret, status, created_at, updated_at)
+		VALUES (lower(hex(randomblob(16))), ?, ?, ?, ?, 'enabled', ?, ?)`).run(...provider, now, now);
+	database.prepare(`INSERT INTO global_cloud_credentials (key, id, title, provider, access_key_id, access_key_secret, status, created_at, updated_at)
+		VALUES (lower(hex(randomblob(16))), 91, 'external-email', 'aliyun', 'mail-key', 'mail-secret', 'enabled', ?, ?)`).run(now, now);
+	database.prepare(`INSERT INTO global_cloud_email_channels (key, id, cloud_credential_id, region, account_name, from_alias, reply_to_address, status, created_at, updated_at)
+		VALUES (lower(hex(randomblob(16))), 92, 91, 'cn-hangzhou', 'noreply@example.com', 'Accounts', 0, 'enabled', ?, ?)`).run(now, now);
 	database.prepare(`INSERT INTO global_cloud_email_templates (id, key, type, title, subject, body_text, body_html, status, created_at, updated_at)
 		VALUES (93, 'email_verification_external', 'email_verification', '外部身份邮箱验证码', '验证码 {{code}}', '验证码：{{code}}', '<p>验证码：{{code}}</p>', 'enabled', ?, ?)`).run(now, now);
-	database.prepare(`INSERT INTO global_cloud_email_template_publications (template_id, cloud_credential_id, region, provider_template_id, content_hash, status, created_at, updated_at)
-		VALUES (93, 91, 'cn-hangzhou', 'external-template', 'test', 'ready', ?, ?)`).run(now, now);
-	database.prepare(`INSERT INTO global_cloud_email_bindings (site_key, channel_id, template_id, purpose, is_default, status, created_at, updated_at)
-		VALUES ('passport', 92, 93, 'email_verification', 1, 'enabled', ?, ?)`).run(now, now);
+	database.prepare(`INSERT INTO global_cloud_email_template_publications (key, template_id, cloud_credential_id, region, provider_template_id, content_hash, status, created_at, updated_at)
+		VALUES (lower(hex(randomblob(16))), 93, 91, 'cn-hangzhou', 'external-template', 'test', 'ready', ?, ?)`).run(now, now);
+	database.prepare(`INSERT INTO global_cloud_email_bindings (key, site_key, channel_id, template_id, purpose, is_default, status, created_at, updated_at)
+		VALUES (lower(hex(randomblob(16))), 'passport', 92, 93, 'email_verification', 1, 'enabled', ?, ?)`).run(now, now);
 	database.close();
 
 	// 登录页是邮箱输入框 + 第三方按钮；未注册的邮箱先让用户确认。
@@ -135,7 +135,7 @@ try {
 	const afterConflict = new DatabaseSync(process.env.DEFAULT_DATABASE_FILE, { readOnly: true });
 	assert.equal(afterConflict.prepare('SELECT COUNT(*) AS count FROM passport_users').get().count, 1, '不应该创建新用户');
 	assert.equal(afterConflict.prepare("SELECT COUNT(*) AS count FROM passport_external_identities WHERE provider = 'google'").get().count, 2, '新身份应该绑定到同一个账号');
-	assert.equal(afterConflict.prepare("SELECT COUNT(DISTINCT user_id) AS count FROM passport_external_identities WHERE provider = 'google'").get().count, 1);
+	assert.equal(afterConflict.prepare("SELECT COUNT(DISTINCT user_key) AS count FROM passport_external_identities WHERE provider = 'google'").get().count, 1);
 	afterConflict.close();
 	// 微信没有邮箱：验证一个已属于 Accounts 用户的邮箱后，应把微信身份绑定到该用户，而不是拒绝或创建新用户。
 	const existingWechatStart = await app.request('http://accounts.test/api/accounts/external/wechat');
@@ -150,8 +150,8 @@ try {
 	assert.equal(existingWechatVerified.status, 200);
 	const existingWechatResult = await existingWechatVerified.json();
 	const existingWechatDatabase = new DatabaseSync(process.env.DEFAULT_DATABASE_FILE, { readOnly: true });
-	const googleOwner = existingWechatDatabase.prepare("SELECT CAST(ue.user_id AS TEXT) AS user_id FROM passport_user_emails ue JOIN passport_emails e ON e.id = ue.email_id WHERE e.email = 'google@example.com'").get().user_id;
-	const wechatOwner = existingWechatDatabase.prepare("SELECT CAST(user_id AS TEXT) AS user_id FROM passport_external_identities WHERE provider = 'wechat' AND subject = 'wechat-app-id:wechat-openid-existing'").get().user_id;
+	const googleOwner = existingWechatDatabase.prepare("SELECT CAST(ue.user_key AS TEXT) AS user_key FROM passport_user_emails ue JOIN passport_emails e ON e.id = ue.email_id WHERE e.email = 'google@example.com'").get().user_key;
+	const wechatOwner = existingWechatDatabase.prepare("SELECT CAST(user_key AS TEXT) AS user_key FROM passport_external_identities WHERE provider = 'wechat' AND subject = 'wechat-app-id:wechat-openid-existing'").get().user_key;
 	assert.equal(String(existingWechatResult.user.id), googleOwner, '已有邮箱绑定微信后应登录同一 Accounts 用户');
 	assert.equal(wechatOwner, googleOwner);
 	existingWechatDatabase.close();

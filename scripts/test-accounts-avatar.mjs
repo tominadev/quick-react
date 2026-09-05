@@ -51,15 +51,15 @@ try {
 	const { app } = await import(`../dist/server.mjs?avatar=${Date.now()}`);
 	const database = new DatabaseSync(process.env.DEFAULT_DATABASE_FILE);
 	const now = Date.now();
-	database.prepare("INSERT INTO global_site_hosts (hostname, site_key, status, created_at) VALUES ('accounts.test','passport','enabled',?)").run(now);
-	database.prepare("INSERT INTO passport_external_providers (provider,title,client_id,client_secret,status,created_at,updated_at) VALUES ('google','Google','gid','gsecret','enabled',?,?)").run(now, now);
-	database.prepare(`INSERT INTO global_cloud_credentials (id,title,provider,access_key_id,access_key_secret,status,created_at,updated_at)
-		VALUES (31,'avatar-store','other','key','secret','enabled',?,?)`).run(now, now);
-	database.prepare(`INSERT INTO global_cloud_object_storage_buckets (id,cloud_credential_id,bucket,endpoint,region,path_style,status,created_at,updated_at)
-		VALUES (32,31,'media','https://storage.test','auto',1,'enabled',?,?)`).run(now, now);
-	database.prepare(`INSERT INTO global_cloud_object_storage_bindings (id,site_key,bucket_id,key_prefix,status,created_at,updated_at)
-		VALUES (33,'passport',32,'','enabled',?,?)`).run(now, now);
-	database.prepare("INSERT INTO global_cloud_object_storage_binding_purposes (binding_id,site_key,purpose,is_default) VALUES (33,'passport','avatars',1)").run();
+	database.prepare("INSERT INTO global_site_hosts (key, hostname, site_key, status, created_at) VALUES (lower(hex(randomblob(16))), 'accounts.test','passport','enabled',?)").run(now);
+	database.prepare("INSERT INTO passport_external_providers (key, provider,title,client_id,client_secret,status,created_at,updated_at) VALUES (lower(hex(randomblob(16))), 'google','Google','gid','gsecret','enabled',?,?)").run(now, now);
+	database.prepare(`INSERT INTO global_cloud_credentials (key, id,title,provider,access_key_id,access_key_secret,status,created_at,updated_at)
+		VALUES (lower(hex(randomblob(16))), 31,'avatar-store','other','key','secret','enabled',?,?)`).run(now, now);
+	database.prepare(`INSERT INTO global_cloud_object_storage_buckets (key, id,cloud_credential_id,bucket,endpoint,region,path_style,status,created_at,updated_at)
+		VALUES (lower(hex(randomblob(16))), 32,31,'media','https://storage.test','auto',1,'enabled',?,?)`).run(now, now);
+	database.prepare(`INSERT INTO global_cloud_object_storage_bindings (key, id,site_key,bucket_id,key_prefix,status,created_at,updated_at)
+		VALUES (lower(hex(randomblob(16))), 33,'passport',32,'','enabled',?,?)`).run(now, now);
+	database.prepare("INSERT INTO global_cloud_object_storage_binding_purposes (key, binding_id,site_key,purpose,is_default) VALUES (lower(hex(randomblob(16))), 33,'passport','avatars',1)").run();
 	database.close();
 
 	// Google 登录：新用户直接建号，并触发头像同步。
@@ -76,7 +76,7 @@ try {
 	await new Promise((resolve) => setTimeout(resolve, 80));
 	assert.equal(uploads.length, 1, '应该上传一次头像');
 	const stored = new DatabaseSync(process.env.DEFAULT_DATABASE_FILE, { readOnly: true });
-	const userId = stored.prepare('SELECT CAST(user_id AS TEXT) AS user_id FROM passport_users').get().user_id;
+	const userId = stored.prepare('SELECT CAST(key AS TEXT) AS user_key FROM passport_users').get().user_key;
 	stored.close();
 	assert.equal(uploads[0].path, `/media/avatars/${userId}`, '路径由 user_id 推导');
 	assert.equal(uploads[0].contentType, 'image/png');

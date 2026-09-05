@@ -24,6 +24,8 @@ enum GlobalPublicationStatus {
 
 model global_sites {
   id               BigInt @id @default(autoincrement())
+  key              String @db.VarChar(36)
+  @@unique([key, deleted_at])
   created_at       BigInt @default(0)
   updated_at       BigInt @default(0)
   deleted_at       BigInt @default(0)
@@ -32,8 +34,6 @@ model global_sites {
   owner_tid     BigInt @default(1)
   owner_bid     BigInt @default(1)
   owner_uid     BigInt?
-  key              String
-  @@unique([key, deleted_at])
   title            String
   base_site_key    String?
   dsn              String  @default("")
@@ -48,6 +48,7 @@ model global_sites {
 
 model global_site_hosts {
   id           BigInt @id @default(autoincrement())
+  key          String @db.VarChar(36)
   created_at   BigInt
   updated_at   BigInt @default(0)
   deleted_at   BigInt @default(0)
@@ -60,10 +61,12 @@ model global_site_hosts {
   @@unique([hostname, deleted_at])
   site_key     String
   status       GlobalEnabledStatus @default(enabled)
+  @@unique([key, deleted_at])
 }
 
 model global_cloud_credentials {
   id                BigInt @id @default(autoincrement())
+  key          String @db.VarChar(36)
   created_at        BigInt
   updated_at        BigInt
   deleted_at BigInt @default(0)
@@ -79,10 +82,12 @@ model global_cloud_credentials {
   access_key_id     String @default("")
   access_key_secret String @default("")
   status            GlobalEnabledStatus @default(enabled)
+  @@unique([key, deleted_at])
 }
 
 model global_cloud_object_storage_buckets {
   id                  BigInt @id @default(autoincrement())
+  key          String @db.VarChar(36)
   created_at          BigInt
   updated_at          BigInt
   deleted_at BigInt @default(0)
@@ -101,10 +106,12 @@ model global_cloud_object_storage_buckets {
   status              GlobalEnabledStatus @default(enabled)
 
   @@unique([cloud_credential_id, endpoint, bucket, deleted_at])
+  @@unique([key, deleted_at])
 }
 
 model global_cloud_object_storage_bindings {
   id         BigInt @id @default(autoincrement())
+  key          String @db.VarChar(36)
   created_at BigInt
   updated_at BigInt
   deleted_at BigInt @default(0)
@@ -120,10 +127,12 @@ model global_cloud_object_storage_bindings {
 
   @@unique([id, site_key, deleted_at])
   @@unique([site_key, bucket_id, key_prefix, deleted_at])
+  @@unique([key, deleted_at])
 }
 
 model global_cloud_object_storage_binding_purposes {
   id         BigInt @id @default(autoincrement())
+  key          String @db.VarChar(36)
   created_at BigInt @default(0)
   updated_at BigInt @default(0)
   deleted_at BigInt @default(0)
@@ -138,10 +147,12 @@ model global_cloud_object_storage_binding_purposes {
   is_default Int @default(0)
 
   @@unique([binding_id, purpose, deleted_at])
+  @@unique([key, deleted_at])
 }
 
 model global_telegram_bots {
   id               BigInt @id @default(autoincrement())
+  key          String @db.VarChar(36)
   created_at       BigInt
   updated_at       BigInt
   deleted_at BigInt @default(0)
@@ -161,10 +172,12 @@ model global_telegram_bots {
   status           GlobalEnabledStatus @default(enabled)
 
   @@index([webhook_hostname])
+  @@unique([key, deleted_at])
 }
 
 model global_cloud_email_channels {
   id                  BigInt @id @default(autoincrement())
+  key          String @db.VarChar(36)
   created_at          BigInt
   updated_at          BigInt
   deleted_at BigInt @default(0)
@@ -181,10 +194,13 @@ model global_cloud_email_channels {
   status              GlobalEnabledStatus @default(enabled)
 
   @@unique([cloud_credential_id, region, account_name, deleted_at])
+  @@unique([key, deleted_at])
 }
 
 model global_cloud_email_templates {
   id            BigInt @id @default(autoincrement())
+  key           String @db.VarChar(36)
+  @@unique([key, deleted_at])
   created_at    BigInt
   updated_at    BigInt
   deleted_at BigInt @default(0)
@@ -193,8 +209,6 @@ model global_cloud_email_templates {
   owner_tid     BigInt @default(1)
   owner_bid     BigInt @default(1)
   owner_uid     BigInt?
-  key           String
-  @@unique([key, deleted_at])
   type          String @default("email_verification")
   title         String
   subject       String
@@ -205,6 +219,7 @@ model global_cloud_email_templates {
 
 model global_cloud_email_bindings {
   id         BigInt @id @default(autoincrement())
+  key          String @db.VarChar(36)
   created_at BigInt
   updated_at BigInt
   deleted_at BigInt @default(0)
@@ -221,10 +236,12 @@ model global_cloud_email_bindings {
   status     GlobalEnabledStatus @default(enabled)
 
   @@unique([site_key, channel_id, template_id, purpose, deleted_at])
+  @@unique([key, deleted_at])
 }
 
 model global_cloud_email_template_publications {
   id                   BigInt @id @default(autoincrement())
+  key          String @db.VarChar(36)
   created_at           BigInt
   updated_at           BigInt
   deleted_at BigInt @default(0)
@@ -241,4 +258,26 @@ model global_cloud_email_template_publications {
   status               GlobalPublicationStatus
 
   @@unique([template_id, cloud_credential_id, region, deleted_at])
+  @@unique([key, deleted_at])
+}
+/// 雪花发号器的号段状态。全站共享一份：每张业务表的 key 都由它发。
+///
+/// 每个 worker 一行，`last_timestamp` 是**已经预留到哪个逻辑毫秒**。预留走原子推进
+/// （UPDATE 的 WHERE 带旧值），因此两个进程即使配了同一个 worker id，拿到的也是彼此
+/// 不相交的两段；进程重启后从这里接着往下走，不会把发过的号再发一遍。
+///
+/// 这张表自己没有 key 列——发 key 要先读它，加上去就成了死循环。
+model global_snowflake_state {
+  id             BigInt @id @default(autoincrement())
+  created_at     BigInt
+  updated_at     BigInt
+  deleted_at     BigInt @default(0)
+  created_duid   BigInt?
+  updated_duid   BigInt?
+  owner_tid      BigInt @default(1)
+  owner_bid      BigInt @default(1)
+  owner_uid      BigInt?
+  worker_id      Int
+  @@unique([worker_id, deleted_at])
+  last_timestamp BigInt
 }

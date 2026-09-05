@@ -1,7 +1,7 @@
 import type { DatabaseAdapter } from '@server/database/index.mjs';
 import { createCloudStorageAdapter, loadDefaultCloudStorageTarget } from '@server/modules/global/cloud/resolve.mjs';
 
-/** 头像对象路径完全由 user_id 推导，不在数据库里保存路径；内容类型由对象存储保存。 */
+/** 头像对象路径完全由 user_key 推导，不在数据库里保存路径；内容类型由对象存储保存。 */
 export const avatarObjectKey = (userId: string) => `avatars/${userId}`;
 
 const maxAvatarBytes = 2 * 1024 * 1024;

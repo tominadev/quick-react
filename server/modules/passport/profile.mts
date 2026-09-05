@@ -29,9 +29,9 @@ export const passportProfileStatement = (database: DatabaseAdapter, userId: stri
 	const writable: Record<string, unknown> = Object.fromEntries(Object.entries(values).map(([key, value]) => [key.replace(/^profile_/, ''), value]));
 	// 昵称清空写 NULL 而不是空串：与 base 一致，NULL 才是「没设昵称」，显示时回落到用户名。
 	if (values.profile_nickname === '') writable.nickname = null;
-	return sql({ database }).upsert('passport_user_profiles', ['user_id'], { user_id: userId, ...writable }, [...Object.keys(writable), 'updated_at']);
+	return sql({ database }).upsert('passport_user_profiles', ['user_key'], { user_key: userId, ...writable }, [...Object.keys(writable), 'updated_at']);
 };
 
 /** 建号时与 passport_users 一起写入的语句，交给同一个 batch 执行。 */
 export const passportProfileInsert = (database: DatabaseAdapter, userId: string | number | bigint, profileNickname: string): SqlQuery[] =>
-	profileNickname.trim() ? [sql({ database }).insert('passport_user_profiles', { user_id: userId, nickname: profileNickname.trim() })] : [];
+	profileNickname.trim() ? [sql({ database }).insert('passport_user_profiles', { user_key: userId, nickname: profileNickname.trim() })] : [];

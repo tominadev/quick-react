@@ -3,7 +3,7 @@ import { clampNickname } from '@shared/account-name.mjs';
 import type { DatabaseAdapter, DatabaseBatchStatement } from '@server/database/index.mjs';
 import { allSql, firstSql, runSql, sql } from '@server/database/sql.mjs';
 import { passportProfileInsert } from '@server/modules/passport/profile.mjs';
-import { getPassportSnowflakeGenerator } from './snowflake.mjs';
+import { nextSnowflake } from '@server/modules/base/snowflake.mjs';
 import { passportPlaceholderName } from './account.mjs';
 import { assertPassword } from '@server/modules/base/auth/password-policy.mjs';
 
@@ -71,11 +71,11 @@ export const expireTelegramEmailOtp = async (database: DatabaseAdapter, identity
 	await runSql(database, sql({ database }).update('passport_email_otp', { status: 'expired' }, [{ column: 'bot_id', value: botId }, { column: 'telegram_user_id', value: telegramUserId }, { column: 'status', value: 'pending' }]));
 };
 
-type AccountOwner = { user_id: string; status: string };
+type AccountOwner = { user_key: string; status: string };
 
-const telegramOwner = (database: DatabaseAdapter, botId: string, telegramUserId: string) => firstSql<AccountOwner>(database, sql({ database }).select({ table: 'passport_telegram_accounts', alias: 'a', columns: { user_id: { column: 'a.user_id', cast: 'text' }, status: 'u.status' }, joins: [{ table: 'passport_users', alias: 'u', left: 'u.user_id', right: 'a.user_id' }], where: [{ column: 'a.bot_id', value: botId }, { column: 'a.telegram_user_id', value: telegramUserId }] }));
+const telegramOwner = (database: DatabaseAdapter, botId: string, telegramUserId: string) => firstSql<AccountOwner>(database, sql({ database }).select({ table: 'passport_telegram_accounts', alias: 'a', columns: { user_key: { column: 'a.user_key', cast: 'text' }, status: 'u.status' }, joins: [{ table: 'passport_users', alias: 'u', left: 'u.key', right: 'a.user_key' }], where: [{ column: 'a.bot_id', value: botId }, { column: 'a.telegram_user_id', value: telegramUserId }] }));
 
-const emailOwner = (database: DatabaseAdapter, email: string) => firstSql<AccountOwner>(database, sql({ database }).select({ table: 'passport_emails', alias: 'e', columns: { user_id: { column: 'ue.user_id', cast: 'text' }, status: 'u.status' }, joins: [{ table: 'passport_user_emails', alias: 'ue', left: 'ue.email_id', right: 'e.id' }, { table: 'passport_users', alias: 'u', left: 'u.user_id', right: 'ue.user_id' }], where: [{ column: 'e.email', value: email }] }));
+const emailOwner = (database: DatabaseAdapter, email: string) => firstSql<AccountOwner>(database, sql({ database }).select({ table: 'passport_emails', alias: 'e', columns: { user_key: { column: 'ue.user_key', cast: 'text' }, status: 'u.status' }, joins: [{ table: 'passport_user_emails', alias: 'ue', left: 'ue.email_id', right: 'e.id' }, { table: 'passport_users', alias: 'u', left: 'u.key', right: 'ue.user_key' }], where: [{ column: 'e.email', value: email }] }));
 
 export type TelegramOtpVerification =
 	| { status: 'created' | 'linked' | 'existing'; userId: string }
@@ -85,7 +85,6 @@ export type TelegramOtpVerification =
 
 export const verifyTelegramEmailOtp = async (
 	database: DatabaseAdapter,
-	configuredWorkerId: unknown,
 	identity: TelegramIdentity,
 	rawCode: string,
 ): Promise<TelegramOtpVerification> => {
@@ -116,44 +115,43 @@ export const verifyTelegramEmailOtp = async (
 		telegramOwner(database, botId, telegramUserId),
 		emailOwner(database, otp.email),
 	]);
-	if (external?.status === 'disabled') return { status: 'disabled', userId: external.user_id };
-	if (email?.status === 'disabled') return { status: 'disabled', userId: email.user_id };
-	if (external && email && external.user_id !== email.user_id) {
+	if (external?.status === 'disabled') return { status: 'disabled', userId: external.user_key };
+	if (email?.status === 'disabled') return { status: 'disabled', userId: email.user_key };
+	if (external && email && external.user_key !== email.user_key) {
 		await runSql(database, sql({ database }).update('passport_email_otp', { status: 'used' }, { id: otp.id, status: 'pending' }));
-		return { status: 'conflict', telegramUserId: external.user_id, emailUserId: email.user_id };
+		return { status: 'conflict', telegramUserId: external.user_key, emailUserId: email.user_key };
 	}
 	if (!external && email) {
 		await runSql(database, sql({ database }).update('passport_email_otp', { status: 'used' }, { id: otp.id, status: 'pending' }));
-		return { status: 'conflict', emailUserId: email.user_id };
+		return { status: 'conflict', emailUserId: email.user_key };
 	}
 
 	const now = Date.now();
 	const nickname = normalizePassportNickname(identity.nickname, telegramUserId);
-	const generator = getPassportSnowflakeGenerator(database, configuredWorkerId);
-	const builder = sql({ database });
+		const builder = sql({ database });
 	const statements: DatabaseBatchStatement[] = [];
 	let userId: string;
 	let resultStatus: 'created' | 'linked' | 'existing';
 	if (external) {
-		userId = external.user_id;
+		userId = external.user_key;
 		resultStatus = email ? 'existing' : 'linked';
 		statements.push(builder.update('passport_telegram_accounts', { chat_id: chatId, nickname }, { bot_id: botId, telegram_user_id: telegramUserId }));
 	} else {
-		userId = (await generator.next()).toString();
-		const accountId = (await generator.next()).toString();
+		userId = nextSnowflake();
+		const accountId = nextSnowflake();
 		resultStatus = 'created';
 		statements.push(
-			builder.insert('passport_users', { user_id: userId, name: passportPlaceholderName(userId), status: 'enabled' }),
+			builder.insert('passport_users', { key: userId, name: passportPlaceholderName(userId), status: 'enabled' }),
 			...passportProfileInsert(database, userId, nickname),
-			builder.insert('passport_telegram_accounts', { id: accountId, user_id: userId, bot_id: botId, telegram_user_id: telegramUserId, chat_id: chatId, nickname }),
+			builder.insert('passport_telegram_accounts', { id: accountId, user_key: userId, bot_id: botId, telegram_user_id: telegramUserId, chat_id: chatId, nickname }),
 		);
 	}
 	if (!email) {
-		const emailId = (await generator.next()).toString();
-		const hasUserEmail = Boolean(await firstSql(database, builder.select({ table: 'passport_user_emails', columns: { email_id: { column: 'email_id', cast: 'text' } }, where: [{ column: 'user_id', value: userId }], limit: 1 })));
+		const emailId = nextSnowflake();
+		const hasUserEmail = Boolean(await firstSql(database, builder.select({ table: 'passport_user_emails', columns: { email_id: { column: 'email_id', cast: 'text' } }, where: [{ column: 'user_key', value: userId }], limit: 1 })));
 		statements.push(
 			builder.insert('passport_emails', { id: emailId, email: otp.email, verified: 1 }),
-			builder.insert('passport_user_emails', { user_id: userId, email_id: emailId, is_primary: hasUserEmail ? 0 : 1 }),
+			builder.insert('passport_user_emails', { user_key: userId, email_id: emailId, is_primary: hasUserEmail ? 0 : 1 }),
 		);
 	}
 	statements.push(builder.update('passport_email_otp', { status: 'used' }, { id: otp.id, status: 'pending' }));
@@ -172,9 +170,9 @@ export const createTelegramIdentityChoice = async (
 	const botId = decimalId(identity.botId, true), telegramUserId = decimalId(identity.telegramUserId, true), chatId = decimalId(identity.chatId, false);
 	const targetUserId = decimalId(targetUserIdValue, true), email = normalizePassportEmail(rawEmail), now = Date.now();
 	const owner = await emailOwner(database, email);
-	if (!owner || owner.user_id !== targetUserId || owner.status !== 'enabled') throw new Error('目标账户或邮箱状态已变化');
+	if (!owner || owner.user_key !== targetUserId || owner.status !== 'enabled') throw new Error('目标账户或邮箱状态已变化');
 	await runSql(database, sql({ database }).update('passport_telegram_identity_choices', { status: 'cancelled' }, { bot_id: botId, telegram_user_id: telegramUserId, status: 'pending' }));
-	await runSql(database, sql({ database }).insert('passport_telegram_identity_choices', { bot_id: botId, telegram_user_id: telegramUserId, chat_id: chatId, target_user_id: targetUserId, email, status: 'pending', expires_at: now + lifetimeMs }));
+	await runSql(database, sql({ database }).insert('passport_telegram_identity_choices', { bot_id: botId, telegram_user_id: telegramUserId, chat_id: chatId, target_user_key: targetUserId, email, status: 'pending', expires_at: now + lifetimeMs }));
 	const choice = await firstSql<{ id: number }>(database, sql({ database }).select({ table: 'passport_telegram_identity_choices', columns: { id: 'id' }, where: [{ column: 'bot_id', value: botId }, { column: 'telegram_user_id', value: telegramUserId }, { column: 'status', value: 'pending' }], orderBy: [{ column: 'created_at', direction: 'DESC' }, { column: 'id', direction: 'DESC' }], limit: 1 }));
 	if (!choice) throw new Error('账户选择创建后无法读取');
 	return { id: String(choice.id), targetUserId, email, expiresAt: now + lifetimeMs };
@@ -182,13 +180,12 @@ export const createTelegramIdentityChoice = async (
 
 export const confirmTelegramIdentityChoice = async (
 	database: DatabaseAdapter,
-	configuredWorkerId: unknown,
 	identity: TelegramIdentity,
 	choiceIdValue: string | number | bigint,
 ) => {
 	const botId = decimalId(identity.botId, true), telegramUserId = decimalId(identity.telegramUserId, true), chatId = decimalId(identity.chatId, false);
 	const choiceId = decimalId(choiceIdValue, true);
-	const choice = await firstSql<{ target_user_id: string; email: string; expires_at: number; status: string }>(database, sql({ database }).select({ table: 'passport_telegram_identity_choices', alias: 'c', columns: { target_user_id: { column: 'c.target_user_id', cast: 'text' }, email: 'c.email', expires_at: 'c.expires_at', status: 'u.status' }, joins: [{ table: 'passport_users', alias: 'u', left: 'u.user_id', right: 'c.target_user_id' }], where: [{ column: 'c.id', value: choiceId }, { column: 'c.bot_id', value: botId }, { column: 'c.telegram_user_id', value: telegramUserId }, { column: 'c.status', value: 'pending' }] }));
+	const choice = await firstSql<{ target_user_key: string; email: string; expires_at: number; status: string }>(database, sql({ database }).select({ table: 'passport_telegram_identity_choices', alias: 'c', columns: { target_user_key: { column: 'c.target_user_key', cast: 'text' }, email: 'c.email', expires_at: 'c.expires_at', status: 'u.status' }, joins: [{ table: 'passport_users', alias: 'u', left: 'u.key', right: 'c.target_user_key' }], where: [{ column: 'c.id', value: choiceId }, { column: 'c.bot_id', value: botId }, { column: 'c.telegram_user_id', value: telegramUserId }, { column: 'c.status', value: 'pending' }] }));
 	if (!choice) return { status: 'invalid' as const };
 	if (choice.expires_at <= Date.now()) {
 		await runSql(database, sql({ database }).update('passport_telegram_identity_choices', { status: 'expired' }, { id: choiceId, status: 'pending' }));
@@ -196,20 +193,20 @@ export const confirmTelegramIdentityChoice = async (
 	}
 	if (choice.status !== 'enabled') return { status: 'disabled' as const };
 	const [external, owner] = await Promise.all([telegramOwner(database, botId, telegramUserId), emailOwner(database, choice.email)]);
-	if (!owner || owner.user_id !== choice.target_user_id) return { status: 'conflict' as const };
+	if (!owner || owner.user_key !== choice.target_user_key) return { status: 'conflict' as const };
 	if (external) {
-		if (external.user_id !== choice.target_user_id) return { status: 'conflict' as const };
+		if (external.user_key !== choice.target_user_key) return { status: 'conflict' as const };
 		await runSql(database, sql({ database }).update('passport_telegram_identity_choices', { status: 'confirmed' }, { id: choiceId, status: 'pending' }));
-		return { status: 'existing' as const, userId: external.user_id };
+		return { status: 'existing' as const, userId: external.user_key };
 	}
-	const now = Date.now(), accountId = (await getPassportSnowflakeGenerator(database, configuredWorkerId).next()).toString();
+	const now = Date.now(), accountId = nextSnowflake();
 	if (!database.batch) throw new Error('Passport database does not support atomic batch writes');
 	const builder = sql({ database });
 	await database.batch([
-		builder.insert('passport_telegram_accounts', { id: accountId, user_id: choice.target_user_id, bot_id: botId, telegram_user_id: telegramUserId, chat_id: chatId, nickname: normalizePassportNickname(identity.nickname, telegramUserId) }),
+		builder.insert('passport_telegram_accounts', { id: accountId, user_key: choice.target_user_key, bot_id: botId, telegram_user_id: telegramUserId, chat_id: chatId, nickname: normalizePassportNickname(identity.nickname, telegramUserId) }),
 		builder.update('passport_telegram_identity_choices', { status: 'confirmed' }, { id: choiceId, status: 'pending' }),
 	]);
-	return { status: 'linked' as const, userId: choice.target_user_id };
+	return { status: 'linked' as const, userId: choice.target_user_key };
 };
 
 export const cancelTelegramIdentityChoice = async (database: DatabaseAdapter, identity: TelegramIdentity, choiceIdValue: string | number | bigint) => {
@@ -220,14 +217,14 @@ export const cancelTelegramIdentityChoice = async (database: DatabaseAdapter, id
 export const setPassportPassword = async (database: DatabaseAdapter, userIdValue: string | number | bigint, password: string) => {
 	const userId = decimalId(userIdValue, true);
 	assertPassword(password);
-	const user = await firstSql(database, sql({ database }).select({ table: 'passport_users', columns: { user_id: { column: 'user_id', cast: 'text' } }, where: [{ column: 'user_id', value: userId }, { column: 'status', value: 'enabled' }] }));
+	const user = await firstSql(database, sql({ database }).select({ table: 'passport_users', columns: { user_key: { column: 'key', cast: 'text' } }, where: [{ column: 'key', value: userId }, { column: 'status', value: 'enabled' }] }));
 	if (!user) throw new Error('用户不存在或已停用');
-	await runSql(database, sql({ database }).insert('passport_user_credentials', { user_id: userId, password: await createStoredPassword(password) }));
+	await runSql(database, sql({ database }).insert('passport_user_credentials', { user_key: userId, password: await createStoredPassword(password) }));
 };
 
 export const verifyPassportPasswordHistory = async (database: DatabaseAdapter, userIdValue: string | number | bigint, password: string) => {
 	const userId = decimalId(userIdValue, true);
-	const credentials = await allSql<{ password: string; created_at: number }>(database, sql({ database }).select({ table: 'passport_user_credentials', columns: { password: 'password', created_at: 'created_at' }, where: [{ column: 'user_id', value: userId }], orderBy: [{ column: 'created_at', direction: 'DESC' }, { column: 'id', direction: 'DESC' }] }));
+	const credentials = await allSql<{ password: string; created_at: number }>(database, sql({ database }).select({ table: 'passport_user_credentials', columns: { password: 'password', created_at: 'created_at' }, where: [{ column: 'user_key', value: userId }], orderBy: [{ column: 'created_at', direction: 'DESC' }, { column: 'id', direction: 'DESC' }] }));
 	for (let index = 0; index < credentials.length; index += 1) {
 		if (!await verifyStoredPassword(password, credentials[index].password)) continue;
 		return index === 0

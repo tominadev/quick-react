@@ -7,7 +7,7 @@ import { isValidUserName, nicknameError, userNameError } from '@shared/account-n
 import { passportProfileNicknameOf, passportProfileStatement } from './profile.mjs';
 import { hashPassword, verifyPassword } from '@server/modules/base/auth/index.mjs';
 import { normalizePassportEmail } from './identity.mjs';
-import { getPassportSnowflakeGenerator } from './snowflake.mjs';
+import { nextSnowflake } from '@server/modules/base/snowflake.mjs';
 
 const reservedUserNames = new Set(['admin', 'root', 'system', 'support', 'official', 'passport', 'accounts', 'service', 'security']);
 
@@ -33,7 +33,7 @@ export const isValidAccountUserName = (value: string, minLength?: number) => isV
 /** 新账号先使用雪花 ID 组成的占位名；该值只表示正式用户名尚未设置。 */
 export const passportPlaceholderName = (userId: string) => `passport_${userId}`;
 const loadAccountName = async (database: DatabaseAdapter, userId: string) => (
-	await firstSql<{ name: string }>(database, sql({ database }).select({ table: 'passport_users', columns: { name: 'name' }, where: [{ column: 'user_id', value: userId }] }))
+	await firstSql<{ name: string }>(database, sql({ database }).select({ table: 'passport_users', columns: { name: 'name' }, where: [{ column: 'key', value: userId }] }))
 )?.name;
 
 export const accountUserNameState = async (database: DatabaseAdapter, userId: string, minLength?: number) => {
@@ -59,12 +59,12 @@ export const claimUserNameFromEmail = async (database: DatabaseAdapter, userId: 
 	const primary = emails.find((item) => item.is_primary && item.verified) ?? emails.find((item) => item.verified);
 	const candidate = (primary?.email ?? '').split('@')[0].trim().toLowerCase();
 	if (!candidate || !isValidAccountUserName(candidate, minLength)) return undefined;
-	const taken = await firstSql<{ user_id: string }>(database, sql({ database }).select({
-		table: 'passport_users', columns: { user_id: { column: 'user_id', cast: 'text' } },
-		where: [{ column: 'name', value: candidate }, { column: 'user_id', operator: '!=', value: userId }], limit: 1,
+	const taken = await firstSql<{ user_key: string }>(database, sql({ database }).select({
+		table: 'passport_users', columns: { user_key: { column: 'key', cast: 'text' } },
+		where: [{ column: 'name', value: candidate }, { column: 'user_key', operator: '!=', value: userId }], limit: 1,
 	}));
 	if (taken) return undefined;
-	try { await runSql(database, sql({ database }).update('passport_users', { name: candidate }, { user_id: userId })); }
+	try { await runSql(database, sql({ database }).update('passport_users', { name: candidate }, { key: userId })); }
 	catch { return undefined; }
 	return candidate;
 };
@@ -77,11 +77,11 @@ export const setAccountUserName = async (c: Context<AppEnv>, database: DatabaseA
 	const userName = normalizeAccountUserName(rawUserName, minLength);
 	const current = await loadAccountName(database, userId);
 	if (!current) throw new Error('Accounts 用户不存在');
-	// 同上：user_id 是雪花 ID，必须按文本读取，否则用户名被占用时会抛数值溢出错误。
-	const taken = await firstSql<{ user_id: string }>(database, sql({ database }).select({ table: 'passport_users', columns: { user_id: { column: 'user_id', cast: 'text' } }, where: [{ column: 'name', value: userName }, { column: 'user_id', operator: '!=', value: userId }] }));
+	// 同上：user_key 是雪花 ID，必须按文本读取，否则用户名被占用时会抛数值溢出错误。
+	const taken = await firstSql<{ user_key: string }>(database, sql({ database }).select({ table: 'passport_users', columns: { user_key: { column: 'key', cast: 'text' } }, where: [{ column: 'name', value: userName }, { column: 'user_key', operator: '!=', value: userId }] }));
 	if (taken) throw new Error('该用户名已被占用，请更换后重试');
 	try {
-		await runOperationSql(c, database, sql({ database }).update('passport_users', { name: userName }, { user_id: userId }));
+		await runOperationSql(c, database, sql({ database }).update('passport_users', { name: userName }, { key: userId }));
 	} catch (error) {
 		if (error instanceof PendingApprovalError) throw error;
 		throw new Error('该用户名已被占用，请更换后重试');
@@ -90,7 +90,7 @@ export const setAccountUserName = async (c: Context<AppEnv>, database: DatabaseA
 };
 
 export const hasAccountPassword = async (database: DatabaseAdapter, userId: string) => Boolean(
-	await firstSql(database, sql({ database }).select({ table: 'passport_user_credentials', columns: { id: 'id' }, where: [{ column: 'user_id', value: userId }], limit: 1 })),
+	await firstSql(database, sql({ database }).select({ table: 'passport_user_credentials', columns: { id: 'id' }, where: [{ column: 'user_key', value: userId }], limit: 1 })),
 );
 
 export const updateProfileNickname = async (c: Context<AppEnv>, database: DatabaseAdapter, userId: string, rawNickname: string) => {
@@ -115,13 +115,13 @@ export const listAccountEmails = (database: DatabaseAdapter, userId: string) => 
 	table: 'passport_user_emails', alias: 'ue',
 	columns: { email_id: { column: 'ue.email_id', cast: 'text' }, email: 'e.email', verified: 'e.verified', is_primary: 'ue.is_primary', created_at: 'ue.created_at' },
 	joins: [{ table: 'passport_emails', alias: 'e', left: 'e.id', right: 'ue.email_id' }],
-	where: [{ column: 'ue.user_id', value: userId }],
+	where: [{ column: 'ue.user_key', value: userId }],
 	orderBy: [{ column: 'ue.is_primary', direction: 'DESC' }, { column: 'ue.created_at' }],
 }));
 
-const emailOwner = (database: DatabaseAdapter, email: string) => firstSql<{ user_id: string }>(database, sql({ database }).select({
+const emailOwner = (database: DatabaseAdapter, email: string) => firstSql<{ user_key: string }>(database, sql({ database }).select({
 	table: 'passport_emails', alias: 'e',
-	columns: { user_id: { column: 'ue.user_id', cast: 'text' } },
+	columns: { user_key: { column: 'ue.user_key', cast: 'text' } },
 	joins: [{ table: 'passport_user_emails', alias: 'ue', left: 'ue.email_id', right: 'e.id' }],
 	where: [{ column: 'e.email', value: email }],
 	limit: 1,
@@ -141,32 +141,32 @@ export class AccountEmailRateLimitError extends Error {
 export const issueAccountEmailOtp = async (database: DatabaseAdapter, userId: string, rawEmail: string) => {
 	const email = normalizePassportEmail(rawEmail), now = Date.now();
 	const owner = await emailOwner(database, email);
-	if (owner) throw new Error(owner.user_id === userId ? '该邮箱已经绑定到当前账号' : '该邮箱已被其他 Accounts 用户绑定');
-	const recent = await allSql<{ created_at: number }>(database, sql({ database }).select({ table: 'passport_user_email_otps', columns: { created_at: 'created_at' }, where: [{ column: 'user_id', value: userId }, { column: 'created_at', operator: '>', value: now - 60 * 60_000 }], orderBy: [{ column: 'created_at', direction: 'DESC' }] }));
+	if (owner) throw new Error(owner.user_key === userId ? '该邮箱已经绑定到当前账号' : '该邮箱已被其他 Accounts 用户绑定');
+	const recent = await allSql<{ created_at: number }>(database, sql({ database }).select({ table: 'passport_user_email_otps', columns: { created_at: 'created_at' }, where: [{ column: 'user_key', value: userId }, { column: 'created_at', operator: '>', value: now - 60 * 60_000 }], orderBy: [{ column: 'created_at', direction: 'DESC' }] }));
 	if (recent[0] && now - recent[0].created_at < 60_000) throw new AccountEmailRateLimitError(Math.ceil((60_000 - (now - recent[0].created_at)) / 1000));
 	if (recent.length >= 10) throw new AccountEmailRateLimitError(Math.max(1, Math.ceil((recent.at(-1)!.created_at + 60 * 60_000 - now) / 1000)));
-	await runSystemSql(database, sql({ database }).update('passport_user_email_otps', { status: 'expired' }, [{ column: 'user_id', value: userId }, { column: 'status', value: 'pending' }]));
+	await runSystemSql(database, sql({ database }).update('passport_user_email_otps', { status: 'expired' }, [{ column: 'user_key', value: userId }, { column: 'status', value: 'pending' }]));
 	const code = generateEmailCode(), id = crypto.randomUUID();
-	await runSql(database, sql({ database }).insert('passport_user_email_otps', { otp_id: id, user_id: userId, email, code_hash: await hashPassword(code), attempt_count: 0, status: 'pending', expires_at: now + 600_000 }));
+	await runSql(database, sql({ database }).insert('passport_user_email_otps', { otp_id: id, user_key: userId, email, code_hash: await hashPassword(code), attempt_count: 0, status: 'pending', expires_at: now + 600_000 }));
 	return { code, email, expiresAt: now + 600_000 };
 };
 
 export const pendingAccountEmailOtp = (database: DatabaseAdapter, userId: string) => firstSql<{ id: string; email: string; expires_at: number; created_at: number }>(database, sql({ database }).select({
 	table: 'passport_user_email_otps',
 	columns: { id: 'otp_id', email: 'email', expires_at: 'expires_at', created_at: 'created_at' },
-	where: [{ column: 'user_id', value: userId }, { column: 'status', value: 'pending' }, { column: 'expires_at', operator: '>', value: Date.now() }],
+	where: [{ column: 'user_key', value: userId }, { column: 'status', value: 'pending' }, { column: 'expires_at', operator: '>', value: Date.now() }],
 	orderBy: [{ column: 'created_at', direction: 'DESC' }],
 	limit: 1,
 }));
 
-export const discardAccountEmailOtp = (database: DatabaseAdapter, userId: string) => runSystemSql(database, sql({ database }).update('passport_user_email_otps', { status: 'expired' }, [{ column: 'user_id', value: userId }, { column: 'status', value: 'pending' }]));
+export const discardAccountEmailOtp = (database: DatabaseAdapter, userId: string) => runSystemSql(database, sql({ database }).update('passport_user_email_otps', { status: 'expired' }, [{ column: 'user_key', value: userId }, { column: 'status', value: 'pending' }]));
 
 export type AccountEmailVerification = { status: 'bound'; email: string } | { status: 'invalid' | 'expired' | 'locked' | 'none' } | { status: 'conflict'; message: string };
 
-export const verifyAccountEmailOtp = async (database: DatabaseAdapter, workerId: unknown, userId: string, rawCode: string): Promise<AccountEmailVerification> => {
+export const verifyAccountEmailOtp = async (database: DatabaseAdapter, userId: string, rawCode: string): Promise<AccountEmailVerification> => {
 	const code = rawCode.trim();
 	if (!/^\d{6}$/.test(code)) return { status: 'invalid' };
-	const otp = await firstSql<{ id: string; email: string; code_hash: string; attempt_count: number; expires_at: number }>(database, sql({ database }).select({ table: 'passport_user_email_otps', columns: { id: 'otp_id', email: 'email', code_hash: 'code_hash', attempt_count: 'attempt_count', expires_at: 'expires_at' }, where: [{ column: 'user_id', value: userId }, { column: 'status', value: 'pending' }], orderBy: [{ column: 'created_at', direction: 'DESC' }], limit: 1 }));
+	const otp = await firstSql<{ id: string; email: string; code_hash: string; attempt_count: number; expires_at: number }>(database, sql({ database }).select({ table: 'passport_user_email_otps', columns: { id: 'otp_id', email: 'email', code_hash: 'code_hash', attempt_count: 'attempt_count', expires_at: 'expires_at' }, where: [{ column: 'user_key', value: userId }, { column: 'status', value: 'pending' }], orderBy: [{ column: 'created_at', direction: 'DESC' }], limit: 1 }));
 	if (!otp) return { status: 'none' };
 	const now = Date.now();
 	if (otp.expires_at <= now) {
@@ -182,14 +182,13 @@ export const verifyAccountEmailOtp = async (database: DatabaseAdapter, workerId:
 	const owner = await emailOwner(database, otp.email);
 	if (owner) {
 		await runSystemSql(database, sql({ database }).update('passport_user_email_otps', { status: 'used' }, { otp_id: otp.id }));
-		return { status: 'conflict', message: owner.user_id === userId ? '该邮箱已经绑定到当前账号' : '该邮箱已被其他 Accounts 用户绑定' };
+		return { status: 'conflict', message: owner.user_key === userId ? '该邮箱已经绑定到当前账号' : '该邮箱已被其他 Accounts 用户绑定' };
 	}
 	const existing = await listAccountEmails(database, userId);
-	const generator = getPassportSnowflakeGenerator(database, workerId);
-	const emailId = (await generator.next()).toString();
+		const emailId = nextSnowflake();
 	const statements: DatabaseBatchStatement[] = [
 		sql({ database }).insert('passport_emails', { id: emailId, email: otp.email, verified: 1 }),
-		sql({ database }).insert('passport_user_emails', { user_id: userId, email_id: emailId, is_primary: existing.length ? 0 : 1 }),
+		sql({ database }).insert('passport_user_emails', { user_key: userId, email_id: emailId, is_primary: existing.length ? 0 : 1 }),
 		sql({ database }).update('passport_user_email_otps', { status: 'used' }, { otp_id: otp.id }),
 	];
 	if (database.batch) await database.batch(statements);
@@ -203,8 +202,8 @@ export const setPrimaryAccountEmail = async (c: Context<AppEnv>, database: Datab
 	if (!target) throw new Error('邮箱不存在或不属于当前账号');
 	if (!target.verified) throw new Error('邮箱尚未验证，不能设为主邮箱');
 	if (target.is_primary) return target.email;
-	await runOperationSql(c, database, sql({ database }).update('passport_user_emails', { is_primary: 0 }, { user_id: userId }));
-	await runOperationSql(c, database, sql({ database }).update('passport_user_emails', { is_primary: 1 }, { user_id: userId, email_id: emailId }));
+	await runOperationSql(c, database, sql({ database }).update('passport_user_emails', { is_primary: 0 }, { user_key: userId }));
+	await runOperationSql(c, database, sql({ database }).update('passport_user_emails', { is_primary: 1 }, { user_key: userId, email_id: emailId }));
 	return target.email;
 };
 
@@ -214,7 +213,7 @@ export const unbindAccountEmail = async (c: Context<AppEnv>, database: DatabaseA
 	if (!target) throw new Error('邮箱不存在或不属于当前账号');
 	if (emails.length <= 1) throw new Error('至少需要保留一个邮箱，不能解绑最后一个邮箱');
 	if (target.is_primary) throw new Error('主邮箱不能解绑，请先把其它邮箱设为主邮箱');
-	await runOperationSql(c, database, sql({ database }).softDelete('passport_user_emails', { user_id: userId, email_id: emailId }));
+	await runOperationSql(c, database, sql({ database }).softDelete('passport_user_emails', { user_key: userId, email_id: emailId }));
 	await runOperationSql(c, database, sql({ database }).softDelete('passport_emails', { id: emailId }));
 	return target.email;
 };
@@ -248,14 +247,14 @@ export const listAccountIdentities = async (database: DatabaseAdapter, globalDat
 		allSql<{ id: string; provider: string; subject: string; profile: string; created_at: number }>(database, sql({ database }).select({
 			table: 'passport_external_identities',
 			columns: { id: { column: 'id', cast: 'text' }, provider: 'provider', subject: 'subject', profile: 'profile', created_at: 'created_at' },
-			where: [{ column: 'user_id', value: userId }],
+			where: [{ column: 'user_key', value: userId }],
 			orderBy: [{ column: 'created_at' }],
 		})),
 		allSql<{ id: string; title: string }>(database, sql({ database }).select({ table: 'passport_external_providers', columns: { id: 'provider', title: 'title' } })),
 		allSql<{ id: string; bot_id: string; telegram_user_id: string; nickname: string; created_at: number }>(database, sql({ database }).select({
 			table: 'passport_telegram_accounts',
 			columns: { id: { column: 'id', cast: 'text' }, bot_id: { column: 'bot_id', cast: 'text' }, telegram_user_id: { column: 'telegram_user_id', cast: 'text' }, nickname: 'nickname', created_at: 'created_at' },
-			where: [{ column: 'user_id', value: userId }],
+			where: [{ column: 'user_key', value: userId }],
 			orderBy: [{ column: 'created_at' }],
 		})),
 	]);
@@ -296,19 +295,19 @@ export const unbindAccountIdentity = async (c: Context<AppEnv>, database: Databa
 	if (identities.length <= 1 && !await hasAccountPassword(database, userId)) {
 		throw new Error('这是账号最后一个登录方式，请先设置密码或绑定其它身份后再解绑');
 	}
-	await runOperationSql(c, database, sql({ database }).softDelete('passport_external_identities', { id: identityKey.slice('external:'.length), user_id: userId }));
+	await runOperationSql(c, database, sql({ database }).softDelete('passport_external_identities', { id: identityKey.slice('external:'.length), user_key: userId }));
 	return target.provider_label;
 };
 
 /** 账户中心概览需要的聚合信息。 */
 export const loadAccountProfile = async (database: DatabaseAdapter, userId: string) => {
 	const [user, userName, emails, hasPassword, identities, telegramAccounts] = await Promise.all([
-		firstSql<{ profile_nickname: string | null; created_at: number }>(database, sql({ database }).select({ table: 'passport_users', alias: 'u', columns: { profile_nickname: 'p.nickname', created_at: 'u.created_at' }, joins: [{ type: 'LEFT', table: 'passport_user_profiles', alias: 'p', left: 'p.user_id', right: 'u.user_id' }], where: [{ column: 'u.user_id', value: userId }] })),
+		firstSql<{ profile_nickname: string | null; created_at: number }>(database, sql({ database }).select({ table: 'passport_users', alias: 'u', columns: { profile_nickname: 'p.nickname', created_at: 'u.created_at' }, joins: [{ type: 'LEFT', table: 'passport_user_profiles', alias: 'p', left: 'p.user_key', right: 'u.key' }], where: [{ column: 'u.key', value: userId }] })),
 		loadAccountUserName(database, userId),
 		listAccountEmails(database, userId),
 		hasAccountPassword(database, userId),
-		allSql<{ provider: string }>(database, sql({ database }).select({ table: 'passport_external_identities', columns: { provider: 'provider' }, where: [{ column: 'user_id', value: userId }] })),
-		allSql<{ id: string }>(database, sql({ database }).select({ table: 'passport_telegram_accounts', columns: { id: { column: 'id', cast: 'text' } }, where: [{ column: 'user_id', value: userId }] })),
+		allSql<{ provider: string }>(database, sql({ database }).select({ table: 'passport_external_identities', columns: { provider: 'provider' }, where: [{ column: 'user_key', value: userId }] })),
+		allSql<{ id: string }>(database, sql({ database }).select({ table: 'passport_telegram_accounts', columns: { id: { column: 'id', cast: 'text' } }, where: [{ column: 'user_key', value: userId }] })),
 	]);
 	return {
 		userId,

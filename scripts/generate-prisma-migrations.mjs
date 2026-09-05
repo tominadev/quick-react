@@ -82,7 +82,10 @@ const dialectSchema = (schema, provider) => {
 		// Prisma's SQLite connector does not emit AUTOINCREMENT for BigInt primary keys.
 		// Keep BigInt in the canonical schema and use Int only in this temporary SQLite
 		// input so generated SQLite tables retain the required autoincrement behavior.
-		.replace(provider === 'sqlite' ? /^(\s*id\s+)BigInt(\s+@id\s+@default\(autoincrement\(\)\))/gm : /$^/, '$1Int$2');
+		.replace(provider === 'sqlite' ? /^(\s*id\s+)BigInt(\s+@id\s+@default\(autoincrement\(\)\))/gm : /$^/, '$1Int$2')
+		// SQLite 没有长度概念，TEXT 就是 TEXT；@db.VarChar 只对 MySQL/PostgreSQL 有效，
+		// 留在 SQLite 的临时 schema 里 Prisma 会直接报错。
+		.replace(provider === 'sqlite' ? /\s*@db\.VarChar\(\d+\)/g : /$^/, '');
 	return source;
 };
 

@@ -13,10 +13,10 @@ export const ensurePassportDevice = async (database: DatabaseAdapter, userId: st
 	const device = existing ?? await firstSql<{ id: string; status: string }>(database, sql({ database }).select({ table: 'passport_devices', columns: { id: { column: 'id', cast: 'text' }, status: 'status' }, where: [{ column: 'key', value: deviceKey }] }));
 	if (!device) throw new Error('Passport 设备记录创建失败');
 	const deviceId = device.id;
-	const binding = await firstSql<{ device_id: string; status: string }>(database, sql({ database }).select({ table: 'passport_device_users', columns: { device_id: { column: 'device_id', cast: 'text' }, status: 'status' }, where: [{ column: 'device_id', value: deviceId }, { column: 'user_id', value: userId }] }));
+	const binding = await firstSql<{ device_id: string; status: string }>(database, sql({ database }).select({ table: 'passport_device_users', columns: { device_id: { column: 'device_id', cast: 'text' }, status: 'status' }, where: [{ column: 'device_id', value: deviceId }, { column: 'user_key', value: userId }] }));
 	if (binding?.status === 'revoked') throw new Error('该 Accounts 账号已注销此设备，无法使用该设备登录');
-	if (binding) await runSql(database, sql({ database }).update('passport_device_users', { status: 'active', revoked_at: null, last_seen_at: now }, { device_id: deviceId, user_id: userId }));
-	else await runSql(database, sql({ database }).insert('passport_device_users', { device_id: deviceId, user_id: userId, status: 'active', last_seen_at: now }));
+	if (binding) await runSql(database, sql({ database }).update('passport_device_users', { status: 'active', revoked_at: null, last_seen_at: now }, { device_id: deviceId, user_key: userId }));
+	else await runSql(database, sql({ database }).insert('passport_device_users', { device_id: deviceId, user_key: userId, status: 'active', last_seen_at: now }));
 	return deviceId;
 };
 
@@ -27,7 +27,7 @@ export const validatePassportDevice = async (database: DatabaseAdapter, userId: 
 	readDeviceFingerprint(request);
 	const documentNavigation = request.method === 'GET' && (request.headers.get('accept') ?? '').includes('text/html');
 	if (!deviceKey && !documentNavigation) return false;
-	const binding = await firstSql<{ status: string }>(database, sql({ database }).select({ table: 'passport_device_users', columns: { status: 'status' }, where: [{ column: 'device_id', value: deviceId }, { column: 'user_id', value: userId }] }));
+	const binding = await firstSql<{ status: string }>(database, sql({ database }).select({ table: 'passport_device_users', columns: { status: 'status' }, where: [{ column: 'device_id', value: deviceId }, { column: 'user_key', value: userId }] }));
 	if (!binding || binding.status !== 'active') return false;
 	const device = await firstSql<{ key: string; status: string }>(database, sql({ database }).select({ table: 'passport_devices', columns: { key: 'key', status: 'status' }, where: [{ column: 'id', value: deviceId }] }));
 	return Boolean(device && device.status === 'active' && (!deviceKey || device.key === deviceKey));

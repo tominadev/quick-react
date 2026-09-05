@@ -11,7 +11,7 @@ const temporaryDirectory = await mkdtemp(join(tmpdir(), 'quick-react-database-tr
 try {
 	const result = await build({
 		stdin: {
-			contents: "export * from './server/database/sqlite.mts'; export * from './server/database/sql.mts'; export * from './server/database/transfer.mts';",
+			contents: "export * from './server/database/sqlite.mts'; export * from './server/database/sql.mts'; export * from './server/database/transfer.mts'; export { useMemorySnowflake } from './server/modules/base/snowflake.mts';",
 			resolveDir: projectDirectory,
 			sourcefile: 'database-transfer-test-entry.mts',
 		},
@@ -22,7 +22,9 @@ try {
 	});
 	const moduleFile = join(temporaryDirectory, 'database-transfer.mjs');
 	await writeFile(moduleFile, result.outputFiles[0].contents);
-	const { createSqliteAdapter, firstSql, runSql, sql, transferPortableDatabase } = await import(pathToFileURL(moduleFile));
+	const { useMemorySnowflake, createSqliteAdapter, firstSql, runSql, sql, transferPortableDatabase } = await import(pathToFileURL(moduleFile));
+	// 单元测试不连库，用内存号段：生产路径一律走 primeSnowflake，那里的原子预留才防得住重启和多进程。
+	useMemorySnowflake();
 
 	const applyBaseSchema = async (database) => {
 		const directory = resolve(projectDirectory, 'migrations/base');

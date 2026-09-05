@@ -46,7 +46,7 @@ export const revokeOidcSession = async (database: DatabaseAdapter, sessionId: st
 	const now = Date.now();
 	await revokePassportSession(database, sessionId);
 	await Promise.allSettled(clients.map(async (client) => {
-		const logoutToken = await signIdToken(database, { iss: issuer, sub: session.user_id, aud: client.id, iat: Math.floor(now / 1000), exp: Math.floor(now / 1000) + 120, jti: crypto.randomUUID(), sid: sessionId, events: { 'http://schemas.openid.net/event/backchannel-logout': {} } });
+		const logoutToken = await signIdToken(database, { iss: issuer, sub: session.user_key, aud: client.id, iat: Math.floor(now / 1000), exp: Math.floor(now / 1000) + 120, jti: crypto.randomUUID(), sid: sessionId, events: { 'http://schemas.openid.net/event/backchannel-logout': {} } });
 		const response = await requester(client.backchannel_logout_uri, { method: 'POST', headers: { 'content-type': 'application/x-www-form-urlencoded' }, body: new URLSearchParams({ logout_token: logoutToken }) });
 		if (!response.ok) throw new Error(`Back-channel logout failed: ${response.status}`);
 	}));

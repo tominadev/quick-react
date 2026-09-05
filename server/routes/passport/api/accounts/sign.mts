@@ -150,7 +150,7 @@ const text = (value: unknown) => typeof value === 'string' ? value.trim() : '';
 const parseBody = async (c: Parameters<ApiHandler>[0]): Promise<Record<string, unknown>> => c.req.json<Record<string, unknown>>().catch(() => ({}));
 
 const loadTelegramOptions = async (database: DatabaseAdapter, globalDatabase: DatabaseAdapter, email: string) => {
-	const accounts = await allSql<TelegramOption>(database, sql({ database }).select({ table: 'passport_emails', alias: 'e', columns: { account_id: { column: 'a.id', cast: 'text' }, bot_id: { column: 'a.bot_id', cast: 'text' }, telegram_user_id: { column: 'a.telegram_user_id', cast: 'text' }, chat_id: { column: 'a.chat_id', cast: 'text' }, nickname: 'a.nickname' }, joins: [{ table: 'passport_user_emails', alias: 'ue', left: 'ue.email_id', right: 'e.id' }, { table: 'passport_users', alias: 'u', left: 'u.user_id', right: 'ue.user_id' }, { table: 'passport_telegram_accounts', alias: 'a', left: 'a.user_id', right: 'u.user_id' }], where: [{ column: 'e.email', value: email }, { column: 'e.verified', value: 1 }, { column: 'u.status', value: 'enabled' }], orderBy: [{ column: 'a.created_at' }] }));
+	const accounts = await allSql<TelegramOption>(database, sql({ database }).select({ table: 'passport_emails', alias: 'e', columns: { account_id: { column: 'a.id', cast: 'text' }, bot_id: { column: 'a.bot_id', cast: 'text' }, telegram_user_id: { column: 'a.telegram_user_id', cast: 'text' }, chat_id: { column: 'a.chat_id', cast: 'text' }, nickname: 'a.nickname' }, joins: [{ table: 'passport_user_emails', alias: 'ue', left: 'ue.email_id', right: 'e.id' }, { table: 'passport_users', alias: 'u', left: 'u.key', right: 'ue.user_key' }, { table: 'passport_telegram_accounts', alias: 'a', left: 'a.user_key', right: 'u.key' }], where: [{ column: 'e.email', value: email }, { column: 'e.verified', value: 1 }, { column: 'u.status', value: 'enabled' }], orderBy: [{ column: 'a.created_at' }] }));
 	const bots = await allSql<Bot>(globalDatabase, sql({ database: globalDatabase }).select({ table: 'global_telegram_bots', columns: { id: { column: 'id', cast: 'text' }, title: 'title', bot_username: 'username', bot_token: 'token' }, where: [{ column: 'status', value: 'enabled' }] }));
 	const botMap = new Map(bots.map((bot) => [bot.id, bot]));
 	return accounts.flatMap((account) => {
@@ -161,14 +161,14 @@ const loadTelegramOptions = async (database: DatabaseAdapter, globalDatabase: Da
 
 /** 邮箱是否已经属于某个启用中的 Accounts 用户。 */
 const emailOwnerId = async (database: DatabaseAdapter, email: string) => (
-	await firstSql<{ user_id: string }>(database, sql({ database }).select({
+	await firstSql<{ user_key: string }>(database, sql({ database }).select({
 		table: 'passport_emails', alias: 'e',
-		columns: { user_id: { column: 'ue.user_id', cast: 'text' } },
-		joins: [{ table: 'passport_user_emails', alias: 'ue', left: 'ue.email_id', right: 'e.id' }, { table: 'passport_users', alias: 'u', left: 'u.user_id', right: 'ue.user_id' }],
+		columns: { user_key: { column: 'ue.user_key', cast: 'text' } },
+		joins: [{ table: 'passport_user_emails', alias: 'ue', left: 'ue.email_id', right: 'e.id' }, { table: 'passport_users', alias: 'u', left: 'u.key', right: 'ue.user_key' }],
 		where: [{ column: 'e.email', value: email }, { column: 'e.verified', value: 1 }, { column: 'u.status', value: 'enabled' }],
 		limit: 1,
 	}))
-)?.user_id;
+)?.user_key;
 
 const randomNumber = () => {
 	const value = new Uint32Array(1);
@@ -195,7 +195,7 @@ const handler: ApiHandler = async (c, next) => {
 	/** 建立 Accounts 会话；会话 Cookie 必须先写，其余 Cookie 追加。 */
 	const startSession = async (userId: string) => {
 		const sessionId = crypto.randomUUID(), now = Date.now(), maxAge = 24 * 60 * 60, deviceId = await ensurePassportDevice(database, userId, c.req.raw, c.get('clientIp'), c.get('transportIp'));
-		await runSql(database, sql({ database }).insert('passport_sessions', { token_hash: await sha256(sessionId), user_id: userId, device_id: deviceId, expires_at: now + maxAge * 1000 }));
+		await runSql(database, sql({ database }).insert('passport_sessions', { token_hash: await sha256(sessionId), user_key: userId, device_id: deviceId, expires_at: now + maxAge * 1000 }));
 		c.header('Set-Cookie', createPassportSessionCookie(sessionId, secure, maxAge));
 		c.header('Set-Cookie', clearSignupEmailCookie(secure), { append: true });
 	};
@@ -400,7 +400,7 @@ const handler: ApiHandler = async (c, next) => {
 			const formPage = externalCodeForm(issued.email);
 			return apiResponse(c, 200, { formPage, currentValues: formPage.initialValues, feedback: { component: 'inline' as const, type: 'success' as const, message: '验证码已发送' } });
 		}
-		const verified = await verifyExternalEmailOtp(database, c.env.SNOWFLAKE_WORKER_ID, pending, text(body.code));
+		const verified = await verifyExternalEmailOtp(database, pending, text(body.code));
 		if (verified.status !== 'created') {
 			const message = verified.status === 'conflict' ? verified.message : verified.status === 'expired' ? '验证码已过期，请重新发送' : verified.status === 'locked' ? '验证码错误次数过多，请重新发送' : '验证码不正确';
 			return apiMessage(c, 409, message);
@@ -511,11 +511,11 @@ const handler: ApiHandler = async (c, next) => {
 		const accountId = text(body.account_id), options = await loadTelegramOptions(database, globalDatabase, email);
 		const selected = options.find((item) => item.account.account_id === accountId);
 		if (!selected) return apiMessage(c, 400, 'Telegram 登录身份无效');
-		const owner = await firstSql<{ user_id: string }>(database, sql({ database }).select({ table: 'passport_telegram_accounts', alias: 'a', columns: { user_id: { column: 'a.user_id', cast: 'text' } }, joins: [{ table: 'passport_users', alias: 'u', left: 'u.user_id', right: 'a.user_id' }], where: [{ column: 'a.id', value: accountId }, { column: 'u.status', value: 'enabled' }] }));
+		const owner = await firstSql<{ user_key: string }>(database, sql({ database }).select({ table: 'passport_telegram_accounts', alias: 'a', columns: { user_key: { column: 'a.user_key', cast: 'text' } }, joins: [{ table: 'passport_users', alias: 'u', left: 'u.key', right: 'a.user_key' }], where: [{ column: 'a.id', value: accountId }, { column: 'u.status', value: 'enabled' }] }));
 		if (!owner) return apiMessage(c, 409, 'Passport 用户已停用或不存在');
 		const challengeId = crypto.randomUUID(), expectedNumber = randomNumber(), now = Date.now();
 		await runSql(database, sql({ database }).update('passport_login_challenges', { status: 'expired' }, { bot_id: selected.bot.id, telegram_user_id: selected.account.telegram_user_id, status: 'pending' }));
-		await runSql(database, sql({ database }).insert('passport_login_challenges', { challenge_id: challengeId, user_id: owner.user_id, bot_id: selected.bot.id, telegram_user_id: selected.account.telegram_user_id, chat_id: selected.account.chat_id, expected_number: expectedNumber, status: 'pending', expires_at: now + 10 * 60_000 }));
+		await runSql(database, sql({ database }).insert('passport_login_challenges', { challenge_id: challengeId, user_key: owner.user_key, bot_id: selected.bot.id, telegram_user_id: selected.account.telegram_user_id, chat_id: selected.account.chat_id, expected_number: expectedNumber, status: 'pending', expires_at: now + 10 * 60_000 }));
 		try {
 			await sendTelegramMessage(selected.bot.bot_token, selected.account.chat_id,
 				`网页登录确认：请点击网页显示的数字。若不是本人操作，请点击“这不是我的操作”。`, challengeKeyboard(challengeId, expectedNumber));
@@ -530,7 +530,7 @@ const handler: ApiHandler = async (c, next) => {
 	if (step === 'poll') {
 		const challengeId = text(body.challenge_id);
 		if (!/^[0-9a-f-]{36}$/i.test(challengeId)) return apiMessage(c, 400, '登录确认编号不合法');
-		const challenge = await firstSql<{ user_id: string; expected_number: number; status: string; expires_at: number }>(database, sql({ database }).select({ table: 'passport_login_challenges', columns: { user_id: { column: 'user_id', cast: 'text' }, expected_number: 'expected_number', status: 'status', expires_at: 'expires_at' }, where: [{ column: 'challenge_id', value: challengeId }] }));
+		const challenge = await firstSql<{ user_key: string; expected_number: number; status: string; expires_at: number }>(database, sql({ database }).select({ table: 'passport_login_challenges', columns: { user_key: { column: 'user_key', cast: 'text' }, expected_number: 'expected_number', status: 'status', expires_at: 'expires_at' }, where: [{ column: 'challenge_id', value: challengeId }] }));
 		if (!challenge) return apiMessage(c, 404, '登录确认不存在');
 		if (challenge.expires_at <= Date.now() && challenge.status === 'pending') {
 			await runSql(database, sql({ database }).update('passport_login_challenges', { status: 'expired' }, { challenge_id: challengeId, status: 'pending' }));
@@ -541,11 +541,11 @@ const handler: ApiHandler = async (c, next) => {
 			return apiResponse(c, 200, { formPage, currentValues: formPage.initialValues, feedback: { component: 'inline' as const, type: 'warning' as const, message: '尚未收到 Telegram 批准，请确认数字后重试' } });
 		}
 		if (challenge.status !== 'approved') return apiMessage(c, 409, challenge.status === 'denied' ? '本次登录已被拒绝' : '登录确认已经失效');
-		const sessionId = crypto.randomUUID(), now = Date.now(), maxAge = 24 * 60 * 60, deviceId = await ensurePassportDevice(database, challenge.user_id, c.req.raw, c.get('clientIp'), c.get('transportIp'));
+		const sessionId = crypto.randomUUID(), now = Date.now(), maxAge = 24 * 60 * 60, deviceId = await ensurePassportDevice(database, challenge.user_key, c.req.raw, c.get('clientIp'), c.get('transportIp'));
 		if (!database.batch) return apiMessage(c, 500, 'Passport 数据库不支持原子登录');
 		const builder = sql({ database });
 		const statements: DatabaseBatchStatement[] = [
-			builder.insert('passport_sessions', { token_hash: await sha256(sessionId), user_id: challenge.user_id, device_id: deviceId, expires_at: now + maxAge * 1000 }),
+			builder.insert('passport_sessions', { token_hash: await sha256(sessionId), user_key: challenge.user_key, device_id: deviceId, expires_at: now + maxAge * 1000 }),
 			builder.update('passport_login_challenges', { status: 'consumed' }, { challenge_id: challengeId, status: 'approved' }),
 		];
 		await database.batch(statements);
@@ -553,7 +553,7 @@ const handler: ApiHandler = async (c, next) => {
 		if (!createdSession) return apiMessage(c, 409, '登录确认已被使用');
 		c.header('Set-Cookie', createPassportSessionCookie(sessionId, secure, maxAge));
 		c.header('Set-Cookie', clearSignupEmailCookie(secure), { append: true });
-		return completeLogin(challenge.user_id, 'Accounts 登录成功');
+		return completeLogin(challenge.user_key, 'Accounts 登录成功');
 	}
 	return apiMessage(c, 400, '不支持的登录步骤');
 };

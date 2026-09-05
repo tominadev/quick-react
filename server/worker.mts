@@ -12,6 +12,7 @@ import { apiMessage } from './modules/base/api-response.mjs';
 import { oidcDiscovery } from './modules/passport/accounts/provider.mjs';
 import { withDatabaseActors, type DatabaseAdapter } from './database/index.mjs';
 import { resolveHostScope } from './modules/base/tenant.mjs';
+import { primeSnowflake } from './modules/base/snowflake.mjs';
 import { SiteRouter } from './modules/base/site-router.mjs';
 import { baseSessionMaxAge, createSessionCookie, loadBaseDeviceUserId, loadCurrentUser, readSessionId, sessionUsesAccountsOidc } from './modules/base/auth/index.mjs';
 import { loadAccountsOidcConfig, resolveAccountsLoginMode } from './modules/passport/accounts/client.mjs';
@@ -78,6 +79,9 @@ const configureForRequest = async (c: Context<WorkerEnv>) => {
 	}
 	const site = await siteRouter.resolve(c.req.raw);
 	if (!site) return false;
+	// 发号器要先备好号段：`key` 由 SQL 构造器同步补上，那里没法 await。
+	// 备号段是一次写库，之后 1.2 亿个号都在内存里发，因此这一句几乎总是命中已备好的段。
+	await primeSnowflake(defaultDatabase, c.env.SNOWFLAKE_WORKER_ID);
 
 	const database = await resolveSiteDatabase(c, site, defaultDatabase);
 	if (!database) throw new Error(`Database target is unavailable for site ${site.siteKey}`);

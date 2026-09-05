@@ -14,7 +14,7 @@ try {
 	// 静态覆盖按站点键查目录（wwwroot/passport/），因此域名必须先登记到对应站点，
 	// 否则会落到默认站点、拿不到覆盖文件。
 	const database = new DatabaseSync(process.env.DEFAULT_DATABASE_FILE);
-	database.prepare("INSERT INTO global_site_hosts (hostname, site_key, status, created_at) VALUES ('passport.example.com','passport','enabled',?)").run(Date.now());
+	database.prepare("INSERT INTO global_site_hosts (key, hostname, site_key, status, created_at) VALUES (lower(hex(randomblob(16))), 'passport.example.com','passport','enabled',?)").run(Date.now());
 	database.close();
 	const html = (path, host = 'passport.example.com', method) => app.request(`http://${host}${path}`, { method, headers: { accept: 'text/html' } });
 

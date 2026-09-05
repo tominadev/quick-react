@@ -32,48 +32,48 @@ try {
 	const now = Date.now(), userId = 1000000000000000000n, deviceKey = '00000000-0000-4000-8000-000000000001', fingerprintData = JSON.stringify({ canvas_cyrb53: '4b5a6c7d8e9f', audio_cyrb53: '1a2b3c4d5e6f' }), sessionId = crypto.randomUUID(), sessionToken = crypto.randomUUID();
 	const sessionHash = base64Url(await sha256(sessionToken));
 	const passportSessionHash = Buffer.from(await sha256(sessionId)).toString('hex');
-	database.prepare(`INSERT INTO global_site_hosts (hostname, site_key, status, created_at) VALUES ('accounts.test', 'passport', 'enabled', ?)`).run(now);
+	database.prepare(`INSERT INTO global_site_hosts (key, hostname, site_key, status, created_at) VALUES (lower(hex(randomblob(16))), 'accounts.test', 'passport', 'enabled', ?)`).run(now);
 	database.prepare(`INSERT INTO global_sites (key, title, base_site_key, dsn, database_binding, status, migration_status, is_default, is_system)
 		VALUES ('site1', 'Business Site', 'base', '', '', 'enabled', 'ready', 0, 0)`).run();
-	database.prepare(`INSERT INTO global_site_hosts (hostname, site_key, status, created_at) VALUES ('site1.test', 'site1', 'enabled', ?)`).run(now);
-	database.prepare(`INSERT INTO passport_users (user_id, name, status, created_at, updated_at) VALUES (?, ?, 'enabled', ?, ?)`).run(userId, `passport_${userId}`, now, now)
-	database.prepare(`INSERT INTO passport_user_profiles (user_id, nickname, created_at, updated_at) VALUES (?, 'AccountsUser', 0, 0)`).run(userId);
+	database.prepare(`INSERT INTO global_site_hosts (key, hostname, site_key, status, created_at) VALUES (lower(hex(randomblob(16))), 'site1.test', 'site1', 'enabled', ?)`).run(now);
+	database.prepare(`INSERT INTO passport_users (key, name, status, created_at, updated_at) VALUES (?, ?, 'enabled', ?, ?)`).run(userId, `passport_${userId}`, now, now)
+	database.prepare(`INSERT INTO passport_user_profiles (key, user_key, nickname, created_at, updated_at) VALUES (lower(hex(randomblob(16))), ?, 'AccountsUser', 0, 0)`).run(userId);
 	database.prepare(`INSERT INTO passport_devices (user_agent, platform, ip_address, key, fingerprint, status, last_seen_at, created_at, updated_at) VALUES ('Test Browser', 'test', '127.0.0.1', ?, ?, 'active', ?, ?, ?)`).run(deviceKey, fingerprintData, now, now, now);
 	const deviceId = String(database.prepare('SELECT id FROM passport_devices WHERE key = ?').get(deviceKey).id);
-	database.prepare(`INSERT INTO passport_device_users (device_id, user_id, status, last_seen_at, created_at, updated_at) VALUES (?, ?, 'active', ?, ?, ?)`).run(deviceId, userId, now, now, now);
-	database.prepare(`INSERT INTO passport_sessions (token_hash, user_id, expires_at, device_id, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?)`).run(passportSessionHash, userId, now + 3600_000, deviceId, now, now);
+	database.prepare(`INSERT INTO passport_device_users (key, device_id, user_key, status, last_seen_at, created_at, updated_at) VALUES (lower(hex(randomblob(16))), ?, ?, 'active', ?, ?, ?)`).run(deviceId, userId, now, now, now);
+	database.prepare(`INSERT INTO passport_sessions (key, token_hash, user_key, expires_at, device_id, created_at, updated_at) VALUES (lower(hex(randomblob(16))), ?, ?, ?, ?, ?, ?)`).run(passportSessionHash, userId, now + 3600_000, deviceId, now, now);
 	// 第二个 Accounts 身份验证「绑定到本站已有账号」，第三个验证「建号时拷贝密码」。
 	const secondUserId = 1000000000000000001n, secondSessionId = crypto.randomUUID();
 	const thirdUserId = 1000000000000000002n, thirdSessionId = crypto.randomUUID();
 	const thirdUserPassword = await storedPassword('createpassword');
-	database.prepare(`INSERT INTO passport_users (user_id, name, status, created_at, updated_at) VALUES (?, 'createuser', 'enabled', ?, ?)`).run(thirdUserId, now, now);
-	database.prepare('INSERT INTO passport_user_credentials (user_id, password, created_at, updated_at) VALUES (?, ?, ?, ?)').run(thirdUserId, thirdUserPassword, now, now);
+	database.prepare(`INSERT INTO passport_users (key, name, status, created_at, updated_at) VALUES (?, 'createuser', 'enabled', ?, ?)`).run(thirdUserId, now, now);
+	database.prepare('INSERT INTO passport_user_credentials (key, user_key, password, created_at, updated_at) VALUES (lower(hex(randomblob(16))), ?, ?, ?, ?)').run(thirdUserId, thirdUserPassword, now, now);
 	const secondSessionHash = Buffer.from(await sha256(secondSessionId)).toString('hex');
-	database.prepare(`INSERT INTO passport_users (user_id, name, status, created_at, updated_at) VALUES (?, 'binduser', 'enabled', ?, ?)`).run(secondUserId, now, now);
-	database.prepare(`INSERT INTO passport_device_users (device_id, user_id, status, last_seen_at, created_at, updated_at) VALUES (?, ?, 'active', ?, ?, ?)`).run(deviceId, secondUserId, now, now, now);
-	database.prepare(`INSERT INTO passport_sessions (token_hash, user_id, expires_at, device_id, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?)`).run(secondSessionHash, secondUserId, now + 3600_000, deviceId, now, now);
-	database.prepare(`INSERT INTO passport_device_users (device_id, user_id, status, last_seen_at, created_at, updated_at) VALUES (?, ?, 'active', ?, ?, ?)`).run(deviceId, thirdUserId, now, now, now);
-	database.prepare(`INSERT INTO passport_sessions (token_hash, user_id, expires_at, device_id, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?)`).run(Buffer.from(await sha256(thirdSessionId)).toString('hex'), thirdUserId, now + 3600_000, deviceId, now, now);
+	database.prepare(`INSERT INTO passport_users (key, name, status, created_at, updated_at) VALUES (?, 'binduser', 'enabled', ?, ?)`).run(secondUserId, now, now);
+	database.prepare(`INSERT INTO passport_device_users (key, device_id, user_key, status, last_seen_at, created_at, updated_at) VALUES (lower(hex(randomblob(16))), ?, ?, 'active', ?, ?, ?)`).run(deviceId, secondUserId, now, now, now);
+	database.prepare(`INSERT INTO passport_sessions (key, token_hash, user_key, expires_at, device_id, created_at, updated_at) VALUES (lower(hex(randomblob(16))), ?, ?, ?, ?, ?, ?)`).run(secondSessionHash, secondUserId, now + 3600_000, deviceId, now, now);
+	database.prepare(`INSERT INTO passport_device_users (key, device_id, user_key, status, last_seen_at, created_at, updated_at) VALUES (lower(hex(randomblob(16))), ?, ?, 'active', ?, ?, ?)`).run(deviceId, thirdUserId, now, now, now);
+	database.prepare(`INSERT INTO passport_sessions (key, token_hash, user_key, expires_at, device_id, created_at, updated_at) VALUES (lower(hex(randomblob(16))), ?, ?, ?, ?, ?, ?)`).run(Buffer.from(await sha256(thirdSessionId)).toString('hex'), thirdUserId, now + 3600_000, deviceId, now, now);
 	const clientId = 'acct_test', clientSecret = 'test-client-secret', verifier = base64Url(crypto.getRandomValues(new Uint8Array(48)));
 	const secretHash = Buffer.from(await sha256(clientSecret)).toString('hex'), challenge = base64Url(await sha256(verifier));
-	database.prepare(`INSERT INTO passport_oidc_clients (client_id, title, secret_hash, redirect_uris, allowed_scopes, require_pkce, status, created_at, updated_at, backchannel_logout_uri)
-		VALUES (?, 'Test Client', ?, '["https://client.test/callback","https://site1.test/api/accounts/oidc/callback"]', 'openid profile email', 1, 'enabled', ?, ?, 'https://site1.test/api/accounts/oidc/backchannel-logout')`).run(clientId, secretHash, now, now);
+	database.prepare(`INSERT INTO passport_oidc_clients (key, client_id, title, secret_hash, redirect_uris, allowed_scopes, require_pkce, status, created_at, updated_at, backchannel_logout_uri)
+		VALUES (lower(hex(randomblob(16))), ?, 'Test Client', ?, '["https://client.test/callback","https://site1.test/api/accounts/oidc/callback"]', 'openid profile email', 1, 'enabled', ?, ?, 'https://site1.test/api/accounts/oidc/backchannel-logout')`).run(clientId, secretHash, now, now);
 	database.prepare(`INSERT INTO base_configs (created_at, updated_at, key, value) VALUES (?, ?, 'accounts_oidc_client', ?)`).run(now, now, JSON.stringify({ enabled: true, issuer: 'https://accounts.test', clientId, clientSecret }));
 	// 密码同步两侧都要开：Accounts 客户端的「下发密码」+ 本站的「同步 Accounts 密码」。
 	// 站点设置随请求配置一起缓存，必须在第一次请求之前写进去。
 	database.prepare(`INSERT INTO base_configs (created_at, updated_at, key, value) VALUES (?, ?, 'site_settings', ?)`).run(now, now, JSON.stringify({ passwordSyncEnabled: true }));
 	const bindUserPassword = await storedPassword('accountspassword');
-	database.prepare('INSERT INTO passport_user_credentials (user_id, password, created_at, updated_at) VALUES (?, ?, ?, ?)').run(secondUserId, bindUserPassword, now, now);
+	database.prepare('INSERT INTO passport_user_credentials (key, user_key, password, created_at, updated_at) VALUES (lower(hex(randomblob(16))), ?, ?, ?, ?)').run(secondUserId, bindUserPassword, now, now);
 
-	database.prepare(`INSERT INTO base_users (id, name, roles, status, created_at, updated_at) VALUES (77, 'localadmin', '["admin"]', 'enabled', ?, ?)`).run(now, now);
+	database.prepare(`INSERT INTO base_users (key, id, name, roles, status, created_at, updated_at) VALUES (lower(hex(randomblob(16))), 77, 'localadmin', '["admin"]', 'enabled', ?, ?)`).run(now, now);
 	// 绑定路径的目标账号：本站已有、且**有本地密码**。localadmin 故意不给密码，用来验证
 	// 「没有本地密码的账号绑不上」——那种账号本来就没有密码可以用来证明所有权。
-	database.prepare(`INSERT INTO base_users (id, name, roles, status, created_at, updated_at) VALUES (78, 'bindtarget', '[]', 'enabled', ?, ?)`).run(now, now);
+	database.prepare(`INSERT INTO base_users (key, id, name, roles, status, created_at, updated_at) VALUES (lower(hex(randomblob(16))), 78, 'bindtarget', '[]', 'enabled', ?, ?)`).run(now, now);
 	const bindTargetPassword = await storedPassword('bindpassword');
-	database.prepare('INSERT INTO base_user_credentials (user_id, password, created_at, updated_at) VALUES (78, ?, ?, ?)').run(bindTargetPassword, now, now);
+	database.prepare('INSERT INTO base_user_credentials (key, user_id, password, created_at, updated_at) VALUES (lower(hex(randomblob(16))), 78, ?, ?, ?)').run(bindTargetPassword, now, now);
 	database.prepare(`INSERT INTO base_devices (id, user_id, key, fingerprint, status, last_seen_at, created_at, updated_at) VALUES (42, 77, ?, ?, 'active', ?, ?, ?)`).run(deviceKey, fingerprintData, now, now, now);
-	database.prepare(`INSERT INTO base_device_users (device_id, user_id, status, last_seen_at, created_at, updated_at) VALUES (42, 77, 'active', ?, ?, ?)`).run(now, now, now);
-	database.prepare(`INSERT INTO base_sessions (created_at, updated_at, token_hash, user_id, expires_at, device_id) VALUES (?, ?, ?, 77, ?, 42)`).run(now, now, sessionHash, now + 3600_000);
+	database.prepare(`INSERT INTO base_device_users (key, device_id, user_id, status, last_seen_at, created_at, updated_at) VALUES (lower(hex(randomblob(16))), 42, 77, 'active', ?, ?, ?)`).run(now, now, now);
+	database.prepare(`INSERT INTO base_sessions (key, created_at, updated_at, token_hash, user_id, expires_at, device_id) VALUES (lower(hex(randomblob(16))), ?, ?, ?, 77, ?, 42)`).run(now, now, sessionHash, now + 3600_000);
 	database.close();
 	const request = (path, options = {}) => {
 		const headers = new Headers(options.headers);
@@ -107,8 +107,8 @@ try {
 	assert.ok(returned.headers.getSetCookie().some((value) => value.startsWith('accounts_oidc_request=;')));
 
 	const userNameDatabase = new DatabaseSync(process.env.DEFAULT_DATABASE_FILE);
-	userNameDatabase.prepare('UPDATE passport_users SET name = ? WHERE user_id = ?').run('oidcuser1', String(userId));
-	userNameDatabase.prepare('INSERT INTO passport_user_credentials (user_id, password, created_at, updated_at) VALUES (?, ?, ?, ?)').run(String(userId), 'test-password-hash', Date.now(), Date.now());
+	userNameDatabase.prepare('UPDATE passport_users SET name = ? WHERE key = ?').run('oidcuser1', String(userId));
+	userNameDatabase.prepare('INSERT INTO passport_user_credentials (key, user_key, password, created_at, updated_at) VALUES (lower(hex(randomblob(16))), ?, ?, ?, ?)').run(String(userId), 'test-password-hash', Date.now(), Date.now());
 	userNameDatabase.close();
 	const authorized = await request(`${authorize.pathname}${authorize.search}`, { headers: { cookie: `passport_session=${sessionId}` } });
 	assert.equal(authorized.status, 302);
@@ -237,7 +237,7 @@ try {
 	assert.ok(businessSessionCookie);
 	assert.match(businessSessionCookie, /^base_session=.+/);
 	const signedInBusiness = await (await app.request('https://site1.test/api/sign.php', { headers: { cookie: businessSessionCookie, 'x-device-key': deviceKey, 'x-device-fingerprint': fingerprintData } })).json();
-	// Accounts 用户名通过 preferred_username 下发，业务站点用它替换 passport_<user_id> 占位名。
+	// Accounts 用户名通过 preferred_username 下发，业务站点用它替换 passport_<user_key> 占位名。
 	assert.equal(claims.preferred_username, 'oidcuser1');
 	assert.equal(signedInBusiness.user.user_name, 'oidcuser1');
 	// 昵称走 name claim，和用户名是两套规则：本站昵称为空才补，人工设过的不覆盖。

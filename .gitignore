@@ -15,3 +15,7 @@ public/passport.js.map
 
 # Runtime databases and backups
 /database/
+
+# 本机配置：SNOWFLAKE_WORKER_ID 由启动时按服务器标识推出来并写在这里，
+# 每台机器一份，不进版本库——进了就会两台机器共用同一个 worker id。
+/.env

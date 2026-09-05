@@ -1,5 +1,6 @@
 import type { DatabaseAdapter, DatabaseActorResolver, DatabaseActorUid, DatabaseRunResult } from './index.mjs';
 import { isSystemField, SYSTEM_FIELD_NAMES } from '@shared/system-fields.mjs';
+import { nextSnowflake } from '@server/modules/base/snowflake.mjs';
 
 export type SqlDialect = 'sqlite' | 'mysql' | 'postgresql';
 export type SqlActorContext = DatabaseActorUid | DatabaseActorResolver;
@@ -54,6 +55,33 @@ export type SqlCondition =
  * 表名叫 base_approvals 而不是 base_audit_entries：这里存的不是"谁看了什么"的审计流水，
  * 而是每一次后台修改的申请与它的去向——待审批、已生效、已驳回、已撤销、已回滚。
  */
+/**
+ * 没有 key 列的表。
+ *
+ * 只有发号器自己的状态表：发一个 key 要先读它，给它也加上 key 就成了死循环。
+ * 由 test:naming 守着——别的表漏了 key 列会在这里被挡下。
+ */
+export const KEYLESS_TABLES = new Set([
+	// 发号器自己的状态表：发 key 要先读它。
+	'global_snowflake_state',
+	// 迁移记录表：它在**建库之前**就要写入，那时发号器还没有号段可用（号段存在
+	// global_snowflake_state 里，而那张表正是迁移建出来的）。它也不是业务数据。
+	'global_schema_migrations',
+]);
+
+/**
+ * `key` 允许的字符。
+ *
+ * VARCHAR(36) 只管长度不管字符集，而 CHECK 约束 Prisma schema 写不出来（手写就破坏了
+ * 「迁移全部由 prisma 生成」）。因此校验放在唯一的写入口上：所有 key 都要经过这里，
+ * 无论是人给的短串、客户端的设备 UUID，还是发号器发的雪花。
+ */
+export const KEY_PATTERN = /^[A-Za-z0-9_-]{1,36}$/;
+export const assertRowKey = (table: string, value: unknown) => {
+	if (typeof value === 'string' && KEY_PATTERN.test(value)) return;
+	throw new Error(`${table}.key 只能是英文字母、数字、下划线和连字符，最长 36 位：${String(value)}`);
+};
+
 export const AUDIT_TABLE = 'base_approvals';
 /**
  * 列表查询的排序。
@@ -224,7 +252,12 @@ export abstract class SqlBuilder {
 		// immutable after creation and never appear in user-facing forms.
 		assertBusinessWriteFields(values, { allowId: true });
 		const timestamp = Date.now(), actorUid = this.actorUidFor(table), ownerUid = this.ownerUidFor(table), ownerTid = this.ownerTidFor(table), ownerBid = this.ownerBidFor(table);
-		const timestamped: Values = { created_at: timestamp, updated_at: timestamp, ...(actorUid !== null ? { created_duid: actorUid, updated_duid: actorUid } : {}), owner_tid: ownerTid, owner_bid: ownerBid, owner_uid: ownerUid, ...values };
+		// key 和 created_at 一样由这一层补：它是每一行的稳定标识（§column-naming），
+		// 漏补一处就是运行时的 NOT NULL 报错。调用方给了就用调用方的——`global_sites`
+		// 这类表的 key 是人给的短串，不是雪花。
+		if (values.key !== undefined) assertRowKey(table, values.key);
+		const rowKey = values.key === undefined && !KEYLESS_TABLES.has(table) ? { key: nextSnowflake() } : {};
+		const timestamped: Values = { created_at: timestamp, updated_at: timestamp, ...(actorUid !== null ? { created_duid: actorUid, updated_duid: actorUid } : {}), owner_tid: ownerTid, owner_bid: ownerBid, owner_uid: ownerUid, ...rowKey, ...values };
 		const entries = definedEntries(timestamped); if (!entries.length) throw new Error('INSERT values cannot be empty');
 		return {
 			query: `INSERT INTO ${quoteIdentifier(table, this.dialect)} (${entries.map(([key]) => quoteIdentifier(key, this.dialect)).join(', ')}) VALUES (${this.placeholders(entries.length).join(', ')})`,
@@ -233,8 +266,16 @@ export abstract class SqlBuilder {
 	}
 
 	/** 数据库迁移专用：按源库原样写入审计字段，不供业务 API 使用。 */
+	/**
+	 * 数据库迁移/导入专用：审计字段按源库原样写入，不由这一层生成。
+	 *
+	 * `key` 仍然要补——源库（老 Passport、别的方言）里没有这一列，而它是 NOT NULL。
+	 * 调用方给了就用给的，那是搬迁时保留原值的路径。
+	 */
 	insertExisting(table: string, values: Values): SqlQuery {
-		const entries = definedEntries(values); if (!entries.length) throw new Error('INSERT values cannot be empty');
+		if (values.key !== undefined) assertRowKey(table, values.key);
+		const withKey: Values = values.key === undefined && !KEYLESS_TABLES.has(table) ? { key: nextSnowflake(), ...values } : values;
+		const entries = definedEntries(withKey); if (!entries.length) throw new Error('INSERT values cannot be empty');
 		return {
 			query: `INSERT INTO ${quoteIdentifier(table, this.dialect)} (${entries.map(([key]) => quoteIdentifier(key, this.dialect)).join(', ')}) VALUES (${this.placeholders(entries.length).join(', ')})`,
 			values: entries.map(([, value]) => value),
@@ -321,13 +362,19 @@ export abstract class SqlBuilder {
 		};
 	}
 
-	advanceNumber(table: string, column: string, floor: number, updatedAt: number, where: Values): SqlQuery {
+	/**
+	 * 原子推进一个数字列：`column = MAX(column + step, floor)`。
+	 *
+	 * `step` 用来一次预留一整段（雪花号段就是这么拿的）。并发下两个请求各推一次，
+	 * 谁先谁后都不会拿到重叠的区间——这正是「预留」要走数据库而不是内存的原因。
+	 */
+	advanceNumber(table: string, column: string, floor: number, updatedAt: number, where: Values, step = 1): SqlQuery {
 		const conditions = definedEntries(where); if (!conditions.length) throw new Error('advanceNumber where cannot be empty');
 		const target = quoteIdentifier(column, this.dialect), greatest = this.dialect === 'sqlite' ? 'MAX' : 'GREATEST', actorUid = this.actorUidFor(table);
 		const audit = actorUid === null ? '' : `, ${quoteIdentifier('updated_duid', this.dialect)} = ${this.placeholder(3)}`;
 		const whereStart = actorUid === null ? 3 : 4;
 		return {
-			query: `UPDATE ${quoteIdentifier(table, this.dialect)} SET ${target} = ${greatest}(${target} + 1, ${this.placeholder(1)}), ${quoteIdentifier('updated_at', this.dialect)} = ${this.placeholder(2)}${audit} WHERE ${conditions.map(([key], index) => `${quoteIdentifier(key, this.dialect)} = ${this.placeholder(index + whereStart)}`).join(' AND ')}`,
+			query: `UPDATE ${quoteIdentifier(table, this.dialect)} SET ${target} = ${greatest}(${target} + ${step}, ${this.placeholder(1)}), ${quoteIdentifier('updated_at', this.dialect)} = ${this.placeholder(2)}${audit} WHERE ${conditions.map(([key], index) => `${quoteIdentifier(key, this.dialect)} = ${this.placeholder(index + whereStart)}`).join(' AND ')}`,
 			values: [floor, updatedAt, ...(actorUid === null ? [] : [actorUid]), ...conditions.map(([, value]) => value)],
 		};
 	}

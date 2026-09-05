@@ -10,6 +10,8 @@ enum PveEnabledStatus {
 
 model pve_regions {
   id           BigInt @id @default(autoincrement())
+  key          String @db.VarChar(36)
+  @@unique([key, deleted_at])
   created_at   BigInt @default(0)
   updated_at   BigInt @default(0)
   deleted_at   BigInt @default(0)
@@ -18,8 +20,6 @@ model pve_regions {
   owner_tid     BigInt @default(1)
   owner_bid     BigInt @default(1)
   owner_uid     BigInt?
-  key          String
-  @@unique([key, deleted_at])
   title        String
   status       PveEnabledStatus @default(enabled)
   sort_order   Int    @default(0)
@@ -27,6 +27,7 @@ model pve_regions {
 
 model pve_nodes {
   id               BigInt @id @default(autoincrement())
+  key          String @db.VarChar(36)
   created_at       BigInt @default(0)
   updated_at       BigInt @default(0)
   deleted_at       BigInt @default(0)
@@ -46,10 +47,12 @@ model pve_nodes {
   status           PveEnabledStatus @default(enabled)
   last_checked_at  Int?
   last_error       String @default("")
+  @@unique([key, deleted_at])
 }
 
 model pve_instance_flavors {
   id                   BigInt @id @default(autoincrement())
+  key                  String @db.VarChar(36)
   created_at           BigInt
   updated_at           BigInt
   deleted_at BigInt @default(0)
@@ -58,7 +61,6 @@ model pve_instance_flavors {
   owner_tid     BigInt @default(1)
   owner_bid     BigInt @default(1)
   owner_uid     BigInt?
-  key                  String
   title                String
   cpu_cores            Int
   memory_gb            Int
@@ -71,6 +73,7 @@ model pve_instance_flavors {
 
 model pve_vms {
   id                 BigInt @id @default(autoincrement())
+  key          String @db.VarChar(36)
   created_at         BigInt @default(0)
   updated_at         BigInt @default(0)
   deleted_at         BigInt @default(0)
@@ -88,10 +91,12 @@ model pve_vms {
   pve_status         String @default("")
   pve_config         Json   @default("{}")
   error_message      String @default("")
+  @@unique([key, deleted_at])
 }
 
 model pve_vm_tasks {
   id               BigInt @id @default(autoincrement())
+  key          String @db.VarChar(36)
   created_at       BigInt @default(0)
   updated_at       BigInt @default(0)
   deleted_at       BigInt @default(0)
@@ -109,4 +114,5 @@ model pve_vm_tasks {
   response_payload Json   @default("{}")
   retry_count      Int    @default(0)
   error_message    String @default("")
+  @@unique([key, deleted_at])
 }

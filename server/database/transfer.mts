@@ -7,7 +7,7 @@ export const portableTableGroups = {
 		'global_sites', 'global_site_hosts', 'global_cloud_credentials', 'global_cloud_object_storage_buckets',
 		'global_cloud_object_storage_bindings', 'global_cloud_object_storage_binding_purposes', 'global_telegram_bots',
 		'global_cloud_email_channels', 'global_cloud_email_templates', 'global_cloud_email_bindings',
-		'global_cloud_email_template_publications',
+		'global_cloud_email_template_publications', 'global_snowflake_state',
 	],
 	base: [
 		'base_tenants', 'base_branches', 'base_hosts',
@@ -20,7 +20,7 @@ export const portableTableGroups = {
 		'passport_users', 'passport_user_credentials', 'passport_user_profiles', 'passport_sessions', 'passport_telegram_accounts',
 		'passport_devices', 'passport_device_users',
 		'passport_oauth_accounts', 'passport_emails', 'passport_user_emails', 'passport_email_otp',
-		'passport_group_prompts', 'passport_snowflake_state', 'passport_telegram_menus',
+		'passport_group_prompts', 'passport_telegram_menus',
 		'passport_telegram_updates', 'passport_telegram_identity_choices', 'passport_login_challenges',
 		'passport_sso_requests', 'passport_login_tickets', 'passport_site_sessions', 'passport_external_identities',
 		'passport_oidc_clients', 'passport_oidc_authorization_requests', 'passport_oidc_authorization_codes',

@@ -41,28 +41,28 @@ try {
 
 	const globalDatabase = new DatabaseSync(globalFile);
 	const now = Date.now();
-	globalDatabase.prepare("INSERT INTO global_site_hosts (hostname, site_key, status, created_at) VALUES ('accounts.split.test', 'passport', 'enabled', ?)").run(now);
-	globalDatabase.prepare(`INSERT INTO global_cloud_credentials (id, title, provider, access_key_id, access_key_secret, status, created_at, updated_at)
-		VALUES (91, 'split-email', 'aliyun', 'mail-key', 'mail-secret', 'enabled', ?, ?)`).run(now, now);
-	globalDatabase.prepare(`INSERT INTO global_cloud_email_channels (id, cloud_credential_id, region, account_name, from_alias, reply_to_address, status, created_at, updated_at)
-		VALUES (92, 91, 'cn-hangzhou', 'noreply@example.com', 'Accounts', 0, 'enabled', ?, ?)`).run(now, now);
+	globalDatabase.prepare("INSERT INTO global_site_hosts (key, hostname, site_key, status, created_at) VALUES (lower(hex(randomblob(16))), 'accounts.split.test', 'passport', 'enabled', ?)").run(now);
+	globalDatabase.prepare(`INSERT INTO global_cloud_credentials (key, id, title, provider, access_key_id, access_key_secret, status, created_at, updated_at)
+		VALUES (lower(hex(randomblob(16))), 91, 'split-email', 'aliyun', 'mail-key', 'mail-secret', 'enabled', ?, ?)`).run(now, now);
+	globalDatabase.prepare(`INSERT INTO global_cloud_email_channels (key, id, cloud_credential_id, region, account_name, from_alias, reply_to_address, status, created_at, updated_at)
+		VALUES (lower(hex(randomblob(16))), 92, 91, 'cn-hangzhou', 'noreply@example.com', 'Accounts', 0, 'enabled', ?, ?)`).run(now, now);
 	globalDatabase.prepare(`INSERT INTO global_cloud_email_templates (id, key, type, title, subject, body_text, body_html, status, created_at, updated_at)
 		VALUES (93, 'email_verification_split', 'email_verification', '分库邮箱验证码', '验证码 {{code}}', '验证码：{{code}}', '<p>验证码：{{code}}</p>', 'enabled', ?, ?)`).run(now, now);
-	globalDatabase.prepare(`INSERT INTO global_cloud_email_template_publications (template_id, cloud_credential_id, region, provider_template_id, content_hash, status, created_at, updated_at)
-		VALUES (93, 91, 'cn-hangzhou', 'split-template', 'test', 'ready', ?, ?)`).run(now, now);
-	globalDatabase.prepare(`INSERT INTO global_cloud_email_bindings (site_key, channel_id, template_id, purpose, is_default, status, created_at, updated_at)
-		VALUES ('passport', 92, 93, 'email_verification', 1, 'enabled', ?, ?)`).run(now, now);
+	globalDatabase.prepare(`INSERT INTO global_cloud_email_template_publications (key, template_id, cloud_credential_id, region, provider_template_id, content_hash, status, created_at, updated_at)
+		VALUES (lower(hex(randomblob(16))), 93, 91, 'cn-hangzhou', 'split-template', 'test', 'ready', ?, ?)`).run(now, now);
+	globalDatabase.prepare(`INSERT INTO global_cloud_email_bindings (key, site_key, channel_id, template_id, purpose, is_default, status, created_at, updated_at)
+		VALUES (lower(hex(randomblob(16))), 'passport', 92, 93, 'email_verification', 1, 'enabled', ?, ?)`).run(now, now);
 	globalDatabase.close();
 
 	const passportDatabase = new DatabaseSync(passportFile);
-	passportDatabase.prepare("INSERT INTO passport_users (user_id, name, status, created_at, updated_at) VALUES (?, ?, 'enabled', ?, ?)").run(userId, `passport_${userId}`, now, now)
-	passportDatabase.prepare("INSERT INTO passport_user_profiles (user_id, nickname, created_at, updated_at) VALUES (?, '分库用户', 0, 0)").run(userId);
-	passportDatabase.prepare("INSERT INTO passport_emails (id, email, verified, created_at, updated_at) VALUES (?, 'split.user@example.com', 1, ?, ?)").run(emailId, now, now);
-	passportDatabase.prepare('INSERT INTO passport_user_emails (user_id, email_id, is_primary, created_at, updated_at) VALUES (?, ?, 1, ?, ?)').run(userId, emailId, now, now);
+	passportDatabase.prepare("INSERT INTO passport_users (key, name, status, created_at, updated_at) VALUES (?, ?, 'enabled', ?, ?)").run(userId, `passport_${userId}`, now, now)
+	passportDatabase.prepare("INSERT INTO passport_user_profiles (key, user_key, nickname, created_at, updated_at) VALUES (lower(hex(randomblob(16))), ?, '分库用户', 0, 0)").run(userId);
+	passportDatabase.prepare("INSERT INTO passport_emails (key, id, email, verified, created_at, updated_at) VALUES (lower(hex(randomblob(16))), ?, 'split.user@example.com', 1, ?, ?)").run(emailId, now, now);
+	passportDatabase.prepare('INSERT INTO passport_user_emails (key, user_key, email_id, is_primary, created_at, updated_at) VALUES (lower(hex(randomblob(16))), ?, ?, 1, ?, ?)').run(userId, emailId, now, now);
 	passportDatabase.prepare("INSERT INTO passport_devices (key,fingerprint,status,last_seen_at,created_at,updated_at) VALUES (?,?,'active',?,?,?)").run(deviceKey, fingerprintData, now, now, now);
 	const deviceId = passportDatabase.prepare('SELECT id FROM passport_devices WHERE key = ?').get(deviceKey).id;
-	passportDatabase.prepare("INSERT INTO passport_device_users (device_id,user_id,status,last_seen_at,created_at,updated_at) VALUES (?,?,'active',?,?,?)").run(deviceId, userId, now, now, now);
-	passportDatabase.prepare('INSERT INTO passport_sessions (token_hash, user_id, device_id, expires_at, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?)').run(Buffer.from(await crypto.subtle.digest('SHA-256', new TextEncoder().encode(sessionId))).toString('hex'), userId, deviceId, now + 3600_000, now, now);
+	passportDatabase.prepare("INSERT INTO passport_device_users (key, device_id,user_key,status,last_seen_at,created_at,updated_at) VALUES (lower(hex(randomblob(16))), ?,?,'active',?,?,?)").run(deviceId, userId, now, now, now);
+	passportDatabase.prepare('INSERT INTO passport_sessions (key, token_hash, user_key, device_id, expires_at, created_at, updated_at) VALUES (lower(hex(randomblob(16))), ?, ?, ?, ?, ?, ?)').run(Buffer.from(await crypto.subtle.digest('SHA-256', new TextEncoder().encode(sessionId))).toString('hex'), userId, deviceId, now + 3600_000, now, now);
 	passportDatabase.close();
 
 	const request = (path, options = {}) => {
@@ -95,7 +95,7 @@ try {
 	assert.equal((await request('/api/accounts/sign.php', { method: 'POST', cookie, body: { step: 'set_user_name', user_name: 'split2026' } })).status, 200);
 	// 身份数据落在 passport 库，global 库不参与。
 	const splitPassport = new DatabaseSync(passportFile, { readOnly: true });
-	assert.equal(splitPassport.prepare('SELECT name FROM passport_users WHERE user_id = ?').get(userId).name, 'split2026');
+	assert.equal(splitPassport.prepare('SELECT name FROM passport_users WHERE key = ?').get(userId).name, 'split2026');
 	splitPassport.close();
 	const splitGlobal = new DatabaseSync(globalFile, { readOnly: true });
 	assert.equal(splitGlobal.prepare('SELECT COUNT(*) AS count FROM passport_users').get().count, 0, '身份不应该写进 global 库');

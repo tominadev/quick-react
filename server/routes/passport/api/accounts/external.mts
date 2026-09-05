@@ -42,11 +42,11 @@ const handler: ApiHandler = async (c, _next, params) => {
 			catch (error) { await discardExternalEmailOtp(database, pending.id_hash); return apiMessage(c, 502, error instanceof Error ? error.message : '邮箱验证码发送失败'); }
 			return apiResponse(c, 200, { status: 'email_sent' });
 		}
-		const verified = await verifyExternalEmailOtp(database, c.env.SNOWFLAKE_WORKER_ID, pending, String(body.code ?? ''));
+		const verified = await verifyExternalEmailOtp(database, pending, String(body.code ?? ''));
 		if (verified.status !== 'created') return apiMessage(c, 409, verified.status === 'conflict' ? verified.message : verified.status === 'expired' ? '验证码已过期' : '验证码不正确');
 		const sessionId = crypto.randomUUID(), now = Date.now(), maxAge = 24 * 60 * 60;
-		await runSql(database, sql({ database }).insert('passport_sessions', { token_hash: await sha256(sessionId), user_id: verified.userId, device_id: await ensurePassportDevice(database, verified.userId, c.req.raw, c.get('clientIp'), c.get('transportIp')), expires_at: now + maxAge * 1000 }));
-		await runSql(database, sql({ database }).update('passport_external_login_states', { qr_status: 'consumed', qr_user_id: verified.userId }, { id_hash: await sha256(bindState) }));
+		await runSql(database, sql({ database }).insert('passport_sessions', { token_hash: await sha256(sessionId), user_key: verified.userId, device_id: await ensurePassportDevice(database, verified.userId, c.req.raw, c.get('clientIp'), c.get('transportIp')), expires_at: now + maxAge * 1000 }));
+		await runSql(database, sql({ database }).update('passport_external_login_states', { qr_status: 'consumed', qr_user_key: verified.userId }, { id_hash: await sha256(bindState) }));
 		c.header('Set-Cookie', createPassportSessionCookie(sessionId, secure, maxAge));
 		// 二维码页可能开在业务站点的登录弹窗里，必须把后续去向一并返回，不能让它自己跳首页。
 		return apiResponse(c, 200, { status: 'completed', redirectTo: await postLoginRedirect(c, database, verified.userId) });
@@ -66,23 +66,23 @@ const handler: ApiHandler = async (c, _next, params) => {
 		const polled = await externalQrState(database, await sha256(pollState));
 		// 过期是正常轮询结果，不能用错误状态码，否则通用请求层会弹出"请求失败"。
 		if (!polled || polled.provider !== id || polled.expires_at <= Date.now()) return apiResponse(c, 200, { status: 'expired' });
-		if (polled.qr_status === 'authorized' && !polled.qr_user_id) return apiResponse(c, 200, { status: 'needs_email', bindUrl: `/api/accounts/external/${id}?bind=${encodeURIComponent(pollState)}` });
-		if (polled.qr_status !== 'authorized' || !polled.qr_user_id) return apiResponse(c, 200, { status: polled.qr_status });
+		if (polled.qr_status === 'authorized' && !polled.qr_user_key) return apiResponse(c, 200, { status: 'needs_email', bindUrl: `/api/accounts/external/${id}?bind=${encodeURIComponent(pollState)}` });
+		if (polled.qr_status !== 'authorized' || !polled.qr_user_key) return apiResponse(c, 200, { status: polled.qr_status });
 		const current = await loadPassportSession(database, c.req.raw);
 		const sessionId = crypto.randomUUID(), now = Date.now();
 		let deviceId: string;
 		try {
-			deviceId = await ensurePassportDevice(database, polled.qr_user_id, c.req.raw, c.get('clientIp'), c.get('transportIp'));
+			deviceId = await ensurePassportDevice(database, polled.qr_user_key, c.req.raw, c.get('clientIp'), c.get('transportIp'));
 		} catch (error) {
 			// 轮询是正常的状态查询；设备冲突不能让接口变成未处理异常的 500。
 			return apiResponse(c, 200, { status: 'error', error: error instanceof Error ? error.message : String(error) });
 		}
-		await runSql(database, sql({ database }).insert('passport_sessions', { token_hash: await sha256(sessionId), user_id: polled.qr_user_id, device_id: deviceId, expires_at: now + 24 * 60 * 60 * 1000 }));
+		await runSql(database, sql({ database }).insert('passport_sessions', { token_hash: await sha256(sessionId), user_key: polled.qr_user_key, device_id: deviceId, expires_at: now + 24 * 60 * 60 * 1000 }));
 		await runSql(database, sql({ database }).update('passport_external_login_states', { qr_status: 'consumed' }, [{ column: 'id_hash', value: await sha256(pollState) }, { column: 'qr_status', value: 'authorized' }]));
 		c.header('Set-Cookie', createPassportSessionCookie(sessionId, secure, 24 * 60 * 60));
-		const redirectTo = current && String(current.id) === String(polled.qr_user_id)
+		const redirectTo = current && String(current.id) === String(polled.qr_user_key)
 			? `/panel/accounts/identities${c.get('techStackConfig').pageSuffix}`
-			: await postLoginRedirect(c, database, String(polled.qr_user_id), polled.oidc_request_id ?? undefined);
+			: await postLoginRedirect(c, database, String(polled.qr_user_key), polled.oidc_request_id ?? undefined);
 		if (polled.oidc_request_id) c.header('Set-Cookie', oidcRequestCookie(polled.oidc_request_id, secure), { append: true });
 		return apiResponse(c, 200, { status: 'authenticated', redirectTo });
 	}
@@ -91,7 +91,7 @@ const handler: ApiHandler = async (c, _next, params) => {
 		// 二维码在电脑端发起时记住当前 Accounts 用户；手机只负责确认外部身份，电脑端无需再次走邮箱验证。
 		if (id === 'wechat' && provider.wechat_mode === 'official_account') {
 			const current = await loadPassportSession(database, c.req.raw);
-			if (current) await runSql(database, sql({ database }).update('passport_external_login_states', { qr_user_id: String(current.id) }, { id_hash: await sha256(created.state) }));
+			if (current) await runSql(database, sql({ database }).update('passport_external_login_states', { qr_user_key: String(current.id) }, { id_hash: await sha256(created.state) }));
 		}
 		c.header('Set-Cookie', externalStateCookie(created.state, secure));
 		const authorizationUrl = await externalAuthorizationUrl(provider, redirectUri, created.state, created.nonce, created.codeVerifier);
@@ -132,7 +132,7 @@ const handler: ApiHandler = async (c, _next, params) => {
 		: null;
 	// 手机回调页刷新或重复挂载时，已完成的扫码结果直接复用，不能再次消费一次性 state。
 	if (consume && qrState?.qr_status === 'authorized') {
-		return apiResponse(c, 200, { status: qrState.qr_user_id ? 'signed_in' : 'authorized' });
+		return apiResponse(c, 200, { status: qrState.qr_user_key ? 'signed_in' : 'authorized' });
 	}
 	const state = await consumeExternalState(database, returnedState);
 	if (!state) return apiMessage(c, 400, `外部授权 state 无效、已过期或已经使用：${returnedState.slice(0, 12)}…`);
@@ -145,9 +145,9 @@ const handler: ApiHandler = async (c, _next, params) => {
 		const bound = await externalIdentityUser(database, provider.id, profile.subject);
 		if (!current && !bound && !profile.email) {
 			if (provider.wechat_mode === 'official_account' && qrFlow && consume) {
-				if (qrState?.qr_user_id) {
-					const userId = await resolveExternalUser(database, c.env.SNOWFLAKE_WORKER_ID, provider, profile, qrState.qr_user_id);
-					await runSql(database, sql({ database }).update('passport_external_login_states', { qr_status: 'authorized', qr_user_id: userId }, { id_hash: await sha256(returnedState) }));
+				if (qrState?.qr_user_key) {
+					const userId = await resolveExternalUser(database, provider, profile, qrState.qr_user_key);
+					await runSql(database, sql({ database }).update('passport_external_login_states', { qr_status: 'authorized', qr_user_key: userId }, { id_hash: await sha256(returnedState) }));
 					return apiResponse(c, 200, { status: 'authorized' });
 				}
 				await createPendingExternalIdentity(database, profile, provider.id, await sha256(returnedState));
@@ -159,7 +159,7 @@ const handler: ApiHandler = async (c, _next, params) => {
 			c.header('Set-Cookie', externalPendingCookie(pendingToken, secure), { append: true });
 			return c.html(renderExternalRedirect(`/accounts/sign${c.get('techStackConfig').pageSuffix}`, '正在返回 Passport 登录', '外部身份已确认，正在返回 Passport…'), 200);
 		}
-		const userId = await resolveExternalUser(database, c.env.SNOWFLAKE_WORKER_ID, provider, profile, current?.id ? String(current.id) : undefined);
+		const userId = await resolveExternalUser(database, provider, profile, current?.id ? String(current.id) : undefined);
 		if (state.oidc_request_id) c.header('Set-Cookie', oidcRequestCookie(state.oidc_request_id, secure), { append: true });
 		// 身份源带头像时后台同步到对象存储，失败不影响登录。
 		const avatarUrl = externalAvatarUrl(provider.id, profile.raw);
@@ -170,7 +170,7 @@ const handler: ApiHandler = async (c, _next, params) => {
 			catch { void task; }
 		}
 		if (provider.wechat_mode === 'official_account' && qrFlow) {
-			await runSql(database, sql({ database }).update('passport_external_login_states', { qr_status: 'authorized', qr_user_id: userId }, [{ column: 'id_hash', value: await sha256(returnedState) }]));
+			await runSql(database, sql({ database }).update('passport_external_login_states', { qr_status: 'authorized', qr_user_key: userId }, [{ column: 'id_hash', value: await sha256(returnedState) }]));
 			// consume=1 来自手机上的回调页面，它按 JSON 解析响应；直接用浏览器打开时才返回提示页面。
 			return consume ? apiResponse(c, 200, { status: 'signed_in' }) : c.html('<p>授权成功，请返回电脑页面。</p>');
 		}
@@ -188,7 +188,7 @@ const handler: ApiHandler = async (c, _next, params) => {
 			return consume ? apiResponse(c, 200, { status: 'linked', redirectTo: bindTarget }) : c.html(renderExternalRedirect(bindTarget, '正在返回 Passport', '身份验证完成，正在返回账户中心…'), 200);
 		}
 		const sessionId = crypto.randomUUID(), now = Date.now(), maxAge = 24 * 60 * 60;
-		await runSql(database, sql({ database }).insert('passport_sessions', { token_hash: await sha256(sessionId), user_id: userId, device_id: await ensurePassportDevice(database, userId, c.req.raw, c.get('clientIp'), c.get('transportIp')), expires_at: now + maxAge * 1000 }));
+		await runSql(database, sql({ database }).insert('passport_sessions', { token_hash: await sha256(sessionId), user_key: userId, device_id: await ensurePassportDevice(database, userId, c.req.raw, c.get('clientIp'), c.get('transportIp')), expires_at: now + maxAge * 1000 }));
 		c.header('Set-Cookie', clearExternalStateCookie(secure));
 		c.header('Set-Cookie', createPassportSessionCookie(sessionId, secure, maxAge), { append: true });
 		// 第三方认证通过：30 分钟内允许发送邮箱验证码、重设密码。

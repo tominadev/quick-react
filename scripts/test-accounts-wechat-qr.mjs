@@ -25,16 +25,16 @@ try {
 	const now = Date.now();
 	const deviceKey = '00000000-0000-4000-8000-000000000001';
 const fingerprintData = JSON.stringify({ canvas_cyrb53: '4b5a6c7d8e9f', audio_cyrb53: '1a2b3c4d5e6f' });
-	database.prepare("INSERT INTO global_site_hosts (hostname, site_key, status, created_at) VALUES ('accounts.test','passport','enabled',?)").run(now);
-	database.prepare("INSERT INTO passport_external_providers (provider,title,client_id,client_secret,status,created_at,updated_at,wechat_mode) VALUES ('wechat','微信','wechat-app','secret','enabled',?,?,'official_account')").run(now, now);
-	database.prepare("INSERT INTO passport_users (user_id, name, status, created_at, updated_at) VALUES (?, 'wxuser2026', 'enabled', ?, ?)").run(userId, now, now)
-	database.prepare("INSERT INTO passport_user_profiles (user_id, nickname, created_at, updated_at) VALUES (?, '微信用户', 0, 0)").run(userId);
-	database.prepare("INSERT INTO passport_emails (id,email,verified,created_at,updated_at) VALUES (2000000000000000011,'wx@example.com',1,?,?)").run(now, now);
-	database.prepare("INSERT INTO passport_user_emails (user_id,email_id,is_primary,created_at,updated_at) VALUES (?,2000000000000000011,1,?,?)").run(userId, now, now);
+	database.prepare("INSERT INTO global_site_hosts (key, hostname, site_key, status, created_at) VALUES (lower(hex(randomblob(16))), 'accounts.test','passport','enabled',?)").run(now);
+	database.prepare("INSERT INTO passport_external_providers (key, provider,title,client_id,client_secret,status,created_at,updated_at,wechat_mode) VALUES (lower(hex(randomblob(16))), 'wechat','微信','wechat-app','secret','enabled',?,?,'official_account')").run(now, now);
+	database.prepare("INSERT INTO passport_users (key, name, status, created_at, updated_at) VALUES (?, 'wxuser2026', 'enabled', ?, ?)").run(userId, now, now)
+	database.prepare("INSERT INTO passport_user_profiles (key, user_key, nickname, created_at, updated_at) VALUES (lower(hex(randomblob(16))), ?, '微信用户', 0, 0)").run(userId);
+	database.prepare("INSERT INTO passport_emails (key, id,email,verified,created_at,updated_at) VALUES (lower(hex(randomblob(16))), 2000000000000000011,'wx@example.com',1,?,?)").run(now, now);
+	database.prepare("INSERT INTO passport_user_emails (key, user_key,email_id,is_primary,created_at,updated_at) VALUES (lower(hex(randomblob(16))), ?,2000000000000000011,1,?,?)").run(userId, now, now);
 	database.prepare("INSERT INTO passport_devices (key,fingerprint,status,last_seen_at,created_at,updated_at) VALUES (?,?,'active',?,?,?)").run(deviceKey, fingerprintData, now, now, now);
 	const deviceId = database.prepare('SELECT id FROM passport_devices WHERE key = ?').get(deviceKey).id;
-	database.prepare("INSERT INTO passport_device_users (device_id,user_id,status,last_seen_at,created_at,updated_at) VALUES (?,?,'active',?,?,?)").run(deviceId, userId, now, now, now);
-	database.prepare("INSERT INTO passport_sessions (token_hash,user_id,device_id,expires_at,created_at,updated_at) VALUES (?, ?, ?, ?, ?, ?)").run(Buffer.from(await crypto.subtle.digest('SHA-256', new TextEncoder().encode('desktop-session'))).toString('hex'), userId, deviceId, now + 3600000, now, now);
+	database.prepare("INSERT INTO passport_device_users (key, device_id,user_key,status,last_seen_at,created_at,updated_at) VALUES (lower(hex(randomblob(16))), ?,?,'active',?,?,?)").run(deviceId, userId, now, now, now);
+	database.prepare("INSERT INTO passport_sessions (key, token_hash,user_key,device_id,expires_at,created_at,updated_at) VALUES (lower(hex(randomblob(16))), ?, ?, ?, ?, ?, ?)").run(Buffer.from(await crypto.subtle.digest('SHA-256', new TextEncoder().encode('desktop-session'))).toString('hex'), userId, deviceId, now + 3600000, now, now);
 	database.close();
 
 	// 电脑打开二维码页。
@@ -78,7 +78,7 @@ const fingerprintData = JSON.stringify({ canvas_cyrb53: '4b5a6c7d8e9f', audio_cy
 	assert.deepEqual(standalone, { status: 'authenticated', redirectTo: '/accounts/sign.html' });
 
 	const credentialDatabase = new DatabaseSync(process.env.DEFAULT_DATABASE_FILE);
-	credentialDatabase.prepare('INSERT INTO passport_user_credentials (user_id,password,created_at,updated_at) VALUES (?,?,?,?)').run(userId, '{"hash":"x","pattern":"LLLL"}', Date.now(), Date.now());
+	credentialDatabase.prepare('INSERT INTO passport_user_credentials (key, user_key,password,created_at,updated_at) VALUES (lower(hex(randomblob(16))), ?,?,?,?)').run(userId, '{"hash":"x","pattern":"LLLL"}', Date.now(), Date.now());
 	credentialDatabase.close();
 	const thirdQr = await (await app.request('https://accounts.test/api/accounts/external/wechat?format=json')).json();
 	const thirdState = new URL(thirdQr.authorizationUrl).searchParams.get('state');

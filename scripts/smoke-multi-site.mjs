@@ -642,11 +642,11 @@ try {
 	assert.equal((await postTelegramUpdate(verificationUpdate)).status, 200);
 	assert.equal(telegramActions.length, actionsBeforeVerification + 2);
 	const identityDatabase = new DatabaseSync(process.env.DEFAULT_DATABASE_FILE, { readOnly: true });
-	const firstIdentity = identityDatabase.prepare(`SELECT CAST(a.user_id AS TEXT) AS user_id, e.email FROM passport_telegram_accounts a
-		JOIN passport_user_emails ue ON ue.user_id = a.user_id JOIN passport_emails e ON e.id = ue.email_id
+	const firstIdentity = identityDatabase.prepare(`SELECT CAST(a.user_key AS TEXT) AS user_key, e.email FROM passport_telegram_accounts a
+		JOIN passport_user_emails ue ON ue.user_key = a.user_key JOIN passport_emails e ON e.id = ue.email_id
 		WHERE a.bot_id = ? AND a.telegram_user_id = ?`).get(webhookBot.id, 9001);
 	assert.equal(firstIdentity?.email, 'user@example.com');
-	assert.match(firstIdentity?.user_id ?? '', /^\d+$/);
+	assert.match(firstIdentity?.user_key ?? '', /^\d+$/);
 	identityDatabase.close();
 
 	assert.equal((await postTelegramUpdate({ update_id: 7006, message: {
@@ -672,9 +672,9 @@ try {
 		message: { message_id: secondMenuMessageId, chat: { id: 9002, type: 'private' } },
 	} })).status, 200);
 	const linkedDatabase = new DatabaseSync(process.env.DEFAULT_DATABASE_FILE, { readOnly: true });
-	const linkedUsers = linkedDatabase.prepare(`SELECT CAST(user_id AS TEXT) AS user_id FROM passport_telegram_accounts WHERE bot_id = ? ORDER BY telegram_user_id`).all(webhookBot.id);
+	const linkedUsers = linkedDatabase.prepare(`SELECT CAST(user_key AS TEXT) AS user_key FROM passport_telegram_accounts WHERE bot_id = ? ORDER BY telegram_user_id`).all(webhookBot.id);
 	assert.equal(linkedUsers.length, 2);
-	assert.equal(linkedUsers[0].user_id, linkedUsers[1].user_id);
+	assert.equal(linkedUsers[0].user_key, linkedUsers[1].user_key);
 	linkedDatabase.close();
 
 	// CDN 模式下文档对所有访客一致，导航不在 HTML 里；按角色过滤的结果要从页面上下文断言。

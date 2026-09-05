@@ -7,17 +7,24 @@ import { pathToFileURL } from 'node:url';
 
 const directory = await mkdtemp(join(tmpdir(), 'quick-react-sql-builder-'));
 try {
-	const result = await build({ stdin: { contents: "export * from './server/database/sql.mts'; export * from './server/database/schema.mts'; export * from './server/database/sqlite.mts';", resolveDir: resolve(import.meta.dirname, '..'), sourcefile: 'sql-test-entry.mts' }, bundle: true, format: 'esm', platform: 'node', write: false });
+	const result = await build({ stdin: { contents: "export * from './server/database/sql.mts'; export { useMemorySnowflake } from './server/modules/base/snowflake.mts'; export * from './server/database/schema.mts'; export * from './server/database/sqlite.mts';", resolveDir: resolve(import.meta.dirname, '..'), sourcefile: 'sql-test-entry.mts' }, bundle: true, format: 'esm', platform: 'node', write: false });
 	const file = join(directory, 'sql.mjs'); await writeFile(file, result.outputFiles[0].contents);
-	const { SqliteSqlBuilder, MysqlSqlBuilder, PostgresqlSqlBuilder, addColumn, renameColumn, compileSqlPlaceholders, createSqliteAdapter, synchronizePostgresqlIdentity } = await import(pathToFileURL(file));
+	const { useMemorySnowflake, SqliteSqlBuilder, MysqlSqlBuilder, PostgresqlSqlBuilder, addColumn, renameColumn, compileSqlPlaceholders, createSqliteAdapter, synchronizePostgresqlIdentity } = await import(pathToFileURL(file));
+	// 单元测试不连库，用内存号段：生产路径一律走 primeSnowflake，那里的原子预留才防得住重启和多进程。
+	useMemorySnowflake();
 	const sqlite = new SqliteSqlBuilder(), mysql = new MysqlSqlBuilder(), postgres = new PostgresqlSqlBuilder();
 	const sqliteInsert = sqlite.insert('users', { name: 'Alice', status: 'enabled' });
 	// 没有租户上下文时不写 owner_tid：该列是 NOT NULL DEFAULT 1，交给数据库默认值兜到默认租户。
-	assert.match(sqliteInsert.query, /^INSERT INTO "users" \("created_at", "updated_at", "owner_uid", "name", "status"\) VALUES \(\?, \?, \?, \?, \?\)$/);
-	assert.deepEqual(sqliteInsert.values.slice(3), ['Alice', 'enabled']);
+	// key 由这一层补：每一行都要有稳定标识，调用方给了就用调用方的。
+	assert.match(sqliteInsert.query, /^INSERT INTO "users" \("created_at", "updated_at", "owner_uid", "key", "name", "status"\) VALUES \(\?, \?, \?, \?, \?, \?\)$/);
+	assert.deepEqual(sqliteInsert.values.slice(4), ['Alice', 'enabled']);
+	assert.match(String(sqliteInsert.values[3]), /^\d+$/, 'key 是雪花号');
+	assert.equal(sqlite.insert('users', { key: 'given_key', name: 'Alice' }).values[3], 'given_key', '调用方给的 key 不被覆盖');
+	assert.throws(() => sqlite.insert('users', { key: '不是英文' }), /只能是英文字母/);
+	assert.throws(() => sqlite.insert('users', { key: 'x'.repeat(37) }), /最长 36/);
 	const actorSql = new SqliteSqlBuilder('17');
 	const actorInsert = actorSql.insert('users', { name: 'Alice' });
-	assert.match(actorInsert.query, /^INSERT INTO "users" \("created_at", "updated_at", "created_duid", "updated_duid", "owner_uid", "name"\)/);
+	assert.match(actorInsert.query, /^INSERT INTO "users" \("created_at", "updated_at", "created_duid", "updated_duid", "owner_uid", "key", "name"\)/);
 	assert.deepEqual(actorInsert.values.slice(2, 4), ['17', '17']);
 	const ownerSql = new SqliteSqlBuilder(null, 'active', '23', '7');
 	const ownerInsert = ownerSql.insert('users', { name: 'Alice' });
@@ -41,8 +48,8 @@ try {
 	assert.match(mysql.upsert('sessions', ['issuer', 'sid'], { issuer: 'i', sid: 's', session_id: 'x' }, ['session_id']).query, /ON DUPLICATE KEY UPDATE `session_id` = VALUES\(`session_id`\)/);
 	assert.match(mysql.ignoreInsert('users', ['name'], { name: 'Alice' }).query, /^INSERT IGNORE/);
 	const postgresInsert = postgres.insert('users', { name: 'Alice', status: 'enabled' });
-	assert.match(postgresInsert.query, /^INSERT INTO "users" \("created_at", "updated_at", "owner_uid", "name", "status"\) VALUES \(\$1, \$2, \$3, \$4, \$5\)$/);
-	assert.deepEqual(postgresInsert.values.slice(3), ['Alice', 'enabled']);
+	assert.match(postgresInsert.query, /^INSERT INTO "users" \("created_at", "updated_at", "owner_uid", "key", "name", "status"\) VALUES \(\$1, \$2, \$3, \$4, \$5, \$6\)$/);
+	assert.deepEqual(postgresInsert.values.slice(4), ['Alice', 'enabled']);
 	assert.deepEqual(postgres.count('users', [{ column: 'status', value: 'enabled' }]), { query: 'SELECT COUNT(*) AS "count" FROM "users" WHERE "deleted_at" = $1 AND "status" = $2', values: [0, 'enabled'] });
 	assert.deepEqual(mysql.select({ table: 'users', includeAll: true, limit: 10, offset: 20 }), { query: 'SELECT * FROM `users` WHERE `users`.`deleted_at` = ? LIMIT ? OFFSET ?', values: [0, 10, 20] });
 	assert.equal(sqlite.select({ table: 'users', includeAll: true, sqliteRowIdAlias: '__rowid__' }).query, 'SELECT rowid AS "__rowid__", * FROM "users" WHERE "users"."deleted_at" = ?');

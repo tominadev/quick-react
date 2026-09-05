@@ -107,13 +107,13 @@ const promptOtp = (database: DatabaseAdapter, bot: PassportTelegramBot, identity
 );
 
 const listEmails = async (database: DatabaseAdapter, bot: PassportTelegramBot, identity: TelegramIdentity, messageId: string) => {
-	const rows = await allSql<{ id: string; email: string; verified: number }>(database, sql({ database }).select({ table: 'passport_telegram_accounts', alias: 'a', columns: { id: { column: 'e.id', cast: 'text' }, email: 'e.email', verified: 'e.verified' }, joins: [{ table: 'passport_user_emails', alias: 'ue', left: 'ue.user_id', right: 'a.user_id' }, { table: 'passport_emails', alias: 'e', left: 'e.id', right: 'ue.email_id' }], where: [{ column: 'a.bot_id', value: identity.botId }, { column: 'a.telegram_user_id', value: identity.telegramUserId }], orderBy: [{ column: 'ue.is_primary', direction: 'DESC' }, { column: 'e.email' }] }));
+	const rows = await allSql<{ id: string; email: string; verified: number }>(database, sql({ database }).select({ table: 'passport_telegram_accounts', alias: 'a', columns: { id: { column: 'e.id', cast: 'text' }, email: 'e.email', verified: 'e.verified' }, joins: [{ table: 'passport_user_emails', alias: 'ue', left: 'ue.user_key', right: 'a.user_key' }, { table: 'passport_emails', alias: 'e', left: 'e.id', right: 'ue.email_id' }], where: [{ column: 'a.bot_id', value: identity.botId }, { column: 'a.telegram_user_id', value: identity.telegramUserId }], orderBy: [{ column: 'ue.is_primary', direction: 'DESC' }, { column: 'e.email' }] }));
 	const rowsKeyboard = rows.map((item) => [{ text: `${item.email} (${item.verified ? '已验证' : '未验证'})`, callback_data: `email:open:${item.id}` }]);
 	rowsKeyboard.push([{ text: '返回账户服务', callback_data: 'menu:accounts' }]);
 	await editMenu(database, bot, identity, messageId, 'menu', rows.length ? '请选择邮箱' : '暂无已绑定邮箱', { inline_keyboard: rowsKeyboard });
 };
 const openEmail = async (database: DatabaseAdapter, bot: PassportTelegramBot, identity: TelegramIdentity, messageId: string, emailId: string) => {
-	const row = await firstSql<{ email: string; verified: number }>(database, sql({ database }).select({ table: 'passport_telegram_accounts', alias: 'a', columns: { email: 'e.email', verified: 'e.verified' }, joins: [{ table: 'passport_user_emails', alias: 'ue', left: 'ue.user_id', right: 'a.user_id' }, { table: 'passport_emails', alias: 'e', left: 'e.id', right: 'ue.email_id' }], where: [{ column: 'a.bot_id', value: identity.botId }, { column: 'a.telegram_user_id', value: identity.telegramUserId }, { column: 'e.id', value: emailId }] }));
+	const row = await firstSql<{ email: string; verified: number }>(database, sql({ database }).select({ table: 'passport_telegram_accounts', alias: 'a', columns: { email: 'e.email', verified: 'e.verified' }, joins: [{ table: 'passport_user_emails', alias: 'ue', left: 'ue.user_key', right: 'a.user_key' }, { table: 'passport_emails', alias: 'e', left: 'e.id', right: 'ue.email_id' }], where: [{ column: 'a.bot_id', value: identity.botId }, { column: 'a.telegram_user_id', value: identity.telegramUserId }, { column: 'e.id', value: emailId }] }));
 	if (!row) return editMenu(database, bot, identity, messageId, 'menu', '邮箱不存在或不属于当前账户', backAccountsKeyboard);
 	return editMenu(database, bot, identity, messageId, 'menu', `${row.verified ? '邮箱已验证' : '邮箱未验证'}：${row.email}`, keyboard([{ text: '返回邮箱列表', callback_data: 'menu:emails' }]));
 };
@@ -130,10 +130,10 @@ const handleEmailInput = async (database: DatabaseAdapter, globalDatabase: Datab
 		return editMenu(database, bot, identity, menu.message_id, 'email', '验证码邮件发送失败，请稍后重试', backAccountsKeyboard);
 	}
 };
-const handleOtpInput = async (database: DatabaseAdapter, configuredWorkerId: unknown, bot: PassportTelegramBot, identity: TelegramIdentity, menu: MenuState, code: string) => {
+const handleOtpInput = async (database: DatabaseAdapter, bot: PassportTelegramBot, identity: TelegramIdentity, menu: MenuState, code: string) => {
 	const pending = await pendingOtp(database, identity);
 	if (!pending) return editMenu(database, bot, identity, menu.message_id, 'email', '没有待验证的邮箱，请重新输入邮箱地址', backAccountsKeyboard);
-	const result = await verifyTelegramEmailOtp(database, configuredWorkerId, identity, code);
+	const result = await verifyTelegramEmailOtp(database, identity, code);
 	if (result.status === 'created' || result.status === 'linked' || result.status === 'existing') return editMenu(
 		database, bot, identity, menu.message_id, 'menu', `验证成功，用户 ID：${result.userId}`, accountsKeyboard,
 	);
@@ -150,7 +150,7 @@ const handleOtpInput = async (database: DatabaseAdapter, configuredWorkerId: unk
 	return promptOtp(database, bot, identity, menu.message_id, pending.email, prefix);
 };
 
-const handleMessage = async (database: DatabaseAdapter, globalDatabase: DatabaseAdapter, siteKey: string, configuredWorkerId: unknown, bot: PassportTelegramBot, message: TelegramMessage) => {
+const handleMessage = async (database: DatabaseAdapter, globalDatabase: DatabaseAdapter, siteKey: string, bot: PassportTelegramBot, message: TelegramMessage) => {
 	if (message.chat?.type !== 'private') return;
 	const identity = identityFrom(bot, message.from, message.chat);
 	if (!identity) return;
@@ -159,7 +159,7 @@ const handleMessage = async (database: DatabaseAdapter, globalDatabase: Database
 	const menu = await loadMenu(database, identity);
 	if (!menu) return showRootMenu(database, bot, identity);
 	if (text && menu.mode === 'email') await handleEmailInput(database, globalDatabase, siteKey, bot, identity, menu, text);
-	else if (text && menu.mode === 'otp') await handleOtpInput(database, configuredWorkerId, bot, identity, menu, text);
+	else if (text && menu.mode === 'otp') await handleOtpInput(database, bot, identity, menu, text);
 	else if (text) await showRootMenu(database, bot, identity);
 	if (text && message.message_id !== undefined) {
 		const messageId = decimal(message.message_id);
@@ -167,7 +167,7 @@ const handleMessage = async (database: DatabaseAdapter, globalDatabase: Database
 	}
 };
 
-const handleCallback = async (database: DatabaseAdapter, globalDatabase: DatabaseAdapter, siteKey: string, configuredWorkerId: unknown, bot: PassportTelegramBot, callback: TelegramCallback) => {
+const handleCallback = async (database: DatabaseAdapter, globalDatabase: DatabaseAdapter, siteKey: string, bot: PassportTelegramBot, callback: TelegramCallback) => {
 	const callbackId = typeof callback.id === 'string' ? callback.id : '';
 	if (callback.message?.chat?.type !== 'private') return;
 	const identity = identityFrom(bot, callback.from, callback.message.chat), messageId = decimal(callback.message.message_id);
@@ -221,7 +221,7 @@ const handleCallback = async (database: DatabaseAdapter, globalDatabase: Databas
 	if (data.startsWith('identity:link:')) {
 		const choiceId = data.slice('identity:link:'.length);
 		if (!decimal(choiceId)) return;
-		const result = await confirmTelegramIdentityChoice(database, configuredWorkerId, identity, choiceId);
+		const result = await confirmTelegramIdentityChoice(database, identity, choiceId);
 		return editMenu(database, bot, identity, messageId, 'menu', result.status === 'linked' || result.status === 'existing'
 			? `Telegram 账号已绑定到用户 ${result.userId}` : '账户选择已失效或关联状态已变化，未执行绑定', accountsKeyboard);
 	}
@@ -237,10 +237,9 @@ export const handlePassportTelegramUpdate = async (
 	database: DatabaseAdapter,
 	globalDatabase: DatabaseAdapter,
 	siteKey: string,
-	configuredWorkerId: unknown,
 	bot: PassportTelegramBot,
 	update: PassportTelegramUpdate,
 ) => {
-	if (update.callback_query) await handleCallback(database, globalDatabase, siteKey, configuredWorkerId, bot, update.callback_query);
-	else if (update.message) await handleMessage(database, globalDatabase, siteKey, configuredWorkerId, bot, update.message);
+	if (update.callback_query) await handleCallback(database, globalDatabase, siteKey, bot, update.callback_query);
+	else if (update.message) await handleMessage(database, globalDatabase, siteKey, bot, update.message);
 };

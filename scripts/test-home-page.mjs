@@ -12,7 +12,7 @@ process.env.SKIP_SERVER_LISTEN = '1';
 try {
 	const { app } = await import(`../dist/server.mjs?home-page=${Date.now()}`);
 	const database = new DatabaseSync(process.env.DEFAULT_DATABASE_FILE);
-	database.prepare("INSERT INTO global_site_hosts (hostname, site_key, status, created_at) VALUES ('accounts.test','passport','enabled',?)").run(Date.now());
+	database.prepare("INSERT INTO global_site_hosts (key, hostname, site_key, status, created_at) VALUES (lower(hex(randomblob(16))), 'accounts.test','passport','enabled',?)").run(Date.now());
 	// 联系邮箱来自站点设置；没配置时首页只显示“站点管理员”，Google 应用验证要求给出可联系的方式。
 	database.prepare('INSERT INTO base_configs (created_at, updated_at, key, value) VALUES (?, ?, ?, ?)')
 		.run(Date.now(), Date.now(), 'site_settings', JSON.stringify({ contactEmail: 'contact@example.com' }));

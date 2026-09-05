@@ -12,6 +12,7 @@
 | `API_ROUTE_SUFFIX` | `.php` | API 请求路径后缀的初始值，可为空 |
 | `PAGE_ROUTE_SUFFIX` | `.html` | 页面请求路径后缀的初始值，可为空 |
 | `DEFAULT_DATABASE_FILE` | `database/default.sqlite` | Node 默认共享 SQLite 文件；主要用于测试或自定义部署路径 |
+| `SNOWFLAKE_WORKER_ID` | 按服务器标识推导 | 雪花发号器的 worker id（0–1023）。不配就按 `/etc/machine-id` 哈希取模算一个并写进 `.env`；多机部署建议显式配置，取模有撞号的可能 |
 
 示例：
 

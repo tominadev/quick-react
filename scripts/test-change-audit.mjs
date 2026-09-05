@@ -27,7 +27,7 @@ const auditRouteFilter = async () => {
 		const at = Date.now();
 		// 审批状态与数据状态是两列：待审批的数据从未写入，批准过的才是已生效。
 		for (const [id, review, data] of [['1', 'pending', 'unwritten'], ['2', 'approved', 'applied'], ['3', 'rejected', 'unwritten'], ['4', 'pending', 'unwritten']]) {
-			seed.prepare('INSERT INTO base_approvals (created_at,updated_at,operation_id,reason,table_name,row_id,action,changes,review_status,data_status) VALUES (?,?,?,?,?,?,?,?,?,?)')
+			seed.prepare('INSERT INTO base_approvals (key, created_at,updated_at,operation_id,reason,table_name,row_id,action,changes,review_status,data_status) VALUES (lower(hex(randomblob(16))), ?,?,?,?,?,?,?,?,?,?)')
 				.run(at, at, id, `理由${id}`, 'base_users', id, 'update', '{}', review, data);
 		}
 		seed.close();
@@ -63,7 +63,7 @@ const auditRouteFilter = async () => {
 		const overflow = new DatabaseSync(process.env.DEFAULT_DATABASE_FILE);
 		const now = Date.now();
 		for (let index = 0; index < 250; index += 1) {
-			overflow.prepare('INSERT INTO base_approvals (created_at,updated_at,operation_id,reason,table_name,row_id,action,changes,review_status,data_status) VALUES (?,?,?,?,?,?,?,?,?,?)')
+			overflow.prepare('INSERT INTO base_approvals (key, created_at,updated_at,operation_id,reason,table_name,row_id,action,changes,review_status,data_status) VALUES (lower(hex(randomblob(16))), ?,?,?,?,?,?,?,?,?,?)')
 				.run(now, now, `bulk${index}`, '批量', 'base_users', String(index), 'update', '{}', 'pending', 'unwritten');
 		}
 		overflow.close();
@@ -176,14 +176,16 @@ const temporaryDirectory = await mkdtemp(join(tmpdir(), 'quick-react-change-audi
 try {
 	const result = await build({
 		stdin: {
-			contents: "export * from './server/database/sql.mts'; export * from './server/database/sqlite.mts'; export * from './server/database/index.mts'; export * from './server/modules/base/operation.mts'; export * from './server/modules/base/audit.mts';",
+			contents: "export * from './server/database/sql.mts'; export * from './server/database/sqlite.mts'; export * from './server/database/index.mts'; export * from './server/modules/base/operation.mts'; export * from './server/modules/base/audit.mts'; export { useMemorySnowflake } from './server/modules/base/snowflake.mts';",
 			resolveDir: projectDirectory, sourcefile: 'audit-test-entry.mts',
 		},
 		bundle: true, format: 'esm', platform: 'node', write: false,
 	});
 	const moduleFile = join(temporaryDirectory, 'audit.mjs');
 	await writeFile(moduleFile, result.outputFiles[0].contents);
-	const { allSql, createSqliteAdapter, firstSql, parseAuditChanges, publicAuditChanges, purgeAuditRetention, purgeExpiredAuditEntries, transitionAuditEntries, runOperationSql, runSql, sql, withDatabaseActors } = await import(pathToFileURL(moduleFile));
+	const { useMemorySnowflake, allSql, createSqliteAdapter, firstSql, parseAuditChanges, publicAuditChanges, purgeAuditRetention, purgeExpiredAuditEntries, transitionAuditEntries, runOperationSql, runSql, sql, withDatabaseActors } = await import(pathToFileURL(moduleFile));
+	// 单元测试不连库，用内存号段：生产路径一律走 primeSnowflake，那里的原子预留才防得住重启和多进程。
+	useMemorySnowflake();
 
 	const database = createSqliteAdapter(join(temporaryDirectory, 'audit.sqlite'));
 	const migrations = resolve(projectDirectory, 'migrations/base');

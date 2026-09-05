@@ -2,7 +2,7 @@ import type { DatabaseAdapter, DatabaseBatchStatement } from '@server/database/i
 import { allSql, firstSql, runSql, sql } from '@server/database/sql.mjs';
 import { passportProfileInsert } from '@server/modules/passport/profile.mjs';
 import { randomToken, sha256, sha256Base64Url } from '@server/modules/passport/accounts/oidc.mjs';
-import { getPassportSnowflakeGenerator } from '@server/modules/passport/snowflake.mjs';
+import { nextSnowflake } from '@server/modules/base/snowflake.mjs';
 import { passportPlaceholderName } from '@server/modules/passport/account.mjs';
 import { hashPassword, verifyPassword } from '@server/modules/base/auth/index.mjs';
 import { normalizePassportEmail } from '@server/modules/passport/identity.mjs';
@@ -98,53 +98,53 @@ const normalizedNickname = (value: string, provider: ExternalProviderId) => {
 };
 
 /** 将身份源已验证的邮箱补充到已有 Accounts 用户；邮箱永远作为次要邮箱，不覆盖主邮箱。 */
-const attachVerifiedExternalEmail = async (database: DatabaseAdapter, workerId: unknown, userId: string, provider: ExternalProvider, rawEmail?: string) => {
+const attachVerifiedExternalEmail = async (database: DatabaseAdapter, userId: string, provider: ExternalProvider, rawEmail?: string) => {
 	if (!rawEmail || !providersWithVerifiedEmail.has(provider.id)) return;
 	const email = normalizePassportEmail(rawEmail);
-	const owner = await firstSql<{ email_id: string; user_id: string; verified: number }>(database, sql({ database }).select({
-		table: 'passport_emails', alias: 'e', columns: { email_id: { column: 'e.id', cast: 'text' }, user_id: { column: 'ue.user_id', cast: 'text' }, verified: 'e.verified' },
+	const owner = await firstSql<{ email_id: string; user_key: string; verified: number }>(database, sql({ database }).select({
+		table: 'passport_emails', alias: 'e', columns: { email_id: { column: 'e.id', cast: 'text' }, user_key: { column: 'ue.user_key', cast: 'text' }, verified: 'e.verified' },
 		joins: [{ table: 'passport_user_emails', alias: 'ue', left: 'ue.email_id', right: 'e.id' }], where: [{ column: 'e.email', value: email }], limit: 1,
 	}));
 	if (owner) {
-		if (owner.user_id !== userId) throw new Error('该 Google 邮箱已属于另一个 Accounts 用户，无法绑定');
+		if (owner.user_key !== userId) throw new Error('该 Google 邮箱已属于另一个 Accounts 用户，无法绑定');
 		if (!owner.verified) await runSql(database, sql({ database }).update('passport_emails', { verified: 1 }, { id: owner.email_id }));
 		return;
 	}
-	const emailId = (await getPassportSnowflakeGenerator(database, workerId).next()).toString(), now = Date.now();
+	const emailId = nextSnowflake(), now = Date.now();
 	await runSql(database, sql({ database }).insert('passport_emails', { id: emailId, email, verified: 1 }));
-	await runSql(database, sql({ database }).insert('passport_user_emails', { user_id: userId, email_id: emailId, is_primary: 0 }));
+	await runSql(database, sql({ database }).insert('passport_user_emails', { user_key: userId, email_id: emailId, is_primary: 0 }));
 };
 
 /** 该外部身份是否已经绑定到启用中的 Accounts 用户；已绑定的直接登录，不再走注册验证码流程。 */
 export const externalIdentityUser = async (database: DatabaseAdapter, provider: ExternalProviderId, subject: string) => (
-	await firstSql<{ user_id: string; status: string }>(database, sql({ database }).select({
+	await firstSql<{ user_key: string; status: string }>(database, sql({ database }).select({
 		table: 'passport_external_identities', alias: 'i',
-		columns: { user_id: { column: 'i.user_id', cast: 'text' }, status: 'u.status' },
-		joins: [{ table: 'passport_users', alias: 'u', left: 'u.user_id', right: 'i.user_id' }],
+		columns: { user_key: { column: 'i.user_key', cast: 'text' }, status: 'u.status' },
+		joins: [{ table: 'passport_users', alias: 'u', left: 'u.key', right: 'i.user_key' }],
 		where: [{ column: 'i.provider', value: provider }, { column: 'i.subject', value: subject }],
 	}))
 );
 
-export const resolveExternalUser = async (database: DatabaseAdapter, workerId: unknown, provider: ExternalProvider, profile: ExternalProfile, targetUserId?: string | null) => {
-	const existing = await firstSql<{ user_id: string; status: string }>(database, sql({ database }).select({ table: 'passport_external_identities', alias: 'i', columns: { user_id: { column: 'i.user_id', cast: 'text' }, status: 'u.status' }, joins: [{ table: 'passport_users', alias: 'u', left: 'u.user_id', right: 'i.user_id' }], where: [{ column: 'i.provider', value: provider.id }, { column: 'i.subject', value: profile.subject }] }));
+export const resolveExternalUser = async (database: DatabaseAdapter, provider: ExternalProvider, profile: ExternalProfile, targetUserId?: string | null) => {
+	const existing = await firstSql<{ user_key: string; status: string }>(database, sql({ database }).select({ table: 'passport_external_identities', alias: 'i', columns: { user_key: { column: 'i.user_key', cast: 'text' }, status: 'u.status' }, joins: [{ table: 'passport_users', alias: 'u', left: 'u.key', right: 'i.user_key' }], where: [{ column: 'i.provider', value: provider.id }, { column: 'i.subject', value: profile.subject }] }));
 	if (existing?.status !== undefined && existing.status !== 'enabled') throw new Error('该外部身份对应的 Accounts 用户已停用');
-	if (targetUserId && existing && existing.user_id !== targetUserId) throw new Error('该外部身份已经绑定到另一个 Accounts 用户');
+	if (targetUserId && existing && existing.user_key !== targetUserId) throw new Error('该外部身份已经绑定到另一个 Accounts 用户');
 	const now = Date.now(), serializedProfile = JSON.stringify(profile.raw);
 	if (existing) {
 		await runSql(database, sql({ database }).update('passport_external_identities', { profile: serializedProfile }, [{ column: 'provider', value: provider.id }, { column: 'subject', value: profile.subject }]));
-		return existing.user_id;
+		return existing.user_key;
 	}
 	if (targetUserId) {
-		// 雪花 ID 超出 JavaScript number 范围，任何取出 user_id 的查询都必须按文本读取。
-		const target = await firstSql(database, sql({ database }).select({ table: 'passport_users', columns: { user_id: { column: 'user_id', cast: 'text' } }, where: [{ column: 'user_id', value: targetUserId }, { column: 'status', value: 'enabled' }] }));
+		// 雪花 ID 超出 JavaScript number 范围，任何取出 user_key 的查询都必须按文本读取。
+		const target = await firstSql(database, sql({ database }).select({ table: 'passport_users', columns: { user_key: { column: 'key', cast: 'text' } }, where: [{ column: 'key', value: targetUserId }, { column: 'status', value: 'enabled' }] }));
 		if (!target) throw new Error('准备绑定的 Accounts 用户不存在或已停用');
-		await attachVerifiedExternalEmail(database, workerId, targetUserId, provider, profile.email);
-		await runSql(database, sql({ database }).insert('passport_external_identities', { user_id: targetUserId, provider: provider.id, subject: profile.subject, profile: serializedProfile }));
+		await attachVerifiedExternalEmail(database, targetUserId, provider, profile.email);
+		await runSql(database, sql({ database }).insert('passport_external_identities', { user_key: targetUserId, provider: provider.id, subject: profile.subject, profile: serializedProfile }));
 		return targetUserId;
 	}
 	if (!profile.email) throw new Error('该外部身份没有已验证邮箱，不能创建 Accounts 用户');
 	const normalizedEmail = normalizePassportEmail(profile.email);
-	const ownedEmail = await firstSql<{ user_id: string; status: string }>(database, sql({ database }).select({ table: 'passport_emails', alias: 'e', columns: { user_id: { column: 'ue.user_id', cast: 'text' }, status: 'u.status' }, joins: [{ table: 'passport_user_emails', alias: 'ue', left: 'ue.email_id', right: 'e.id' }, { table: 'passport_users', alias: 'u', left: 'u.user_id', right: 'ue.user_id' }], where: [{ column: 'e.email', value: normalizedEmail }, { column: 'e.verified', value: 1 }], limit: 1 }));
+	const ownedEmail = await firstSql<{ user_key: string; status: string }>(database, sql({ database }).select({ table: 'passport_emails', alias: 'e', columns: { user_key: { column: 'ue.user_key', cast: 'text' }, status: 'u.status' }, joins: [{ table: 'passport_user_emails', alias: 'ue', left: 'ue.email_id', right: 'e.id' }, { table: 'passport_users', alias: 'u', left: 'u.key', right: 'ue.user_key' }], where: [{ column: 'e.email', value: normalizedEmail }, { column: 'e.verified', value: 1 }], limit: 1 }));
 	if (ownedEmail) {
 		if (ownedEmail.status !== 'enabled') throw new Error('该邮箱所属的 Accounts 用户已停用');
 		// 身份源自己验证过该邮箱归属（例如 Google 的 email_verified），我方这条邮箱记录也是已验证的，
@@ -152,20 +152,20 @@ export const resolveExternalUser = async (database: DatabaseAdapter, workerId: u
 		if (!providersWithVerifiedEmail.has(provider.id)) {
 			throw new Error('该邮箱已属于现有 Accounts 用户，请先登录原账户，再绑定此外部身份');
 		}
-		await runSql(database, sql({ database }).insert('passport_external_identities', { user_id: ownedEmail.user_id, provider: provider.id, subject: profile.subject, profile: serializedProfile }));
-		return ownedEmail.user_id;
+		await runSql(database, sql({ database }).insert('passport_external_identities', { user_key: ownedEmail.user_key, provider: provider.id, subject: profile.subject, profile: serializedProfile }));
+		return ownedEmail.user_key;
 	}
 	if (!database.batch) throw new Error('Accounts 数据库不支持原子创建外部身份');
-	const generator = getPassportSnowflakeGenerator(database, workerId), userId = (await generator.next()).toString();
+	const userId = nextSnowflake();
 	const statements: DatabaseBatchStatement[] = [
-		sql({ database }).insert('passport_users', { user_id: userId, name: passportPlaceholderName(userId), status: 'enabled' }),
+		sql({ database }).insert('passport_users', { key: userId, name: passportPlaceholderName(userId), status: 'enabled' }),
 		...passportProfileInsert(database, userId, normalizedNickname(profile.nickname, provider.id)),
-		sql({ database }).insert('passport_external_identities', { user_id: userId, provider: provider.id, subject: profile.subject, profile: serializedProfile }),
+		sql({ database }).insert('passport_external_identities', { user_key: userId, provider: provider.id, subject: profile.subject, profile: serializedProfile }),
 	];
-	const emailId = (await generator.next()).toString();
+	const emailId = nextSnowflake();
 	statements.push(
 		sql({ database }).insert('passport_emails', { id: emailId, email: normalizedEmail, verified: 1 }),
-		sql({ database }).insert('passport_user_emails', { user_id: userId, email_id: emailId, is_primary: 1 }),
+		sql({ database }).insert('passport_user_emails', { user_key: userId, email_id: emailId, is_primary: 1 }),
 	);
 	await database.batch(statements);
 	return userId;
@@ -184,7 +184,7 @@ export const consumeExternalState = async (database: DatabaseAdapter, state: str
 	return firstSql<ExternalLoginState>(database, sql({ database }).select({ table: 'passport_external_login_states', columns: { provider: 'provider', code_verifier: 'code_verifier', nonce: 'nonce', redirect_uri: 'redirect_uri', oidc_request_id: 'oidc_request_id', expires_at: 'expires_at', consumed_at: 'consumed_at' }, where: [{ column: 'id_hash', value: hash }] }));
 };
 
-export const externalQrState = async (database: DatabaseAdapter, stateHash: string) => firstSql<{ provider: ExternalProviderId; qr_status: string; qr_user_id: string | null; oidc_request_id: string | null; expires_at: number }>(database, sql({ database }).select({ table: 'passport_external_login_states', columns: { provider: 'provider', qr_status: 'qr_status', qr_user_id: 'qr_user_id', oidc_request_id: 'oidc_request_id', expires_at: 'expires_at' }, where: [{ column: 'id_hash', value: stateHash }] })) ;
+export const externalQrState = async (database: DatabaseAdapter, stateHash: string) => firstSql<{ provider: ExternalProviderId; qr_status: string; qr_user_key: string | null; oidc_request_id: string | null; expires_at: number }>(database, sql({ database }).select({ table: 'passport_external_login_states', columns: { provider: 'provider', qr_status: 'qr_status', qr_user_key: 'qr_user_key', oidc_request_id: 'oidc_request_id', expires_at: 'expires_at' }, where: [{ column: 'id_hash', value: stateHash }] })) ;
 
 const generateEmailCode = () => {
 	const limit = Math.floor(0x1_0000_0000 / 1_000_000) * 1_000_000, values = new Uint32Array(1);
@@ -236,7 +236,7 @@ export const discardExternalEmailOtp = (database: DatabaseAdapter, pendingIdenti
 export const pendingExternalEmailOtp = (database: DatabaseAdapter, pendingIdentityHash: string) => firstSql<{ email: string; expires_at: number }>(database, sql({ database }).select({ table: 'passport_external_email_otps', columns: { email: 'email', expires_at: 'expires_at' }, where: [{ column: 'pending_identity_hash', value: pendingIdentityHash }, { column: 'status', value: 'pending' }, { column: 'expires_at', operator: '>', value: Date.now() }], orderBy: [{ column: 'created_at', direction: 'DESC' }], limit: 1 }));
 
 export type ExternalEmailVerification = { status: 'created'; userId: string } | { status: 'invalid' | 'expired' | 'locked' } | { status: 'conflict'; message: string };
-export const verifyExternalEmailOtp = async (database: DatabaseAdapter, workerId: unknown, pending: PendingExternalIdentity, rawCode: string): Promise<ExternalEmailVerification> => {
+export const verifyExternalEmailOtp = async (database: DatabaseAdapter, pending: PendingExternalIdentity, rawCode: string): Promise<ExternalEmailVerification> => {
 	const code = rawCode.trim();
 	if (!/^\d{6}$/.test(code)) return { status: 'invalid' };
 	const otp = await firstSql<{ id: string; email: string; code_hash: string; attempt_count: number; expires_at: number }>(database, sql({ database }).select({ table: 'passport_external_email_otps', columns: { id: 'otp_id', email: 'email', code_hash: 'code_hash', attempt_count: 'attempt_count', expires_at: 'expires_at' }, where: [{ column: 'pending_identity_hash', value: pending.id_hash }, { column: 'status', value: 'pending' }], orderBy: [{ column: 'created_at', direction: 'DESC' }], limit: 1 }));
@@ -253,8 +253,8 @@ export const verifyExternalEmailOtp = async (database: DatabaseAdapter, workerId
 		return { status: attempts >= 5 ? 'locked' : 'invalid' };
 	}
 	const [identityOwner, emailOwner] = await Promise.all([
-		firstSql<{ user_id: string; status: string }>(database, sql({ database }).select({ table: 'passport_external_identities', alias: 'i', columns: { user_id: { column: 'i.user_id', cast: 'text' }, status: 'u.status' }, joins: [{ table: 'passport_users', alias: 'u', left: 'u.user_id', right: 'i.user_id' }], where: [{ column: 'i.provider', value: pending.provider }, { column: 'i.subject', value: pending.subject }] })),
-		firstSql<{ user_id: string; status: string }>(database, sql({ database }).select({ table: 'passport_emails', alias: 'e', columns: { user_id: { column: 'ue.user_id', cast: 'text' }, status: 'u.status' }, joins: [{ table: 'passport_user_emails', alias: 'ue', left: 'ue.email_id', right: 'e.id' }, { table: 'passport_users', alias: 'u', left: 'u.user_id', right: 'ue.user_id' }], where: [{ column: 'e.email', value: otp.email }, { column: 'e.verified', value: 1 }], limit: 1 })),
+		firstSql<{ user_key: string; status: string }>(database, sql({ database }).select({ table: 'passport_external_identities', alias: 'i', columns: { user_key: { column: 'i.user_key', cast: 'text' }, status: 'u.status' }, joins: [{ table: 'passport_users', alias: 'u', left: 'u.key', right: 'i.user_key' }], where: [{ column: 'i.provider', value: pending.provider }, { column: 'i.subject', value: pending.subject }] })),
+		firstSql<{ user_key: string; status: string }>(database, sql({ database }).select({ table: 'passport_emails', alias: 'e', columns: { user_key: { column: 'ue.user_key', cast: 'text' }, status: 'u.status' }, joins: [{ table: 'passport_user_emails', alias: 'ue', left: 'ue.email_id', right: 'e.id' }, { table: 'passport_users', alias: 'u', left: 'u.key', right: 'ue.user_key' }], where: [{ column: 'e.email', value: otp.email }, { column: 'e.verified', value: 1 }], limit: 1 })),
 	]);
 	if (identityOwner) {
 		await runSql(database, sql({ database }).update('passport_external_email_otps', { status: 'used' }, { otp_id: otp.id }));
@@ -267,20 +267,20 @@ export const verifyExternalEmailOtp = async (database: DatabaseAdapter, workerId
 		}
 		if (!database.batch) throw new Error('Accounts 数据库不支持原子绑定外部身份');
 		await database.batch([
-			sql({ database }).insert('passport_external_identities', { user_id: emailOwner.user_id, provider: pending.provider, subject: pending.subject, profile: pending.profile }),
+			sql({ database }).insert('passport_external_identities', { user_key: emailOwner.user_key, provider: pending.provider, subject: pending.subject, profile: pending.profile }),
 			sql({ database }).update('passport_external_email_otps', { status: 'used' }, { otp_id: otp.id }),
 			sql({ database }).update('passport_external_pending_identities', { status: 'completed' }, { id_hash: pending.id_hash }),
 		]);
-		return { status: 'created', userId: emailOwner.user_id };
+		return { status: 'created', userId: emailOwner.user_key };
 	}
 	if (!database.batch) throw new Error('Accounts 数据库不支持原子创建外部身份');
-	const generator = getPassportSnowflakeGenerator(database, workerId), userId = (await generator.next()).toString(), emailId = (await generator.next()).toString();
+	const userId = nextSnowflake(), emailId = nextSnowflake();
 	await database.batch([
-		sql({ database }).insert('passport_users', { user_id: userId, name: passportPlaceholderName(userId), status: 'enabled' }),
+		sql({ database }).insert('passport_users', { key: userId, name: passportPlaceholderName(userId), status: 'enabled' }),
 		...passportProfileInsert(database, userId, pending.nickname),
-		sql({ database }).insert('passport_external_identities', { user_id: userId, provider: pending.provider, subject: pending.subject, profile: pending.profile }),
+		sql({ database }).insert('passport_external_identities', { user_key: userId, provider: pending.provider, subject: pending.subject, profile: pending.profile }),
 		sql({ database }).insert('passport_emails', { id: emailId, email: otp.email, verified: 1 }),
-		sql({ database }).insert('passport_user_emails', { user_id: userId, email_id: emailId, is_primary: 1 }),
+		sql({ database }).insert('passport_user_emails', { user_key: userId, email_id: emailId, is_primary: 1 }),
 		sql({ database }).update('passport_external_email_otps', { status: 'used' }, { otp_id: otp.id }),
 		sql({ database }).update('passport_external_pending_identities', { status: 'completed' }, { id_hash: pending.id_hash }),
 	]);

@@ -26,6 +26,8 @@ import { SiteRouter } from './modules/base/site-router.mjs';
 import { workerCodeSites, workerSiteNavigations } from './.generated/worker-api-registry.mjs';
 import { executeMaintenanceAction } from './modules/base/maintenance/actions.mjs';
 import { purgeAuditRetention } from './modules/base/audit.mjs';
+import { primeSnowflake } from './modules/base/snowflake.mjs';
+import { resolveWorkerId } from './modules/base/worker-id.mjs';
 
 const env = process.env;
 const skipStartupChecks = env.SKIP_STARTUP_CHECKS === '1';
@@ -34,6 +36,9 @@ const defaultDatabase = createSqliteAdapter(env.DEFAULT_DATABASE_FILE || resolve
 const siteDatabases = new Map<string, DatabaseAdapter>();
 const staticSiteRouter = new SiteRouter(defaultDatabase);
 if (!skipStartupChecks) await migrateDefaultDatabase(defaultDatabase, resolve(projectDirectory, 'migrations'));
+// worker id 定下来才能发号；发号器备好号段之后，`key` 的生成就是纯内存的同步操作。
+const workerId = await resolveWorkerId(resolve(projectDirectory, '.env'));
+if (!skipStartupChecks) await primeSnowflake(defaultDatabase, workerId);
 const resolveSiteDsn = (dsn: string) => {
 	let key = dsn, factory: () => DatabaseAdapter;
 	if (dsn.startsWith('sqlite://')) {
@@ -198,7 +203,7 @@ nodeApp.all('*', (c) => worker.fetch(c.req.raw, {
 	// Preserve the Node socket for the shared trusted-proxy IP resolver.  The
 	// Worker entry point otherwise only receives the Request object.
 	incoming: (c.env as { incoming?: unknown } | undefined)?.incoming,
-	SNOWFLAKE_WORKER_ID: env.SNOWFLAKE_WORKER_ID || '0',
+	SNOWFLAKE_WORKER_ID: workerId,
 	DATABASE_RESOLVER: async (site) => {
 		if (site.databaseTarget.kind === 'default') return defaultDatabase;
 		if (site.databaseTarget.kind !== 'dsn') {

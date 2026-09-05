@@ -38,7 +38,7 @@ try {
 	{
 		const other = new DatabaseSync(process.env.DEFAULT_DATABASE_FILE);
 		const at = Date.now();
-		other.prepare('INSERT INTO base_users (name, roles, status, created_at, updated_at) VALUES (?, ?, ?, ?, ?)').run('otheruser', '[]', 'enabled', at, at);
+		other.prepare('INSERT INTO base_users (key, name, roles, status, created_at, updated_at) VALUES (lower(hex(randomblob(16))), ?, ?, ?, ?, ?)').run('otheruser', '[]', 'enabled', at, at);
 		other.close();
 	}
 
