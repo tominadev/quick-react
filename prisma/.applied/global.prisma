@@ -29,6 +29,7 @@ model global_sites {
   created_at       BigInt @default(0)
   updated_at       BigInt @default(0)
   deleted_at       BigInt @default(0)
+  pended_at        BigInt @default(0)
   created_duid     BigInt?
   updated_duid     BigInt?
   owner_tid     BigInt @default(1)
@@ -52,6 +53,7 @@ model global_site_hosts {
   created_at   BigInt
   updated_at   BigInt @default(0)
   deleted_at   BigInt @default(0)
+  pended_at    BigInt @default(0)
   created_duid BigInt?
   updated_duid BigInt?
   owner_tid     BigInt @default(1)
@@ -70,6 +72,7 @@ model global_cloud_credentials {
   created_at        BigInt
   updated_at        BigInt
   deleted_at BigInt @default(0)
+  pended_at  BigInt @default(0)
   created_duid      BigInt?
   updated_duid      BigInt?
   owner_tid     BigInt @default(1)
@@ -91,6 +94,7 @@ model global_cloud_object_storage_buckets {
   created_at          BigInt
   updated_at          BigInt
   deleted_at BigInt @default(0)
+  pended_at  BigInt @default(0)
   created_duid        BigInt?
   updated_duid        BigInt?
   owner_tid     BigInt @default(1)
@@ -115,6 +119,7 @@ model global_cloud_object_storage_bindings {
   created_at BigInt
   updated_at BigInt
   deleted_at BigInt @default(0)
+  pended_at  BigInt @default(0)
   created_duid BigInt?
   updated_duid BigInt?
   owner_tid     BigInt @default(1)
@@ -136,6 +141,7 @@ model global_cloud_object_storage_binding_purposes {
   created_at BigInt @default(0)
   updated_at BigInt @default(0)
   deleted_at BigInt @default(0)
+  pended_at  BigInt @default(0)
   created_duid BigInt?
   updated_duid BigInt?
   owner_tid     BigInt @default(1)
@@ -156,6 +162,7 @@ model global_telegram_bots {
   created_at       BigInt
   updated_at       BigInt
   deleted_at BigInt @default(0)
+  pended_at  BigInt @default(0)
   created_duid     BigInt?
   updated_duid     BigInt?
   owner_tid     BigInt @default(1)
@@ -181,6 +188,7 @@ model global_cloud_email_channels {
   created_at          BigInt
   updated_at          BigInt
   deleted_at BigInt @default(0)
+  pended_at  BigInt @default(0)
   created_duid        BigInt?
   updated_duid        BigInt?
   owner_tid     BigInt @default(1)
@@ -204,6 +212,7 @@ model global_cloud_email_templates {
   created_at    BigInt
   updated_at    BigInt
   deleted_at BigInt @default(0)
+  pended_at  BigInt @default(0)
   created_duid  BigInt?
   updated_duid  BigInt?
   owner_tid     BigInt @default(1)
@@ -223,6 +232,7 @@ model global_cloud_email_bindings {
   created_at BigInt
   updated_at BigInt
   deleted_at BigInt @default(0)
+  pended_at  BigInt @default(0)
   created_duid BigInt?
   updated_duid BigInt?
   owner_tid     BigInt @default(1)
@@ -245,6 +255,7 @@ model global_cloud_email_template_publications {
   created_at           BigInt
   updated_at           BigInt
   deleted_at BigInt @default(0)
+  pended_at  BigInt @default(0)
   created_duid         BigInt?
   updated_duid         BigInt?
   owner_tid     BigInt @default(1)
@@ -272,6 +283,7 @@ model global_snowflake_state {
   created_at     BigInt
   updated_at     BigInt
   deleted_at     BigInt @default(0)
+  pended_at      BigInt @default(0)
   created_duid   BigInt?
   updated_duid   BigInt?
   owner_tid      BigInt @default(1)

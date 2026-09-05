@@ -14,13 +14,13 @@ const banned = { code: 'key', display_name: 'title', label: 'title', caption: 't
 /** 没有 key 列的表，与 sql.mts 的 KEYLESS_TABLES 一一对应。 */
 const keyless = new Set(['global_snowflake_state']);
 /**
- * 每张表都带的十个系统字段，顺序固定。
+ * 每张表都带的十一个系统字段，顺序固定。
  *
  * 顺序一致是为了读：几十张表并排看时，前十列永远在同一个位置，眼睛不用重新找。
  * 它们还必须**连成一片**——被业务列隔开的话，「哪些是脚手架、哪些是这张表自己的东西」
  * 就得逐个辨认。
  */
-const systemFields = ['id', 'key', 'created_at', 'updated_at', 'deleted_at', 'created_duid', 'updated_duid', 'owner_tid', 'owner_bid', 'owner_uid'];
+const systemFields = ['id', 'key', 'created_at', 'updated_at', 'deleted_at', 'pended_at', 'created_duid', 'updated_duid', 'owner_tid', 'owner_bid', 'owner_uid'];
 const problems = [];
 
 for (const file of (await readdir(prismaDirectory)).filter((name) => name.endsWith('.prisma')).sort()) {

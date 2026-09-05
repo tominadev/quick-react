@@ -31,11 +31,13 @@ const conflictTarget = (keys: string[]) => {
 	if (!keys.length) throw new Error('INSERT conflict keys cannot be empty');
 	return keys.includes('deleted_at') ? keys : [...keys, 'deleted_at'];
 };
-const assertBusinessWriteFields = (values: Values, options: { allowId?: boolean; allowKey?: boolean; allowDeletedAt?: boolean } = {}) => {
+const assertBusinessWriteFields = (values: Values, options: { allowId?: boolean; allowKey?: boolean; allowManagedFlags?: boolean } = {}) => {
 	const protectedFields = Object.keys(values).filter((field) => isSystemField(field)
 		&& !(options.allowId && field === 'id')
 		&& !(options.allowKey && field === 'key')
-		&& !(options.allowDeletedAt && field === 'deleted_at'));
+		// deleted_at 与 pended_at 都由专用方法写（softDelete / restore / revert / activate），
+		// 业务代码一律不许直接传。
+		&& !(options.allowManagedFlags && (field === 'deleted_at' || field === 'pended_at')));
 	if (protectedFields.length) throw new Error(`系统字段由 SQL 公共层维护，业务代码不得传入：${protectedFields.join('、')}（固定字段：${SYSTEM_FIELD_NAMES.join('、')}）`);
 };
 
@@ -210,11 +212,17 @@ export abstract class SqlBuilder {
 		// 没有资料或没有凭证的账号会从列表里凭空消失。放进 ON 对 INNER JOIN 等价。
 		for (const join of options.joins ?? []) {
 			const joinScope = quoteIdentifier(`${join.alias ?? join.table}.deleted_at`, this.dialect);
+			const joinPended = quoteIdentifier(`${join.alias ?? join.table}.pended_at`, this.dialect);
 			const activeOnly = deletedScope !== 'all' && deletedScope !== 'deleted';
-			query += ` ${join.type ?? 'INNER'} JOIN ${quoteIdentifier(join.table, this.dialect)}${join.alias ? ` AS ${quoteIdentifier(join.alias, this.dialect)}` : ''} ON ${quoteIdentifier(join.left, this.dialect)} = ${quoteIdentifier(join.right, this.dialect)}${activeOnly ? ` AND ${joinScope} = 0` : ''}`;
+			// 待审批的新行和已删除的行一样，都要写进 ON 而不是 WHERE，理由同上。
+			query += ` ${join.type ?? 'INNER'} JOIN ${quoteIdentifier(join.table, this.dialect)}${join.alias ? ` AS ${quoteIdentifier(join.alias, this.dialect)}` : ''} ON ${quoteIdentifier(join.left, this.dialect)} = ${quoteIdentifier(join.right, this.dialect)}${activeOnly ? ` AND ${joinScope} = 0 AND ${joinPended} = 0` : ''}`;
 		}
 		const deletedConditions: SqlCondition[] = deletedScope === 'all' ? [] : [
 			{ column: `${options.alias ?? options.table}.deleted_at`, operator: deletedScope === 'deleted' ? '!=' as const : '=' as const, value: 0 },
+			// 待审批的新行对所有正常查询不可见：它还没通过审批，在看的人眼里不该存在。
+			// 只在 active 加：回收站（deleted）按 deleted_at != 0 取，本来就收不到它们
+			// （它们的 deleted_at 是 0）；deleted: 'all' 是内部读——算差异、批准写回都要读得到。
+			...(deletedScope === 'active' ? [{ column: `${options.alias ?? options.table}.pended_at`, value: 0 }] : []),
 		];
 		const conditions = [...deletedConditions, ...this.visibilityConditions(options.table, options.alias), ...(options.where ?? [])], boundConditions = conditions.filter(bindsValue);
 		let parameterIndex = 0;
@@ -241,6 +249,7 @@ export abstract class SqlBuilder {
 		let parameterIndex = 0;
 		const conditions: SqlCondition[] = [
 			...(deleted === 'all' ? [] : [{ column: 'deleted_at', operator: deleted === 'deleted' ? '!=' as const : '=' as const, value: 0 }]),
+			...(deleted === 'active' ? [{ column: 'pended_at', value: 0 }] : []),
 			...this.visibilityConditions(table),
 			...where,
 		];
@@ -248,7 +257,15 @@ export abstract class SqlBuilder {
 		return { query, values: conditions.filter(bindsValue).map((condition) => condition.value) };
 	}
 
-	insert(table: string, values: Values): SqlQuery {
+	/**
+	 * @param options.pending 待审批的新建：行照写，但 `pended_at` 记下进队列的时刻，
+	 * 于是它对所有正常查询不可见。批准把它归零（{@link activate}），驳回把整行物理删掉——
+	 * 那一行从未生效过，历史留在审批记录上。
+	 *
+	 * 用一列专管「有没有通过审批」，不复用 deleted_at：那两件事的区别是「还没生出来」
+	 * 与「被删掉了」，混在一列里，回收站就会把没批准的新建当成可恢复的记录列出来。
+	 */
+	insert(table: string, values: Values, options: { pending?: boolean } = {}): SqlQuery {
 		// An internal allocator may provide an ID during creation; IDs are still
 		// immutable after creation and never appear in user-facing forms.
 		assertBusinessWriteFields(values, { allowId: true, allowKey: true });
@@ -258,7 +275,7 @@ export abstract class SqlBuilder {
 		// 这类表的 key 是人给的短串，不是雪花。
 		if (values.key !== undefined) assertRowKey(table, values.key);
 		const rowKey = values.key === undefined && !KEYLESS_TABLES.has(table) ? { key: nextSnowflake() } : {};
-		const timestamped: Values = { created_at: timestamp, updated_at: timestamp, ...(actorUid !== null ? { created_duid: actorUid, updated_duid: actorUid } : {}), owner_tid: ownerTid, owner_bid: ownerBid, owner_uid: ownerUid, ...rowKey, ...values };
+		const timestamped: Values = { created_at: timestamp, updated_at: timestamp, ...(options.pending ? { pended_at: timestamp } : {}), ...(actorUid !== null ? { created_duid: actorUid, updated_duid: actorUid } : {}), owner_tid: ownerTid, owner_bid: ownerBid, owner_uid: ownerUid, ...rowKey, ...values };
 		const entries = definedEntries(timestamped); if (!entries.length) throw new Error('INSERT values cannot be empty');
 		return {
 			query: `INSERT INTO ${quoteIdentifier(table, this.dialect)} (${entries.map(([key]) => quoteIdentifier(key, this.dialect)).join(', ')}) VALUES (${this.placeholders(entries.length).join(', ')})`,
@@ -305,8 +322,8 @@ export abstract class SqlBuilder {
 		};
 	}
 
-	private updateManaged(table: string, values: Values, where: Values | SqlCondition[], allowDeletedAt = false): SqlQuery {
-		assertBusinessWriteFields(values, { allowDeletedAt });
+	private updateManaged(table: string, values: Values, where: Values | SqlCondition[], allowManagedFlags = false): SqlQuery {
+		assertBusinessWriteFields(values, { allowManagedFlags });
 		const actorUid = this.actorUidFor(table);
 		const entries = definedEntries({ updated_at: Date.now(), ...(actorUid !== null ? { updated_duid: actorUid } : {}), ...values });
 		const businessConditions: SqlCondition[] = Array.isArray(where) ? where : definedEntries(where).map(([column, value]) => ({ column, value }));
@@ -342,6 +359,11 @@ export abstract class SqlBuilder {
 	/** 将记录移入回收站；审计字段由 update 统一维护。 */
 	softDelete(table: string, where: Values | SqlCondition[]): SqlQuery {
 		return this.updateManaged(table, { deleted_at: Date.now() }, where, true);
+	}
+
+	/** 批准一条待审批的新建：pended_at 归零，这一行才开始对人可见。 */
+	activate(table: string, where: Values | SqlCondition[]): SqlQuery {
+		return this.updateManaged(table, { pended_at: 0 }, where, true);
 	}
 
 	/** 从回收站恢复记录；不会恢复已被物理清理的记录。 */

@@ -52,9 +52,9 @@ try {
 	const postgresInsert = postgres.insert('users', { name: 'Alice', status: 'enabled' });
 	assert.match(postgresInsert.query, /^INSERT INTO "users" \("created_at", "updated_at", "owner_uid", "key", "name", "status"\) VALUES \(\$1, \$2, \$3, \$4, \$5, \$6\)$/);
 	assert.deepEqual(postgresInsert.values.slice(4), ['Alice', 'enabled']);
-	assert.deepEqual(postgres.count('users', [{ column: 'status', value: 'enabled' }]), { query: 'SELECT COUNT(*) AS "count" FROM "users" WHERE "deleted_at" = $1 AND "status" = $2', values: [0, 'enabled'] });
-	assert.deepEqual(mysql.select({ table: 'users', includeAll: true, limit: 10, offset: 20 }), { query: 'SELECT * FROM `users` WHERE `users`.`deleted_at` = ? LIMIT ? OFFSET ?', values: [0, 10, 20] });
-	assert.equal(sqlite.select({ table: 'users', includeAll: true, sqliteRowIdAlias: '__rowid__' }).query, 'SELECT rowid AS "__rowid__", * FROM "users" WHERE "users"."deleted_at" = ?');
+	assert.deepEqual(postgres.count('users', [{ column: 'status', value: 'enabled' }]), { query: 'SELECT COUNT(*) AS "count" FROM "users" WHERE "deleted_at" = $1 AND "pended_at" = $2 AND "status" = $3', values: [0, 0, 'enabled'] });
+	assert.deepEqual(mysql.select({ table: 'users', includeAll: true, limit: 10, offset: 20 }), { query: 'SELECT * FROM `users` WHERE `users`.`deleted_at` = ? AND `users`.`pended_at` = ? LIMIT ? OFFSET ?', values: [0, 0, 10, 20] });
+	assert.equal(sqlite.select({ table: 'users', includeAll: true, sqliteRowIdAlias: '__rowid__' }).query, 'SELECT rowid AS "__rowid__", * FROM "users" WHERE "users"."deleted_at" = ? AND "users"."pended_at" = ?');
 	assert.deepEqual(sqlite.select({ table: 'users', includeAll: true, deleted: 'deleted' }), { query: 'SELECT * FROM "users" WHERE "users"."deleted_at" != ?', values: [0] });
 	assert.equal(sqlite.select({ table: 'users', includeAll: true, deleted: 'all' }).query, 'SELECT * FROM "users"');
 	assert.match(sqlite.softDelete('users', { id: 1 }).query, /^UPDATE "users" SET "updated_at" = \?, "deleted_at" = \? WHERE "id" = \?$/);

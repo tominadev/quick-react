@@ -8,6 +8,6 @@
  * 之后一律不可改——它能被别的表引用，正是因为建后不动；改一次就把所有引用指向了空处。
  * 因此更新路径把它当系统字段挡掉，新建路径显式放行。
  */
-export const SYSTEM_FIELD_NAMES = ['id', 'key', 'created_at', 'updated_at', 'deleted_at', 'created_duid', 'updated_duid'] as const;
+export const SYSTEM_FIELD_NAMES = ['id', 'key', 'created_at', 'updated_at', 'deleted_at', 'pended_at', 'created_duid', 'updated_duid'] as const;
 export type SystemFieldName = (typeof SYSTEM_FIELD_NAMES)[number];
 export const isSystemField = (name: string): name is SystemFieldName => (SYSTEM_FIELD_NAMES as readonly string[]).includes(name);
