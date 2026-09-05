@@ -6,6 +6,7 @@ import { isValidAccountUsername } from '@server/modules/passport/account.mjs';
 import { baseSessionMaxAge, createSessionCookie, hashSessionToken } from '@server/modules/base/auth/index.mjs';
 import { ensureBaseDevice } from '@server/modules/base/device.mjs';
 import { hasCredential, setCredential } from '@server/modules/base/credentials.mjs';
+import { profileStatement, readProfileNickname } from '@server/modules/base/profile.mjs';
 import { readStoredPassword } from '@server/modules/base/auth/index.mjs';
 import { CREDENTIAL_CLAIM } from '@shared/types/oidc-claims.mjs';
 import { withDatabaseActors } from '@server/database/index.mjs';
@@ -36,6 +37,23 @@ const syncLocalUsername = async (database: Parameters<typeof runSql>[0], userId:
 	const taken = await firstSql(database, sql({ database: database }).select({ table: 'base_users', columns: { id: 'id' }, where: [{ column: 'name', value: username }, tenantId === null ? { column: 'owner_tid', operator: 'IS NULL' as const } : { column: 'owner_tid', value: tenantId }] }));
 	if (taken) return;
 	await runSql(database, sql({ database: database }).update('base_users', { name: username }, { id: userId }));
+};
+
+/**
+ * Accounts 昵称同步到本站资料。
+ *
+ * 和用户名同步是**两套规则**，别照抄：
+ * - 用户名是标识，登录用，租户内唯一、字符集窄；「还没被本站定过」的信号是名字仍是占位名。
+ * - 昵称是显示名，不参与登录，字符集宽；「还没被本站定过」的信号是**本站昵称为空**
+ *   （没有资料行，或有行但 nickname 为 NULL——用户填了联系方式却没填昵称）。
+ *
+ * 只在本站昵称为空时补上，人工设过的一律不覆盖。撞名（撞别人的昵称或用户名）就跳过，
+ * 显示层自会回落到用户名——登录不该因为一个显示名失败。
+ */
+const syncLocalNickname = async (database: Parameters<typeof runSql>[0], userId: number, nickname: string, tenantScope: { column: string; value?: unknown; operator?: 'IS NULL' }) => {
+	if (await readProfileNickname(database, userId)) return;
+	const result = await profileStatement(database, userId, { nickname }, tenantScope);
+	if ('statement' in result) await runSql(database, result.statement);
 };
 
 const handler: ApiHandler = async (c) => {
@@ -87,6 +105,9 @@ const handler: ApiHandler = async (c) => {
 			await runSql(systemDatabase, sql({ database: systemDatabase }).update('base_oidc_users', { profile: JSON.stringify(claims) }, [{ column: 'issuer', value: config.issuer }, { column: 'subject', value: subject }, tenantScope('owner_tid')]));
 		}
 		if (isValidAccountUsername(preferred)) await syncLocalUsername(systemDatabase, account.user_id, preferred, tenantId);
+		// name 只在 Accounts 那边**真设过昵称**时才下发；没设就没这个 claim，本站保持回落到用户名。
+		const remoteNickname = typeof claims.name === 'string' ? claims.name.trim() : '';
+		if (remoteNickname) await syncLocalNickname(systemDatabase, account.user_id, remoteNickname, tenantScope('owner_tid'));
 		// 密码同步：两侧都要开。Accounts 那边给这个客户端打开「下发密码」才会带上 claim，
 		// 本站再打开「同步 Accounts 密码」才会写入。单向——本站改了密码，下次登录会被覆盖回去。
 		if (c.get('siteSettings').passwordSyncEnabled && readStoredPassword(credentialClaim)) {

@@ -55,6 +55,13 @@ export const profileStatement = async (
 			where: [{ column: 'name', value: nickname }, { column: 'id', operator: '!=', value: userId }, tenantScope], limit: 1,
 		}));
 		if (takenAsUsername) return { error: '该昵称与其他账号的用户名相同，请更换' };
+		// 昵称租户内唯一。资料表的唯一索引兜底，但那是一条数据库原始报错；登录回调那边更是
+		// 一撞就整个登录失败。写入前查一次，撞了给得出话来的消息。
+		const takenAsNickname = await firstSql(database, sql({ database }).select({
+			table: 'base_user_profiles', columns: { user_id: 'user_id' },
+			where: [{ column: 'nickname', value: nickname }, { column: 'user_id', operator: '!=', value: userId }, tenantScope], limit: 1,
+		}));
+		if (takenAsNickname) return { error: '该昵称已被其他账号使用，请更换' };
 	}
 	// 昵称清空写 NULL 而不是空串：唯一索引里空串互相相等，第二个不设昵称的账号就建不出来。
 	// 也不删整行——只清昵称不该把联系方式一起带走，而留一行全空的资料是无害的。

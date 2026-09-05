@@ -1,6 +1,5 @@
 import type { DatabaseAdapter } from '@server/database/index.mjs';
 import { allSql, firstSql, sql } from '@server/database/sql.mjs';
-import { passportNicknameOf } from '../profile.mjs';
 import { loadAccountUsername } from '@server/modules/passport/account.mjs';
 import { sha256 } from '@server/modules/passport/accounts/oidc.mjs';
 
@@ -17,7 +16,12 @@ export const authorizationRequest = (database: DatabaseAdapter, id: string) => f
 export const authorizationCode = (database: DatabaseAdapter, hash: string) => firstSql<AuthorizationCodeRecord>(database, sql({ database }).select({ table: 'passport_oidc_authorization_codes', columns: { client_id: 'client_id', user_id: { column: 'user_id', cast: 'text' }, redirect_uri: 'redirect_uri', scope: 'scope', nonce: 'nonce', code_challenge: 'code_challenge', code_challenge_method: 'code_challenge_method', expires_at: 'expires_at', consumed_at: 'consumed_at', session_id: 'session_id' }, where: [{ column: 'code_hash', value: hash }] }));
 
 export const accountUser = async (database: DatabaseAdapter, userId: string) => {
-	// ID Token 的 name 用昵称；没设过资料就回落到用户名。
+	// ID Token 的 name 只在**真有昵称**时下发。
+	//
+	// 不能在这里回落到用户名：回落是显示层的事，各系统各回各的（passport 回落到 passport
+	// 用户名，业务站点回落到本站用户名）。塞进 claim 的话下游分不清「这是昵称」还是
+	// 「这人没昵称、拿用户名顶上的」，照着同步就会把 passport 用户名灌进本站昵称——
+	// 凭空造出一个「用户设过昵称」的假状态。claim 里只放事实。
 	const row = await firstSql<{ sub: string; username: string; nickname: string | null; status: string }>(database, sql({ database }).select({
 		table: 'passport_users', alias: 'u',
 		columns: { sub: { column: 'u.user_id', cast: 'text' }, username: 'u.name', nickname: 'p.nickname', status: 'u.status' },
@@ -25,7 +29,8 @@ export const accountUser = async (database: DatabaseAdapter, userId: string) => 
 		where: [{ column: 'u.user_id', value: userId }],
 	}));
 	if (!row) return null;
-	const user = { sub: row.sub, name: passportNicknameOf(row.username, row.nickname), status: row.status };
+	const nickname = row.nickname?.trim() ?? '';
+	const user = { sub: row.sub, status: row.status, ...(nickname ? { name: nickname } : {}) };
 	// 用户名是可选能力，只有设置过才作为 preferred_username 下发。
 	const username = await loadAccountUsername(database, userId);
 	const email = await firstSql<{ email: string }>(database, sql({ database }).select({ table: 'passport_user_emails', alias: 'ue', columns: { email: 'e.email' }, joins: [{ table: 'passport_emails', alias: 'e', left: 'e.id', right: 'ue.email_id' }], where: [{ column: 'ue.user_id', value: userId }, { column: 'ue.is_primary', value: 1 }, { column: 'e.verified', value: 1 }], limit: 1 }));

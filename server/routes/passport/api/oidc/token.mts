@@ -31,7 +31,7 @@ const handler: ApiHandler = async (c) => {
 	await database.batch([consumeCode, insertToken]);
 	// 凭证 blob 只在这个客户端显式打开 password_sync 时下发；接入方那边还要再开一次才会写入。
 	const credential = Number(client.password_sync ?? 0) === 1 ? await accountCredentialClaim(database, code.user_id) : undefined;
-	const idToken = await signIdToken(database, { iss: issuer, sub: user.sub, aud: clientId, exp: Math.floor(now / 1000) + expiresIn, iat: Math.floor(now / 1000), sid: code.session_id, ...(code.nonce ? { nonce: code.nonce } : {}), name: user.name, ...(user.preferred_username ? { preferred_username: user.preferred_username } : {}), ...(user.email ? { email: user.email, email_verified: true } : {}), ...(credential ? { [CREDENTIAL_CLAIM]: credential } : {}) });
+	const idToken = await signIdToken(database, { iss: issuer, sub: user.sub, aud: clientId, exp: Math.floor(now / 1000) + expiresIn, iat: Math.floor(now / 1000), sid: code.session_id, ...(code.nonce ? { nonce: code.nonce } : {}), ...(user.name ? { name: user.name } : {}), ...(user.preferred_username ? { preferred_username: user.preferred_username } : {}), ...(user.email ? { email: user.email, email_verified: true } : {}), ...(credential ? { [CREDENTIAL_CLAIM]: credential } : {}) });
 	return apiResponse(c, 200, { access_token: accessToken, token_type: 'Bearer', expires_in: expiresIn, scope: code.scope, id_token: idToken });
 };
 export default handler;

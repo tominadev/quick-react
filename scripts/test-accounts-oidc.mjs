@@ -168,6 +168,11 @@ try {
 	// Accounts 用户名通过 preferred_username 下发，业务站点用它替换 passport_<user_id> 占位名。
 	assert.equal(claims.preferred_username, 'oidcuser1');
 	assert.equal(signedInBusiness.user.username, 'oidcuser1');
+	// 昵称走 name claim，和用户名是两套规则：本站昵称为空才补，人工设过的不覆盖。
+	assert.equal(claims.name, 'AccountsUser');
+	const syncedProfile = new DatabaseSync(process.env.DEFAULT_DATABASE_FILE, { readOnly: true });
+	assert.equal(syncedProfile.prepare('SELECT nickname FROM base_user_profiles p JOIN base_users u ON u.id = p.user_id WHERE u.name = ?').get('oidcuser1').nickname, 'AccountsUser');
+	syncedProfile.close();
 	assert.deepEqual(signedInBusiness.formPage.passportLogin, { enabled: true });
 	const signedInAuth = await (await app.request('https://site1.test/api/home.php?include=auth&path=%2Fpanel%2Fadmin%2Fbase%2Fusers', { headers: { cookie: businessSessionCookie, 'x-device-key': deviceKey, 'x-device-fingerprint': fingerprintData } })).json();
 	assert.ok(signedInAuth.context);
