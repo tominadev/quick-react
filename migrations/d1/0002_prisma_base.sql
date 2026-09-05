@@ -4,6 +4,7 @@
 -- CreateTable
 CREATE TABLE "base_tenants" (
     "id" INTEGER NOT NULL PRIMARY KEY AUTOINCREMENT,
+    "key" TEXT NOT NULL,
     "created_at" BIGINT NOT NULL,
     "updated_at" BIGINT NOT NULL,
     "deleted_at" BIGINT NOT NULL DEFAULT 0,
@@ -12,14 +13,14 @@ CREATE TABLE "base_tenants" (
     "owner_tid" BIGINT NOT NULL DEFAULT 1,
     "owner_bid" BIGINT NOT NULL DEFAULT 1,
     "owner_uid" BIGINT,
-    "key" TEXT NOT NULL,
-    "name" TEXT NOT NULL,
+    "title" TEXT NOT NULL,
     "status" TEXT NOT NULL DEFAULT 'enabled'
 );
 
 -- CreateTable
 CREATE TABLE "base_branches" (
     "id" INTEGER NOT NULL PRIMARY KEY AUTOINCREMENT,
+    "key" TEXT NOT NULL,
     "created_at" BIGINT NOT NULL,
     "updated_at" BIGINT NOT NULL,
     "deleted_at" BIGINT NOT NULL DEFAULT 0,
@@ -28,14 +29,14 @@ CREATE TABLE "base_branches" (
     "owner_tid" BIGINT NOT NULL DEFAULT 1,
     "owner_bid" BIGINT NOT NULL DEFAULT 1,
     "owner_uid" BIGINT,
-    "key" TEXT NOT NULL,
-    "name" TEXT NOT NULL,
+    "title" TEXT NOT NULL,
     "status" TEXT NOT NULL DEFAULT 'enabled'
 );
 
 -- CreateTable
 CREATE TABLE "base_hosts" (
     "id" INTEGER NOT NULL PRIMARY KEY AUTOINCREMENT,
+    "key" TEXT NOT NULL,
     "created_at" BIGINT NOT NULL,
     "updated_at" BIGINT NOT NULL,
     "deleted_at" BIGINT NOT NULL DEFAULT 0,
@@ -53,6 +54,7 @@ CREATE TABLE "base_hosts" (
 -- CreateTable
 CREATE TABLE "base_users" (
     "id" INTEGER NOT NULL PRIMARY KEY AUTOINCREMENT,
+    "key" TEXT NOT NULL,
     "created_at" BIGINT NOT NULL,
     "updated_at" BIGINT NOT NULL,
     "deleted_at" BIGINT NOT NULL DEFAULT 0,
@@ -69,6 +71,7 @@ CREATE TABLE "base_users" (
 -- CreateTable
 CREATE TABLE "base_sessions" (
     "id" INTEGER NOT NULL PRIMARY KEY AUTOINCREMENT,
+    "key" TEXT NOT NULL,
     "created_at" BIGINT NOT NULL,
     "updated_at" BIGINT NOT NULL,
     "deleted_at" BIGINT NOT NULL DEFAULT 0,
@@ -86,6 +89,7 @@ CREATE TABLE "base_sessions" (
 -- CreateTable
 CREATE TABLE "base_configs" (
     "id" INTEGER NOT NULL PRIMARY KEY AUTOINCREMENT,
+    "key" TEXT NOT NULL,
     "created_at" BIGINT NOT NULL,
     "updated_at" BIGINT NOT NULL,
     "deleted_at" BIGINT NOT NULL DEFAULT 0,
@@ -94,13 +98,13 @@ CREATE TABLE "base_configs" (
     "owner_tid" BIGINT NOT NULL DEFAULT 1,
     "owner_bid" BIGINT NOT NULL DEFAULT 1,
     "owner_uid" BIGINT,
-    "key" TEXT NOT NULL,
     "value" TEXT NOT NULL
 );
 
 -- CreateTable
 CREATE TABLE "base_bootstrap" (
     "id" INTEGER NOT NULL PRIMARY KEY AUTOINCREMENT,
+    "key" TEXT NOT NULL,
     "created_at" BIGINT NOT NULL,
     "updated_at" BIGINT NOT NULL,
     "deleted_at" BIGINT NOT NULL DEFAULT 0,
@@ -109,13 +113,13 @@ CREATE TABLE "base_bootstrap" (
     "owner_tid" BIGINT NOT NULL DEFAULT 1,
     "owner_bid" BIGINT NOT NULL DEFAULT 1,
     "owner_uid" BIGINT,
-    "key" TEXT NOT NULL,
     "value" TEXT NOT NULL
 );
 
 -- CreateTable
 CREATE TABLE "base_oidc_login_requests" (
     "id" INTEGER NOT NULL PRIMARY KEY AUTOINCREMENT,
+    "key" TEXT NOT NULL,
     "created_at" BIGINT NOT NULL,
     "updated_at" BIGINT NOT NULL,
     "deleted_at" BIGINT NOT NULL DEFAULT 0,
@@ -140,6 +144,7 @@ CREATE TABLE "base_oidc_login_requests" (
 -- CreateTable
 CREATE TABLE "base_oidc_users" (
     "id" INTEGER NOT NULL PRIMARY KEY AUTOINCREMENT,
+    "key" TEXT NOT NULL,
     "created_at" BIGINT NOT NULL,
     "updated_at" BIGINT NOT NULL,
     "deleted_at" BIGINT NOT NULL DEFAULT 0,
@@ -157,6 +162,7 @@ CREATE TABLE "base_oidc_users" (
 -- CreateTable
 CREATE TABLE "base_oidc_sessions" (
     "id" INTEGER NOT NULL PRIMARY KEY AUTOINCREMENT,
+    "key" TEXT NOT NULL,
     "created_at" BIGINT NOT NULL,
     "updated_at" BIGINT NOT NULL,
     "deleted_at" BIGINT NOT NULL DEFAULT 0,
@@ -173,6 +179,7 @@ CREATE TABLE "base_oidc_sessions" (
 -- CreateTable
 CREATE TABLE "base_devices" (
     "id" INTEGER NOT NULL PRIMARY KEY AUTOINCREMENT,
+    "key" TEXT NOT NULL,
     "created_at" BIGINT NOT NULL,
     "updated_at" BIGINT NOT NULL,
     "deleted_at" BIGINT NOT NULL DEFAULT 0,
@@ -182,7 +189,6 @@ CREATE TABLE "base_devices" (
     "owner_bid" BIGINT NOT NULL DEFAULT 1,
     "owner_uid" BIGINT,
     "user_id" BIGINT NOT NULL,
-    "key" TEXT NOT NULL,
     "fingerprint" TEXT NOT NULL DEFAULT '{}',
     "user_agent" TEXT NOT NULL DEFAULT '',
     "platform" TEXT NOT NULL DEFAULT '',
@@ -196,6 +202,7 @@ CREATE TABLE "base_devices" (
 -- CreateTable
 CREATE TABLE "base_device_users" (
     "id" INTEGER NOT NULL PRIMARY KEY AUTOINCREMENT,
+    "key" TEXT NOT NULL,
     "created_at" BIGINT NOT NULL,
     "updated_at" BIGINT NOT NULL,
     "deleted_at" BIGINT NOT NULL DEFAULT 0,
@@ -214,6 +221,7 @@ CREATE TABLE "base_device_users" (
 -- CreateTable
 CREATE TABLE "base_device_snapshots" (
     "id" INTEGER NOT NULL PRIMARY KEY AUTOINCREMENT,
+    "key" TEXT NOT NULL,
     "created_at" BIGINT NOT NULL,
     "updated_at" BIGINT NOT NULL,
     "deleted_at" BIGINT NOT NULL DEFAULT 0,
@@ -234,8 +242,9 @@ CREATE TABLE "base_device_snapshots" (
 );
 
 -- CreateTable
-CREATE TABLE "base_audit_entries" (
+CREATE TABLE "base_approvals" (
     "id" INTEGER NOT NULL PRIMARY KEY AUTOINCREMENT,
+    "key" TEXT NOT NULL,
     "created_at" BIGINT NOT NULL,
     "updated_at" BIGINT NOT NULL,
     "deleted_at" BIGINT NOT NULL DEFAULT 0,
@@ -246,14 +255,20 @@ CREATE TABLE "base_audit_entries" (
     "owner_uid" BIGINT,
     "operation_id" TEXT NOT NULL,
     "reason" TEXT NOT NULL DEFAULT '',
+    "scope" TEXT NOT NULL DEFAULT 'admin',
+    "request_hostname" TEXT NOT NULL DEFAULT '',
+    "request_path" TEXT NOT NULL DEFAULT '',
     "table_name" TEXT NOT NULL,
     "row_id" BIGINT NOT NULL,
     "action" TEXT NOT NULL,
     "changes" TEXT NOT NULL DEFAULT '{}',
-    "status" TEXT NOT NULL DEFAULT 'applied',
+    "review_status" TEXT NOT NULL DEFAULT 'none',
+    "data_status" TEXT NOT NULL DEFAULT 'applied',
     "reviewed_at" BIGINT,
     "reviewed_duid" BIGINT,
     "review_reason" TEXT NOT NULL DEFAULT '',
+    "withdrawn_at" BIGINT,
+    "withdrawn_duid" BIGINT,
     "reverted_at" BIGINT,
     "reverted_duid" BIGINT,
     "revert_reason" TEXT NOT NULL DEFAULT '',
@@ -265,6 +280,7 @@ CREATE TABLE "base_audit_entries" (
 -- CreateTable
 CREATE TABLE "base_user_credentials" (
     "id" INTEGER NOT NULL PRIMARY KEY AUTOINCREMENT,
+    "key" TEXT NOT NULL,
     "created_at" BIGINT NOT NULL,
     "updated_at" BIGINT NOT NULL,
     "deleted_at" BIGINT NOT NULL DEFAULT 0,
@@ -280,6 +296,7 @@ CREATE TABLE "base_user_credentials" (
 -- CreateTable
 CREATE TABLE "base_user_profiles" (
     "id" INTEGER NOT NULL PRIMARY KEY AUTOINCREMENT,
+    "key" TEXT NOT NULL,
     "created_at" BIGINT NOT NULL,
     "updated_at" BIGINT NOT NULL,
     "deleted_at" BIGINT NOT NULL DEFAULT 0,
@@ -305,10 +322,19 @@ CREATE UNIQUE INDEX "base_branches_owner_tid_key_deleted_at_key" ON "base_branch
 CREATE UNIQUE INDEX "base_hosts_hostname_deleted_at_key" ON "base_hosts"("hostname", "deleted_at");
 
 -- CreateIndex
+CREATE UNIQUE INDEX "base_hosts_key_deleted_at_key" ON "base_hosts"("key", "deleted_at");
+
+-- CreateIndex
 CREATE UNIQUE INDEX "base_users_owner_tid_name_deleted_at_key" ON "base_users"("owner_tid", "name", "deleted_at");
 
 -- CreateIndex
+CREATE UNIQUE INDEX "base_users_key_deleted_at_key" ON "base_users"("key", "deleted_at");
+
+-- CreateIndex
 CREATE UNIQUE INDEX "base_sessions_token_hash_deleted_at_key" ON "base_sessions"("token_hash", "deleted_at");
+
+-- CreateIndex
+CREATE UNIQUE INDEX "base_sessions_key_deleted_at_key" ON "base_sessions"("key", "deleted_at");
 
 -- CreateIndex
 CREATE UNIQUE INDEX "base_configs_owner_tid_key_deleted_at_key" ON "base_configs"("owner_tid", "key", "deleted_at");
@@ -323,7 +349,13 @@ CREATE UNIQUE INDEX "base_oidc_login_requests_request_id_deleted_at_key" ON "bas
 CREATE UNIQUE INDEX "base_oidc_login_requests_state_deleted_at_key" ON "base_oidc_login_requests"("state", "deleted_at");
 
 -- CreateIndex
+CREATE UNIQUE INDEX "base_oidc_login_requests_key_deleted_at_key" ON "base_oidc_login_requests"("key", "deleted_at");
+
+-- CreateIndex
 CREATE UNIQUE INDEX "base_oidc_users_owner_tid_issuer_subject_deleted_at_key" ON "base_oidc_users"("owner_tid", "issuer", "subject", "deleted_at");
+
+-- CreateIndex
+CREATE UNIQUE INDEX "base_oidc_users_key_deleted_at_key" ON "base_oidc_users"("key", "deleted_at");
 
 -- CreateIndex
 CREATE UNIQUE INDEX "base_oidc_sessions_session_id_deleted_at_key" ON "base_oidc_sessions"("session_id", "deleted_at");
@@ -332,34 +364,55 @@ CREATE UNIQUE INDEX "base_oidc_sessions_session_id_deleted_at_key" ON "base_oidc
 CREATE UNIQUE INDEX "base_oidc_sessions_issuer_sid_deleted_at_key" ON "base_oidc_sessions"("issuer", "sid", "deleted_at");
 
 -- CreateIndex
+CREATE UNIQUE INDEX "base_oidc_sessions_key_deleted_at_key" ON "base_oidc_sessions"("key", "deleted_at");
+
+-- CreateIndex
 CREATE UNIQUE INDEX "base_devices_key_deleted_at_key" ON "base_devices"("key", "deleted_at");
 
 -- CreateIndex
 CREATE UNIQUE INDEX "base_device_users_device_id_user_id_deleted_at_key" ON "base_device_users"("device_id", "user_id", "deleted_at");
 
 -- CreateIndex
-CREATE INDEX "base_audit_entries_owner_tid_created_at_idx" ON "base_audit_entries"("owner_tid", "created_at");
+CREATE UNIQUE INDEX "base_device_users_key_deleted_at_key" ON "base_device_users"("key", "deleted_at");
 
 -- CreateIndex
-CREATE INDEX "base_audit_entries_owner_bid_created_at_idx" ON "base_audit_entries"("owner_bid", "created_at");
+CREATE UNIQUE INDEX "base_device_snapshots_key_deleted_at_key" ON "base_device_snapshots"("key", "deleted_at");
 
 -- CreateIndex
-CREATE INDEX "base_audit_entries_owner_uid_created_at_idx" ON "base_audit_entries"("owner_uid", "created_at");
+CREATE INDEX "base_approvals_owner_tid_created_at_idx" ON "base_approvals"("owner_tid", "created_at");
 
 -- CreateIndex
-CREATE INDEX "base_audit_entries_table_name_row_id_created_at_idx" ON "base_audit_entries"("table_name", "row_id", "created_at");
+CREATE INDEX "base_approvals_owner_bid_created_at_idx" ON "base_approvals"("owner_bid", "created_at");
 
 -- CreateIndex
-CREATE INDEX "base_audit_entries_operation_id_idx" ON "base_audit_entries"("operation_id");
+CREATE INDEX "base_approvals_owner_uid_created_at_idx" ON "base_approvals"("owner_uid", "created_at");
 
 -- CreateIndex
-CREATE INDEX "base_audit_entries_status_created_at_idx" ON "base_audit_entries"("status", "created_at");
+CREATE INDEX "base_approvals_table_name_row_id_created_at_idx" ON "base_approvals"("table_name", "row_id", "created_at");
+
+-- CreateIndex
+CREATE INDEX "base_approvals_operation_id_idx" ON "base_approvals"("operation_id");
+
+-- CreateIndex
+CREATE INDEX "base_approvals_review_status_created_at_idx" ON "base_approvals"("review_status", "created_at");
+
+-- CreateIndex
+CREATE INDEX "base_approvals_scope_created_at_idx" ON "base_approvals"("scope", "created_at");
+
+-- CreateIndex
+CREATE UNIQUE INDEX "base_approvals_key_deleted_at_key" ON "base_approvals"("key", "deleted_at");
 
 -- CreateIndex
 CREATE UNIQUE INDEX "base_user_credentials_user_id_deleted_at_key" ON "base_user_credentials"("user_id", "deleted_at");
+
+-- CreateIndex
+CREATE UNIQUE INDEX "base_user_credentials_key_deleted_at_key" ON "base_user_credentials"("key", "deleted_at");
 
 -- CreateIndex
 CREATE UNIQUE INDEX "base_user_profiles_user_id_deleted_at_key" ON "base_user_profiles"("user_id", "deleted_at");
 
 -- CreateIndex
 CREATE UNIQUE INDEX "base_user_profiles_owner_tid_nickname_deleted_at_key" ON "base_user_profiles"("owner_tid", "nickname", "deleted_at");
+
+-- CreateIndex
+CREATE UNIQUE INDEX "base_user_profiles_key_deleted_at_key" ON "base_user_profiles"("key", "deleted_at");

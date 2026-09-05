@@ -37,6 +37,7 @@ CREATE TYPE "PassportDeviceStatus" AS ENUM ('active', 'revoked');
 -- CreateTable
 CREATE TABLE "passport_users" (
     "id" BIGSERIAL NOT NULL,
+    "key" VARCHAR(36) NOT NULL,
     "created_at" BIGINT NOT NULL,
     "updated_at" BIGINT NOT NULL,
     "deleted_at" BIGINT NOT NULL DEFAULT 0,
@@ -45,7 +46,6 @@ CREATE TABLE "passport_users" (
     "owner_tid" BIGINT NOT NULL DEFAULT 1,
     "owner_bid" BIGINT NOT NULL DEFAULT 1,
     "owner_uid" BIGINT,
-    "user_id" BIGINT NOT NULL,
     "name" TEXT NOT NULL,
     "status" "PassportAccountStatus" NOT NULL DEFAULT 'enabled',
 
@@ -55,6 +55,7 @@ CREATE TABLE "passport_users" (
 -- CreateTable
 CREATE TABLE "passport_user_email_otps" (
     "id" BIGSERIAL NOT NULL,
+    "key" VARCHAR(36) NOT NULL,
     "created_at" BIGINT NOT NULL,
     "updated_at" BIGINT NOT NULL,
     "deleted_at" BIGINT NOT NULL DEFAULT 0,
@@ -64,7 +65,7 @@ CREATE TABLE "passport_user_email_otps" (
     "owner_bid" BIGINT NOT NULL DEFAULT 1,
     "owner_uid" BIGINT,
     "otp_id" TEXT NOT NULL,
-    "user_id" BIGINT NOT NULL,
+    "user_key" VARCHAR(36) NOT NULL,
     "email" TEXT NOT NULL,
     "code_hash" TEXT NOT NULL,
     "attempt_count" INTEGER NOT NULL DEFAULT 0,
@@ -77,6 +78,7 @@ CREATE TABLE "passport_user_email_otps" (
 -- CreateTable
 CREATE TABLE "passport_user_credentials" (
     "id" BIGSERIAL NOT NULL,
+    "key" VARCHAR(36) NOT NULL,
     "created_at" BIGINT NOT NULL,
     "updated_at" BIGINT NOT NULL,
     "deleted_at" BIGINT NOT NULL DEFAULT 0,
@@ -85,7 +87,7 @@ CREATE TABLE "passport_user_credentials" (
     "owner_tid" BIGINT NOT NULL DEFAULT 1,
     "owner_bid" BIGINT NOT NULL DEFAULT 1,
     "owner_uid" BIGINT,
-    "user_id" BIGINT NOT NULL,
+    "user_key" VARCHAR(36) NOT NULL,
     "password" JSONB NOT NULL,
 
     CONSTRAINT "passport_user_credentials_pkey" PRIMARY KEY ("id")
@@ -94,6 +96,7 @@ CREATE TABLE "passport_user_credentials" (
 -- CreateTable
 CREATE TABLE "passport_sessions" (
     "id" BIGSERIAL NOT NULL,
+    "key" VARCHAR(36) NOT NULL,
     "created_at" BIGINT NOT NULL,
     "updated_at" BIGINT NOT NULL,
     "deleted_at" BIGINT NOT NULL DEFAULT 0,
@@ -103,7 +106,7 @@ CREATE TABLE "passport_sessions" (
     "owner_bid" BIGINT NOT NULL DEFAULT 1,
     "owner_uid" BIGINT,
     "token_hash" TEXT NOT NULL,
-    "user_id" BIGINT NOT NULL,
+    "user_key" VARCHAR(36) NOT NULL,
     "expires_at" BIGINT NOT NULL,
     "device_id" BIGINT NOT NULL,
 
@@ -113,6 +116,7 @@ CREATE TABLE "passport_sessions" (
 -- CreateTable
 CREATE TABLE "passport_devices" (
     "id" BIGSERIAL NOT NULL,
+    "key" VARCHAR(36) NOT NULL,
     "created_at" BIGINT NOT NULL,
     "updated_at" BIGINT NOT NULL,
     "deleted_at" BIGINT NOT NULL DEFAULT 0,
@@ -121,7 +125,6 @@ CREATE TABLE "passport_devices" (
     "owner_tid" BIGINT NOT NULL DEFAULT 1,
     "owner_bid" BIGINT NOT NULL DEFAULT 1,
     "owner_uid" BIGINT,
-    "key" TEXT NOT NULL,
     "fingerprint" JSONB NOT NULL DEFAULT '{}',
     "user_agent" TEXT NOT NULL DEFAULT '',
     "platform" TEXT NOT NULL DEFAULT '',
@@ -137,6 +140,7 @@ CREATE TABLE "passport_devices" (
 -- CreateTable
 CREATE TABLE "passport_device_users" (
     "id" BIGSERIAL NOT NULL,
+    "key" VARCHAR(36) NOT NULL,
     "created_at" BIGINT NOT NULL,
     "updated_at" BIGINT NOT NULL,
     "deleted_at" BIGINT NOT NULL DEFAULT 0,
@@ -146,7 +150,7 @@ CREATE TABLE "passport_device_users" (
     "owner_bid" BIGINT NOT NULL DEFAULT 1,
     "owner_uid" BIGINT,
     "device_id" BIGINT NOT NULL,
-    "user_id" BIGINT NOT NULL,
+    "user_key" VARCHAR(36) NOT NULL,
     "status" "PassportDeviceStatus" NOT NULL DEFAULT 'active',
     "last_seen_at" BIGINT NOT NULL,
     "revoked_at" BIGINT,
@@ -157,6 +161,7 @@ CREATE TABLE "passport_device_users" (
 -- CreateTable
 CREATE TABLE "passport_telegram_accounts" (
     "id" BIGSERIAL NOT NULL,
+    "key" VARCHAR(36) NOT NULL,
     "created_at" BIGINT NOT NULL,
     "updated_at" BIGINT NOT NULL,
     "deleted_at" BIGINT NOT NULL DEFAULT 0,
@@ -165,7 +170,7 @@ CREATE TABLE "passport_telegram_accounts" (
     "owner_tid" BIGINT NOT NULL DEFAULT 1,
     "owner_bid" BIGINT NOT NULL DEFAULT 1,
     "owner_uid" BIGINT,
-    "user_id" BIGINT NOT NULL,
+    "user_key" VARCHAR(36) NOT NULL,
     "bot_id" BIGINT NOT NULL,
     "telegram_user_id" BIGINT NOT NULL,
     "chat_id" BIGINT NOT NULL,
@@ -177,6 +182,7 @@ CREATE TABLE "passport_telegram_accounts" (
 -- CreateTable
 CREATE TABLE "passport_oauth_accounts" (
     "id" BIGSERIAL NOT NULL,
+    "key" VARCHAR(36) NOT NULL,
     "created_at" BIGINT NOT NULL,
     "updated_at" BIGINT NOT NULL,
     "deleted_at" BIGINT NOT NULL DEFAULT 0,
@@ -185,7 +191,7 @@ CREATE TABLE "passport_oauth_accounts" (
     "owner_tid" BIGINT NOT NULL DEFAULT 1,
     "owner_bid" BIGINT NOT NULL DEFAULT 1,
     "owner_uid" BIGINT,
-    "user_id" BIGINT NOT NULL,
+    "user_key" VARCHAR(36) NOT NULL,
     "provider" TEXT NOT NULL,
     "provider_user_id" TEXT NOT NULL,
 
@@ -195,6 +201,7 @@ CREATE TABLE "passport_oauth_accounts" (
 -- CreateTable
 CREATE TABLE "passport_emails" (
     "id" BIGSERIAL NOT NULL,
+    "key" VARCHAR(36) NOT NULL,
     "created_at" BIGINT NOT NULL,
     "updated_at" BIGINT NOT NULL,
     "deleted_at" BIGINT NOT NULL DEFAULT 0,
@@ -212,6 +219,7 @@ CREATE TABLE "passport_emails" (
 -- CreateTable
 CREATE TABLE "passport_user_emails" (
     "id" BIGSERIAL NOT NULL,
+    "key" VARCHAR(36) NOT NULL,
     "created_at" BIGINT NOT NULL,
     "updated_at" BIGINT NOT NULL,
     "deleted_at" BIGINT NOT NULL DEFAULT 0,
@@ -220,7 +228,7 @@ CREATE TABLE "passport_user_emails" (
     "owner_tid" BIGINT NOT NULL DEFAULT 1,
     "owner_bid" BIGINT NOT NULL DEFAULT 1,
     "owner_uid" BIGINT,
-    "user_id" BIGINT NOT NULL,
+    "user_key" VARCHAR(36) NOT NULL,
     "email_id" BIGINT NOT NULL,
     "is_primary" INTEGER NOT NULL DEFAULT 0,
 
@@ -230,6 +238,7 @@ CREATE TABLE "passport_user_emails" (
 -- CreateTable
 CREATE TABLE "passport_email_otp" (
     "id" BIGSERIAL NOT NULL,
+    "key" VARCHAR(36) NOT NULL,
     "created_at" BIGINT NOT NULL,
     "updated_at" BIGINT NOT NULL,
     "deleted_at" BIGINT NOT NULL DEFAULT 0,
@@ -251,25 +260,9 @@ CREATE TABLE "passport_email_otp" (
 );
 
 -- CreateTable
-CREATE TABLE "passport_snowflake_state" (
-    "id" BIGSERIAL NOT NULL,
-    "created_at" BIGINT NOT NULL,
-    "updated_at" BIGINT NOT NULL,
-    "deleted_at" BIGINT NOT NULL DEFAULT 0,
-    "created_duid" BIGINT,
-    "updated_duid" BIGINT,
-    "owner_tid" BIGINT NOT NULL DEFAULT 1,
-    "owner_bid" BIGINT NOT NULL DEFAULT 1,
-    "owner_uid" BIGINT,
-    "worker_id" INTEGER NOT NULL,
-    "last_timestamp" BIGINT NOT NULL,
-
-    CONSTRAINT "passport_snowflake_state_pkey" PRIMARY KEY ("id")
-);
-
--- CreateTable
 CREATE TABLE "passport_telegram_menus" (
     "id" BIGSERIAL NOT NULL,
+    "key" VARCHAR(36) NOT NULL,
     "created_at" BIGINT NOT NULL,
     "updated_at" BIGINT NOT NULL,
     "deleted_at" BIGINT NOT NULL DEFAULT 0,
@@ -290,6 +283,7 @@ CREATE TABLE "passport_telegram_menus" (
 -- CreateTable
 CREATE TABLE "passport_telegram_updates" (
     "id" BIGSERIAL NOT NULL,
+    "key" VARCHAR(36) NOT NULL,
     "created_at" BIGINT NOT NULL,
     "updated_at" BIGINT NOT NULL,
     "deleted_at" BIGINT NOT NULL DEFAULT 0,
@@ -308,6 +302,7 @@ CREATE TABLE "passport_telegram_updates" (
 -- CreateTable
 CREATE TABLE "passport_telegram_identity_choices" (
     "id" BIGSERIAL NOT NULL,
+    "key" VARCHAR(36) NOT NULL,
     "created_at" BIGINT NOT NULL,
     "updated_at" BIGINT NOT NULL,
     "deleted_at" BIGINT NOT NULL DEFAULT 0,
@@ -319,7 +314,7 @@ CREATE TABLE "passport_telegram_identity_choices" (
     "bot_id" BIGINT NOT NULL,
     "telegram_user_id" BIGINT NOT NULL,
     "chat_id" BIGINT NOT NULL,
-    "target_user_id" BIGINT NOT NULL,
+    "target_user_key" VARCHAR(36) NOT NULL,
     "email" TEXT NOT NULL,
     "status" "PassportTelegramChoiceStatus" NOT NULL,
     "expires_at" BIGINT NOT NULL,
@@ -330,6 +325,7 @@ CREATE TABLE "passport_telegram_identity_choices" (
 -- CreateTable
 CREATE TABLE "passport_login_challenges" (
     "id" BIGSERIAL NOT NULL,
+    "key" VARCHAR(36) NOT NULL,
     "created_at" BIGINT NOT NULL,
     "updated_at" BIGINT NOT NULL,
     "deleted_at" BIGINT NOT NULL DEFAULT 0,
@@ -339,7 +335,7 @@ CREATE TABLE "passport_login_challenges" (
     "owner_bid" BIGINT NOT NULL DEFAULT 1,
     "owner_uid" BIGINT,
     "challenge_id" TEXT NOT NULL,
-    "user_id" BIGINT NOT NULL,
+    "user_key" VARCHAR(36) NOT NULL,
     "bot_id" BIGINT NOT NULL,
     "telegram_user_id" BIGINT NOT NULL,
     "chat_id" BIGINT NOT NULL,
@@ -353,6 +349,7 @@ CREATE TABLE "passport_login_challenges" (
 -- CreateTable
 CREATE TABLE "passport_sso_requests" (
     "id" BIGSERIAL NOT NULL,
+    "key" VARCHAR(36) NOT NULL,
     "created_at" BIGINT NOT NULL,
     "updated_at" BIGINT NOT NULL,
     "deleted_at" BIGINT NOT NULL DEFAULT 0,
@@ -373,6 +370,7 @@ CREATE TABLE "passport_sso_requests" (
 -- CreateTable
 CREATE TABLE "passport_login_tickets" (
     "id" BIGSERIAL NOT NULL,
+    "key" VARCHAR(36) NOT NULL,
     "created_at" BIGINT NOT NULL,
     "updated_at" BIGINT NOT NULL,
     "deleted_at" BIGINT NOT NULL DEFAULT 0,
@@ -382,7 +380,7 @@ CREATE TABLE "passport_login_tickets" (
     "owner_bid" BIGINT NOT NULL DEFAULT 1,
     "owner_uid" BIGINT,
     "token_hash" TEXT NOT NULL,
-    "user_id" BIGINT NOT NULL,
+    "user_key" VARCHAR(36) NOT NULL,
     "target_site_key" TEXT NOT NULL,
     "target_hostname" TEXT NOT NULL,
     "status" "PassportSsoStatus" NOT NULL,
@@ -394,6 +392,7 @@ CREATE TABLE "passport_login_tickets" (
 -- CreateTable
 CREATE TABLE "passport_site_sessions" (
     "id" BIGSERIAL NOT NULL,
+    "key" VARCHAR(36) NOT NULL,
     "created_at" BIGINT NOT NULL,
     "updated_at" BIGINT NOT NULL,
     "deleted_at" BIGINT NOT NULL DEFAULT 0,
@@ -403,7 +402,7 @@ CREATE TABLE "passport_site_sessions" (
     "owner_bid" BIGINT NOT NULL DEFAULT 1,
     "owner_uid" BIGINT,
     "session_id" TEXT NOT NULL,
-    "user_id" BIGINT NOT NULL,
+    "user_key" VARCHAR(36) NOT NULL,
     "site_key" TEXT NOT NULL,
     "hostname" TEXT NOT NULL,
     "expires_at" BIGINT NOT NULL,
@@ -414,6 +413,7 @@ CREATE TABLE "passport_site_sessions" (
 -- CreateTable
 CREATE TABLE "passport_group_prompts" (
     "id" BIGSERIAL NOT NULL,
+    "key" VARCHAR(36) NOT NULL,
     "created_at" BIGINT NOT NULL,
     "updated_at" BIGINT NOT NULL,
     "deleted_at" BIGINT NOT NULL DEFAULT 0,
@@ -433,6 +433,7 @@ CREATE TABLE "passport_group_prompts" (
 -- CreateTable
 CREATE TABLE "passport_external_email_otps" (
     "id" BIGSERIAL NOT NULL,
+    "key" VARCHAR(36) NOT NULL,
     "created_at" BIGINT NOT NULL,
     "updated_at" BIGINT NOT NULL,
     "deleted_at" BIGINT NOT NULL DEFAULT 0,
@@ -455,6 +456,7 @@ CREATE TABLE "passport_external_email_otps" (
 -- CreateTable
 CREATE TABLE "passport_external_identities" (
     "id" BIGSERIAL NOT NULL,
+    "key" VARCHAR(36) NOT NULL,
     "created_at" BIGINT NOT NULL,
     "updated_at" BIGINT NOT NULL,
     "deleted_at" BIGINT NOT NULL DEFAULT 0,
@@ -463,7 +465,7 @@ CREATE TABLE "passport_external_identities" (
     "owner_tid" BIGINT NOT NULL DEFAULT 1,
     "owner_bid" BIGINT NOT NULL DEFAULT 1,
     "owner_uid" BIGINT,
-    "user_id" BIGINT NOT NULL,
+    "user_key" VARCHAR(36) NOT NULL,
     "provider" TEXT NOT NULL,
     "subject" TEXT NOT NULL,
     "profile" TEXT NOT NULL DEFAULT '{}',
@@ -474,6 +476,7 @@ CREATE TABLE "passport_external_identities" (
 -- CreateTable
 CREATE TABLE "passport_external_login_states" (
     "id" BIGSERIAL NOT NULL,
+    "key" VARCHAR(36) NOT NULL,
     "created_at" BIGINT NOT NULL,
     "updated_at" BIGINT NOT NULL,
     "deleted_at" BIGINT NOT NULL DEFAULT 0,
@@ -490,7 +493,7 @@ CREATE TABLE "passport_external_login_states" (
     "expires_at" BIGINT NOT NULL,
     "consumed_at" BIGINT,
     "qr_status" "PassportQrStatus" NOT NULL DEFAULT 'pending',
-    "qr_user_id" TEXT,
+    "qr_user_key" VARCHAR(36),
     "oidc_request_id" TEXT,
 
     CONSTRAINT "passport_external_login_states_pkey" PRIMARY KEY ("id")
@@ -499,6 +502,7 @@ CREATE TABLE "passport_external_login_states" (
 -- CreateTable
 CREATE TABLE "passport_external_pending_identities" (
     "id" BIGSERIAL NOT NULL,
+    "key" VARCHAR(36) NOT NULL,
     "created_at" BIGINT NOT NULL,
     "updated_at" BIGINT NOT NULL,
     "deleted_at" BIGINT NOT NULL DEFAULT 0,
@@ -521,6 +525,7 @@ CREATE TABLE "passport_external_pending_identities" (
 -- CreateTable
 CREATE TABLE "passport_external_pending_qr_states" (
     "id" BIGSERIAL NOT NULL,
+    "key" VARCHAR(36) NOT NULL,
     "created_at" BIGINT NOT NULL,
     "updated_at" BIGINT NOT NULL,
     "deleted_at" BIGINT NOT NULL DEFAULT 0,
@@ -538,6 +543,7 @@ CREATE TABLE "passport_external_pending_qr_states" (
 -- CreateTable
 CREATE TABLE "passport_external_providers" (
     "id" BIGSERIAL NOT NULL,
+    "key" VARCHAR(36) NOT NULL,
     "created_at" BIGINT NOT NULL,
     "updated_at" BIGINT NOT NULL,
     "deleted_at" BIGINT NOT NULL DEFAULT 0,
@@ -547,7 +553,7 @@ CREATE TABLE "passport_external_providers" (
     "owner_bid" BIGINT NOT NULL DEFAULT 1,
     "owner_uid" BIGINT,
     "provider" TEXT NOT NULL,
-    "display_name" TEXT NOT NULL,
+    "title" TEXT NOT NULL,
     "client_id" TEXT NOT NULL,
     "client_secret" TEXT NOT NULL,
     "status" "PassportAccountStatus" NOT NULL DEFAULT 'enabled',
@@ -560,6 +566,7 @@ CREATE TABLE "passport_external_providers" (
 -- CreateTable
 CREATE TABLE "passport_oidc_clients" (
     "id" BIGSERIAL NOT NULL,
+    "key" VARCHAR(36) NOT NULL,
     "created_at" BIGINT NOT NULL,
     "updated_at" BIGINT NOT NULL,
     "deleted_at" BIGINT NOT NULL DEFAULT 0,
@@ -569,7 +576,7 @@ CREATE TABLE "passport_oidc_clients" (
     "owner_bid" BIGINT NOT NULL DEFAULT 1,
     "owner_uid" BIGINT,
     "client_id" TEXT NOT NULL,
-    "name" TEXT NOT NULL,
+    "title" TEXT NOT NULL,
     "secret_hash" TEXT NOT NULL,
     "redirect_uris" TEXT NOT NULL DEFAULT '[]',
     "allowed_scopes" TEXT NOT NULL DEFAULT 'openid profile email',
@@ -585,6 +592,7 @@ CREATE TABLE "passport_oidc_clients" (
 -- CreateTable
 CREATE TABLE "passport_oidc_authorization_requests" (
     "id" BIGSERIAL NOT NULL,
+    "key" VARCHAR(36) NOT NULL,
     "created_at" BIGINT NOT NULL,
     "updated_at" BIGINT NOT NULL,
     "deleted_at" BIGINT NOT NULL DEFAULT 0,
@@ -609,6 +617,7 @@ CREATE TABLE "passport_oidc_authorization_requests" (
 -- CreateTable
 CREATE TABLE "passport_oidc_authorization_codes" (
     "id" BIGSERIAL NOT NULL,
+    "key" VARCHAR(36) NOT NULL,
     "created_at" BIGINT NOT NULL,
     "updated_at" BIGINT NOT NULL,
     "deleted_at" BIGINT NOT NULL DEFAULT 0,
@@ -619,7 +628,7 @@ CREATE TABLE "passport_oidc_authorization_codes" (
     "owner_uid" BIGINT,
     "code_hash" TEXT NOT NULL,
     "client_id" TEXT NOT NULL,
-    "user_id" BIGINT NOT NULL,
+    "user_key" VARCHAR(36) NOT NULL,
     "redirect_uri" TEXT NOT NULL,
     "scope" TEXT NOT NULL,
     "nonce" TEXT NOT NULL DEFAULT '',
@@ -635,6 +644,7 @@ CREATE TABLE "passport_oidc_authorization_codes" (
 -- CreateTable
 CREATE TABLE "passport_oidc_access_tokens" (
     "id" BIGSERIAL NOT NULL,
+    "key" VARCHAR(36) NOT NULL,
     "created_at" BIGINT NOT NULL,
     "updated_at" BIGINT NOT NULL,
     "deleted_at" BIGINT NOT NULL DEFAULT 0,
@@ -645,7 +655,7 @@ CREATE TABLE "passport_oidc_access_tokens" (
     "owner_uid" BIGINT,
     "token_hash" TEXT NOT NULL,
     "client_id" TEXT NOT NULL,
-    "user_id" BIGINT NOT NULL,
+    "user_key" VARCHAR(36) NOT NULL,
     "scope" TEXT NOT NULL,
     "expires_at" BIGINT NOT NULL,
     "revoked_at" BIGINT,
@@ -658,6 +668,7 @@ CREATE TABLE "passport_oidc_access_tokens" (
 -- CreateTable
 CREATE TABLE "passport_oidc_signing_keys" (
     "id" BIGSERIAL NOT NULL,
+    "key" VARCHAR(36) NOT NULL,
     "created_at" BIGINT NOT NULL,
     "updated_at" BIGINT NOT NULL,
     "deleted_at" BIGINT NOT NULL DEFAULT 0,
@@ -677,6 +688,7 @@ CREATE TABLE "passport_oidc_signing_keys" (
 -- CreateTable
 CREATE TABLE "passport_user_profiles" (
     "id" BIGSERIAL NOT NULL,
+    "key" VARCHAR(36) NOT NULL,
     "created_at" BIGINT NOT NULL,
     "updated_at" BIGINT NOT NULL,
     "deleted_at" BIGINT NOT NULL DEFAULT 0,
@@ -685,7 +697,7 @@ CREATE TABLE "passport_user_profiles" (
     "owner_tid" BIGINT NOT NULL DEFAULT 1,
     "owner_bid" BIGINT NOT NULL DEFAULT 1,
     "owner_uid" BIGINT,
-    "user_id" BIGINT NOT NULL,
+    "user_key" VARCHAR(36) NOT NULL,
     "nickname" TEXT,
     "qq" TEXT NOT NULL DEFAULT '',
     "wechat" TEXT NOT NULL DEFAULT '',
@@ -694,22 +706,28 @@ CREATE TABLE "passport_user_profiles" (
 );
 
 -- CreateIndex
-CREATE UNIQUE INDEX "passport_users_user_id_deleted_at_key" ON "passport_users"("user_id", "deleted_at");
+CREATE UNIQUE INDEX "passport_users_key_deleted_at_key" ON "passport_users"("key", "deleted_at");
 
 -- CreateIndex
 CREATE UNIQUE INDEX "passport_users_name_deleted_at_key" ON "passport_users"("name", "deleted_at");
 
 -- CreateIndex
-CREATE INDEX "passport_user_email_otps_user_id_status_created_at_idx" ON "passport_user_email_otps"("user_id", "status", "created_at");
+CREATE INDEX "passport_user_email_otps_user_key_status_created_at_idx" ON "passport_user_email_otps"("user_key", "status", "created_at");
 
 -- CreateIndex
 CREATE UNIQUE INDEX "passport_user_email_otps_otp_id_deleted_at_key" ON "passport_user_email_otps"("otp_id", "deleted_at");
 
 -- CreateIndex
-CREATE INDEX "passport_user_credentials_user_id_created_at_id_idx" ON "passport_user_credentials"("user_id", "created_at", "id");
+CREATE UNIQUE INDEX "passport_user_email_otps_key_deleted_at_key" ON "passport_user_email_otps"("key", "deleted_at");
 
 -- CreateIndex
-CREATE INDEX "passport_sessions_user_id_idx" ON "passport_sessions"("user_id");
+CREATE INDEX "passport_user_credentials_user_key_created_at_id_idx" ON "passport_user_credentials"("user_key", "created_at", "id");
+
+-- CreateIndex
+CREATE UNIQUE INDEX "passport_user_credentials_key_deleted_at_key" ON "passport_user_credentials"("key", "deleted_at");
+
+-- CreateIndex
+CREATE INDEX "passport_sessions_user_key_idx" ON "passport_sessions"("user_key");
 
 -- CreateIndex
 CREATE INDEX "passport_sessions_expires_at_idx" ON "passport_sessions"("expires_at");
@@ -718,34 +736,55 @@ CREATE INDEX "passport_sessions_expires_at_idx" ON "passport_sessions"("expires_
 CREATE UNIQUE INDEX "passport_sessions_token_hash_deleted_at_key" ON "passport_sessions"("token_hash", "deleted_at");
 
 -- CreateIndex
+CREATE UNIQUE INDEX "passport_sessions_key_deleted_at_key" ON "passport_sessions"("key", "deleted_at");
+
+-- CreateIndex
 CREATE UNIQUE INDEX "passport_devices_key_deleted_at_key" ON "passport_devices"("key", "deleted_at");
 
 -- CreateIndex
-CREATE UNIQUE INDEX "passport_device_users_device_id_user_id_deleted_at_key" ON "passport_device_users"("device_id", "user_id", "deleted_at");
+CREATE UNIQUE INDEX "passport_device_users_device_id_user_key_deleted_at_key" ON "passport_device_users"("device_id", "user_key", "deleted_at");
+
+-- CreateIndex
+CREATE UNIQUE INDEX "passport_device_users_key_deleted_at_key" ON "passport_device_users"("key", "deleted_at");
 
 -- CreateIndex
 CREATE UNIQUE INDEX "passport_telegram_accounts_bot_id_telegram_user_id_deleted__key" ON "passport_telegram_accounts"("bot_id", "telegram_user_id", "deleted_at");
 
 -- CreateIndex
+CREATE UNIQUE INDEX "passport_telegram_accounts_key_deleted_at_key" ON "passport_telegram_accounts"("key", "deleted_at");
+
+-- CreateIndex
 CREATE UNIQUE INDEX "passport_oauth_accounts_provider_provider_user_id_deleted_a_key" ON "passport_oauth_accounts"("provider", "provider_user_id", "deleted_at");
+
+-- CreateIndex
+CREATE UNIQUE INDEX "passport_oauth_accounts_key_deleted_at_key" ON "passport_oauth_accounts"("key", "deleted_at");
 
 -- CreateIndex
 CREATE UNIQUE INDEX "passport_emails_email_deleted_at_key" ON "passport_emails"("email", "deleted_at");
 
 -- CreateIndex
-CREATE UNIQUE INDEX "passport_user_emails_user_id_email_id_deleted_at_key" ON "passport_user_emails"("user_id", "email_id", "deleted_at");
+CREATE UNIQUE INDEX "passport_emails_key_deleted_at_key" ON "passport_emails"("key", "deleted_at");
+
+-- CreateIndex
+CREATE UNIQUE INDEX "passport_user_emails_user_key_email_id_deleted_at_key" ON "passport_user_emails"("user_key", "email_id", "deleted_at");
 
 -- CreateIndex
 CREATE UNIQUE INDEX "passport_user_emails_email_id_deleted_at_key" ON "passport_user_emails"("email_id", "deleted_at");
 
 -- CreateIndex
+CREATE UNIQUE INDEX "passport_user_emails_key_deleted_at_key" ON "passport_user_emails"("key", "deleted_at");
+
+-- CreateIndex
 CREATE INDEX "passport_email_otp_bot_id_telegram_user_id_status_created_a_idx" ON "passport_email_otp"("bot_id", "telegram_user_id", "status", "created_at");
 
 -- CreateIndex
-CREATE UNIQUE INDEX "passport_snowflake_state_worker_id_deleted_at_key" ON "passport_snowflake_state"("worker_id", "deleted_at");
+CREATE UNIQUE INDEX "passport_email_otp_key_deleted_at_key" ON "passport_email_otp"("key", "deleted_at");
 
 -- CreateIndex
 CREATE UNIQUE INDEX "passport_telegram_menus_bot_id_telegram_user_id_deleted_at_key" ON "passport_telegram_menus"("bot_id", "telegram_user_id", "deleted_at");
+
+-- CreateIndex
+CREATE UNIQUE INDEX "passport_telegram_menus_key_deleted_at_key" ON "passport_telegram_menus"("key", "deleted_at");
 
 -- CreateIndex
 CREATE INDEX "passport_telegram_updates_status_updated_at_idx" ON "passport_telegram_updates"("status", "updated_at");
@@ -754,7 +793,13 @@ CREATE INDEX "passport_telegram_updates_status_updated_at_idx" ON "passport_tele
 CREATE UNIQUE INDEX "passport_telegram_updates_bot_id_update_id_deleted_at_key" ON "passport_telegram_updates"("bot_id", "update_id", "deleted_at");
 
 -- CreateIndex
+CREATE UNIQUE INDEX "passport_telegram_updates_key_deleted_at_key" ON "passport_telegram_updates"("key", "deleted_at");
+
+-- CreateIndex
 CREATE INDEX "passport_telegram_identity_choices_bot_id_telegram_user_id__idx" ON "passport_telegram_identity_choices"("bot_id", "telegram_user_id", "status", "created_at");
+
+-- CreateIndex
+CREATE UNIQUE INDEX "passport_telegram_identity_choices_key_deleted_at_key" ON "passport_telegram_identity_choices"("key", "deleted_at");
 
 -- CreateIndex
 CREATE INDEX "passport_login_challenges_bot_id_telegram_user_id_status_cr_idx" ON "passport_login_challenges"("bot_id", "telegram_user_id", "status", "created_at");
@@ -766,10 +811,16 @@ CREATE INDEX "passport_login_challenges_status_expires_at_idx" ON "passport_logi
 CREATE UNIQUE INDEX "passport_login_challenges_challenge_id_deleted_at_key" ON "passport_login_challenges"("challenge_id", "deleted_at");
 
 -- CreateIndex
+CREATE UNIQUE INDEX "passport_login_challenges_key_deleted_at_key" ON "passport_login_challenges"("key", "deleted_at");
+
+-- CreateIndex
 CREATE INDEX "passport_sso_requests_status_expires_at_idx" ON "passport_sso_requests"("status", "expires_at");
 
 -- CreateIndex
 CREATE UNIQUE INDEX "passport_sso_requests_request_id_deleted_at_key" ON "passport_sso_requests"("request_id", "deleted_at");
+
+-- CreateIndex
+CREATE UNIQUE INDEX "passport_sso_requests_key_deleted_at_key" ON "passport_sso_requests"("key", "deleted_at");
 
 -- CreateIndex
 CREATE INDEX "passport_login_tickets_status_expires_at_idx" ON "passport_login_tickets"("status", "expires_at");
@@ -778,7 +829,10 @@ CREATE INDEX "passport_login_tickets_status_expires_at_idx" ON "passport_login_t
 CREATE UNIQUE INDEX "passport_login_tickets_token_hash_deleted_at_key" ON "passport_login_tickets"("token_hash", "deleted_at");
 
 -- CreateIndex
-CREATE INDEX "passport_site_sessions_user_id_idx" ON "passport_site_sessions"("user_id");
+CREATE UNIQUE INDEX "passport_login_tickets_key_deleted_at_key" ON "passport_login_tickets"("key", "deleted_at");
+
+-- CreateIndex
+CREATE INDEX "passport_site_sessions_user_key_idx" ON "passport_site_sessions"("user_key");
 
 -- CreateIndex
 CREATE INDEX "passport_site_sessions_site_key_hostname_expires_at_idx" ON "passport_site_sessions"("site_key", "hostname", "expires_at");
@@ -787,7 +841,13 @@ CREATE INDEX "passport_site_sessions_site_key_hostname_expires_at_idx" ON "passp
 CREATE UNIQUE INDEX "passport_site_sessions_session_id_deleted_at_key" ON "passport_site_sessions"("session_id", "deleted_at");
 
 -- CreateIndex
+CREATE UNIQUE INDEX "passport_site_sessions_key_deleted_at_key" ON "passport_site_sessions"("key", "deleted_at");
+
+-- CreateIndex
 CREATE INDEX "passport_group_prompts_chat_id_actor_id_updated_at_idx" ON "passport_group_prompts"("chat_id", "actor_id", "updated_at");
+
+-- CreateIndex
+CREATE UNIQUE INDEX "passport_group_prompts_key_deleted_at_key" ON "passport_group_prompts"("key", "deleted_at");
 
 -- CreateIndex
 CREATE INDEX "passport_external_email_otps_pending_identity_hash_status_c_idx" ON "passport_external_email_otps"("pending_identity_hash", "status", "created_at");
@@ -796,10 +856,16 @@ CREATE INDEX "passport_external_email_otps_pending_identity_hash_status_c_idx" O
 CREATE UNIQUE INDEX "passport_external_email_otps_otp_id_deleted_at_key" ON "passport_external_email_otps"("otp_id", "deleted_at");
 
 -- CreateIndex
-CREATE INDEX "passport_external_identities_user_id_idx" ON "passport_external_identities"("user_id");
+CREATE UNIQUE INDEX "passport_external_email_otps_key_deleted_at_key" ON "passport_external_email_otps"("key", "deleted_at");
+
+-- CreateIndex
+CREATE INDEX "passport_external_identities_user_key_idx" ON "passport_external_identities"("user_key");
 
 -- CreateIndex
 CREATE UNIQUE INDEX "passport_external_identities_provider_subject_deleted_at_key" ON "passport_external_identities"("provider", "subject", "deleted_at");
+
+-- CreateIndex
+CREATE UNIQUE INDEX "passport_external_identities_key_deleted_at_key" ON "passport_external_identities"("key", "deleted_at");
 
 -- CreateIndex
 CREATE INDEX "passport_external_login_states_expires_at_consumed_at_idx" ON "passport_external_login_states"("expires_at", "consumed_at");
@@ -808,7 +874,13 @@ CREATE INDEX "passport_external_login_states_expires_at_consumed_at_idx" ON "pas
 CREATE UNIQUE INDEX "passport_external_login_states_id_hash_deleted_at_key" ON "passport_external_login_states"("id_hash", "deleted_at");
 
 -- CreateIndex
+CREATE UNIQUE INDEX "passport_external_login_states_key_deleted_at_key" ON "passport_external_login_states"("key", "deleted_at");
+
+-- CreateIndex
 CREATE UNIQUE INDEX "passport_external_pending_identities_id_hash_deleted_at_key" ON "passport_external_pending_identities"("id_hash", "deleted_at");
+
+-- CreateIndex
+CREATE UNIQUE INDEX "passport_external_pending_identities_key_deleted_at_key" ON "passport_external_pending_identities"("key", "deleted_at");
 
 -- CreateIndex
 CREATE UNIQUE INDEX "passport_external_pending_qr_states_pending_identity_hash_d_key" ON "passport_external_pending_qr_states"("pending_identity_hash", "deleted_at");
@@ -817,19 +889,34 @@ CREATE UNIQUE INDEX "passport_external_pending_qr_states_pending_identity_hash_d
 CREATE UNIQUE INDEX "passport_external_pending_qr_states_qr_state_hash_deleted_a_key" ON "passport_external_pending_qr_states"("qr_state_hash", "deleted_at");
 
 -- CreateIndex
+CREATE UNIQUE INDEX "passport_external_pending_qr_states_key_deleted_at_key" ON "passport_external_pending_qr_states"("key", "deleted_at");
+
+-- CreateIndex
 CREATE UNIQUE INDEX "passport_external_providers_provider_deleted_at_key" ON "passport_external_providers"("provider", "deleted_at");
+
+-- CreateIndex
+CREATE UNIQUE INDEX "passport_external_providers_key_deleted_at_key" ON "passport_external_providers"("key", "deleted_at");
 
 -- CreateIndex
 CREATE UNIQUE INDEX "passport_oidc_clients_client_id_deleted_at_key" ON "passport_oidc_clients"("client_id", "deleted_at");
 
 -- CreateIndex
+CREATE UNIQUE INDEX "passport_oidc_clients_key_deleted_at_key" ON "passport_oidc_clients"("key", "deleted_at");
+
+-- CreateIndex
 CREATE UNIQUE INDEX "passport_oidc_authorization_requests_request_id_deleted_at_key" ON "passport_oidc_authorization_requests"("request_id", "deleted_at");
+
+-- CreateIndex
+CREATE UNIQUE INDEX "passport_oidc_authorization_requests_key_deleted_at_key" ON "passport_oidc_authorization_requests"("key", "deleted_at");
 
 -- CreateIndex
 CREATE INDEX "passport_oidc_authorization_codes_expires_at_consumed_at_idx" ON "passport_oidc_authorization_codes"("expires_at", "consumed_at");
 
 -- CreateIndex
 CREATE UNIQUE INDEX "passport_oidc_authorization_codes_code_hash_deleted_at_key" ON "passport_oidc_authorization_codes"("code_hash", "deleted_at");
+
+-- CreateIndex
+CREATE UNIQUE INDEX "passport_oidc_authorization_codes_key_deleted_at_key" ON "passport_oidc_authorization_codes"("key", "deleted_at");
 
 -- CreateIndex
 CREATE INDEX "passport_oidc_access_tokens_expires_at_revoked_at_idx" ON "passport_oidc_access_tokens"("expires_at", "revoked_at");
@@ -841,7 +928,16 @@ CREATE UNIQUE INDEX "passport_oidc_access_tokens_token_hash_deleted_at_key" ON "
 CREATE UNIQUE INDEX "passport_oidc_access_tokens_authorization_code_hash_deleted_key" ON "passport_oidc_access_tokens"("authorization_code_hash", "deleted_at");
 
 -- CreateIndex
+CREATE UNIQUE INDEX "passport_oidc_access_tokens_key_deleted_at_key" ON "passport_oidc_access_tokens"("key", "deleted_at");
+
+-- CreateIndex
 CREATE UNIQUE INDEX "passport_oidc_signing_keys_kid_deleted_at_key" ON "passport_oidc_signing_keys"("kid", "deleted_at");
 
 -- CreateIndex
-CREATE UNIQUE INDEX "passport_user_profiles_user_id_deleted_at_key" ON "passport_user_profiles"("user_id", "deleted_at");
+CREATE UNIQUE INDEX "passport_oidc_signing_keys_key_deleted_at_key" ON "passport_oidc_signing_keys"("key", "deleted_at");
+
+-- CreateIndex
+CREATE UNIQUE INDEX "passport_user_profiles_user_key_deleted_at_key" ON "passport_user_profiles"("user_key", "deleted_at");
+
+-- CreateIndex
+CREATE UNIQUE INDEX "passport_user_profiles_key_deleted_at_key" ON "passport_user_profiles"("key", "deleted_at");

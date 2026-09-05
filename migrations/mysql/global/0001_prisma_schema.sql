@@ -4,6 +4,7 @@
 -- CreateTable
 CREATE TABLE `global_sites` (
     `id` BIGINT NOT NULL AUTO_INCREMENT,
+    `key` VARCHAR(36) NOT NULL,
     `created_at` BIGINT NOT NULL DEFAULT 0,
     `updated_at` BIGINT NOT NULL DEFAULT 0,
     `deleted_at` BIGINT NOT NULL DEFAULT 0,
@@ -12,8 +13,7 @@ CREATE TABLE `global_sites` (
     `owner_tid` BIGINT NOT NULL DEFAULT 1,
     `owner_bid` BIGINT NOT NULL DEFAULT 1,
     `owner_uid` BIGINT NULL,
-    `key` VARCHAR(191) NOT NULL,
-    `name` VARCHAR(191) NOT NULL,
+    `title` VARCHAR(191) NOT NULL,
     `base_site_key` VARCHAR(191) NULL,
     `dsn` VARCHAR(191) NOT NULL DEFAULT '',
     `dsn_password` VARCHAR(191) NULL,
@@ -31,6 +31,7 @@ CREATE TABLE `global_sites` (
 -- CreateTable
 CREATE TABLE `global_site_hosts` (
     `id` BIGINT NOT NULL AUTO_INCREMENT,
+    `key` VARCHAR(36) NOT NULL,
     `created_at` BIGINT NOT NULL,
     `updated_at` BIGINT NOT NULL DEFAULT 0,
     `deleted_at` BIGINT NOT NULL DEFAULT 0,
@@ -44,12 +45,14 @@ CREATE TABLE `global_site_hosts` (
     `status` ENUM('enabled', 'disabled') NOT NULL DEFAULT 'enabled',
 
     UNIQUE INDEX `global_site_hosts_hostname_deleted_at_key`(`hostname`, `deleted_at`),
+    UNIQUE INDEX `global_site_hosts_key_deleted_at_key`(`key`, `deleted_at`),
     PRIMARY KEY (`id`)
 ) DEFAULT CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci;
 
 -- CreateTable
 CREATE TABLE `global_cloud_credentials` (
     `id` BIGINT NOT NULL AUTO_INCREMENT,
+    `key` VARCHAR(36) NOT NULL,
     `created_at` BIGINT NOT NULL,
     `updated_at` BIGINT NOT NULL,
     `deleted_at` BIGINT NOT NULL DEFAULT 0,
@@ -58,20 +61,22 @@ CREATE TABLE `global_cloud_credentials` (
     `owner_tid` BIGINT NOT NULL DEFAULT 1,
     `owner_bid` BIGINT NOT NULL DEFAULT 1,
     `owner_uid` BIGINT NULL,
-    `name` VARCHAR(191) NOT NULL,
+    `title` VARCHAR(191) NOT NULL,
     `provider` VARCHAR(191) NOT NULL,
     `account_id` VARCHAR(191) NOT NULL DEFAULT '',
     `access_key_id` VARCHAR(191) NOT NULL DEFAULT '',
     `access_key_secret` VARCHAR(191) NOT NULL DEFAULT '',
     `status` ENUM('enabled', 'disabled') NOT NULL DEFAULT 'enabled',
 
-    UNIQUE INDEX `global_cloud_credentials_name_deleted_at_key`(`name`, `deleted_at`),
+    UNIQUE INDEX `global_cloud_credentials_title_deleted_at_key`(`title`, `deleted_at`),
+    UNIQUE INDEX `global_cloud_credentials_key_deleted_at_key`(`key`, `deleted_at`),
     PRIMARY KEY (`id`)
 ) DEFAULT CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci;
 
 -- CreateTable
 CREATE TABLE `global_cloud_object_storage_buckets` (
     `id` BIGINT NOT NULL AUTO_INCREMENT,
+    `key` VARCHAR(36) NOT NULL,
     `created_at` BIGINT NOT NULL,
     `updated_at` BIGINT NOT NULL,
     `deleted_at` BIGINT NOT NULL DEFAULT 0,
@@ -90,12 +95,14 @@ CREATE TABLE `global_cloud_object_storage_buckets` (
     `status` ENUM('enabled', 'disabled') NOT NULL DEFAULT 'enabled',
 
     UNIQUE INDEX `global_cloud_object_storage_buckets_cloud_credential_id_endp_key`(`cloud_credential_id`, `endpoint`, `bucket`, `deleted_at`),
+    UNIQUE INDEX `global_cloud_object_storage_buckets_key_deleted_at_key`(`key`, `deleted_at`),
     PRIMARY KEY (`id`)
 ) DEFAULT CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci;
 
 -- CreateTable
 CREATE TABLE `global_cloud_object_storage_bindings` (
     `id` BIGINT NOT NULL AUTO_INCREMENT,
+    `key` VARCHAR(36) NOT NULL,
     `created_at` BIGINT NOT NULL,
     `updated_at` BIGINT NOT NULL,
     `deleted_at` BIGINT NOT NULL DEFAULT 0,
@@ -111,12 +118,14 @@ CREATE TABLE `global_cloud_object_storage_bindings` (
 
     UNIQUE INDEX `global_cloud_object_storage_bindings_id_site_key_deleted_at_key`(`id`, `site_key`, `deleted_at`),
     UNIQUE INDEX `global_cloud_object_storage_bindings_site_key_bucket_id_key__key`(`site_key`, `bucket_id`, `key_prefix`, `deleted_at`),
+    UNIQUE INDEX `global_cloud_object_storage_bindings_key_deleted_at_key`(`key`, `deleted_at`),
     PRIMARY KEY (`id`)
 ) DEFAULT CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci;
 
 -- CreateTable
 CREATE TABLE `global_cloud_object_storage_binding_purposes` (
     `id` BIGINT NOT NULL AUTO_INCREMENT,
+    `key` VARCHAR(36) NOT NULL,
     `created_at` BIGINT NOT NULL DEFAULT 0,
     `updated_at` BIGINT NOT NULL DEFAULT 0,
     `deleted_at` BIGINT NOT NULL DEFAULT 0,
@@ -131,12 +140,14 @@ CREATE TABLE `global_cloud_object_storage_binding_purposes` (
     `is_default` INTEGER NOT NULL DEFAULT 0,
 
     UNIQUE INDEX `global_cloud_object_storage_binding_purposes_binding_id_purp_key`(`binding_id`, `purpose`, `deleted_at`),
+    UNIQUE INDEX `global_cloud_object_storage_binding_purposes_key_deleted_at_key`(`key`, `deleted_at`),
     PRIMARY KEY (`id`)
 ) DEFAULT CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci;
 
 -- CreateTable
 CREATE TABLE `global_telegram_bots` (
     `id` BIGINT NOT NULL AUTO_INCREMENT,
+    `key` VARCHAR(36) NOT NULL,
     `created_at` BIGINT NOT NULL,
     `updated_at` BIGINT NOT NULL,
     `deleted_at` BIGINT NOT NULL DEFAULT 0,
@@ -145,7 +156,7 @@ CREATE TABLE `global_telegram_bots` (
     `owner_tid` BIGINT NOT NULL DEFAULT 1,
     `owner_bid` BIGINT NOT NULL DEFAULT 1,
     `owner_uid` BIGINT NULL,
-    `name` VARCHAR(191) NOT NULL,
+    `title` VARCHAR(191) NOT NULL,
     `token` VARCHAR(191) NOT NULL,
     `username` VARCHAR(191) NOT NULL,
     `secret_token` VARCHAR(191) NOT NULL,
@@ -153,15 +164,17 @@ CREATE TABLE `global_telegram_bots` (
     `status` ENUM('enabled', 'disabled') NOT NULL DEFAULT 'enabled',
 
     INDEX `global_telegram_bots_webhook_hostname_idx`(`webhook_hostname`),
-    UNIQUE INDEX `global_telegram_bots_name_deleted_at_key`(`name`, `deleted_at`),
+    UNIQUE INDEX `global_telegram_bots_title_deleted_at_key`(`title`, `deleted_at`),
     UNIQUE INDEX `global_telegram_bots_token_deleted_at_key`(`token`, `deleted_at`),
     UNIQUE INDEX `global_telegram_bots_username_deleted_at_key`(`username`, `deleted_at`),
+    UNIQUE INDEX `global_telegram_bots_key_deleted_at_key`(`key`, `deleted_at`),
     PRIMARY KEY (`id`)
 ) DEFAULT CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci;
 
 -- CreateTable
 CREATE TABLE `global_cloud_email_channels` (
     `id` BIGINT NOT NULL AUTO_INCREMENT,
+    `key` VARCHAR(36) NOT NULL,
     `created_at` BIGINT NOT NULL,
     `updated_at` BIGINT NOT NULL,
     `deleted_at` BIGINT NOT NULL DEFAULT 0,
@@ -178,12 +191,14 @@ CREATE TABLE `global_cloud_email_channels` (
     `status` ENUM('enabled', 'disabled') NOT NULL DEFAULT 'enabled',
 
     UNIQUE INDEX `global_cloud_email_channels_cloud_credential_id_region_accou_key`(`cloud_credential_id`, `region`, `account_name`, `deleted_at`),
+    UNIQUE INDEX `global_cloud_email_channels_key_deleted_at_key`(`key`, `deleted_at`),
     PRIMARY KEY (`id`)
 ) DEFAULT CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci;
 
 -- CreateTable
 CREATE TABLE `global_cloud_email_templates` (
     `id` BIGINT NOT NULL AUTO_INCREMENT,
+    `key` VARCHAR(36) NOT NULL,
     `created_at` BIGINT NOT NULL,
     `updated_at` BIGINT NOT NULL,
     `deleted_at` BIGINT NOT NULL DEFAULT 0,
@@ -192,9 +207,8 @@ CREATE TABLE `global_cloud_email_templates` (
     `owner_tid` BIGINT NOT NULL DEFAULT 1,
     `owner_bid` BIGINT NOT NULL DEFAULT 1,
     `owner_uid` BIGINT NULL,
-    `key` VARCHAR(191) NOT NULL,
     `type` VARCHAR(191) NOT NULL DEFAULT 'email_verification',
-    `name` VARCHAR(191) NOT NULL,
+    `title` VARCHAR(191) NOT NULL,
     `subject` VARCHAR(191) NOT NULL,
     `body_text` VARCHAR(191) NOT NULL,
     `body_html` VARCHAR(191) NOT NULL,
@@ -207,6 +221,7 @@ CREATE TABLE `global_cloud_email_templates` (
 -- CreateTable
 CREATE TABLE `global_cloud_email_bindings` (
     `id` BIGINT NOT NULL AUTO_INCREMENT,
+    `key` VARCHAR(36) NOT NULL,
     `created_at` BIGINT NOT NULL,
     `updated_at` BIGINT NOT NULL,
     `deleted_at` BIGINT NOT NULL DEFAULT 0,
@@ -223,12 +238,14 @@ CREATE TABLE `global_cloud_email_bindings` (
     `status` ENUM('enabled', 'disabled') NOT NULL DEFAULT 'enabled',
 
     UNIQUE INDEX `global_cloud_email_bindings_site_key_channel_id_template_id__key`(`site_key`, `channel_id`, `template_id`, `purpose`, `deleted_at`),
+    UNIQUE INDEX `global_cloud_email_bindings_key_deleted_at_key`(`key`, `deleted_at`),
     PRIMARY KEY (`id`)
 ) DEFAULT CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci;
 
 -- CreateTable
 CREATE TABLE `global_cloud_email_template_publications` (
     `id` BIGINT NOT NULL AUTO_INCREMENT,
+    `key` VARCHAR(36) NOT NULL,
     `created_at` BIGINT NOT NULL,
     `updated_at` BIGINT NOT NULL,
     `deleted_at` BIGINT NOT NULL DEFAULT 0,
@@ -245,5 +262,24 @@ CREATE TABLE `global_cloud_email_template_publications` (
     `status` ENUM('reviewing', 'ready', 'rejected', 'failed') NOT NULL,
 
     UNIQUE INDEX `global_cloud_email_template_publications_template_id_cloud_c_key`(`template_id`, `cloud_credential_id`, `region`, `deleted_at`),
+    UNIQUE INDEX `global_cloud_email_template_publications_key_deleted_at_key`(`key`, `deleted_at`),
+    PRIMARY KEY (`id`)
+) DEFAULT CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci;
+
+-- CreateTable
+CREATE TABLE `global_snowflake_state` (
+    `id` BIGINT NOT NULL AUTO_INCREMENT,
+    `created_at` BIGINT NOT NULL,
+    `updated_at` BIGINT NOT NULL,
+    `deleted_at` BIGINT NOT NULL DEFAULT 0,
+    `created_duid` BIGINT NULL,
+    `updated_duid` BIGINT NULL,
+    `owner_tid` BIGINT NOT NULL DEFAULT 1,
+    `owner_bid` BIGINT NOT NULL DEFAULT 1,
+    `owner_uid` BIGINT NULL,
+    `worker_id` INTEGER NOT NULL,
+    `last_timestamp` BIGINT NOT NULL,
+
+    UNIQUE INDEX `global_snowflake_state_worker_id_deleted_at_key`(`worker_id`, `deleted_at`),
     PRIMARY KEY (`id`)
 ) DEFAULT CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci;

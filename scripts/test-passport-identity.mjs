@@ -1,5 +1,5 @@
 import assert from 'node:assert/strict';
-import { mkdtemp, readFile, rm, writeFile } from 'node:fs/promises';
+import { mkdtemp, readdir, readFile, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join, resolve } from 'node:path';
 import { pathToFileURL } from 'node:url';
@@ -30,13 +30,12 @@ try {
 	const databaseFile = join(temporaryDirectory, 'passport.sqlite');
 	let database = passport.createSqliteAdapter(databaseFile);
 	// 号段状态表在 global：发号器是全站共享设施，不再属于 passport。
-	await database.exec(await readFile(join(projectDirectory, 'migrations/global/0001_prisma_schema.sql'), 'utf8'));
-	for (const file of ['0002_naming_convention.sql', '0003_row_key.sql', '0004_snowflake_state.sql']) {
-		await database.exec(await readFile(join(projectDirectory, 'migrations/global', file), 'utf8'));
-	}
-	await database.exec(await readFile(join(projectDirectory, 'migrations/passport/0001_prisma_schema.sql'), 'utf8'));
-	for (const file of ['0002_naming_convention.sql', '0003_row_key.sql', '0004_snowflake_state.sql']) {
-		await database.exec(await readFile(join(projectDirectory, 'migrations/passport', file), 'utf8'));
+	// 按目录顺序跑完，不写死文件名——迁移压成新基线时文件名会变。
+	for (const site of ['global', 'passport']) {
+		const directory = join(projectDirectory, 'migrations', site);
+		for (const file of (await readdir(directory)).filter((name) => name.endsWith('.sql')).sort()) {
+			await database.exec(await readFile(join(directory, file), 'utf8'));
+		}
 	}
 
 	// 发号：一段号里连发 5000 个，互不重复，worker 位是配的那个。

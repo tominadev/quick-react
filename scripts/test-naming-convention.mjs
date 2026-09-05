@@ -13,6 +13,14 @@ const prismaDirectory = join(projectDirectory, 'prisma');
 const banned = { code: 'key', display_name: 'title', label: 'title', caption: 'title' };
 /** 没有 key 列的表，与 sql.mts 的 KEYLESS_TABLES 一一对应。 */
 const keyless = new Set(['global_snowflake_state']);
+/**
+ * 每张表都带的十个系统字段，顺序固定。
+ *
+ * 顺序一致是为了读：几十张表并排看时，前十列永远在同一个位置，眼睛不用重新找。
+ * 它们还必须**连成一片**——被业务列隔开的话，「哪些是脚手架、哪些是这张表自己的东西」
+ * 就得逐个辨认。
+ */
+const systemFields = ['id', 'key', 'created_at', 'updated_at', 'deleted_at', 'created_duid', 'updated_duid', 'owner_tid', 'owner_bid', 'owner_uid'];
 const problems = [];
 
 for (const file of (await readdir(prismaDirectory)).filter((name) => name.endsWith('.prisma')).sort()) {
@@ -33,6 +41,16 @@ for (const file of (await readdir(prismaDirectory)).filter((name) => name.endsWi
 		if (!columns.includes('key') && !keyless.has(name)) problems.push(`${name} 没有 key 列`);
 		// key 紧跟在 id 后面：两处对照着看时位置固定。
 		if (columns.includes('key') && columns.indexOf('key') !== columns.indexOf('id') + 1) problems.push(`${name}.key 必须紧跟在 id 后面`);
+		// 十个系统字段：一个不少、顺序一致、连成一片。
+		const present = columns.filter((column) => systemFields.includes(column));
+		const wanted = systemFields.filter((column) => columns.includes(column));
+		if (present.join(',') !== wanted.join(',')) problems.push(`${name} 系统字段顺序不对：${present.join(' ')}`);
+		const positions = columns.map((column, index) => systemFields.includes(column) ? index : -1).filter((index) => index >= 0);
+		if (positions.length && positions[positions.length - 1] - positions[0] !== positions.length - 1) {
+			problems.push(`${name} 系统字段被业务列隔断：${columns.slice(positions[0], positions[positions.length - 1] + 1).join(' ')}`);
+		}
+		const missing = systemFields.filter((column) => !columns.includes(column) && !(column === 'key' && keyless.has(name)));
+		if (missing.length) problems.push(`${name} 缺少系统字段：${missing.join(' ')}`);
 		// 长度封顶 36：雪花最长 19 位，人给的短串更短，客户端设备 UUID 正好 36。
 		if (columns.includes('key') && !/\n\s+key\s+String\??\s+@db\.VarChar\(36\)/.test(body)) problems.push(`${name}.key 要声明 @db.VarChar(36)`);
 	}

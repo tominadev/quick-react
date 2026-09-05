@@ -4,6 +4,7 @@
 -- CreateTable
 CREATE TABLE `base_tenants` (
     `id` BIGINT NOT NULL AUTO_INCREMENT,
+    `key` VARCHAR(36) NOT NULL,
     `created_at` BIGINT NOT NULL,
     `updated_at` BIGINT NOT NULL,
     `deleted_at` BIGINT NOT NULL DEFAULT 0,
@@ -12,8 +13,7 @@ CREATE TABLE `base_tenants` (
     `owner_tid` BIGINT NOT NULL DEFAULT 1,
     `owner_bid` BIGINT NOT NULL DEFAULT 1,
     `owner_uid` BIGINT NULL,
-    `key` VARCHAR(191) NOT NULL,
-    `name` VARCHAR(191) NOT NULL,
+    `title` VARCHAR(191) NOT NULL,
     `status` ENUM('enabled', 'disabled') NOT NULL DEFAULT 'enabled',
 
     UNIQUE INDEX `base_tenants_key_deleted_at_key`(`key`, `deleted_at`),
@@ -23,6 +23,7 @@ CREATE TABLE `base_tenants` (
 -- CreateTable
 CREATE TABLE `base_branches` (
     `id` BIGINT NOT NULL AUTO_INCREMENT,
+    `key` VARCHAR(36) NOT NULL,
     `created_at` BIGINT NOT NULL,
     `updated_at` BIGINT NOT NULL,
     `deleted_at` BIGINT NOT NULL DEFAULT 0,
@@ -31,8 +32,7 @@ CREATE TABLE `base_branches` (
     `owner_tid` BIGINT NOT NULL DEFAULT 1,
     `owner_bid` BIGINT NOT NULL DEFAULT 1,
     `owner_uid` BIGINT NULL,
-    `key` VARCHAR(191) NOT NULL,
-    `name` VARCHAR(191) NOT NULL,
+    `title` VARCHAR(191) NOT NULL,
     `status` ENUM('enabled', 'disabled') NOT NULL DEFAULT 'enabled',
 
     UNIQUE INDEX `base_branches_owner_tid_key_deleted_at_key`(`owner_tid`, `key`, `deleted_at`),
@@ -42,6 +42,7 @@ CREATE TABLE `base_branches` (
 -- CreateTable
 CREATE TABLE `base_hosts` (
     `id` BIGINT NOT NULL AUTO_INCREMENT,
+    `key` VARCHAR(36) NOT NULL,
     `created_at` BIGINT NOT NULL,
     `updated_at` BIGINT NOT NULL,
     `deleted_at` BIGINT NOT NULL DEFAULT 0,
@@ -56,12 +57,14 @@ CREATE TABLE `base_hosts` (
     `status` ENUM('enabled', 'disabled') NOT NULL DEFAULT 'enabled',
 
     UNIQUE INDEX `base_hosts_hostname_deleted_at_key`(`hostname`, `deleted_at`),
+    UNIQUE INDEX `base_hosts_key_deleted_at_key`(`key`, `deleted_at`),
     PRIMARY KEY (`id`)
 ) DEFAULT CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci;
 
 -- CreateTable
 CREATE TABLE `base_users` (
     `id` BIGINT NOT NULL AUTO_INCREMENT,
+    `key` VARCHAR(36) NOT NULL,
     `created_at` BIGINT NOT NULL,
     `updated_at` BIGINT NOT NULL,
     `deleted_at` BIGINT NOT NULL DEFAULT 0,
@@ -75,12 +78,14 @@ CREATE TABLE `base_users` (
     `status` ENUM('enabled', 'disabled') NOT NULL DEFAULT 'enabled',
 
     UNIQUE INDEX `base_users_owner_tid_name_deleted_at_key`(`owner_tid`, `name`, `deleted_at`),
+    UNIQUE INDEX `base_users_key_deleted_at_key`(`key`, `deleted_at`),
     PRIMARY KEY (`id`)
 ) DEFAULT CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci;
 
 -- CreateTable
 CREATE TABLE `base_sessions` (
     `id` BIGINT NOT NULL AUTO_INCREMENT,
+    `key` VARCHAR(36) NOT NULL,
     `created_at` BIGINT NOT NULL,
     `updated_at` BIGINT NOT NULL,
     `deleted_at` BIGINT NOT NULL DEFAULT 0,
@@ -95,12 +100,14 @@ CREATE TABLE `base_sessions` (
     `device_id` BIGINT NOT NULL,
 
     UNIQUE INDEX `base_sessions_token_hash_deleted_at_key`(`token_hash`, `deleted_at`),
+    UNIQUE INDEX `base_sessions_key_deleted_at_key`(`key`, `deleted_at`),
     PRIMARY KEY (`id`)
 ) DEFAULT CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci;
 
 -- CreateTable
 CREATE TABLE `base_configs` (
     `id` BIGINT NOT NULL AUTO_INCREMENT,
+    `key` VARCHAR(36) NOT NULL,
     `created_at` BIGINT NOT NULL,
     `updated_at` BIGINT NOT NULL,
     `deleted_at` BIGINT NOT NULL DEFAULT 0,
@@ -109,7 +116,6 @@ CREATE TABLE `base_configs` (
     `owner_tid` BIGINT NOT NULL DEFAULT 1,
     `owner_bid` BIGINT NOT NULL DEFAULT 1,
     `owner_uid` BIGINT NULL,
-    `key` VARCHAR(191) NOT NULL,
     `value` VARCHAR(191) NOT NULL,
 
     UNIQUE INDEX `base_configs_owner_tid_key_deleted_at_key`(`owner_tid`, `key`, `deleted_at`),
@@ -119,6 +125,7 @@ CREATE TABLE `base_configs` (
 -- CreateTable
 CREATE TABLE `base_bootstrap` (
     `id` BIGINT NOT NULL AUTO_INCREMENT,
+    `key` VARCHAR(36) NOT NULL,
     `created_at` BIGINT NOT NULL,
     `updated_at` BIGINT NOT NULL,
     `deleted_at` BIGINT NOT NULL DEFAULT 0,
@@ -127,7 +134,6 @@ CREATE TABLE `base_bootstrap` (
     `owner_tid` BIGINT NOT NULL DEFAULT 1,
     `owner_bid` BIGINT NOT NULL DEFAULT 1,
     `owner_uid` BIGINT NULL,
-    `key` VARCHAR(191) NOT NULL,
     `value` VARCHAR(191) NOT NULL,
 
     UNIQUE INDEX `base_bootstrap_owner_tid_key_deleted_at_key`(`owner_tid`, `key`, `deleted_at`),
@@ -137,6 +143,7 @@ CREATE TABLE `base_bootstrap` (
 -- CreateTable
 CREATE TABLE `base_oidc_login_requests` (
     `id` BIGINT NOT NULL AUTO_INCREMENT,
+    `key` VARCHAR(36) NOT NULL,
     `created_at` BIGINT NOT NULL,
     `updated_at` BIGINT NOT NULL,
     `deleted_at` BIGINT NOT NULL DEFAULT 0,
@@ -159,12 +166,14 @@ CREATE TABLE `base_oidc_login_requests` (
 
     UNIQUE INDEX `base_oidc_login_requests_request_id_deleted_at_key`(`request_id`, `deleted_at`),
     UNIQUE INDEX `base_oidc_login_requests_state_deleted_at_key`(`state`, `deleted_at`),
+    UNIQUE INDEX `base_oidc_login_requests_key_deleted_at_key`(`key`, `deleted_at`),
     PRIMARY KEY (`id`)
 ) DEFAULT CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci;
 
 -- CreateTable
 CREATE TABLE `base_oidc_users` (
     `id` BIGINT NOT NULL AUTO_INCREMENT,
+    `key` VARCHAR(36) NOT NULL,
     `created_at` BIGINT NOT NULL,
     `updated_at` BIGINT NOT NULL,
     `deleted_at` BIGINT NOT NULL DEFAULT 0,
@@ -179,12 +188,14 @@ CREATE TABLE `base_oidc_users` (
     `profile` VARCHAR(191) NOT NULL DEFAULT '{}',
 
     UNIQUE INDEX `base_oidc_users_owner_tid_issuer_subject_deleted_at_key`(`owner_tid`, `issuer`, `subject`, `deleted_at`),
+    UNIQUE INDEX `base_oidc_users_key_deleted_at_key`(`key`, `deleted_at`),
     PRIMARY KEY (`id`)
 ) DEFAULT CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci;
 
 -- CreateTable
 CREATE TABLE `base_oidc_sessions` (
     `id` BIGINT NOT NULL AUTO_INCREMENT,
+    `key` VARCHAR(36) NOT NULL,
     `created_at` BIGINT NOT NULL,
     `updated_at` BIGINT NOT NULL,
     `deleted_at` BIGINT NOT NULL DEFAULT 0,
@@ -199,12 +210,14 @@ CREATE TABLE `base_oidc_sessions` (
 
     UNIQUE INDEX `base_oidc_sessions_session_id_deleted_at_key`(`session_id`, `deleted_at`),
     UNIQUE INDEX `base_oidc_sessions_issuer_sid_deleted_at_key`(`issuer`, `sid`, `deleted_at`),
+    UNIQUE INDEX `base_oidc_sessions_key_deleted_at_key`(`key`, `deleted_at`),
     PRIMARY KEY (`id`)
 ) DEFAULT CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci;
 
 -- CreateTable
 CREATE TABLE `base_devices` (
     `id` BIGINT NOT NULL AUTO_INCREMENT,
+    `key` VARCHAR(36) NOT NULL,
     `created_at` BIGINT NOT NULL,
     `updated_at` BIGINT NOT NULL,
     `deleted_at` BIGINT NOT NULL DEFAULT 0,
@@ -214,7 +227,6 @@ CREATE TABLE `base_devices` (
     `owner_bid` BIGINT NOT NULL DEFAULT 1,
     `owner_uid` BIGINT NULL,
     `user_id` BIGINT NOT NULL,
-    `key` VARCHAR(191) NOT NULL,
     `fingerprint` JSON NOT NULL,
     `user_agent` VARCHAR(191) NOT NULL DEFAULT '',
     `platform` VARCHAR(191) NOT NULL DEFAULT '',
@@ -231,6 +243,7 @@ CREATE TABLE `base_devices` (
 -- CreateTable
 CREATE TABLE `base_device_users` (
     `id` BIGINT NOT NULL AUTO_INCREMENT,
+    `key` VARCHAR(36) NOT NULL,
     `created_at` BIGINT NOT NULL,
     `updated_at` BIGINT NOT NULL,
     `deleted_at` BIGINT NOT NULL DEFAULT 0,
@@ -246,12 +259,14 @@ CREATE TABLE `base_device_users` (
     `revoked_at` BIGINT NULL,
 
     UNIQUE INDEX `base_device_users_device_id_user_id_deleted_at_key`(`device_id`, `user_id`, `deleted_at`),
+    UNIQUE INDEX `base_device_users_key_deleted_at_key`(`key`, `deleted_at`),
     PRIMARY KEY (`id`)
 ) DEFAULT CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci;
 
 -- CreateTable
 CREATE TABLE `base_device_snapshots` (
     `id` BIGINT NOT NULL AUTO_INCREMENT,
+    `key` VARCHAR(36) NOT NULL,
     `created_at` BIGINT NOT NULL,
     `updated_at` BIGINT NOT NULL,
     `deleted_at` BIGINT NOT NULL DEFAULT 0,
@@ -270,12 +285,14 @@ CREATE TABLE `base_device_snapshots` (
     `screen_height` INTEGER NOT NULL DEFAULT 0,
     `captured_at` BIGINT NOT NULL,
 
+    UNIQUE INDEX `base_device_snapshots_key_deleted_at_key`(`key`, `deleted_at`),
     PRIMARY KEY (`id`)
 ) DEFAULT CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci;
 
 -- CreateTable
-CREATE TABLE `base_audit_entries` (
+CREATE TABLE `base_approvals` (
     `id` BIGINT NOT NULL AUTO_INCREMENT,
+    `key` VARCHAR(36) NOT NULL,
     `created_at` BIGINT NOT NULL,
     `updated_at` BIGINT NOT NULL,
     `deleted_at` BIGINT NOT NULL DEFAULT 0,
@@ -286,14 +303,20 @@ CREATE TABLE `base_audit_entries` (
     `owner_uid` BIGINT NULL,
     `operation_id` VARCHAR(191) NOT NULL,
     `reason` VARCHAR(191) NOT NULL DEFAULT '',
+    `scope` ENUM('admin', 'self') NOT NULL DEFAULT 'admin',
+    `request_hostname` VARCHAR(191) NOT NULL DEFAULT '',
+    `request_path` VARCHAR(191) NOT NULL DEFAULT '',
     `table_name` VARCHAR(191) NOT NULL,
     `row_id` BIGINT NOT NULL,
     `action` ENUM('update', 'soft_delete', 'restore') NOT NULL,
     `changes` JSON NOT NULL,
-    `status` ENUM('pending', 'applied', 'rejected', 'reverted') NOT NULL DEFAULT 'applied',
+    `review_status` ENUM('none', 'pending', 'approved', 'rejected', 'withdrawn') NOT NULL DEFAULT 'none',
+    `data_status` ENUM('unwritten', 'applied', 'reverted') NOT NULL DEFAULT 'applied',
     `reviewed_at` BIGINT NULL,
     `reviewed_duid` BIGINT NULL,
     `review_reason` VARCHAR(191) NOT NULL DEFAULT '',
+    `withdrawn_at` BIGINT NULL,
+    `withdrawn_duid` BIGINT NULL,
     `reverted_at` BIGINT NULL,
     `reverted_duid` BIGINT NULL,
     `revert_reason` VARCHAR(191) NOT NULL DEFAULT '',
@@ -301,18 +324,21 @@ CREATE TABLE `base_audit_entries` (
     `restored_duid` BIGINT NULL,
     `restore_reason` VARCHAR(191) NOT NULL DEFAULT '',
 
-    INDEX `base_audit_entries_owner_tid_created_at_idx`(`owner_tid`, `created_at`),
-    INDEX `base_audit_entries_owner_bid_created_at_idx`(`owner_bid`, `created_at`),
-    INDEX `base_audit_entries_owner_uid_created_at_idx`(`owner_uid`, `created_at`),
-    INDEX `base_audit_entries_table_name_row_id_created_at_idx`(`table_name`, `row_id`, `created_at`),
-    INDEX `base_audit_entries_operation_id_idx`(`operation_id`),
-    INDEX `base_audit_entries_status_created_at_idx`(`status`, `created_at`),
+    INDEX `base_approvals_owner_tid_created_at_idx`(`owner_tid`, `created_at`),
+    INDEX `base_approvals_owner_bid_created_at_idx`(`owner_bid`, `created_at`),
+    INDEX `base_approvals_owner_uid_created_at_idx`(`owner_uid`, `created_at`),
+    INDEX `base_approvals_table_name_row_id_created_at_idx`(`table_name`, `row_id`, `created_at`),
+    INDEX `base_approvals_operation_id_idx`(`operation_id`),
+    INDEX `base_approvals_review_status_created_at_idx`(`review_status`, `created_at`),
+    INDEX `base_approvals_scope_created_at_idx`(`scope`, `created_at`),
+    UNIQUE INDEX `base_approvals_key_deleted_at_key`(`key`, `deleted_at`),
     PRIMARY KEY (`id`)
 ) DEFAULT CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci;
 
 -- CreateTable
 CREATE TABLE `base_user_credentials` (
     `id` BIGINT NOT NULL AUTO_INCREMENT,
+    `key` VARCHAR(36) NOT NULL,
     `created_at` BIGINT NOT NULL,
     `updated_at` BIGINT NOT NULL,
     `deleted_at` BIGINT NOT NULL DEFAULT 0,
@@ -325,12 +351,14 @@ CREATE TABLE `base_user_credentials` (
     `password` JSON NOT NULL,
 
     UNIQUE INDEX `base_user_credentials_user_id_deleted_at_key`(`user_id`, `deleted_at`),
+    UNIQUE INDEX `base_user_credentials_key_deleted_at_key`(`key`, `deleted_at`),
     PRIMARY KEY (`id`)
 ) DEFAULT CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci;
 
 -- CreateTable
 CREATE TABLE `base_user_profiles` (
     `id` BIGINT NOT NULL AUTO_INCREMENT,
+    `key` VARCHAR(36) NOT NULL,
     `created_at` BIGINT NOT NULL,
     `updated_at` BIGINT NOT NULL,
     `deleted_at` BIGINT NOT NULL DEFAULT 0,
@@ -347,5 +375,6 @@ CREATE TABLE `base_user_profiles` (
 
     UNIQUE INDEX `base_user_profiles_user_id_deleted_at_key`(`user_id`, `deleted_at`),
     UNIQUE INDEX `base_user_profiles_owner_tid_nickname_deleted_at_key`(`owner_tid`, `nickname`, `deleted_at`),
+    UNIQUE INDEX `base_user_profiles_key_deleted_at_key`(`key`, `deleted_at`),
     PRIMARY KEY (`id`)
 ) DEFAULT CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci;

@@ -10,6 +10,7 @@ CREATE TYPE "PveEnabledStatus" AS ENUM ('enabled', 'disabled');
 -- CreateTable
 CREATE TABLE "pve_regions" (
     "id" BIGSERIAL NOT NULL,
+    "key" VARCHAR(36) NOT NULL,
     "created_at" BIGINT NOT NULL DEFAULT 0,
     "updated_at" BIGINT NOT NULL DEFAULT 0,
     "deleted_at" BIGINT NOT NULL DEFAULT 0,
@@ -18,9 +19,7 @@ CREATE TABLE "pve_regions" (
     "owner_tid" BIGINT NOT NULL DEFAULT 1,
     "owner_bid" BIGINT NOT NULL DEFAULT 1,
     "owner_uid" BIGINT,
-    "code" TEXT NOT NULL,
-    "name" TEXT NOT NULL,
-    "display_name" TEXT NOT NULL,
+    "title" TEXT NOT NULL,
     "status" "PveEnabledStatus" NOT NULL DEFAULT 'enabled',
     "sort_order" INTEGER NOT NULL DEFAULT 0,
 
@@ -30,6 +29,7 @@ CREATE TABLE "pve_regions" (
 -- CreateTable
 CREATE TABLE "pve_nodes" (
     "id" BIGSERIAL NOT NULL,
+    "key" VARCHAR(36) NOT NULL,
     "created_at" BIGINT NOT NULL DEFAULT 0,
     "updated_at" BIGINT NOT NULL DEFAULT 0,
     "deleted_at" BIGINT NOT NULL DEFAULT 0,
@@ -56,6 +56,7 @@ CREATE TABLE "pve_nodes" (
 -- CreateTable
 CREATE TABLE "pve_instance_flavors" (
     "id" BIGSERIAL NOT NULL,
+    "key" VARCHAR(36) NOT NULL,
     "created_at" BIGINT NOT NULL,
     "updated_at" BIGINT NOT NULL,
     "deleted_at" BIGINT NOT NULL DEFAULT 0,
@@ -64,8 +65,7 @@ CREATE TABLE "pve_instance_flavors" (
     "owner_tid" BIGINT NOT NULL DEFAULT 1,
     "owner_bid" BIGINT NOT NULL DEFAULT 1,
     "owner_uid" BIGINT,
-    "code" TEXT NOT NULL,
-    "name" TEXT NOT NULL,
+    "title" TEXT NOT NULL,
     "cpu_cores" INTEGER NOT NULL,
     "memory_gb" INTEGER NOT NULL,
     "status" "PveEnabledStatus" NOT NULL DEFAULT 'enabled',
@@ -77,6 +77,7 @@ CREATE TABLE "pve_instance_flavors" (
 -- CreateTable
 CREATE TABLE "pve_vms" (
     "id" BIGSERIAL NOT NULL,
+    "key" VARCHAR(36) NOT NULL,
     "created_at" BIGINT NOT NULL DEFAULT 0,
     "updated_at" BIGINT NOT NULL DEFAULT 0,
     "deleted_at" BIGINT NOT NULL DEFAULT 0,
@@ -101,6 +102,7 @@ CREATE TABLE "pve_vms" (
 -- CreateTable
 CREATE TABLE "pve_vm_tasks" (
     "id" BIGSERIAL NOT NULL,
+    "key" VARCHAR(36) NOT NULL,
     "created_at" BIGINT NOT NULL DEFAULT 0,
     "updated_at" BIGINT NOT NULL DEFAULT 0,
     "deleted_at" BIGINT NOT NULL DEFAULT 0,
@@ -122,10 +124,22 @@ CREATE TABLE "pve_vm_tasks" (
 );
 
 -- CreateIndex
-CREATE UNIQUE INDEX "pve_regions_code_deleted_at_key" ON "pve_regions"("code", "deleted_at");
+CREATE UNIQUE INDEX "pve_regions_key_deleted_at_key" ON "pve_regions"("key", "deleted_at");
+
+-- CreateIndex
+CREATE UNIQUE INDEX "pve_nodes_key_deleted_at_key" ON "pve_nodes"("key", "deleted_at");
+
+-- CreateIndex
+CREATE UNIQUE INDEX "pve_instance_flavors_key_deleted_at_key" ON "pve_instance_flavors"("key", "deleted_at");
 
 -- CreateIndex
 CREATE UNIQUE INDEX "pve_instance_flavors_cpu_cores_memory_gb_deleted_at_key" ON "pve_instance_flavors"("cpu_cores", "memory_gb", "deleted_at");
 
 -- CreateIndex
+CREATE UNIQUE INDEX "pve_vms_key_deleted_at_key" ON "pve_vms"("key", "deleted_at");
+
+-- CreateIndex
 CREATE UNIQUE INDEX "pve_vm_tasks_idempotency_key_deleted_at_key" ON "pve_vm_tasks"("idempotency_key", "deleted_at");
+
+-- CreateIndex
+CREATE UNIQUE INDEX "pve_vm_tasks_key_deleted_at_key" ON "pve_vm_tasks"("key", "deleted_at");

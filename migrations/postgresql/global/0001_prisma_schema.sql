@@ -16,6 +16,7 @@ CREATE TYPE "GlobalPublicationStatus" AS ENUM ('reviewing', 'ready', 'rejected',
 -- CreateTable
 CREATE TABLE "global_sites" (
     "id" BIGSERIAL NOT NULL,
+    "key" VARCHAR(36) NOT NULL,
     "created_at" BIGINT NOT NULL DEFAULT 0,
     "updated_at" BIGINT NOT NULL DEFAULT 0,
     "deleted_at" BIGINT NOT NULL DEFAULT 0,
@@ -24,8 +25,7 @@ CREATE TABLE "global_sites" (
     "owner_tid" BIGINT NOT NULL DEFAULT 1,
     "owner_bid" BIGINT NOT NULL DEFAULT 1,
     "owner_uid" BIGINT,
-    "key" TEXT NOT NULL,
-    "name" TEXT NOT NULL,
+    "title" TEXT NOT NULL,
     "base_site_key" TEXT,
     "dsn" TEXT NOT NULL DEFAULT '',
     "dsn_password" TEXT,
@@ -42,6 +42,7 @@ CREATE TABLE "global_sites" (
 -- CreateTable
 CREATE TABLE "global_site_hosts" (
     "id" BIGSERIAL NOT NULL,
+    "key" VARCHAR(36) NOT NULL,
     "created_at" BIGINT NOT NULL,
     "updated_at" BIGINT NOT NULL DEFAULT 0,
     "deleted_at" BIGINT NOT NULL DEFAULT 0,
@@ -60,6 +61,7 @@ CREATE TABLE "global_site_hosts" (
 -- CreateTable
 CREATE TABLE "global_cloud_credentials" (
     "id" BIGSERIAL NOT NULL,
+    "key" VARCHAR(36) NOT NULL,
     "created_at" BIGINT NOT NULL,
     "updated_at" BIGINT NOT NULL,
     "deleted_at" BIGINT NOT NULL DEFAULT 0,
@@ -68,7 +70,7 @@ CREATE TABLE "global_cloud_credentials" (
     "owner_tid" BIGINT NOT NULL DEFAULT 1,
     "owner_bid" BIGINT NOT NULL DEFAULT 1,
     "owner_uid" BIGINT,
-    "name" TEXT NOT NULL,
+    "title" TEXT NOT NULL,
     "provider" TEXT NOT NULL,
     "account_id" TEXT NOT NULL DEFAULT '',
     "access_key_id" TEXT NOT NULL DEFAULT '',
@@ -81,6 +83,7 @@ CREATE TABLE "global_cloud_credentials" (
 -- CreateTable
 CREATE TABLE "global_cloud_object_storage_buckets" (
     "id" BIGSERIAL NOT NULL,
+    "key" VARCHAR(36) NOT NULL,
     "created_at" BIGINT NOT NULL,
     "updated_at" BIGINT NOT NULL,
     "deleted_at" BIGINT NOT NULL DEFAULT 0,
@@ -104,6 +107,7 @@ CREATE TABLE "global_cloud_object_storage_buckets" (
 -- CreateTable
 CREATE TABLE "global_cloud_object_storage_bindings" (
     "id" BIGSERIAL NOT NULL,
+    "key" VARCHAR(36) NOT NULL,
     "created_at" BIGINT NOT NULL,
     "updated_at" BIGINT NOT NULL,
     "deleted_at" BIGINT NOT NULL DEFAULT 0,
@@ -123,6 +127,7 @@ CREATE TABLE "global_cloud_object_storage_bindings" (
 -- CreateTable
 CREATE TABLE "global_cloud_object_storage_binding_purposes" (
     "id" BIGSERIAL NOT NULL,
+    "key" VARCHAR(36) NOT NULL,
     "created_at" BIGINT NOT NULL DEFAULT 0,
     "updated_at" BIGINT NOT NULL DEFAULT 0,
     "deleted_at" BIGINT NOT NULL DEFAULT 0,
@@ -142,6 +147,7 @@ CREATE TABLE "global_cloud_object_storage_binding_purposes" (
 -- CreateTable
 CREATE TABLE "global_telegram_bots" (
     "id" BIGSERIAL NOT NULL,
+    "key" VARCHAR(36) NOT NULL,
     "created_at" BIGINT NOT NULL,
     "updated_at" BIGINT NOT NULL,
     "deleted_at" BIGINT NOT NULL DEFAULT 0,
@@ -150,7 +156,7 @@ CREATE TABLE "global_telegram_bots" (
     "owner_tid" BIGINT NOT NULL DEFAULT 1,
     "owner_bid" BIGINT NOT NULL DEFAULT 1,
     "owner_uid" BIGINT,
-    "name" TEXT NOT NULL,
+    "title" TEXT NOT NULL,
     "token" TEXT NOT NULL,
     "username" TEXT NOT NULL,
     "secret_token" TEXT NOT NULL,
@@ -163,6 +169,7 @@ CREATE TABLE "global_telegram_bots" (
 -- CreateTable
 CREATE TABLE "global_cloud_email_channels" (
     "id" BIGSERIAL NOT NULL,
+    "key" VARCHAR(36) NOT NULL,
     "created_at" BIGINT NOT NULL,
     "updated_at" BIGINT NOT NULL,
     "deleted_at" BIGINT NOT NULL DEFAULT 0,
@@ -184,6 +191,7 @@ CREATE TABLE "global_cloud_email_channels" (
 -- CreateTable
 CREATE TABLE "global_cloud_email_templates" (
     "id" BIGSERIAL NOT NULL,
+    "key" VARCHAR(36) NOT NULL,
     "created_at" BIGINT NOT NULL,
     "updated_at" BIGINT NOT NULL,
     "deleted_at" BIGINT NOT NULL DEFAULT 0,
@@ -192,9 +200,8 @@ CREATE TABLE "global_cloud_email_templates" (
     "owner_tid" BIGINT NOT NULL DEFAULT 1,
     "owner_bid" BIGINT NOT NULL DEFAULT 1,
     "owner_uid" BIGINT,
-    "key" TEXT NOT NULL,
     "type" TEXT NOT NULL DEFAULT 'email_verification',
-    "name" TEXT NOT NULL,
+    "title" TEXT NOT NULL,
     "subject" TEXT NOT NULL,
     "body_text" TEXT NOT NULL,
     "body_html" TEXT NOT NULL,
@@ -206,6 +213,7 @@ CREATE TABLE "global_cloud_email_templates" (
 -- CreateTable
 CREATE TABLE "global_cloud_email_bindings" (
     "id" BIGSERIAL NOT NULL,
+    "key" VARCHAR(36) NOT NULL,
     "created_at" BIGINT NOT NULL,
     "updated_at" BIGINT NOT NULL,
     "deleted_at" BIGINT NOT NULL DEFAULT 0,
@@ -227,6 +235,7 @@ CREATE TABLE "global_cloud_email_bindings" (
 -- CreateTable
 CREATE TABLE "global_cloud_email_template_publications" (
     "id" BIGSERIAL NOT NULL,
+    "key" VARCHAR(36) NOT NULL,
     "created_at" BIGINT NOT NULL,
     "updated_at" BIGINT NOT NULL,
     "deleted_at" BIGINT NOT NULL DEFAULT 0,
@@ -245,6 +254,23 @@ CREATE TABLE "global_cloud_email_template_publications" (
     CONSTRAINT "global_cloud_email_template_publications_pkey" PRIMARY KEY ("id")
 );
 
+-- CreateTable
+CREATE TABLE "global_snowflake_state" (
+    "id" BIGSERIAL NOT NULL,
+    "created_at" BIGINT NOT NULL,
+    "updated_at" BIGINT NOT NULL,
+    "deleted_at" BIGINT NOT NULL DEFAULT 0,
+    "created_duid" BIGINT,
+    "updated_duid" BIGINT,
+    "owner_tid" BIGINT NOT NULL DEFAULT 1,
+    "owner_bid" BIGINT NOT NULL DEFAULT 1,
+    "owner_uid" BIGINT,
+    "worker_id" INTEGER NOT NULL,
+    "last_timestamp" BIGINT NOT NULL,
+
+    CONSTRAINT "global_snowflake_state_pkey" PRIMARY KEY ("id")
+);
+
 -- CreateIndex
 CREATE UNIQUE INDEX "global_sites_key_deleted_at_key" ON "global_sites"("key", "deleted_at");
 
@@ -252,10 +278,19 @@ CREATE UNIQUE INDEX "global_sites_key_deleted_at_key" ON "global_sites"("key", "
 CREATE UNIQUE INDEX "global_site_hosts_hostname_deleted_at_key" ON "global_site_hosts"("hostname", "deleted_at");
 
 -- CreateIndex
-CREATE UNIQUE INDEX "global_cloud_credentials_name_deleted_at_key" ON "global_cloud_credentials"("name", "deleted_at");
+CREATE UNIQUE INDEX "global_site_hosts_key_deleted_at_key" ON "global_site_hosts"("key", "deleted_at");
+
+-- CreateIndex
+CREATE UNIQUE INDEX "global_cloud_credentials_title_deleted_at_key" ON "global_cloud_credentials"("title", "deleted_at");
+
+-- CreateIndex
+CREATE UNIQUE INDEX "global_cloud_credentials_key_deleted_at_key" ON "global_cloud_credentials"("key", "deleted_at");
 
 -- CreateIndex
 CREATE UNIQUE INDEX "global_cloud_object_storage_buckets_cloud_credential_id_end_key" ON "global_cloud_object_storage_buckets"("cloud_credential_id", "endpoint", "bucket", "deleted_at");
+
+-- CreateIndex
+CREATE UNIQUE INDEX "global_cloud_object_storage_buckets_key_deleted_at_key" ON "global_cloud_object_storage_buckets"("key", "deleted_at");
 
 -- CreateIndex
 CREATE UNIQUE INDEX "global_cloud_object_storage_bindings_id_site_key_deleted_at_key" ON "global_cloud_object_storage_bindings"("id", "site_key", "deleted_at");
@@ -264,13 +299,19 @@ CREATE UNIQUE INDEX "global_cloud_object_storage_bindings_id_site_key_deleted_at
 CREATE UNIQUE INDEX "global_cloud_object_storage_bindings_site_key_bucket_id_key_key" ON "global_cloud_object_storage_bindings"("site_key", "bucket_id", "key_prefix", "deleted_at");
 
 -- CreateIndex
+CREATE UNIQUE INDEX "global_cloud_object_storage_bindings_key_deleted_at_key" ON "global_cloud_object_storage_bindings"("key", "deleted_at");
+
+-- CreateIndex
 CREATE UNIQUE INDEX "global_cloud_object_storage_binding_purposes_binding_id_pur_key" ON "global_cloud_object_storage_binding_purposes"("binding_id", "purpose", "deleted_at");
+
+-- CreateIndex
+CREATE UNIQUE INDEX "global_cloud_object_storage_binding_purposes_key_deleted_at_key" ON "global_cloud_object_storage_binding_purposes"("key", "deleted_at");
 
 -- CreateIndex
 CREATE INDEX "global_telegram_bots_webhook_hostname_idx" ON "global_telegram_bots"("webhook_hostname");
 
 -- CreateIndex
-CREATE UNIQUE INDEX "global_telegram_bots_name_deleted_at_key" ON "global_telegram_bots"("name", "deleted_at");
+CREATE UNIQUE INDEX "global_telegram_bots_title_deleted_at_key" ON "global_telegram_bots"("title", "deleted_at");
 
 -- CreateIndex
 CREATE UNIQUE INDEX "global_telegram_bots_token_deleted_at_key" ON "global_telegram_bots"("token", "deleted_at");
@@ -279,7 +320,13 @@ CREATE UNIQUE INDEX "global_telegram_bots_token_deleted_at_key" ON "global_teleg
 CREATE UNIQUE INDEX "global_telegram_bots_username_deleted_at_key" ON "global_telegram_bots"("username", "deleted_at");
 
 -- CreateIndex
+CREATE UNIQUE INDEX "global_telegram_bots_key_deleted_at_key" ON "global_telegram_bots"("key", "deleted_at");
+
+-- CreateIndex
 CREATE UNIQUE INDEX "global_cloud_email_channels_cloud_credential_id_region_acco_key" ON "global_cloud_email_channels"("cloud_credential_id", "region", "account_name", "deleted_at");
+
+-- CreateIndex
+CREATE UNIQUE INDEX "global_cloud_email_channels_key_deleted_at_key" ON "global_cloud_email_channels"("key", "deleted_at");
 
 -- CreateIndex
 CREATE UNIQUE INDEX "global_cloud_email_templates_key_deleted_at_key" ON "global_cloud_email_templates"("key", "deleted_at");
@@ -288,4 +335,13 @@ CREATE UNIQUE INDEX "global_cloud_email_templates_key_deleted_at_key" ON "global
 CREATE UNIQUE INDEX "global_cloud_email_bindings_site_key_channel_id_template_id_key" ON "global_cloud_email_bindings"("site_key", "channel_id", "template_id", "purpose", "deleted_at");
 
 -- CreateIndex
+CREATE UNIQUE INDEX "global_cloud_email_bindings_key_deleted_at_key" ON "global_cloud_email_bindings"("key", "deleted_at");
+
+-- CreateIndex
 CREATE UNIQUE INDEX "global_cloud_email_template_publications_template_id_cloud__key" ON "global_cloud_email_template_publications"("template_id", "cloud_credential_id", "region", "deleted_at");
+
+-- CreateIndex
+CREATE UNIQUE INDEX "global_cloud_email_template_publications_key_deleted_at_key" ON "global_cloud_email_template_publications"("key", "deleted_at");
+
+-- CreateIndex
+CREATE UNIQUE INDEX "global_snowflake_state_worker_id_deleted_at_key" ON "global_snowflake_state"("worker_id", "deleted_at");
