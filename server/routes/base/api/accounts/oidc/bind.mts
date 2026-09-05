@@ -9,6 +9,7 @@ import { createAccountsSession, syncAccountsIdentity } from '@server/modules/bas
 import { hasCredential, setCredential, verifyCredential } from '@server/modules/base/credentials.mjs';
 import { readStoredPassword } from '@server/modules/base/auth/index.mjs';
 import { finishUserCreation } from '@server/modules/base/registration.mjs';
+import { passwordError } from '@server/modules/base/auth/password-policy.mjs';
 import { maxUserNameLength, userNameError } from '@shared/account-name.mjs';
 import { SECTION_FIELD, type FormPageConfig } from '@shared/types/form-page.mjs';
 
@@ -20,7 +21,7 @@ type PendingChoice = { id: string; issuer: string; subject: string; claims: stri
  * 回调那边已经验过 ID Token，但没有建号——这一步由用户决定：拿带过来的用户名建个新账号，
  * 还是把这个身份绑到本站已有的账号上。两条路互斥，因此分成两段各自提交，见 FormPageSection。
  */
-const choiceForm = (suggested: string): FormPageConfig => ({
+const choiceForm = (suggested: string, accountsPassword: boolean): FormPageConfig => ({
 	description: '这是你第一次用 Accounts 身份登录本站。可以直接创建一个新账号，或者把这个身份绑定到已有账号上。',
 	initialValues: { user_name: suggested },
 	sections: [
@@ -28,18 +29,38 @@ const choiceForm = (suggested: string): FormPageConfig => ({
 			key: 'create',
 			description: '用下面的用户名在本站创建一个新账号。如果提示已被占用，改一个再试。',
 			submitLabel: '创建新账号并登录',
+			// 只有 Accounts 那边确实设过密码、且两侧同步开关都开着，才有密码可以拷。
+			// 没有可拷的就什么都不说——写一句「密码稍后设置」只会让人以为漏填了什么。
+			...(accountsPassword ? { submitHint: '本站密码就是你在 Accounts 设置的那个密码，创建后可以直接用它登录本站。' } : {}),
 			fields: [{ name: 'user_name', label: '用户名', maxLength: maxUserNameLength, extra: `以小写字母开头，只能包含小写字母和数字，最长 ${maxUserNameLength} 位。`, rules: [{ required: true, message: '请输入用户名' }] }],
 		},
 		{
 			key: 'bind',
 			divider: '或',
-			description: '本站已经有账号了？填上它的用户名和密码，把这个 Accounts 身份绑上去。绑定后角色和数据都不变。',
+			description: '本站已经有账号了？填上它的用户名和密码，把这个 Accounts 身份绑上去。绑定后角色和数据都不变，本站密码也保持原样。',
 			submitLabel: '绑定并登录',
 			fields: [
 				{ name: 'user_name', label: '本站用户名', maxLength: maxUserNameLength, rules: [{ required: true, message: '请输入本站用户名' }] },
 				{ name: 'password', label: '本站密码', type: 'password', rules: [{ required: true, message: '请输入本站密码' }] },
 			],
 		},
+	],
+});
+
+/**
+ * 建号后的补设密码这一步。**可以跳过**：Accounts 那边没设过密码，本站也就没有密码可拷，
+ * 而这个账号本来就能用 Accounts 登录，强制设一个只是拦路。跳过之后在个人中心随时能补。
+ *
+ * return_path 放在隐藏字段里带回来：待决请求这时已经删掉了，服务端没地方存它。
+ */
+const passwordForm = (returnPath: string): FormPageConfig => ({
+	description: '你在 Accounts 那边还没有设置密码，所以本站也没有。可以现在设一个，以后就能直接用用户名和密码登录本站；也可以跳过，之后在个人中心再设。',
+	submitLabel: '设置密码',
+	actions: [{ key: 'skip_password', label: '跳过' }],
+	initialValues: { newPassword: '', return_path: returnPath },
+	fields: [
+		{ name: 'return_path', label: '', type: 'hidden' },
+		{ name: 'newPassword', label: '本站密码', type: 'password', extra: '至少 8 个字符。', rules: [{ required: true, message: '请输入密码' }] },
 	],
 });
 
@@ -74,13 +95,6 @@ const settle = async (c: Parameters<ApiHandler>[0], pending: PendingChoice, user
 	const owned = withDatabaseActors(systemDatabase, { baseUserId: userId });
 	await runSql(owned, sql({ database: owned }).insert('base_oidc_users', { issuer: pending.issuer, subject: pending.subject, user_id: userId, profile: JSON.stringify(claims) }));
 	await syncAccountsIdentity(c, systemDatabase, userId, claims, scope);
-	// 密码同步：两侧都要开（Accounts 客户端的「下发密码」+ 本站的「同步 Accounts 密码」），
-	// 而且**只在首次绑定这一次**——之后本站密码归本站管，Accounts 那边改密码不再影响这里。
-	// 整个 password blob 原样拷过来，hash 和 pattern 都不动，两边账号资料因此完全一致。
-	if (pending.credential) {
-		const stored = readStoredPassword(JSON.parse(pending.credential) as unknown);
-		if (stored) await setCredential(systemDatabase, userId, stored);
-	}
 	const oidcSessionId = String(claims.sid ?? '');
 	if (!oidcSessionId) throw new Error('登录请求缺少会话标识，请重新登录');
 	await createAccountsSession(c, systemDatabase, userId, pending.issuer, oidcSessionId);
@@ -93,17 +107,38 @@ const handler: ApiHandler = async (c, next) => {
 	if (!config.enabled) return apiMessage(c, 404, '本站未启用 Accounts OIDC 登录');
 	const pending = await loadPending(c);
 	if (c.req.method === 'GET') {
+		// 刷新补设密码那一页时待决请求已经没了。已登录且还没有本地密码，就把那一页原样再给一次，
+		// 否则刷新一下就成了死路。
+		const signedIn = c.get('currentUser');
+		if (!pending && signedIn && !await hasCredential(c.get('systemDatabase'), signedIn.id)) {
+			return apiResponse(c, 200, { formPage: passwordForm('/') });
+		}
 		if (!pending) return apiMessage(c, 410, 'Accounts 登录已完成或已过期，请重新登录');
 		const claims = parseClaims(pending.claims);
 		const preferred = typeof claims.preferred_username === 'string' ? claims.preferred_username : '';
-		return apiResponse(c, 200, { formPage: choiceForm(userNameError(preferred, c.get('siteSettings').userNameMinLength) ? '' : preferred) });
+		return apiResponse(c, 200, { formPage: choiceForm(userNameError(preferred, c.get('siteSettings').userNameMinLength) ? '' : preferred, Boolean(pending.credential)) });
 	}
 	if (c.req.method !== 'POST') return next();
-	if (!pending) return apiMessage(c, 410, 'Accounts 登录已完成或已过期，请重新登录');
+	const body = await c.req.json<Record<string, unknown>>().catch(() => ({} as Record<string, unknown>));
 	const systemDatabase = c.get('systemDatabase');
+	// 建号后的补设密码这一步：待决请求这时已经删掉，但会话已经建好，所以认当前登录用户。
+	const currentUser = c.get('currentUser');
+	if (!pending && currentUser) {
+		const returnPath = String(body.return_path ?? '') || '/';
+		if (c.req.query('action') === 'skip_password') {
+			return apiMessageData(c, 200, '已跳过设置密码，之后可以在个人中心设置', { next: { action: 'navigate', path: returnPath, refreshAuth: true } });
+		}
+		const newPassword = String(body.newPassword ?? '');
+		if (newPassword) {
+			const error = passwordError(newPassword);
+			if (error) return apiMessage(c, 400, error);
+			await setCredential(systemDatabase, currentUser.id, newPassword);
+			return apiMessageData(c, 200, '密码已设置', { next: { action: 'navigate', path: returnPath, refreshAuth: true } });
+		}
+	}
+	if (!pending) return apiMessage(c, 410, 'Accounts 登录已完成或已过期，请重新登录');
 	const tenantId = c.get('tenantId');
 	const tenantScope = ownerScope('owner_tid', tenantId);
-	const body = await c.req.json<Record<string, unknown>>().catch(() => ({} as Record<string, unknown>));
 	const userName = String(body.user_name ?? '').trim();
 	const claims = parseClaims(pending.claims);
 
@@ -115,8 +150,19 @@ const handler: ApiHandler = async (c, next) => {
 		await runSql(systemDatabase, sql({ database: systemDatabase }).insert('base_users', { name: userName, roles: [], status: 'enabled' }));
 		const createdId = await finishUserCreation(systemDatabase, userName, tenantId);
 		if (createdId === undefined) return apiMessage(c, 500, '无法创建本站账号');
+		// 密码只在**建号**这条路上拷：整个 password blob 原样搬过来，hash 与 pattern 都不动，
+		// 两边账号资料因此完全一致。绑定那条路不拷——用户刚用本站密码证明了所有权，
+		// 把它换掉等于替他改了密码。拷完就各管各的，之后两边互不覆盖。
+		const stored = pending.credential ? readStoredPassword(JSON.parse(pending.credential) as unknown) : undefined;
+		const returnPath = pending.return_path;
 		await settle(c, pending, Number(createdId), claims);
-		return apiMessageData(c, 200, '账号已创建', { next: { action: 'navigate', path: pending.return_path, refreshAuth: true } });
+		if (stored) {
+			await setCredential(systemDatabase, Number(createdId), stored);
+			return apiMessageData(c, 200, '账号已创建', { next: { action: 'navigate', path: returnPath, refreshAuth: true } });
+		}
+		// Accounts 那边没设过密码，本站也就没有密码可用。这一步问一次，允许跳过——
+		// 跳过之后这个账号只能用 Accounts 登录，以后在个人中心还能补设。
+		return apiMessageData(c, 200, '账号已创建', { formPage: passwordForm(returnPath) }, { component: 'inline', showIcon: true, title: '账号已创建' });
 	}
 
 	if (body[SECTION_FIELD] !== 'bind') return apiMessage(c, 400, '请选择创建新账号或绑定已有账号');

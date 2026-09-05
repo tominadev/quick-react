@@ -42,6 +42,8 @@ export type FormPageSection = {
 	description?: string;
 	fields: FormPageField[];
 	submitLabel: string;
+	/** 提交按钮正上方的一句说明，用来讲清「按下去会发生什么」。 */
+	submitHint?: string;
 };
 
 export const SECTION_FIELD = '_section';

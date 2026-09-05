@@ -46,6 +46,7 @@ function SectionForm({ section, initialValues, submitting, onSubmit }: {
 			{section.fields.map((field) => field.type === 'hidden'
 				? <Form.Item key={field.name} name={field.name} hidden><Input /></Form.Item>
 				: <Form.Item key={field.name} label={field.label} name={field.name} extra={field.extra} rules={field.rules}>{fieldControl(field, false)}</Form.Item>)}
+			{section.submitHint ? <Typography.Paragraph type="secondary" style={{ marginBottom: 8 }}>{section.submitHint}</Typography.Paragraph> : null}
 			<Button type="primary" htmlType="submit" loading={submitting}>{section.submitLabel}</Button>
 		</Form>
 	</>;

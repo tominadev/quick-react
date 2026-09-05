@@ -41,12 +41,18 @@ try {
 	const deviceId = String(database.prepare('SELECT id FROM passport_devices WHERE key = ?').get(deviceKey).id);
 	database.prepare(`INSERT INTO passport_device_users (device_id, user_id, status, last_seen_at, created_at, updated_at) VALUES (?, ?, 'active', ?, ?, ?)`).run(deviceId, userId, now, now, now);
 	database.prepare(`INSERT INTO passport_sessions (token_hash, user_id, expires_at, device_id, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?)`).run(passportSessionHash, userId, now + 3600_000, deviceId, now, now);
-	// 第二个 Accounts 身份，用来验证「绑定到本站已有账号」这条路。
+	// 第二个 Accounts 身份验证「绑定到本站已有账号」，第三个验证「建号时拷贝密码」。
 	const secondUserId = 1000000000000000001n, secondSessionId = crypto.randomUUID();
+	const thirdUserId = 1000000000000000002n, thirdSessionId = crypto.randomUUID();
+	const thirdUserPassword = await storedPassword('createpassword');
+	database.prepare(`INSERT INTO passport_users (user_id, name, status, created_at, updated_at) VALUES (?, 'createuser', 'enabled', ?, ?)`).run(thirdUserId, now, now);
+	database.prepare('INSERT INTO passport_user_credentials (user_id, password, created_at, updated_at) VALUES (?, ?, ?, ?)').run(thirdUserId, thirdUserPassword, now, now);
 	const secondSessionHash = Buffer.from(await sha256(secondSessionId)).toString('hex');
 	database.prepare(`INSERT INTO passport_users (user_id, name, status, created_at, updated_at) VALUES (?, 'binduser', 'enabled', ?, ?)`).run(secondUserId, now, now);
 	database.prepare(`INSERT INTO passport_device_users (device_id, user_id, status, last_seen_at, created_at, updated_at) VALUES (?, ?, 'active', ?, ?, ?)`).run(deviceId, secondUserId, now, now, now);
 	database.prepare(`INSERT INTO passport_sessions (token_hash, user_id, expires_at, device_id, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?)`).run(secondSessionHash, secondUserId, now + 3600_000, deviceId, now, now);
+	database.prepare(`INSERT INTO passport_device_users (device_id, user_id, status, last_seen_at, created_at, updated_at) VALUES (?, ?, 'active', ?, ?, ?)`).run(deviceId, thirdUserId, now, now, now);
+	database.prepare(`INSERT INTO passport_sessions (token_hash, user_id, expires_at, device_id, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?)`).run(Buffer.from(await sha256(thirdSessionId)).toString('hex'), thirdUserId, now + 3600_000, deviceId, now, now);
 	const clientId = 'acct_test', clientSecret = 'test-client-secret', verifier = base64Url(crypto.getRandomValues(new Uint8Array(48)));
 	const secretHash = Buffer.from(await sha256(clientSecret)).toString('hex'), challenge = base64Url(await sha256(verifier));
 	database.prepare(`INSERT INTO passport_oidc_clients (client_id, name, secret_hash, redirect_uris, allowed_scopes, require_pkce, status, created_at, updated_at, backchannel_logout_uri)
@@ -57,11 +63,13 @@ try {
 	database.prepare(`INSERT INTO base_configs (created_at, updated_at, key, value) VALUES (?, ?, 'site-settings', ?)`).run(now, now, JSON.stringify({ passwordSyncEnabled: true }));
 	const bindUserPassword = await storedPassword('accountspassword');
 	database.prepare('INSERT INTO passport_user_credentials (user_id, password, created_at, updated_at) VALUES (?, ?, ?, ?)').run(secondUserId, bindUserPassword, now, now);
+
 	database.prepare(`INSERT INTO base_users (id, name, roles, status, created_at, updated_at) VALUES (77, 'localadmin', '["admin"]', 'enabled', ?, ?)`).run(now, now);
 	// 绑定路径的目标账号：本站已有、且**有本地密码**。localadmin 故意不给密码，用来验证
 	// 「没有本地密码的账号绑不上」——那种账号本来就没有密码可以用来证明所有权。
 	database.prepare(`INSERT INTO base_users (id, name, roles, status, created_at, updated_at) VALUES (78, 'bindtarget', '[]', 'enabled', ?, ?)`).run(now, now);
-	database.prepare('INSERT INTO base_user_credentials (user_id, password, created_at, updated_at) VALUES (78, ?, ?, ?)').run(await storedPassword('bindpassword'), now, now);
+	const bindTargetPassword = await storedPassword('bindpassword');
+	database.prepare('INSERT INTO base_user_credentials (user_id, password, created_at, updated_at) VALUES (78, ?, ?, ?)').run(bindTargetPassword, now, now);
 	database.prepare(`INSERT INTO base_devices (id, user_id, key, fingerprint, status, last_seen_at, created_at, updated_at) VALUES (42, 77, ?, ?, 'active', ?, ?, ?)`).run(deviceKey, fingerprintData, now, now, now);
 	database.prepare(`INSERT INTO base_device_users (device_id, user_id, status, last_seen_at, created_at, updated_at) VALUES (42, 77, 'active', ?, ?, ?)`).run(now, now, now);
 	database.prepare(`INSERT INTO base_sessions (created_at, updated_at, token_hash, user_id, expires_at, device_id) VALUES (?, ?, ?, 77, ?, 42)`).run(now, now, sessionHash, now + 3600_000);
@@ -140,13 +148,30 @@ try {
 	const selfBind = (body) => app.request(`https://accounts.test${bindPath}`, { method: 'POST', headers: { 'content-type': 'application/json', cookie: selfLoginCookie, 'x-device-key': deviceKey, 'x-device-fingerprint': fingerprintData }, body: JSON.stringify(body) });
 	assert.equal((await selfBind({ _section: 'create', user_name: 'localadmin' })).status, 409, '用户名被占用要明说，好让用户改一个');
 	assert.equal((await selfBind({ _section: 'create', user_name: 'AB' })).status, 400, '不合规的用户名要拦下');
+	// 这个客户端还没打开「下发密码」，所以没有密码可拷：建号那一段不出提示，
+	// 建完之后再问一次密码，允许跳过。
+	assert.equal(choice.formPage.sections[0].submitHint, undefined, '没有可拷的密码就不提示');
 	const createdAccount = await selfBind({ _section: 'create', user_name: 'oidcuser1' });
 	assert.equal(createdAccount.status, 200);
-	assert.deepEqual((await createdAccount.clone().json()).next, { action: 'navigate', path: '/', refreshAuth: true });
+	const createdResult = await createdAccount.clone().json();
+	assert.equal(createdResult.next, undefined, '没有密码可拷时先别跳走');
+	assert.deepEqual(createdResult.formPage.fields.map((field) => field.name), ['return_path', 'newPassword']);
+	assert.deepEqual(createdResult.formPage.actions.map((action) => action.key), ['skip_password'], '这一步可以跳过');
 	const selfSessionCookie = createdAccount.headers.getSetCookie().find((item) => item.startsWith('base_session='))?.split(';')[0];
 	assert.ok(selfSessionCookie);
-	// 落定后再进选择页，给的是「重新登录」而不是一个空表单。
+	// 跳过之后照常回原页面；账号仍然没有本地密码，之后在个人中心可以补。
+	const skipped = await app.request(`https://accounts.test${bindPath}?action=skip_password`, { method: 'POST', headers: { 'content-type': 'application/json', cookie: selfSessionCookie, 'x-device-key': deviceKey, 'x-device-fingerprint': fingerprintData }, body: JSON.stringify({ return_path: '/' }) });
+	assert.equal(skipped.status, 200);
+	assert.deepEqual((await skipped.json()).next, { action: 'navigate', path: '/', refreshAuth: true });
+	const skippedDatabase = new DatabaseSync(process.env.DEFAULT_DATABASE_FILE, { readOnly: true });
+	assert.equal(skippedDatabase.prepare("SELECT COUNT(*) AS count FROM base_user_credentials c JOIN base_users u ON u.id = c.user_id WHERE u.name = 'oidcuser1'").get().count, 0, '跳过就是真的不设密码');
+	skippedDatabase.close();
+	// 落定后再进选择页：没登录就是「重新登录」，登录了但还没设密码就把补设那一页再给一次，
+	// 否则刷新一下就成了死路。
 	assert.equal((await app.request(`https://accounts.test${bindPath}`, { headers: { cookie: selfLoginCookie } })).status, 410);
+	const reloaded = await app.request(`https://accounts.test${bindPath}`, { headers: { cookie: selfSessionCookie, 'x-device-key': deviceKey, 'x-device-fingerprint': fingerprintData } });
+	assert.equal(reloaded.status, 200);
+	assert.deepEqual((await reloaded.json()).formPage.actions.map((action) => action.key), ['skip_password']);
 	const signedInPassport = await (await request('/api/sign.php', { headers: { cookie: selfSessionCookie } })).json();
 	assert.equal(signedInPassport.user.user_name, 'oidcuser1');
 	const settled = new DatabaseSync(process.env.DEFAULT_DATABASE_FILE, { readOnly: true });
@@ -257,11 +282,10 @@ try {
 	const boundSign = await (await app.request('https://site1.test/api/sign.php', { headers: { cookie: boundCookie, 'x-device-key': deviceKey, 'x-device-fingerprint': fingerprintData } })).json();
 	// 绑定保留本站账号自己的用户名：Accounts 那边叫 binduser，本站还是 bindtarget。
 	assert.equal(boundSign.user.user_name, 'bindtarget');
-	// 首次绑定同步密码：整个 password blob 原样拷过来，hash 与 pattern 都不动。
-	// 之后各管各的——本站再改密码，Accounts 那边改密码，都不会互相覆盖。
+	// **绑定路径不碰密码**：用户刚用本站密码证明了所有权，把它换成 Accounts 的
+	// 等于替他改了密码。绑定后本站密码保持原样。
 	const syncedCredential = new DatabaseSync(process.env.DEFAULT_DATABASE_FILE, { readOnly: true });
-	// blob 一字不差地拷过来，因此 Accounts 那边的密码在本站同样能登录（本站启用本地登录时）。
-	assert.equal(syncedCredential.prepare('SELECT password FROM base_user_credentials WHERE user_id = 78').get().password, bindUserPassword, '本站凭证应与 Accounts 的一字不差');
+	assert.equal(syncedCredential.prepare('SELECT password FROM base_user_credentials WHERE user_id = 78').get().password, bindTargetPassword, '绑定不该改掉本站密码');
 	// 凭证 blob 只在待决期间存在，落定时随请求行一起删掉；库里不该再留下任何一份。
 	assert.equal(syncedCredential.prepare("SELECT COUNT(*) AS count FROM base_oidc_login_requests WHERE status = 'choosing' OR credential != ''").get().count, 0);
 	syncedCredential.close();
@@ -269,6 +293,22 @@ try {
 	assert.equal(boundDatabase.prepare('SELECT user_id FROM base_oidc_users WHERE subject = ?').get(String(secondUserId)).user_id, 78);
 	assert.equal(boundDatabase.prepare('SELECT COUNT(*) AS count FROM base_users').get().count, 3, '绑定不该建出新账号（localadmin、bindtarget、oidcuser1）');
 	boundDatabase.close();
+
+	// —— 第三个 Accounts 身份：建号路径会把密码整块拷过来 ——
+	const createStart = await app.request('https://site1.test/api/sign.php', { method: 'POST', headers: { 'content-type': 'application/json' }, body: '{}' });
+	const createLoginCookie = createStart.headers.get('set-cookie')?.split(';')[0];
+	const createAuthorized = await app.request((await createStart.json()).redirectTo, { headers: { cookie: `passport_session=${thirdSessionId}`, 'x-device-key': deviceKey, 'x-device-fingerprint': fingerprintData } });
+	await app.request(createAuthorized.headers.get('location'), { headers: { cookie: createLoginCookie, 'x-device-key': deviceKey, 'x-device-fingerprint': fingerprintData } });
+	const createChoice = await (await app.request('https://site1.test/api/accounts/oidc/bind.php', { headers: { cookie: createLoginCookie } })).json();
+	// Accounts 那边设过密码，所以建号那一段在按钮上方讲清「本站密码就是它」。
+	assert.match(createChoice.formPage.sections[0].submitHint, /Accounts 设置的那个密码/);
+	const createdLocal = await app.request('https://site1.test/api/accounts/oidc/bind.php', { method: 'POST', headers: { 'content-type': 'application/json', cookie: createLoginCookie, 'x-device-key': deviceKey, 'x-device-fingerprint': fingerprintData }, body: JSON.stringify({ _section: 'create', user_name: 'createlocal' }) });
+	assert.equal(createdLocal.status, 200);
+	// 有密码可拷就不再多问一步，直接回原页面。
+	assert.deepEqual((await createdLocal.json()).next, { action: 'navigate', path: '/', refreshAuth: true });
+	const copied = new DatabaseSync(process.env.DEFAULT_DATABASE_FILE, { readOnly: true });
+	assert.equal(copied.prepare("SELECT c.password AS password FROM base_user_credentials c JOIN base_users u ON u.id = c.user_id WHERE u.name = 'createlocal'").get().password, thirdUserPassword, '整个 password blob 原样拷过来');
+	copied.close();
 
 	const logoutStart = await app.request('https://site1.test/api/sign.php', { method: 'DELETE', headers: { cookie: businessSessionCookie, referer: 'https://site1.test/panel/admin/base/users.html', 'x-device-key': deviceKey, 'x-device-fingerprint': fingerprintData } });
 	const logoutResult = await logoutStart.json();
