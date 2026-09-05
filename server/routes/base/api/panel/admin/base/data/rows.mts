@@ -7,9 +7,10 @@ import { getChangedFields } from '@server/modules/base/changed-fields.mjs';
 import { isSystemField } from '@shared/system-fields.mjs';
 import type { TableCrudDefinition } from '@server/modules/base/table-crud.mjs';
 
-const body = async (c: Parameters<ApiHandler>[0]) => c.req.json<Record<string, unknown>>().catch(() => ({}));
+const body = async (c: Parameters<ApiHandler>[0]) => c.req.json<Record<string, unknown>>().catch(() => ({} as Record<string, unknown>));
 const editableFields = (values: Record<string, unknown>, names: Set<string>) => Object.entries(values).filter(([name]) => names.has(name));
-const protectedFields = (values: Record<string, unknown>) => Object.keys(values).filter(isSystemField);
+const protectedFields = (values: Record<string, unknown>, allowKey = false) =>
+	Object.keys(values).filter((name) => isSystemField(name) && !(allowKey && name === 'key'));
 
 export const tableCrud: TableCrudDefinition = {
 	table: (c) => c.req.query('table'),
@@ -57,7 +58,9 @@ const handler: ApiHandler = async (c, next, params) => {
 	}
 	if (c.req.method === 'POST') {
 		const source = await body(c);
-		const protectedNames = protectedFields(source);
+		// 表单里的 key 留空就当没填：那张表的 key 是发号器发的，不该逼人手填一串雪花。
+		if (typeof source.key === 'string' && !source.key.trim()) delete source.key;
+		const protectedNames = protectedFields(source, true);
 		if (protectedNames.length) return apiMessage(c, 400, `系统字段不可修改：${protectedNames.join('、')}`);
 		const values = editableFields(source, names);
 		if (!values.length) return apiMessage(c, 400, '没有可写入的字段');

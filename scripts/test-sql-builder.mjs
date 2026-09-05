@@ -22,6 +22,8 @@ try {
 	assert.equal(sqlite.insert('users', { key: 'given_key', name: 'Alice' }).values[3], 'given_key', '调用方给的 key 不被覆盖');
 	assert.throws(() => sqlite.insert('users', { key: '不是英文' }), /只能是英文字母/);
 	assert.throws(() => sqlite.insert('users', { key: 'x'.repeat(37) }), /最长 36/);
+	// key 建后不改：能被别的表引用，正是因为它不动；改一次就把所有引用指向了空处。
+	assert.throws(() => sqlite.update('users', { key: 'new_key' }, { id: 1 }), /系统字段/);
 	const actorSql = new SqliteSqlBuilder('17');
 	const actorInsert = actorSql.insert('users', { name: 'Alice' });
 	assert.match(actorInsert.query, /^INSERT INTO "users" \("created_at", "updated_at", "created_duid", "updated_duid", "owner_uid", "key", "name"\)/);

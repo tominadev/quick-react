@@ -33,7 +33,8 @@ const tableColumn = (column: Awaited<ReturnType<typeof getColumns>>[number]): Ta
 	title: column.name,
 	component: 'textbox',
 	dataType: /INT/i.test(column.type) ? 'int' : /REAL|FLOA|DOUB|DECIMAL|NUMERIC/i.test(column.type) ? 'float' : 'string',
-	...(isSystemField(column.name) ? { form: { create: false, edit: false } } : {}),
+	// key 新建时可以填（人给短串的表要填），建好之后不可改：它是别的表的引用目标。
+	...(column.name === 'key' ? { form: { edit: false as const } } : isSystemField(column.name) ? { form: { create: false as const, edit: false as const } } : {}),
 });
 export const databaseSelectColumns = (columns: Awaited<ReturnType<typeof getColumns>>) => Object.fromEntries(columns.map((column) => [column.name, /INT/i.test(column.type) ? { column: column.name, cast: 'text' as const } : column.name]));
 export const readTable = async (database: DatabaseAdapter, mode: 'columns' | 'rows', tableName: string | undefined, pageNumValue?: string, pageSizeValue?: string, options: { deleted?: DeletedScope; tables?: TableSelectOption[] } = {}): Promise<DatabaseTableResponse> => {

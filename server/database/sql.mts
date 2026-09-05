@@ -31,9 +31,10 @@ const conflictTarget = (keys: string[]) => {
 	if (!keys.length) throw new Error('INSERT conflict keys cannot be empty');
 	return keys.includes('deleted_at') ? keys : [...keys, 'deleted_at'];
 };
-const assertBusinessWriteFields = (values: Values, options: { allowId?: boolean; allowDeletedAt?: boolean } = {}) => {
+const assertBusinessWriteFields = (values: Values, options: { allowId?: boolean; allowKey?: boolean; allowDeletedAt?: boolean } = {}) => {
 	const protectedFields = Object.keys(values).filter((field) => isSystemField(field)
 		&& !(options.allowId && field === 'id')
+		&& !(options.allowKey && field === 'key')
 		&& !(options.allowDeletedAt && field === 'deleted_at'));
 	if (protectedFields.length) throw new Error(`系统字段由 SQL 公共层维护，业务代码不得传入：${protectedFields.join('、')}（固定字段：${SYSTEM_FIELD_NAMES.join('、')}）`);
 };
@@ -250,7 +251,7 @@ export abstract class SqlBuilder {
 	insert(table: string, values: Values): SqlQuery {
 		// An internal allocator may provide an ID during creation; IDs are still
 		// immutable after creation and never appear in user-facing forms.
-		assertBusinessWriteFields(values, { allowId: true });
+		assertBusinessWriteFields(values, { allowId: true, allowKey: true });
 		const timestamp = Date.now(), actorUid = this.actorUidFor(table), ownerUid = this.ownerUidFor(table), ownerTid = this.ownerTidFor(table), ownerBid = this.ownerBidFor(table);
 		// key 和 created_at 一样由这一层补：它是每一行的稳定标识（§column-naming），
 		// 漏补一处就是运行时的 NOT NULL 报错。调用方给了就用调用方的——`global_sites`
