@@ -55,6 +55,30 @@ const rawSiteNavigation = (): MenuNode[] => [
 			},
 		],
 	},
+	/**
+	 * 代理中心：**外部主体**的管理视图，与管理后台是两条轴。
+	 *
+	 * 代理是普通用户，不是运营这套系统的人——它看得到的只有名下下级的账号信息，
+	 * 下级的业务数据要走代查（一次一个账号并留痕），不在这里。
+	 *
+	 * 显式写 dashboardPath：panelRoot 靠它决定进来落在哪一页，而它默认只认
+	 * component 为 dashboard 的子页；代理中心没有仪表盘，不写就会被弹回首页。
+	 */
+	{
+		label: '代理中心',
+		key: 'panel/agent',
+		icon: 'appstore',
+		component: 'panelRoot',
+		navigationGroup: 'agent',
+		dropdown: true,
+		dashboardPath: '/panel/agent/subordinates',
+		title: '代理中心',
+		description: '管理名下发展的下级用户',
+		roles: ['agent'],
+		children: [
+			{ label: '下级用户', key: 'subordinates', icon: 'appstore', component: 'table', title: '下级用户', description: '查看名下的下级用户，或按用户名把还没有代理的用户拉过来' },
+		],
+	},
 	// 个人中心只做当前登录身份的只读展示，账号资料由 Accounts 维护，不设子页面。
 	{ label: '个人中心', key: 'panel/me', icon: 'appstore', hidden: true, component: 'personalCenter', title: '个人中心', description: '查看当前登录账号的身份信息', roles: ['user'] },
 ];
