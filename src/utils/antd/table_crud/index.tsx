@@ -15,7 +15,7 @@ import { useNavigate } from 'react-router-dom';
 import { PlusOutlined, DeleteOutlined, SearchOutlined, UploadOutlined, DownloadOutlined } from '@ant-design/icons';
 import { useDrawer } from '@/utils/common/drawer.js';
 import dayjs from 'dayjs';
-import { mergeQueryValues, mergeSort, readTableUrlState, sortOrderFor, writeTableUrlState } from './url-state.js';
+import { mergeQueryValues, mergeSort, queryUrlValues, readTableUrlState, sortOrderFor, writeTableUrlState } from './url-state.js';
 import { describeFormChanges } from '@/components/panel/form-changes.js';
 
 // 定义TableCRUD的传参
@@ -365,8 +365,9 @@ const TableCRUD = ({ commonApi, resourcePath, initialResponse, initialQueryValue
 								setAppliedQueryValues(defaults);
 								// 进页面就把**生效的**筛选写进地址栏，让地址栏成为唯一事实来源：
 								// 看到的地址就是当前查询，刷新、收藏、分享出去都是同一份结果。
-								// 否则「界面上是待审批、地址栏里什么都没有」，刷新后走哪一套全看实现细节。
-								rememberTableState({ query: defaults });
+								// 只写与默认值不同的那几个——都写的话，什么都没挑就跳成
+								// `?q.review_status=all&q.data_status=all&q.scope=all`，三个参数说的都是「不筛选」。
+								rememberTableState({ query: queryUrlValues(fields, defaults) });
 							}
 						}
 					} else {
@@ -829,7 +830,7 @@ const TableCRUD = ({ commonApi, resourcePath, initialResponse, initialQueryValue
 		setSearchRequestKey((previous) => previous + 1);
 		setPagination((prev) => ({ ...prev, current: 1, total: 0 }));
 		// 搜索条件也记进地址栏：刷新回到同一组条件，链接可以直接分享。
-		rememberTableState({ query: queryValues, page: 1 });
+		rememberTableState({ query: queryUrlValues(queryFields, queryValues), page: 1 });
 	};
 	// 查询区是裸的输入框，不在 form 里，没有默认提交行为可拦。用 antd 自带的
 	// onPressEnter，而不是为此套一层 form——嵌套 form 还要处理默认提交与冒泡。

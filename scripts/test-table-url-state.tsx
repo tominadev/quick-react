@@ -1,5 +1,5 @@
 import assert from 'node:assert/strict';
-import { readTableUrlState, writeTableUrlState, sortOrderFor, parseSort, formatSort, mergeSort, mergeQueryValues, tableRequestParams, defaultTableUrlState } from '@/utils/antd/table_crud/url-state.js';
+import { readTableUrlState, writeTableUrlState, sortOrderFor, parseSort, formatSort, mergeSort, mergeQueryValues, queryUrlValues, tableRequestParams, defaultTableUrlState } from '@/utils/antd/table_crud/url-state.js';
 
 // —— 读 ——
 assert.deepEqual(readTableUrlState(''), { ...defaultTableUrlState, query: {} });
@@ -81,6 +81,18 @@ assert.deepEqual(mergeQueryValues(auditFields, { review_status: 'approved' }, { 
 assert.deepEqual(mergeQueryValues(auditFields, {}, { reason: '改密码' }), { review_status: 'pending', reason: '改密码' });
 // 没有默认值也没人给的字段不会凭空出现。
 assert.deepEqual(mergeQueryValues([{ dataIndex: 'reason' }], {}, {}), {});
+
+// —— 写进地址栏的只有「与默认值不同」的那几个 ——
+// 都写的话，什么都没挑就跳成 ?q.review_status=all&q.data_status=all&q.scope=all，
+// 三个参数说的都是「不筛选」。
+const auditFilters = [{ dataIndex: 'review_status', defaultValue: 'all' }, { dataIndex: 'data_status', defaultValue: 'all' }, { dataIndex: 'reason' }];
+assert.deepEqual(queryUrlValues(auditFilters, { review_status: 'all', data_status: 'all' }), {});
+assert.deepEqual(queryUrlValues(auditFilters, { review_status: 'pending', data_status: 'all' }), { review_status: 'pending' });
+// 没有默认值的字段：填了就写。
+assert.deepEqual(queryUrlValues(auditFilters, { reason: '改密码' }), { reason: '改密码' });
+assert.deepEqual(queryUrlValues(auditFilters, { reason: '' }), {});
+// 认不出来的字段按「默认为空」处理，填了就写。
+assert.deepEqual(queryUrlValues(auditFilters, { table_name: 'base_users' }), { table_name: 'base_users' });
 
 // —— 地址栏 → 接口参数 ——
 // 地址上什么都没写就不带任何参数，接口照常用它自己的默认值。

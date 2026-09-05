@@ -100,6 +100,24 @@ export const mergeQueryValues = (
 });
 
 /**
+ * 该写进地址栏的那几个查询条件：**与默认值不同的才写**。
+ *
+ * 默认值不写，是和 `page`/`size`/`sort` 同一条规矩——默认状态下地址栏保持干净。
+ * 都写进去的话，什么都没挑就跳成 `?q.review_status=all&q.data_status=all&q.scope=all`，
+ * 三个参数说的都是「不筛选」。
+ *
+ * 不写也不会让界面和地址栏对不上：参数缺失时前端回落到 `defaultValue`、服务端回落到
+ * 同一个值，而这两个默认值来自同一份路由声明。
+ */
+export const queryUrlValues = (
+	fields: ReadonlyArray<{ dataIndex: string; defaultValue?: unknown }>,
+	values: Record<string, string>,
+): Record<string, string> => {
+	const defaults = new Map(fields.map((field) => [field.dataIndex, field.defaultValue === undefined ? '' : String(field.defaultValue)]));
+	return Object.fromEntries(Object.entries(values).filter(([name, value]) => value !== (defaults.get(name) ?? '')));
+};
+
+/**
  * 把地址栏上的表格状态换成接口参数。
  *
  * 地址栏用 `page`/`size`/`q.<字段>`，接口用 `pageNum`/`pageSize`/`<字段>`——两套名字
