@@ -307,6 +307,7 @@ const renderDocument = async (c: Context<WorkerEnv>) => {
 		...metadata,
 		title,
 		canonical,
+		contactEmail: c.get('siteSettings').contactEmail,
 		initialData: {
 			debug: systemConfig.debug,
 			bootstrapMode: apiBootstrap ? 'api' : 'server',

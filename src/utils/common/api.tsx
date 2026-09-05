@@ -4,7 +4,7 @@ import { message } from 'antd';
 import { ExclamationCircleOutlined } from '@ant-design/icons';
 import { useRef, useState } from 'react';
 import type { ApiFeedback as SharedApiFeedback, ApiResponseBody } from '@shared/types/api-response.mjs';
-import { applyApiIdentity } from '@/utils/common/response-action.js';
+import { applyApiResponseContext } from '@/utils/common/response-action.js';
 import type { TableColumn, TableData, TableOption, TableResponse } from '@shared/types/table.mjs';
 import { getDeviceHeaders } from './device-fingerprint.js';
 
@@ -168,10 +168,10 @@ export function useCommonApi(): [CommonApi, React.JSX.Element] {
 				const { parseError: _parseError, ...responseJSON } = resJSON;
 				return responseJSON;
 			}
-			// 统一拦截：响应带回当前登录身份就刷新显示。放在这里而不是各个组件里——
-			// apiFetch 是所有请求的唯一出口，漏掉一处界面就会停在旧身份上，
-			// 而「哪些接口会改到自己」是说不全的。
-			applyApiIdentity((resJSON as { user?: unknown }).user);
+			// 统一拦截：响应带回认证上下文、又没有下一步动作时，就地刷新身份显示。
+			// 放在这里而不是各个组件里——apiFetch 是所有请求的唯一出口，漏掉一处
+			// 界面就会停在旧身份上，而「哪些接口会改到自己」是说不全的。
+			if (!resJSON.next) applyApiResponseContext(resJSON.context);
 			if (resJSON.feedback || resJSON.message) {
 				const feedback = resJSON.feedback ?? {
 					component: 'message' as const,

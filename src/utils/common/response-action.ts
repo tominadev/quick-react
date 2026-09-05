@@ -1,11 +1,10 @@
-import type { ApiContext, ApiNextAction } from '@shared/types/api-response.mjs';
+import type { ApiContext, ApiContextPatch, ApiNextAction } from '@shared/types/api-response.mjs';
 import type { UserIdentity } from '@shared/types/user.mjs';
 
 export const apiNavigationEvent = 'base-api-navigation';
-export const apiIdentityEvent = 'base-api-identity';
-export type ApiNavigationEventDetail = { next?: ApiNextAction; context?: ApiContext };
+export type ApiNavigationEventDetail = { next?: ApiNextAction; context?: ApiContext | ApiContextPatch };
 
-const handlers: Record<ApiNextAction['action'], (next: ApiNextAction, context?: ApiContext) => void> = {
+const handlers: Record<ApiNextAction['action'], (next: ApiNextAction, context?: ApiContext | ApiContextPatch) => void> = {
 	reload: (next) => {
 		const delayValue = next.action === 'reload' ? next.delay ?? 0 : 0;
 		const delay = Number.isFinite(delayValue) ? Math.max(0, delayValue) : 0;
@@ -23,18 +22,14 @@ const handlers: Record<ApiNextAction['action'], (next: ApiNextAction, context?: 
 };
 
 /**
- * 响应里带回当前登录身份时就地更新显示，不跳转、不动页面。
+ * 只应用响应附带的认证上下文，不做任何跳转。
  *
- * 只搬**身份本身**，不搬整个认证上下文：改个昵称而已，导航树、页面状态、可用动作
- * 一样都没变，把它们整份传一遍既浪费又容易把没变的东西覆盖成空。
- *
- * 只认具名的 user 字段。表单里同样可能出现 profile_nickname，但那可能是管理员在改
- * **别人**的资料，照着更新右上角就错了；identity 必须由接口显式声明是「当前这个人」。
+ * 用在「改了自己的身份但留在原页面」这种场合：个人中心改完昵称，右上角要跟着变，
+ * 而页面不该动。消费侧只取其中的 auth 一项，见 planApiNavigation。
  */
-export const applyApiIdentity = (user: unknown) => {
-	if (!user || typeof user !== 'object' || Array.isArray(user)) return;
-	if (typeof (user as { user_name?: unknown }).user_name !== 'string') return;
-	window.dispatchEvent(new CustomEvent<UserIdentity>(apiIdentityEvent, { detail: user as UserIdentity }));
+export const applyApiResponseContext = (context?: ApiContext | ApiContextPatch) => {
+	if (!context?.auth?.currentUser) return;
+	window.dispatchEvent(new CustomEvent<ApiNavigationEventDetail>(apiNavigationEvent, { detail: { context } }));
 };
 
 /**
@@ -45,17 +40,21 @@ export const applyApiIdentity = (user: unknown) => {
  * - `ignore`：这个事件与认证无关。
  */
 export type ApiNavigationPlan =
-	| { kind: 'auth'; auth: NonNullable<ApiContext['auth']> }
+	| { kind: 'identity'; currentUser: Partial<UserIdentity> }
 	| { kind: 'navigate'; path: string; context?: ApiContext }
 	| { kind: 'ignore' };
 
 export const planApiNavigation = (detail?: ApiNavigationEventDetail): ApiNavigationPlan => {
 	const next = detail?.next;
-	// 只取 auth 一项：这类响应不携带导航树和页面状态，整份套上去会把它们清空。
-	if (!next) return detail?.context?.auth ? { kind: 'auth', auth: detail.context.auth } : { kind: 'ignore' };
+	if (!next) {
+		// 没有下一步动作的上下文是**局部补丁**：只带变化的身份字段，按路径合并进去。
+		// 整份替换会把导航树、页面状态这些没跟着传的东西清空。
+		const currentUser = detail?.context?.auth?.currentUser;
+		return currentUser ? { kind: 'identity', currentUser } : { kind: 'ignore' };
+	}
 	if (next.action !== 'navigate' || !next.refreshAuth) return { kind: 'ignore' };
-	return { kind: 'navigate', path: next.path, context: detail?.context };
+	return { kind: 'navigate', path: next.path, context: detail?.context as ApiContext | undefined };
 };
 
 /** 统一执行后端下发的完成动作，业务组件不得自行推断刷新或跳转目标。 */
-export const runApiNextAction = (next?: ApiNextAction, context?: ApiContext) => { if (next) handlers[next.action](next, context); };
+export const runApiNextAction = (next?: ApiNextAction, context?: ApiContext | ApiContextPatch) => { if (next) handlers[next.action](next, context); };

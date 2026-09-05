@@ -31,11 +31,19 @@ export type ApiContext = {
 	pageStatus?: PageStatus;
 };
 
+/**
+ * 局部上下文：只带变化的那几个字段，客户端按路径**合并**而不是整份替换。
+ *
+ * 改个昵称而已，导航树、页面状态、可用动作一样都没变，整份 ApiContext 传一遍既浪费，
+ * 又容易把没变的东西覆盖成空。路径与完整上下文保持一致，客户端因此不必分两套处理。
+ */
+export type ApiContextPatch = { auth?: { currentUser?: Partial<import('./user.mjs').UserIdentity> } };
+
 export type ApiResponseBody = {
 	message?: string;
 	feedback?: ApiFeedback;
 	next?: ApiNextAction;
-	context?: ApiContext;
+	context?: ApiContext | ApiContextPatch;
 	/** 页面启动响应中的业务数据；由对应通用组件直接消费。 */
 	home?: import('./home.mjs').HomePageData;
 	dashboard?: import('./dashboard.mjs').DashboardData;

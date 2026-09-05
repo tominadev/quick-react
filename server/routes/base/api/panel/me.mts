@@ -105,9 +105,10 @@ const handler: ApiHandler = async (c, next) => {
 	 * 只有「有没有本地密码」变化时才回新的 formPage：那一段的标题和字段要从「设置密码」
 	 * 翻成「修改密码」。其余情况不动表单结构。
 	 *
-	 * 只回**身份本身**（user），不回整个认证上下文：改个昵称而已，导航树、页面状态、
-	 * 可用动作一样都没变，整份传一遍既浪费又容易把没变的东西覆盖成空。界面上半截和
-	 * 右上角都从这一个字段更新。
+	 * 身份走两处：`user` 给页面上半截展示，`context.auth.currentUser` 是给右上角的
+	 * **局部补丁**——只带变化的那几个字段，客户端按路径合并。不发完整上下文：改个昵称
+	 * 而已，导航树、页面状态、可用动作一样都没变，整份传一遍既浪费又容易把没变的东西
+	 * 覆盖成空。
 	 */
 	const hadCredential = await hasCredential(database, currentUser.id);
 	const saved = async (message: string, values: Record<string, unknown>) => {
@@ -118,9 +119,13 @@ const handler: ApiHandler = async (c, next) => {
 			profile_nickname: profileNicknameOf(row.user_name, row.profile_nickname),
 			roles: currentUser.roles, tenantId: currentUser.tenantId,
 		};
+		// 会话里的身份也要就地更新：同一请求后面若还要用到它，拿到的就是新值。
+		c.set('currentUser', identity);
 		const nowHasCredential = await hasCredential(database, currentUser.id);
 		return apiMessageData(c, 200, message, {
 			user: identity,
+			// 右上角显示的是昵称，而昵称没设时回落到用户名——所以改用户名也要带上它。
+			context: { auth: { currentUser: { user_name: identity.user_name, profile_nickname: identity.profile_nickname } } },
 			currentValues: values,
 			...(nowHasCredential === hadCredential ? {} : { formPage: profileForm(row, nowHasCredential) }),
 		}, { component: 'inline', showIcon: true, title: '保存结果' });

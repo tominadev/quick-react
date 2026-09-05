@@ -230,8 +230,14 @@ export const App = ({ commonApi }: AppType) => {
 	useEffect(() => {
 		const onApiNavigation = (event: Event) => {
 			const plan = planApiNavigation((event as CustomEvent<ApiNavigationEventDetail>).detail);
-			// 没有下一步动作时只更新身份显示：改完自己的昵称，右上角要变，页面不该动。
-			if (plan.kind === 'auth') { setAuth(plan.auth); return; }
+			// 没有下一步动作时只合并身份字段：改完自己的昵称，右上角要变，页面不该动。
+			// 合并而不是替换——补丁只带变化的那几个字段，其余身份信息要原样留着。
+			if (plan.kind === 'identity') {
+				setAuth((previous) => previous?.currentUser
+					? { ...previous, currentUser: { ...previous.currentUser, ...plan.currentUser } }
+					: previous);
+				return;
+			}
 			if (plan.kind !== 'navigate') return;
 			try {
 				applyApiContext(plan.context);

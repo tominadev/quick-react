@@ -5,8 +5,74 @@ interface IndexData {
 	title: string;
 	description: string;
 	canonical?: string;
+	/** 加载失败时给用户的联系方式；没配置就只提示刷新。 */
+	contactEmail?: string;
 	initialData: InitialData;
 }
+
+/**
+ * 页面壳的兜底：脚本没能把界面渲染出来时，别让用户对着「正在加载页面…」干等。
+ *
+ * 三种失败各有各的信号，都要盖住：
+ * - 脚本压根没加载到（404、断网、CDN 挂了）——`onerror`，这是确定性的失败。
+ * - 脚本加载了但初始化就抛错（浏览器太旧、代码有 bug）——`window.onerror`。
+ * - 什么信号都没有，就是一直不出来——超时兜底，措辞用「超时」而不是「失败」，
+ *   因为慢网络下它可能还在下载。
+ *
+ * 整段不依赖任何外部资源：能走到这里，恰恰说明外部资源靠不住。
+ */
+const failureScript = (contactEmail: string) => `
+(function () {
+	var handled = false;
+	function fail(title, detail) {
+		if (handled) return;
+		var root = document.getElementById('root');
+		// 界面已经渲染出来了就别打扰：迟到的错误信号不该盖掉一个正常工作的页面。
+		if (!root || !root.querySelector('.app-loading')) return;
+		handled = true;
+		var card = document.createElement('div');
+		card.className = 'app-loading-card';
+		var heading = document.createElement('strong');
+		heading.textContent = title;
+		card.appendChild(heading);
+		var hint = document.createElement('span');
+		hint.className = 'app-loading-plain';
+		hint.textContent = detail;
+		card.appendChild(hint);
+		var contact = ${JSON.stringify(contactEmail)};
+		if (contact) {
+			var line = document.createElement('span');
+			line.className = 'app-loading-plain';
+			line.appendChild(document.createTextNode('如果反复出现，请联系客服：'));
+			var link = document.createElement('a');
+			link.href = 'mailto:' + contact;
+			link.textContent = contact;
+			line.appendChild(link);
+			card.appendChild(line);
+		} else {
+			var plain = document.createElement('span');
+			plain.className = 'app-loading-plain';
+			plain.textContent = '如果反复出现，请联系客服。';
+			card.appendChild(plain);
+		}
+		var retry = document.createElement('button');
+		retry.type = 'button';
+		retry.className = 'app-loading-retry';
+		retry.textContent = '重新加载';
+		retry.onclick = function () { window.location.reload(); };
+		card.appendChild(retry);
+		var wrapper = document.createElement('div');
+		wrapper.className = 'app-loading';
+		wrapper.setAttribute('role', 'alert');
+		wrapper.appendChild(card);
+		root.innerHTML = '';
+		root.appendChild(wrapper);
+	}
+	window.__APP_LOAD_FAILED__ = function () { fail('页面加载失败', '没能加载页面所需的程序文件，请检查网络后重试。'); };
+	window.addEventListener('error', function () { fail('页面加载失败', '页面程序启动时出错了，请重试。'); });
+	window.setTimeout(function () { fail('页面加载超时', '等待时间过长，可能是网络较慢。'); }, 30000);
+})();
+`.trim();
 
 export const renderIndexHtml = (data: IndexData) => {
 	const initialDataJson = JSON.stringify(data.initialData).replaceAll('<', '\\u003c');
@@ -42,6 +108,12 @@ export const renderIndexHtml = (data: IndexData) => {
     .app-loading-card span::after { display: inline-block; width: 18px; text-align: left; content: ''; animation: app-loading-dots 1.4s steps(4, end) infinite; }
     .app-loading-progress { width: 100%; height: 4px; margin-top: 7px; overflow: hidden; border-radius: 999px; background: rgba(220, 235, 247, .25); }
     .app-loading-progress i { display: block; width: 42%; height: 100%; border-radius: inherit; background: #c4e2f8; box-shadow: 0 0 10px rgba(196, 226, 248, .45); animation: app-loading-progress 1.35s ease-in-out infinite; }
+    /* 失败提示复用同一张卡片，只是不再有旋转和进度条；文字不带省略号动画。 */
+    .app-loading-plain { max-width: 280px; text-align: center; }
+    .app-loading-plain::after { content: none !important; animation: none !important; }
+    .app-loading-plain a { color: #c4e2f8; }
+    .app-loading-retry { margin-top: 6px; padding: 6px 18px; border: 1px solid rgba(225, 239, 250, .35); border-radius: 999px; background: transparent; color: #f2f7fb; font: inherit; cursor: pointer; }
+    .app-loading-retry:hover { background: rgba(225, 239, 250, .12); }
     @keyframes app-loading-spin { to { transform: rotate(360deg); } }
     @keyframes app-loading-dots { 0% { content: ''; } 25% { content: '.'; } 50% { content: '..'; } 75%, 100% { content: '...'; } }
     @keyframes app-loading-progress { 0% { transform: translateX(-120%); } 50% { transform: translateX(125%); } 100% { transform: translateX(245%); } }
@@ -52,7 +124,8 @@ export const renderIndexHtml = (data: IndexData) => {
     <p><a href="/page/privacy.html">隐私权政策</a> · <a href="/page/terms.html">服务条款</a></p>
   </noscript>
   <script>window.__INITIAL_DATA__=${raw(initialDataJson)};</script>
-  <script src="/bundle.js.nocache" defer></script>
+  <script>${raw(failureScript(data.contactEmail?.trim() ?? '').replaceAll('<', '\\u003c'))}</script>
+  <script src="/bundle.js.nocache" defer onerror="window.__APP_LOAD_FAILED__ && window.__APP_LOAD_FAILED__()"></script>
 </body>
 </html>`;
 };
