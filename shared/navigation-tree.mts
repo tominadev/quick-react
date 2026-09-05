@@ -31,6 +31,32 @@ export const normalizePagePath = (path: string, pageSuffix = '') => {
 };
 
 /**
+ * 从菜单树里找出到这一页的**整条路径**：`[顶层, …, 当前页]`，找不到返回空数组。
+ *
+ * 菜单高亮要的是最后一项、展开要的是前面几项的 key、面包屑要的是整条——它们找的本来
+ * 就是同一条路径，各走一遍树是白费。
+ */
+export const findNavigationTrail = (menu: NavigationItem[], pathname: string, parents: NavigationItem[] = []): NavigationItem[] => {
+	for (const item of menu) {
+		const trail = [...parents, item];
+		if (item.key === pathname) return trail;
+		const found = item.children ? findNavigationTrail(item.children, pathname, trail) : [];
+		if (found.length) return found;
+	}
+	return [];
+};
+
+/**
+ * 面包屑要显示的那几个名字。
+ *
+ * **连着重名的只留一个**：`数据管理 / 数据管理` 的上一层是分组、下一层是页面，两个词
+ * 一模一样，写两遍不给读的人任何新信息。真要区分得去改导航里的名字，那是另一回事。
+ */
+export const navigationBreadcrumb = (menu: NavigationItem[], pathname: string) => findNavigationTrail(menu, pathname)
+	.map((item) => item.label)
+	.filter((label, index, labels) => label !== labels[index - 1]);
+
+/**
  * 顶层菜单高亮：取与当前路径匹配的最长 key，`/` 只匹配自身；
  * 没有任何菜单匹配时返回空串，调用方据此清空高亮。
  */

@@ -10,7 +10,7 @@ try {
 	const result = await build({ stdin: { contents: "export * from './shared/navigation-tree.mts';", resolveDir: resolve(import.meta.dirname, '..'), sourcefile: 'navigation-test-entry.mts' }, bundle: true, format: 'esm', platform: 'node', write: false });
 	const file = join(directory, 'navigation.mjs');
 	await writeFile(file, result.outputFiles[0].contents);
-	const { collectPageDefinitions, matchNavigationKey, stripPageSuffix } = await import(pathToFileURL(file));
+	const { collectPageDefinitions, findNavigationTrail, matchNavigationKey, navigationBreadcrumb, stripPageSuffix } = await import(pathToFileURL(file));
 
 	const keys = ['/', '/panel/admin', '/about', '/panel/me', '/panel/accounts'];
 	// 首页只匹配自身，不匹配其它路径。
@@ -41,6 +41,30 @@ try {
 	] }];
 	const dashboard = collectPageDefinitions(managementNavigation).find((page) => page.path === '/panel/admin/global/dashboard');
 	assert.deepEqual(dashboard?.navigation.map((item) => item.key), ['/panel/admin/base', '/panel/admin/global']);
+
+	// ---- 面包屑 ----
+	// 走整条菜单路径，而不是「页面标题 + 当前项」两截——后者在绝大多数页面上是同一个词，
+	// 读出来是「站点设置 / 站点设置」，还是不告诉人这一页挂在哪个分组下。
+	const panelNavigation = [{ key: '/panel/admin', label: '管理后台', children: [
+		{ key: '/panel/admin/base', label: '基础管理', children: [
+			{ key: '/panel/admin/base/settings', label: '系统设置', children: [
+				{ key: '/panel/admin/base/settings/site', label: '站点设置' },
+			] },
+			{ key: '/panel/admin/base/data', label: '数据管理', children: [
+				{ key: '/panel/admin/base/data/rows', label: '数据管理' },
+			] },
+		] },
+	] }];
+	assert.deepEqual(navigationBreadcrumb(panelNavigation, '/panel/admin/base/settings/site'), ['管理后台', '基础管理', '系统设置', '站点设置']);
+	// 分组与页面同名时只留一个：写两遍不给读的人任何新信息。
+	assert.deepEqual(navigationBreadcrumb(panelNavigation, '/panel/admin/base/data/rows'), ['管理后台', '基础管理', '数据管理']);
+	// 菜单里没有的页面没有路径可走，调用方据此回落到页面标题。
+	assert.deepEqual(navigationBreadcrumb(panelNavigation, '/panel/me'), []);
+	// 同一条路径同时供菜单展开用：末项是当前页，前面几项就是要展开的父级。
+	assert.deepEqual(
+		findNavigationTrail(panelNavigation, '/panel/admin/base/settings/site').slice(0, -1).map((item) => item.key),
+		['/panel/admin', '/panel/admin/base', '/panel/admin/base/settings'],
+	);
 
 	console.log('navigation menu test passed');
 } finally {

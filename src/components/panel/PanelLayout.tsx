@@ -2,7 +2,7 @@ import type React from 'react';
 import type { MenuProps } from 'antd';
 import type { CommonApi } from '@/utils/common/api.js';
 import type { NavigationItem } from '@shared/types/navigation.mjs';
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useMemo } from 'react';
 import { useNavigate, useLocation } from 'react-router-dom';
 import {
 	AppstoreOutlined,
@@ -11,7 +11,7 @@ import {
 	MenuUnfoldOutlined,
 } from '@ant-design/icons';
 import { Breadcrumb, Layout, Menu, theme } from 'antd';
-import { normalizePagePath } from '@shared/navigation-tree.mjs';
+import { findNavigationTrail, navigationBreadcrumb, normalizePagePath } from '@shared/navigation-tree.mjs';
 const { Header, Content, Footer, Sider } = Layout;
 
 // 定义菜单项
@@ -43,25 +43,6 @@ const toMenuItems = (menu: InitialMenuItem[]): MenuItem[] => menu.filter((item) 
 }));
 const pageUrl = (path: string) => path === '/' ? path : `${path}${pageSuffix}`;
 
-const findMenuItem = (menu: InitialMenuItem[], pathname: string): InitialMenuItem | undefined => {
-	for (const item of menu) {
-		if (item.key === pathname) return item;
-		const child = item.children && findMenuItem(item.children, pathname);
-		if (child) return child;
-	}
-	return undefined;
-};
-
-const findParentKeys = (menu: InitialMenuItem[], pathname: string, parents: string[] = []): string[] => {
-	for (const item of menu) {
-		if (item.key === pathname) return parents;
-		if (item.children) {
-			const result = findParentKeys(item.children, pathname, [...parents, item.key]);
-			if (result.length) return result;
-		}
-	}
-	return [];
-};
 
 type AppType = {
 	commonApi: CommonApi;
@@ -76,12 +57,13 @@ function AppRouter({ commonApi, children, navigation = [], dashboardPath, title 
 	const location = useLocation(); // 获取当前 URL 路径
 	const getMenuPath = (pathname: string) => {
 		const path = normalizePagePath(pathname, pageSuffix);
-		return findMenuItem(navigation, path) ? path : dashboardPath ?? path;
+		return findNavigationTrail(navigation, path).length ? path : dashboardPath ?? path;
 	};
 	const [current, setCurrent] = useState(() => getMenuPath(location.pathname)); // 同步选中状态
-	const [openKeys, setOpenKeys] = useState<string[]>(() => findParentKeys(navigation, getMenuPath(location.pathname)));
+	const [openKeys, setOpenKeys] = useState<string[]>(() => findNavigationTrail(navigation, getMenuPath(location.pathname)).slice(0, -1).map((item) => item.key));
 	const navigate = useNavigate();
-	const items: MenuItem[] = toMenuItems(navigation);
+	// 菜单结构只随导航树变，不随选中项变；每次渲染重建一遍纯属浪费。
+	const items: MenuItem[] = useMemo(() => toMenuItems(navigation), [navigation]);
 
 	const [collapsed, setCollapsed] = useState(false);
 	const {
@@ -91,14 +73,24 @@ function AppRouter({ commonApi, children, navigation = [], dashboardPath, title 
 		const nextLogicalPath = normalizePagePath(location.pathname, pageSuffix);
 		const menuPath = getMenuPath(nextLogicalPath);
 		setCurrent(menuPath); // URL 变化时同步菜单高亮
-		setOpenKeys(findParentKeys(navigation, menuPath));
+		setOpenKeys(findNavigationTrail(navigation, menuPath).slice(0, -1).map((item) => item.key));
 	}, [location.pathname]);
 
-	const currentMenuItem = findMenuItem(navigation, current);
-	const breadcrumbItems = [
-		...(title ? [{ title }] : []),
-		...(currentMenuItem ? [{ title: currentMenuItem.label }] : []),
-	];
+	/**
+	 * 面包屑走**整条菜单路径**：管理后台 / 基础管理 / 系统设置 / 站点设置。
+	 *
+	 * 原先是「页面标题 + 当前菜单项」两截，而这两个值在绝大多数页面上是同一个字符串
+	 * （导航里 label 和 title 都写作「站点设置」），于是面包屑读起来是「站点设置 / 站点设置」；
+	 * 表单页的 Card 标题还会再写一遍，同一个词一屏三次，却始终不告诉人这一页挂在哪个分组下——
+	 * 而那正是面包屑唯一要回答的问题。
+	 *
+	 * 页面标题不进面包屑：表单页自己用 Card 标题显示，浏览器标签页也有。
+	 * 菜单里没有的页面（个人中心一类 hidden 项）没有路径可走，才回落到页面标题。
+	 */
+	const breadcrumbItems = useMemo(() => {
+		const labels = navigationBreadcrumb(navigation, current);
+		return labels.length ? labels.map((label) => ({ title: label })) : title ? [{ title }] : [];
+	}, [navigation, current, title]);
 
 	const onClick: MenuProps['onClick'] = (e) => {
 		console.log('click ', e);
