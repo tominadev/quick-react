@@ -209,6 +209,25 @@ const auditRouteFilter = async () => {
 		assert.equal(Number(rejectedRow.pended_at), 0, '并且是一条普通的已删除记录');
 		leftovers.close();
 
+		// 点批准/撤回/驳回时，动的是**页面上看到的那几条**申请。
+		//
+		// 只按行号解的话，服务端会在收到请求时重新问一遍「这一行有哪些待审批」——中间别人
+		// 又提了一条，点下去就连它一起处理了，而那一条操作者根本没看见。列表把待审批记录的
+		// id 跟着行一起发下去，动作声明 sendFields 把它原样带回来；对不上就要求刷新，
+		// 而不是照着服务端当下解出来的那一份执行。
+		const staleApi = 'http://localhost/api/panel/admin/base/users.php';
+		const staleId = (await (await app.request(`${staleApi}?include=data`, { headers: { ...headers, cookie } })).json())
+			.table.dataSource.find((row) => row.user_name === 'pendingbob').id;
+		assert.equal((await app.request(`${staleApi}/${staleId}`, { method: 'PUT', headers: { ...headers, cookie }, body: JSON.stringify({ user_name: 'pendingbob3', __changedFields: ['user_name'] }) })).status, 202);
+		const staleTable = await (await app.request(`${staleApi}?include=schema,data`, { headers: { ...headers, cookie } })).json();
+		const staleRow = staleTable.table.dataSource.find((row) => String(row.id) === String(staleId));
+		assert.deepEqual(staleTable.table.option.actions.row.find((action) => action.label === '批准修改')?.sendFields, ['_pending_ids'], '动作要声明把哪几个字段带回去');
+		assert.ok(staleRow._pending_ids, '行上要带着待审批记录的 id');
+		const bogus = await app.request(`${staleApi}/${staleId}?action=approve-pending`, { method: 'POST', headers: { ...headers, cookie }, body: JSON.stringify({ _pending_ids: `${staleRow._pending_ids},999999` }) });
+		assert.equal(bogus.status, 409, '带回来的 id 与这一行当下的待审批对不上就不执行');
+		assert.match((await bogus.json()).feedback?.message ?? '', /已经变了，请刷新/);
+		assert.equal((await app.request(`${staleApi}/${staleId}?action=approve-pending`, { method: 'POST', headers: { ...headers, cookie }, body: JSON.stringify({ _pending_ids: staleRow._pending_ids }) })).status, 200, '对得上就照常批准');
+
 		// **存在性还没定下来之前，不接受别的申请。**
 		//
 		// 新增、删除、恢复决定的是「这一行在不在」，修改决定的是「它是什么样」。一行同时
@@ -216,14 +235,15 @@ const auditRouteFilter = async () => {
 		// 批准修改」这类组合根本没人想要——那条修改作用在一行已经进了回收站的记录上。
 		const mixApi = 'http://localhost/api/panel/admin/base/users.php';
 		const mixList = async () => (await (await app.request(`${mixApi}?include=schema,data`, { headers: { ...headers, cookie } })).json()).table;
-		const mixTarget = (await mixList()).dataSource.find((row) => row.user_name === 'pendingbob');
+		// 上一段把它改名成了 pendingbob3。
+		const mixTarget = (await mixList()).dataSource.find((row) => String(row.id) === String(staleId));
 		const mixQueue = async () => (await (await app.request(`http://localhost/api/panel/admin/base/audit.php?include=data&review_status=pending&table_name=base_users&row_id=${mixTarget.id}`, { headers: { ...headers, cookie } })).json())
 			.table.dataSource.map((row) => row.action).sort();
 		assert.equal((await app.request(mixApi, { method: 'DELETE', headers: { ...headers, cookie }, body: JSON.stringify([String(mixTarget.id)]) })).status, 202);
 		assert.deepEqual(await mixQueue(), ['soft_delete']);
 		// 界面上先收起按钮：这一行只剩撤回/批准。
 		const lockedTable = await mixList();
-		const lockedRow = lockedTable.dataSource.find((row) => row.user_name === 'pendingbob');
+		const lockedRow = lockedTable.dataSource.find((row) => String(row.id) === String(staleId));
 		assert.equal(lockedRow._pending, 'soft_delete-mine');
 		const lockedLabels = lockedTable.option.actions.row.filter((action) => !action.visibleWhen || action.visibleWhen.values.includes(lockedRow._pending)).map((action) => action.label);
 		assert.deepEqual(lockedLabels, ['撤回删除', '批准删除'], '待删除的行不给编辑和删除按钮');

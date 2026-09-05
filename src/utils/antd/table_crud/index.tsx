@@ -726,7 +726,16 @@ const TableCRUD = ({ commonApi, resourcePath, initialResponse, initialQueryValue
 		if (control === undefined) return;
 		const query = new URLSearchParams(currentQueryValues());
 		query.set('action', action.key);
-		await commonApi.apiFetch(`${apiPath}/${encodeURIComponent(rowId)}?${query.toString()}`, { method: 'POST', headers: confirmHeaders(control) });
+		// 要带哪几个字段回去由服务端声明（sendFields），前端不按 key 名去猜——猜的话每加一个
+		// 这样的动作都要回来改前端。审批那三个动作用它把「页面上看到的是哪几条申请」带回去。
+		const payload = action.sendFields?.length
+			? JSON.stringify(Object.fromEntries(action.sendFields.map((field) => [field, record[field] ?? ''])))
+			: undefined;
+		await commonApi.apiFetch(`${apiPath}/${encodeURIComponent(rowId)}?${query.toString()}`, {
+			method: 'POST',
+			headers: { ...(payload ? { 'Content-Type': 'application/json' } : {}), ...confirmHeaders(control) },
+			body: payload,
+		});
 		await fetchData();
 	};
 	const onRowFormAction = async (action: TableAction, record: DataType) => {

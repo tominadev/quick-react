@@ -6,7 +6,7 @@ import { describeAuditChanges, parseAuditChanges, transitionAuditEntries } from 
 import { APPROVAL_SKIP_ROLES, readChangeReason } from './operation.mjs';
 import { assertNotSelfApproval, isSuperUser, submitterIdsOf } from './super-users.mjs';
 
-export { PENDING_FIELD } from '@shared/types/table.mjs';
+export { PENDING_FIELD, PENDING_IDS_FIELD } from '@shared/types/table.mjs';
 export const WITHDRAW_ACTION = 'withdraw-pending';
 export const APPROVE_ACTION = 'approve-pending';
 export const REJECT_ACTION = 'reject-pending';
@@ -58,7 +58,7 @@ export const pendingEntriesFor = async (database: DatabaseAdapter, table: string
  * 为此给 SQL 层加一个 IN 运算符不划算。
  */
 export type PendingRowKind = 'insert' | 'update' | 'soft_delete' | 'restore';
-export type PendingRowState = { kind: PendingRowKind; mine: boolean };
+export type PendingRowState = { kind: PendingRowKind; mine: boolean; ids: string[] };
 const KNOWN_KINDS: readonly string[] = ['insert', 'update', 'soft_delete', 'restore'];
 
 export const pendingRowStates = async (c: Context<AppEnv>, database: DatabaseAdapter, table: string, rowIds: readonly string[]) => {
@@ -81,6 +81,7 @@ export const pendingRowStates = async (c: Context<AppEnv>, database: DatabaseAda
 		const previous = states.get(id);
 		const kind = KNOWN_KINDS.includes(row.action) ? row.action as PendingRowKind : 'update';
 		states.set(id, {
+			ids: [...(previous?.ids ?? []), String(row.id)],
 			// 新增压过其余：一行同时挂着新建与随后的改草稿时，「这一行还不存在」是更要紧的事。
 			// 其余按记录顺序取最后一条——那是这一行上最新的一次申请。
 			kind: previous?.kind === 'insert' ? 'insert' : kind,
@@ -194,15 +195,27 @@ export const pendingApprovalNotice = async (c: Context<AppEnv>, table: string, r
 	};
 };
 
-/** 处理提示里那两个动作；不是这两个就返回 undefined，交回给路由自己的分支。 */
-export const handlePendingApprovalAction = async (c: Context<AppEnv>, table: string, rowId: string | number | bigint | undefined) => {
+/**
+ * 处理提示里那几个动作；不是它们就返回 undefined，交回给路由自己的分支。
+ *
+ * `selected` 是**页面上看到的那几条**申请的 id（列表把它们放在 `_pending_ids` 里发回来）。
+ * 只按行号解的话，服务端会在收到请求时重新问一遍「这一行有哪些待审批」——中间别人又提了
+ * 一条，点下去就连它一起处理了，而那一条操作者根本没看见。表单页那一侧不传：它的提示块
+ * 与提交是同一次渲染里的事，中间没有第二个人插进来的窗口。
+ *
+ * 传了也仍然只在这一行的待审批里取交集：id 是客户端来的，不能拿它当查询条件。
+ */
+export const handlePendingApprovalAction = async (c: Context<AppEnv>, table: string, rowId: string | number | bigint | undefined, selected?: readonly string[]) => {
 	const action = c.req.query('action');
 	if (action !== WITHDRAW_ACTION && action !== APPROVE_ACTION && action !== REJECT_ACTION) return undefined;
 	if (rowId === undefined) return { ok: false as const, message: '没有待审批的修改' };
 	// 权限在服务端再判一次：按钮不出现只是不引诱人去点，挡住伪造请求靠这一句。
 	if (action !== WITHDRAW_ACTION && !canApprove(c)) return { ok: false as const, message: '没有审批权限' };
 	const database = c.get('database');
-	const all = await pendingEntriesFor(database, table, rowId);
+	const found = await pendingEntriesFor(database, table, rowId);
+	const wanted = selected?.length ? new Set(selected.map((id) => String(id))) : undefined;
+	const all = wanted ? found.filter((entry) => wanted.has(String(entry.id))) : found;
+	if (wanted && all.length !== wanted.size) return { ok: false as const, message: '这一行的待审批记录已经变了，请刷新后重试' };
 	// 批准和驳回都是替这条申请做决定，因此都挡住「自己批自己」；撤销不挡——那是把自己
 	// 提的东西收回去。
 	if (action !== WITHDRAW_ACTION) {

@@ -6,7 +6,7 @@ import { firstSql, runSql, sql, type SqlCondition } from '@server/database/sql.m
 import { PendingApprovalError, runOperationSql } from './operation.mjs';
 import { apiMessage } from './api-response.mjs';
 import { deletedScopeFromQuery } from './query-options.mjs';
-import { APPROVE_ACTION, REJECT_ACTION, WITHDRAW_ACTION, handlePendingApprovalAction } from './pending-approval.mjs';
+import { APPROVE_ACTION, PENDING_IDS_FIELD, REJECT_ACTION, WITHDRAW_ACTION, handlePendingApprovalAction } from './pending-approval.mjs';
 import { isSuperUser } from './super-users.mjs';
 
 export type TableCrudDatabase = 'database' | 'passportDatabase' | 'globalDatabase';
@@ -37,10 +37,20 @@ export const handleTableCrudAction = async (c: Context<AppEnv>, definition: Tabl
 		if (!database) return apiMessage(c, 503, '目标数据库不可用');
 		const table = await resolveValue(c, definition.table);
 		if (!table) return apiMessage(c, 400, '目标数据表未配置');
-		const ids = await readIds(c, routeId);
+		const body = await c.req.json<unknown>().catch(() => undefined);
+		const ids = routeId ? [routeId] : Array.isArray(body) ? body.map((value) => String(value)).filter(Boolean) : [];
 		if (!ids.length) return apiMessage(c, 400, '请选择要处理的记录');
+		/**
+		 * 页面上看到的是哪几条申请，由列表跟着行一起发下去（`_pending_ids`），点的时候原样带回。
+		 *
+		 * 只按行号解的话，服务端会在收到请求时重新问一遍「这一行有哪些待审批」——中间别人
+		 * 又提了一条，点下去就连它一起处理了，而那一条操作者根本没看见。
+		 */
+		const selected = body && typeof body === 'object' && !Array.isArray(body)
+			? String((body as Record<string, unknown>)[PENDING_IDS_FIELD] ?? '').split(',').map((id) => id.trim()).filter(Boolean)
+			: [];
 		// 逐行处理：一行的申请撤不动不该连累其余的（§7.4）。
-		const results = await Promise.all(ids.map((id) => handlePendingApprovalAction(c, table, id)));
+		const results = await Promise.all(ids.map((id) => handlePendingApprovalAction(c, table, id, selected)));
 		const failed = results.flatMap((result) => result && !result.ok ? [result.message] : []);
 		if (failed.length) return apiMessage(c, 409, failed.join('；'));
 		return apiMessage(c, 200, pendingAction === APPROVE_ACTION ? '已批准并生效' : pendingAction === REJECT_ACTION ? '已驳回' : '已撤回申请');

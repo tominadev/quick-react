@@ -51,6 +51,13 @@ export type TableAction = {
 	form?: {
 		columns: TableColumn[];
 	};
+	/**
+	 * 点这个动作时，把该行的这几个字段原样发回请求体。
+	 *
+	 * 由服务端声明，前端不按 key 名去猜——猜的话每加一个这样的动作都要回来改前端。
+	 * 审批那三个动作用它把「页面上看到的是哪几条申请」带回去。
+	 */
+	sendFields?: string[];
 	/** 在当前列表内打开后端驱动的表单弹窗。 */
 	modalPath?: string;
 	/** 弹窗内容类型；未指定时默认为表单。 */
@@ -103,6 +110,15 @@ export const ROW_KEY_FIELD = '_row_key';
  * 因此它必须两边共用一个名字，写在这里。
  */
 export const PENDING_FIELD = '_pending';
+
+/**
+ * 这一行上待审批记录的 id，逗号分隔。
+ *
+ * 撤回/批准/驳回三个动作把它原样发回服务端，**动的就是页面上看到的那几条**。只发行号的话，
+ * 服务端要在收到请求时重新解一遍「这一行有哪些待审批」——中间别人又提了一条，点下去就
+ * 连它一起处理了，而那一条操作者根本没看见。
+ */
+export const PENDING_IDS_FIELD = '_pending_ids';
 
 export type TableSelectOption = {
 	value: string;
