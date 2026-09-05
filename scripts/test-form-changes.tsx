@@ -45,6 +45,11 @@ assert.deepEqual(describeFormChanges(fields, ['origin'], { origin: undefined }, 
 
 // —— 该排除的 ——
 assert.deepEqual(describeFormChanges(fields, ['port', '_change'], { port: 1 }, { port: 2 }, ['_change']), ['HTTP 端口：1 → 2']);
+// 协议字段按前缀排掉，调用方不必逐个传进 ignore——TableCRUD 的编辑抽屉就没传，
+// 于是什么都没改点保存会弹出「__changedFields：空 → []」，还把「当前未修改」那句顶掉了。
+assert.deepEqual(describeFormChanges(fields, ['__changedFields'], {}, { __changedFields: [] }), [], '__changedFields 不是这条记录的字段');
+assert.deepEqual(describeFormChanges(fields, ['_change', '_pending', '_row_key', '_section'], {}, { _change: { reason: 'x' }, _pending: '1', _row_key: 'a', _section: 's' }), [], '协议字段一个都不列');
+assert.deepEqual(describeFormChanges(fields, ['port', '__changedFields'], { port: 1 }, { port: 2, __changedFields: ['port'] }), ['HTTP 端口：1 → 2'], '业务字段照列');
 assert.deepEqual(describeFormChanges(fields, ['created_at'], { created_at: 1 }, { created_at: 2 }), [], '系统字段不列');
 // 没有登记的字段用字段名兜底，而不是整行消失。
 assert.deepEqual(describeFormChanges(fields, ['unknown'], { unknown: 'a' }, { unknown: 'b' }), ['unknown：a → b']);

@@ -11,6 +11,17 @@ export const readableFieldValue = (field: FormPageField | undefined, value: unkn
 };
 
 /**
+ * 协议字段一律下划线开头：`_change`、`_pending`、`_row_key`、`_section`、`__changedFields`。
+ *
+ * 它们跟着表单值一起提交，但不是这条记录的字段。不排掉的话，什么都没改点保存会弹出
+ * 「将保存以下修改：__changedFields：空 → []」——那是把协议本身念给用户听，而且因为
+ * 清单不为空，连「当前未修改，仍要提交吗？」那句正确的提示都被顶掉了。
+ *
+ * 按前缀排而不是逐个列名单：新加一个协议字段时不必回来改这里，漏改的表现正是上面那句。
+ */
+const isProtocolField = (name: string) => name.startsWith('_');
+
+/**
  * 保存前列给人看的改动清单。
  *
  * 判据是「**显示出来真的不一样**」，而不是「这个字段被标记过」：「还原默认」会把每个
@@ -26,7 +37,7 @@ export const describeFormChanges = (
 	after: Record<string, unknown>,
 	ignore: readonly string[] = [],
 ) => [...changed]
-	.filter((name) => !ignore.includes(name) && !isSystemField(name))
+	.filter((name) => !ignore.includes(name) && !isSystemField(name) && !isProtocolField(name))
 	.flatMap((name) => {
 		const field = fields?.find((item) => item.name === name);
 		const from = readableFieldValue(field, before[name]);
