@@ -7,7 +7,19 @@ import { tableSort } from '@server/modules/base/query-options.mjs';
 import { assertNotSelfApproval } from '@server/modules/base/super-users.mjs';
 import type { TableCrudDefinition } from '@server/modules/base/table-crud.mjs';
 
-const actionLabels: Record<string, string> = { update: '修改', soft_delete: '删除', restore: '恢复' };
+/**
+ * 四种动作各给一个颜色,按 diff 的老规矩来:新增绿、删除红、修改蓝、恢复青。
+ *
+ * 原先这一列下发的是中文文本,因此只能是一串黑字——而这一页十几行滚下来,「这条是删除」
+ * 是最先要认出来的事。改成和审批状态、数据状态一样的 options:值发原文,文案和颜色由
+ * 选项给。顺带补上 `insert`——原先的映射表里没有它,新建那些行显示的是英文 `insert`。
+ */
+const actionOptions = [
+	{ value: 'insert', text: '新增', color: 'green' },
+	{ value: 'update', text: '修改', color: 'blue' },
+	{ value: 'soft_delete', text: '删除', color: 'red' },
+	{ value: 'restore', text: '恢复', color: 'cyan' },
+];
 /**
  * 审批状态与数据状态是两件事，分两列显示。
  *
@@ -83,7 +95,7 @@ const columns = [
 	{ dataIndex: 'row_id', title: '记录' },
 	// 定位用的是 key 不是 row_id：追查时看的也该是它。
 	{ dataIndex: 'row_key', title: '记录标识' },
-	{ dataIndex: 'action', title: '动作' },
+	{ dataIndex: 'action', title: '动作', options: actionOptions },
 	// changes 的位置。一列一行；multiline 模式带 pre-wrap 与三行折叠，改得多也不会撑爆表格。
 	{ dataIndex: 'summary', title: '变更内容', tableDisplay: 'multiline' as const },
 	{ dataIndex: 'review_status', title: '审批状态', options: reviewOptions },
@@ -108,7 +120,8 @@ const publicEntry = (row: AuditEntryRow) => ({
 	table_name: row.table_name,
 	row_id: row.row_id,
 	row_key: row.row_key,
-	action: actionLabels[row.action] ?? row.action,
+	// 发原文不发文案:颜色由 options 里的那一条决定,发中文的话对不上任何一个选项。
+	action: row.action,
 	summary: describeAuditChanges(parseAuditChanges(row.changes)),
 	operation_id: row.operation_id,
 	reason: row.reason ?? '',

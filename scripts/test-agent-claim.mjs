@@ -78,7 +78,7 @@ try {
 	const audit = await (await app.request('http://localhost/api/panel/admin/base/audit.php?include=data&table_name=base_users&scope=self', { headers: superHeaders })).json();
 	const entry = audit.table.dataSource.find((row) => String(row.summary ?? '').includes('agent_uid'));
 	assert.ok(entry, '拉号要留下一条记录');
-	assert.equal(entry.action, '修改');
+	assert.equal(entry.action, 'update', '动作发原文,颜色和文案由列的 options 决定');
 	assert.equal(entry.scope, 'self');
 	assert.equal(entry.review_status, 'none', '代理的操作没有审批人，不进队列');
 	assert.equal(entry.data_status, 'applied');

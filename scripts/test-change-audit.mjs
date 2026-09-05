@@ -193,6 +193,19 @@ const auditRouteFilter = async () => {
 		assert.equal(leftovers.prepare("SELECT COUNT(*) AS n FROM base_configs WHERE key = 'audit_rejected'").get().n, 0, '被驳回的新建要物理删掉，不是留在回收站');
 		leftovers.close();
 
+		// 个人中心第一次设资料（资料行还不存在）也要留痕，只是立即生效。
+		//
+		// 那条语句是 upsert：冲突走 UPDATE、不冲突走 INSERT，建语句时不知道是哪一支。
+		// 原先一律按修改记，于是走 INSERT 那一支时读不到前值，一条记录都没有——
+		// 做完在审批表里找不到「谁第一次设了昵称」。
+		const meApi = 'http://localhost/api/panel/me.php';
+		assert.equal((await app.request(meApi, { method: 'PUT', headers: { ...headers, cookie }, body: JSON.stringify({ _section: 'profile', profile_nickname: '首次设置的昵称', profile_qq: '', profile_wechat: '', profile_email: '', __changedFields: ['profile_nickname'] }) })).status, 200, '个人中心立即生效');
+		const selfEntries = await (await app.request('http://localhost/api/panel/admin/base/audit.php?include=data&scope=self&table_name=base_user_profiles', { headers: { ...headers, cookie } })).json();
+		const created = selfEntries.table.dataSource.find((row) => row.action === 'insert');
+		assert.ok(created, '第一次设资料要留下一条「新增」');
+		assert.equal(created.review_status, 'none', '没有审批人可言');
+		assert.equal(created.data_status, 'applied', '已经生效');
+
 		// 一次操作里的几行有先后：建起来从账号开始，拆掉反着来（先资料后账号）——
 		// 中间那一刻不能出现「凭证指向一个已经不存在的账号」。
 		assert.equal((await app.request(usersApi, { method: 'POST', headers: { ...headers, cookie }, body: JSON.stringify({ user_name: 'rejectme', password: 'reject-password-1', roles: [], status: 'enabled', profile_nickname: '要被驳回' }) })).status, 202);
@@ -211,10 +224,23 @@ const auditRouteFilter = async () => {
 		const dataOnly = await (await app.request(`${usersApi}?include=data`, { headers: { ...headers, cookie } })).json();
 		assert.equal('option' in dataOnly.table, false, '只请求数据时不该下发结构');
 		assert.equal(dataOnly.table.dataSource.find((row) => row.user_name === 'rejectme')?._pending, '1', '只取数据也要带标记');
+
+		// 建号进队列之后再改一次:那条 insert 不能被 update 覆盖。
+		//
+		// 覆盖掉的后果是行永远隐身:批准时没有人再去把 pended_at 归零,账号登不进去,
+		// 而审批列表显示一切正常。这条路是「管理列表看得见待审批的新行」之后才走得到的
+		// ——看不见就点不到编辑。
+		const draft = pendingList.table.dataSource.find((row) => row.user_name === 'rejectme');
+		assert.equal((await app.request(`${usersApi}/${draft.id}`, { method: 'PUT', headers: { ...headers, cookie }, body: JSON.stringify({ status: 'disabled', __changedFields: ['status'] }) })).status, 202);
+		const draftQueue = await (await app.request('http://localhost/api/panel/admin/base/audit.php?include=data&review_status=pending', { headers: { ...headers, cookie } })).json();
+		const draftEntries = draftQueue.table.dataSource.filter((row) => String(row.row_id) === String(draft.id) && row.table_name === 'base_users');
+		assert.deepEqual(draftEntries.map((row) => row.action).sort(), ['insert', 'update'], '新建与随后的修改并存,是两条');
 		const queuedInsert = await (await app.request('http://localhost/api/panel/admin/base/audit.php?include=data&review_status=pending', { headers: { ...headers, cookie } })).json();
-		assert.equal(queuedInsert.table.dataSource.length, 3, '建号写三行：账号、凭证、资料');
-		assert.equal(new Set(queuedInsert.table.dataSource.map((row) => row.operation_id)).size, 1, '三条共享一个操作号');
-		assert.equal((await app.request('http://localhost/api/panel/admin/base/audit.php?action=reject', { method: 'POST', headers: { ...headers, cookie }, body: JSON.stringify([String(queuedInsert.table.dataSource[0].id)]) })).status, 200);
+		// 只数新建那几条：队列里还躺着上面那次改草稿的 update。
+		const queuedInserts = queuedInsert.table.dataSource.filter((row) => row.action === 'insert');
+		assert.equal(queuedInserts.length, 3, '建号写三行：账号、凭证、资料');
+		assert.equal(new Set(queuedInserts.map((row) => row.operation_id)).size, 1, '三条共享一个操作号');
+		assert.equal((await app.request('http://localhost/api/panel/admin/base/audit.php?action=reject', { method: 'POST', headers: { ...headers, cookie }, body: JSON.stringify([String(queuedInserts[0].id)]) })).status, 200);
 		const afterReject = new DatabaseSync(process.env.DEFAULT_DATABASE_FILE);
 		assert.equal(afterReject.prepare("SELECT COUNT(*) AS n FROM base_users WHERE name = 'rejectme'").get().n, 0, '驳回要把账号那一行删掉');
 		assert.equal(afterReject.prepare('SELECT COUNT(*) AS n FROM base_user_credentials WHERE user_id NOT IN (SELECT id FROM base_users)').get().n, 0, '驳回不能留下指向不存在账号的凭证');
@@ -242,7 +268,7 @@ const auditRouteFilter = async () => {
 		// 记的是去掉后缀的逻辑路径：`.php` 是站点可配的接口后缀，记原样会让同一件事
 		// 在审计里长出好几种写法，按路径筛选也就筛不干净。
 		// 只看「改」：建号也会写一条资料行，那一条的来路是后台的建号接口，不是个人中心。
-		assert.deepEqual([...new Set(originRows.filter((row) => row.action === '修改').map((row) => row.request_path))], ['/api/panel/me']);
+		assert.deepEqual([...new Set(originRows.filter((row) => row.action === 'update').map((row) => row.request_path))], ['/api/panel/me']);
 		assert.ok(originRows.some((row) => row.request_hostname === 'site-b.test'), '域名要如实记下来，而不是都记成同一个');
 		// 域名与接口路径由服务端自己看到，不听客户端的：页面路径要靠 referer 推断，
 		// 那是客户端说什么就是什么，写进审计等于给伪造留了口子。

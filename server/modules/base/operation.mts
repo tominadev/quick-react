@@ -154,6 +154,18 @@ const findPendingEntry = async (database: DatabaseAdapter, builder: ReturnType<t
 		{ column: 'table_name', value: table },
 		{ column: 'row_id', value: rowId },
 		{ column: 'review_status', value: 'pending' },
+		/**
+		 * **新建那条不算在内。**
+		 *
+		 * 「覆盖同一个人挂在这一行上的申请」说的是修改与修改之间：后一次提交作废前一次。
+		 * 新建是另一回事——它是「这一行还不存在」，而在它被批准之前对那一行再改一笔，
+		 * 是在改一份还没生效的草稿，两者并存。
+		 *
+		 * 覆盖掉的后果实测过：建号进队列后再改一次 status，那条 insert 被改写成 update，
+		 * 于是批准时没有人再去把 pended_at 归零——行永远隐身，账号登不进去(401)，
+		 * 而审批列表显示一切正常。
+		 */
+		{ column: 'action', operator: '!=', value: 'insert' },
 		actor === null ? { column: 'created_duid', operator: 'IS NULL' } : { column: 'created_duid', value: actor },
 	];
 	return firstSql<{ id: string }>(database, builder.select({
@@ -255,6 +267,13 @@ const backfillInsertRowId = async (
 	]));
 };
 
+/**
+ * 记一条修改。返回 `{ recorded, found }`：
+ *
+ * - `recorded` 是真的写进审批表的条数（逐列比下来没变化就是 0）；
+ * - `found` 是**匹配到几行**。两者必须分开：upsert 靠 `found === 0` 判断这次走的是 INSERT
+ *   那一支，而「行在、只是一个字都没改」同样 recorded 为 0，混作一谈会把它记成新增。
+ */
 const recordStatement = async (database: DatabaseAdapter, metadata: SqlAuditMetadata, operationId: string, reason: string, origin: RequestOrigin, scope: 'admin' | 'self', immediate: boolean) => {
 	// 归属与可见性条件都在生成语句时定死了：调用方可能用显式上下文覆盖适配器。
 	const builder = sql({ database, subjectRoles: null, ownerTid: metadata.owner.tid, ownerBid: metadata.owner.bid, ownerUid: metadata.owner.uid, actorUid: metadata.owner.actor });
@@ -308,7 +327,7 @@ const recordStatement = async (database: DatabaseAdapter, metadata: SqlAuditMeta
 		else await runSystemSql(database, builder.insert(AUDIT_TABLE, values));
 		recorded += 1;
 	}
-	return recorded;
+	return { recorded, found: rows.length };
 };
 
 /**
@@ -324,12 +343,13 @@ export const runOperation = async (
 	statements: readonly SqlQuery[],
 	options: OperationOptions = {},
 ): Promise<DatabaseRunResult[]> => {
-	const audited = statements.filter((statement): statement is SqlQuery & { audit: SqlAuditMetadata } => statement.audit !== undefined);
+	const managed = statements.filter((statement) => statement.audit !== undefined || statement.insertAudit !== undefined);
 	// 新建单独一路：它没有前值可读，靠 row_key 定位，待审批时把行写成不可见的。
-	const inserts = statements.filter((statement): statement is SqlQuery & { insertAudit: SqlInsertAuditMetadata } => statement.insertAudit !== undefined);
-	const immediate = audited.length + inserts.length === 0 || skipsApproval(c, options);
+	// upsert 两种元数据都带，落到哪一路要查过才知道，因此这个数组在记录时才填。
+	const inserts: (SqlQuery & { insertAudit: SqlInsertAuditMetadata })[] = [];
+	const immediate = managed.length === 0 || skipsApproval(c, options);
 	let recorded = 0, operationId = '';
-	if (audited.length || inserts.length) {
+	if (managed.length) {
 		operationId = options.operationId ?? crypto.randomUUID();
 		const reason = options.reason?.trim().slice(0, MAX_REASON_LENGTH) ?? readChangeReason(c);
 		// 域名与接口路径都由服务端自己看到，不听客户端的：页面路径要靠 referer 推断，
@@ -349,8 +369,31 @@ export const runOperation = async (
 			} catch { return { hostname: '', path: '' }; }
 		})();
 		const scope = operationScope(c);
-		for (const statement of audited) recorded += await recordStatement(database, statement.audit, operationId, reason, origin, scope, immediate);
-		for (const statement of inserts) recorded += await recordInsert(database, statement.insertAudit, operationId, reason, origin, scope, immediate);
+		const asInsert = async (statement: SqlQuery & { insertAudit: SqlInsertAuditMetadata }) => {
+			inserts.push(statement);
+			recorded += await recordInsert(database, statement.insertAudit, operationId, reason, origin, scope, immediate);
+		};
+		for (const statement of managed) {
+			if (statement.audit) {
+				const result = await recordStatement(database, statement.audit, operationId, reason, origin, scope, immediate);
+				/**
+				 * 一行都没匹配到而这条语句又带着 insertAudit：那就是 upsert 走了 INSERT 那一支。
+				 *
+				 * **只在立即生效的路径上记。** 个人中心第一次设昵称走的正是这里——资料行还不
+				 * 存在，原先完全不留痕，现在记一条「新增」，照旧立即生效。
+				 *
+				 * 走审批的路径上先维持原样(不记、直接写)。把它记成待审批的新建会有两个问题：
+				 * 新建记录按设计不抄列值(值在行上)，而待审批的配置行是不可见的，审批人无从
+				 * 判断自己在批什么；页面那一侧 configRowId 也查不到那一行，待审批提示会消失。
+				 * 那是一处真的漏洞——后台每一项配置的**第一次**保存都不进队列也不留痕——
+				 * 但补它要连着审批记录的形状和设置页一起改，不该顺手做。
+				 */
+				if (!result.found && statement.insertAudit && immediate) await asInsert(statement as SqlQuery & { insertAudit: SqlInsertAuditMetadata });
+				else recorded += result.recorded;
+				continue;
+			}
+			if (statement.insertAudit) await asInsert(statement as SqlQuery & { insertAudit: SqlInsertAuditMetadata });
+		}
 	}
 	// 待审批：记录已写，数据一条都不动。逐列比对下来没有任何变化时 recorded 为 0，
 	// 那本来就不是一次修改，不该拦下来让人去批一个空操作。

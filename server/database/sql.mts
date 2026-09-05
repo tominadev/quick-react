@@ -458,8 +458,17 @@ export abstract class SqlBuilder {
 	 * 自然返回空、不产生记录——与"insert 不审计"是同一个结果，不需要分支判断。
 	 */
 	upsert(table: string, conflictKeys: string[], values: Values, updateKeys: string[]): SqlQuery {
-		// 冲突时走的是 UPDATE，记成新建就错了；这一支的审计由下面的 auditMetadata 负责。
-		const { insertAudit: _ignored, ...inserted } = this.insert(table, values);
+		/**
+		 * **两种元数据都带上**：这条语句到底是 INSERT 还是 UPDATE，建语句的时候不知道。
+		 *
+		 * 由操作层查一次冲突条件来定：查得到行就是修改，查不到就是新建。它本来就要读那一行
+		 * 的前值，因此不多一次查询。原先这里把 insertAudit 丢掉，于是 upsert 走 INSERT 那一支
+		 * 完全不留痕——个人中心第一次设昵称(资料行还不存在)就是这条路，做完在审批表里找不到。
+		 *
+		 * 只有 auditWhere 拿得到时才带 insertAudit：拿不到就无从判断走的是哪一支，
+		 * 宁可维持原样不记，也不能记一条可能是假的「新增」。
+		 */
+		const { insertAudit, ...inserted } = this.insert(table, values);
 		const actorUid = this.actorUidFor(table);
 		const managedUpdateKeys = [...new Set([...updateKeys, 'updated_at', ...(actorUid === null ? [] : ['updated_duid'])])];
 		const quotedUpdates = managedUpdateKeys.map((key) => quoteIdentifier(key, this.dialect));
@@ -473,7 +482,10 @@ export abstract class SqlBuilder {
 		return {
 			...inserted,
 			query: inserted.query + suffix,
-			...(auditWhere === undefined ? {} : auditMetadata(table, auditValues, auditWhere, { tid: this.ownerTidFor(AUDIT_TABLE), bid: this.ownerBidFor(AUDIT_TABLE), uid: this.ownerUidFor(AUDIT_TABLE), actor: this.actorUidFor(AUDIT_TABLE) })),
+			...(auditWhere === undefined ? {} : {
+				...auditMetadata(table, auditValues, auditWhere, { tid: this.ownerTidFor(AUDIT_TABLE), bid: this.ownerBidFor(AUDIT_TABLE), uid: this.ownerUidFor(AUDIT_TABLE), actor: this.actorUidFor(AUDIT_TABLE) }),
+				...(insertAudit ? { insertAudit } : {}),
+			}),
 		};
 	}
 
