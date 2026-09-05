@@ -52,11 +52,17 @@ export const readTable = async (database: DatabaseAdapter, mode: 'columns' | 'ro
 	const rowKey = primaryKey ?? (sqliteRowId ? '__rowid__' : '');
 	const pageNum = page(pageNumValue, 1), pageSize = page(pageSizeValue, 10);
 	const deleted = options.deleted ?? database.deletedScope ?? 'active';
-	const total = await firstSql<{ count: number | string }>(database, sql({ database }).count(selectedTableName, [], deleted));
+	// 数据管理**不过滤 pended_at**：它看的是表里实际有什么，不是「批准了什么」。
+	//
+	// 过滤掉的话，待审批的新行在这里凭空消失：审批卡住时查不到那一行、算不清行数，
+	// 想直接清掉一条卡死的申请也无从下手——而这一页本就是平台管理员绕过业务语义
+	// 直接看原始表的地方，唯一的用处就是「看见真实状态」。列表里 pended_at 那一列
+	// 摆在那儿，是 0 还是时间戳一眼可辨，不会认错。
+	const total = await firstSql<{ count: number | string }>(database, sql({ database }).count(selectedTableName, [], deleted, 'all'));
 	// Database administration pages must preserve 64-bit IDs. Casting integer
 	// columns to text prevents SQLite from coercing snowflake IDs to unsafe JS numbers.
 	const selectedColumns = databaseSelectColumns(info);
-	const rows = await allSql<TableData>(database, sql({ database }).select({ table: selectedTableName, columns: selectedColumns, sqliteRowIdAlias: sqliteRowId ? '__rowid__' : undefined, limit: pageSize, offset: (pageNum - 1) * pageSize, deleted }));
+	const rows = await allSql<TableData>(database, sql({ database }).select({ table: selectedTableName, columns: selectedColumns, sqliteRowIdAlias: sqliteRowId ? '__rowid__' : undefined, limit: pageSize, offset: (pageNum - 1) * pageSize, deleted, pended: 'all' }));
 	// 有主键就直接用那一列当 rowKey，不再往行里塞字段——塞进去会覆盖这张表自己的同名列，
 	// `base_configs.key` 就是这么在列表上变成数字的。没有主键的表才合成一个保留字段。
 	const dataSource = rowKey ? rows : rows.map((row, index) => ({ ...row, [ROW_KEY_FIELD]: `readonly-${(pageNum - 1) * pageSize + index + 1}` }));

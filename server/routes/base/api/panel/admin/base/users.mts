@@ -2,7 +2,7 @@ import type { ApiHandler } from '@server/modules/base/api-router.mjs';
 import { apiMessage, apiMessageData, apiResponse } from '@server/modules/base/api-response.mjs';
 import { createStoredPassword, readStoredPassword } from '@server/modules/base/auth/index.mjs';
 import { getChangedFields } from '@server/modules/base/changed-fields.mjs';
-import { allSql, firstSql, runSql, runSystemSql, sql, type SqlQuery, ownerScope } from '@server/database/sql.mjs';
+import { allSql, firstSql, isUniqueViolation, runSql, runSystemSql, sql, type SqlQuery, ownerScope } from '@server/database/sql.mjs';
 import { PendingApprovalError, runOperation, runOperationSql } from '@server/modules/base/operation.mjs';
 import { finishUserCreation } from '@server/modules/base/registration.mjs';
 import { credentialStatement, setCredential } from '@server/modules/base/credentials.mjs';
@@ -87,6 +87,25 @@ const handler: ApiHandler = async (c, next, params) => {
 		const roles = parseRoles(body.roles);
 		const unknownRoles = unknownAssignableRoles(roles);
 		if (unknownRoles.length) return apiMessage(c, 400, `不支持的角色：${unknownRoles.join('、')}`);
+		/**
+		 * 重名要在**记录之前**挡掉。
+		 *
+		 * 审批是「先记录后应用」（§6.2），所以等 INSERT 撞上唯一索引才失败的话，队列里已经
+		 * 留下一条申请，而它指向的那一行从来没写成——批也批不动，界面上却像是有人在等审批。
+		 *
+		 * 条件要和唯一索引 `(owner_tid, name, deleted_at)` 一字不差：只看未删除的行（回收站里
+		 * 的同名账号不占名字），并且 `pended: 'all'` 把**还在审批队列里的新账号**算进来——
+		 * 它已经把那个名字占住了。系统上下文是必须的：分站管理员的可见性是 owner_bid，
+		 * 查不到本租户里别的分站的同名账号，那道检查会漏，然后照样撞索引。
+		 */
+		const taken = await firstSql<{ id: string }>(database, sql({ database, subjectRoles: null }).select({
+			table: 'base_users',
+			columns: { id: { column: 'id', cast: 'text' } },
+			where: [{ column: 'name', value: userName }, tenantScope()],
+			pended: 'all',
+			limit: 1,
+		}));
+		if (taken) return apiMessage(c, 409, '用户名已存在');
 		try {
 			/**
 			 * 建号要写三行：账号、凭证、资料（资料只有填了才写）。三行共享一个操作号，
@@ -117,7 +136,10 @@ const handler: ApiHandler = async (c, next, params) => {
 			return apiMessageData(c, 201, '用户已创建', { id: createdId, user_name: userName });
 		} catch (error) {
 			if (error instanceof PendingApprovalError) throw error;
-			return apiMessage(c, 409, '用户名已存在');
+			// 上面已经先查过重名，走到这里的多半是凭证或资料那两行撞了唯一索引（昵称被占）。
+			// 只认唯一索引冲突：把别的故障也说成「已存在」，会让真正的问题查不出来。
+			if (!isUniqueViolation(error)) throw error;
+			return apiMessage(c, 409, '用户名或昵称已被占用');
 		}
 	}
 	if (params.id && c.req.method === 'PUT') {
@@ -159,7 +181,7 @@ const handler: ApiHandler = async (c, next, params) => {
 			];
 			await runOperation(c, database, statements);
 			return apiMessage(c, 200, '用户已保存');
-		} catch (error) { if (error instanceof PendingApprovalError) throw error; return apiMessage(c, 409, '用户名或昵称已被占用'); }
+		} catch (error) { if (error instanceof PendingApprovalError) throw error; if (!isUniqueViolation(error)) throw error; return apiMessage(c, 409, '用户名或昵称已被占用'); }
 	}
 	// 界面上的删除（单条与批量）一律发到集合地址、id 放在请求体里，两种形态都要接。
 	if (c.req.method === 'DELETE') {

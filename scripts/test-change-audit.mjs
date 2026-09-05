@@ -154,14 +154,18 @@ const auditRouteFilter = async () => {
 		// 行照写进库，但 pended_at 非零让它对所有正常查询不可见；批准把它归零，
 		// 驳回把那一行物理删掉——它从未生效过，历史留在这条审批记录上。
 		const rowsApi = 'http://localhost/api/panel/admin/base/data/rows.php?table=base_configs';
-		const visibleKeys = async () => (await (await app.request(`${rowsApi}&include=data`, { headers: { ...headers, cookie } })).json())
-			.table.dataSource.map((row) => row.key);
+		// 数据管理**不过滤 pended_at**：它看的是表里实际有什么。所以「生效的行」在这里要
+		// 自己按 pended_at 收一次——顺带证明待审批的那一行确实躺在库里，只是还没生效。
+		const configRows = async () => (await (await app.request(`${rowsApi}&include=data`, { headers: { ...headers, cookie } })).json()).table.dataSource;
+		const visibleKeys = async () => (await configRows()).filter((row) => String(row.pended_at) === '0').map((row) => row.key);
+		const pendedKeys = async () => (await configRows()).filter((row) => String(row.pended_at) !== '0').map((row) => row.key);
 		const pendingIds = async () => (await (await app.request('http://localhost/api/panel/admin/base/audit.php?include=data&review_status=pending', { headers: { ...headers, cookie } })).json())
 			.table.dataSource.map((row) => String(row.id));
 		const decide = (action, ids) => app.request(`http://localhost/api/panel/admin/base/audit.php?action=${action}`, { method: 'POST', headers: { ...headers, cookie }, body: JSON.stringify(ids) });
 
 		assert.equal((await app.request(rowsApi, { method: 'POST', headers: { ...headers, cookie }, body: JSON.stringify({ key: 'audit_fixture', value: '{}' }) })).status, 202, '新建也要进审批队列');
-		assert.equal((await visibleKeys()).includes('audit_fixture'), false, '没批准之前这一行不该被任何查询看到');
+		assert.equal((await visibleKeys()).includes('audit_fixture'), false, '没批准之前这一行不该生效');
+		assert.equal((await pendedKeys()).includes('audit_fixture'), true, '但它躺在库里，数据管理看得见');
 		const insertEntry = (await (await app.request('http://localhost/api/panel/admin/base/audit.php?include=data&review_status=pending', { headers: { ...headers, cookie } })).json())
 			.table.dataSource.find((row) => row.row_key === 'audit_fixture');
 		assert.equal(insertEntry.action, 'insert');
@@ -171,10 +175,20 @@ const auditRouteFilter = async () => {
 		assert.equal((await decide('approve', [String(insertEntry.id)])).status, 200);
 		assert.equal((await visibleKeys()).includes('audit_fixture'), true, '批准之后这一行才开始存在');
 
+		// 撞唯一索引不该在队列里留下孤儿。
+		//
+		// 新建是「行照写、pended_at 非零」，所以唯一索引在**提交那一刻**就会拦下来；而审批
+		// 记录是先写的。不清理的话，队列里会留下一条指向从未写成的行的申请——批也批不动，
+		// 界面上却像是有人在等审批。顺带：撞唯一索引是 409，不是 500。
+		const queuedBefore = (await pendingIds()).length;
+		const duplicate = await app.request(rowsApi, { method: 'POST', headers: { ...headers, cookie }, body: JSON.stringify({ key: 'audit_fixture', value: '{}' }) });
+		assert.equal(duplicate.status, 409, '重复的 key 是用户输入的正常结果，不是服务端故障');
+		assert.equal((await pendingIds()).length, queuedBefore, '失败的新建不该在队列里留下申请');
+
 		// 驳回：那一行物理消失。
 		assert.equal((await app.request(rowsApi, { method: 'POST', headers: { ...headers, cookie }, body: JSON.stringify({ key: 'audit_rejected', value: '{}' }) })).status, 202);
 		assert.equal((await decide('reject', await pendingIds())).status, 200);
-		assert.equal((await visibleKeys()).includes('audit_rejected'), false, '驳回之后行不该留下');
+		assert.equal([...await visibleKeys(), ...await pendedKeys()].includes('audit_rejected'), false, '驳回之后行不该留下，数据管理里也不该有');
 		const leftovers = new DatabaseSync(process.env.DEFAULT_DATABASE_FILE);
 		assert.equal(leftovers.prepare("SELECT COUNT(*) AS n FROM base_configs WHERE key = 'audit_rejected'").get().n, 0, '被驳回的新建要物理删掉，不是留在回收站');
 		leftovers.close();
@@ -182,6 +196,9 @@ const auditRouteFilter = async () => {
 		// 一次操作里的几行有先后：建起来从账号开始，拆掉反着来（先资料后账号）——
 		// 中间那一刻不能出现「凭证指向一个已经不存在的账号」。
 		assert.equal((await app.request(usersApi, { method: 'POST', headers: { ...headers, cookie }, body: JSON.stringify({ user_name: 'rejectme', password: 'reject-password-1', roles: [], status: 'enabled', profile_nickname: '要被驳回' }) })).status, 202);
+		// 正常列表看不到它：待审批的新行对业务查询不存在。数据管理是显式的例外，不能拿来证明这一条。
+		const pendingList = await (await app.request(`${usersApi}?include=data`, { headers: { ...headers, cookie } })).json();
+		assert.equal(pendingList.table.dataSource.some((row) => row.user_name === 'rejectme'), false, '待审批的新账号不该出现在用户管理里');
 		const queuedInsert = await (await app.request('http://localhost/api/panel/admin/base/audit.php?include=data&review_status=pending', { headers: { ...headers, cookie } })).json();
 		assert.equal(queuedInsert.table.dataSource.length, 3, '建号写三行：账号、凭证、资料');
 		assert.equal(new Set(queuedInsert.table.dataSource.map((row) => row.operation_id)).size, 1, '三条共享一个操作号');

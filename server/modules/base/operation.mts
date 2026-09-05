@@ -326,9 +326,25 @@ export const runOperation = async (
 		// 值因此不必抄进审批表，凭证也就不会在那里躺满保留期。
 		for (const statement of inserts) {
 			const builder = sql({ database, subjectRoles: null, ownerTid: statement.insertAudit.owner.tid, ownerBid: statement.insertAudit.owner.bid, ownerUid: statement.insertAudit.owner.uid, actorUid: statement.insertAudit.owner.actor });
-			// 照原样重建那条 INSERT，只多一个 pended_at——不重新走 insert()，那会再发一个 key，
-			// 而审批记录里记的是原来那一个。
-			await runSystemSql(database, builder.insertExisting(statement.insertAudit.table, { ...statement.insertAudit.values, pended_at: Date.now() }));
+			try {
+				// 照原样重建那条 INSERT，只多一个 pended_at——不重新走 insert()，那会再发一个 key，
+				// 而审批记录里记的是原来那一个。
+				await runSystemSql(database, builder.insertExisting(statement.insertAudit.table, { ...statement.insertAudit.values, pended_at: Date.now() }));
+			} catch (error) {
+				/**
+				 * 行没写成（多半是撞了唯一索引），把刚记下的那条申请撤掉。
+				 *
+				 * 这不违反「先记录后应用」：那条原则防的是**中断**——记了但不知道做没做，
+				 * 留着才能核对。这里是**已知的失败**，行确定不存在，留下的申请谁也批不动，
+				 * 只会在待审批列表里冒充一件待办。物理删掉而不是标记，因为它从未成立过。
+				 */
+				await runSystemSql(database, builder.delete(AUDIT_TABLE, [
+					{ column: 'operation_id', value: operationId },
+					{ column: 'table_name', value: statement.insertAudit.table },
+					{ column: 'row_key', value: statement.insertAudit.rowKey },
+				]));
+				throw error;
+			}
 		}
 		// 除了抛异常，还在上下文里留个标记：万一某处 catch 把异常吞了，最外层中间件
 		// 仍会把响应改成 202。正确性不能依赖「每一处 catch 都记得重新抛出」。

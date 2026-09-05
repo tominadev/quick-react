@@ -32,6 +32,13 @@ type SqlValue = unknown;
 type Values = Record<string, SqlValue | undefined>;
 type InsertSelectValue = SqlValue | { column: string };
 export type DeletedScope = 'active' | 'deleted' | 'all';
+/**
+ * 待审批的新行看不看得见。
+ *
+ * 与 DeletedScope 分开，因为它们回答的是两个问题:「这一行删了没有」和「这一行批了没有」。
+ * 合成一个枚举的话，想看待审批的行就得顺带把回收站也打开。
+ */
+export type PendedScope = 'active' | 'all';
 
 const identifierPattern = /^[A-Za-z_][A-Za-z0-9_]*$/;
 export const quoteIdentifier = (identifier: string, dialect: SqlDialect) => {
@@ -146,7 +153,7 @@ const renderCondition = (condition: SqlCondition, dialect: SqlDialect, nextPlace
 export type SqlJoin = { type?: 'INNER' | 'LEFT'; table: string; alias?: string; left: string; right: string };
 export type SqlColumn = string | { column: string; cast?: 'text' };
 /** Normal queries see active rows; recycle-bin code must explicitly request deleted/all rows. */
-export type SqlSelectOptions = { table: string; alias?: string; distinct?: boolean; columns?: Record<string, SqlColumn>; sort?: SqlSortOption; includeAll?: boolean; sqliteRowIdAlias?: string; joins?: SqlJoin[]; where?: SqlCondition[]; orderBy?: Array<{ column: string; direction?: 'ASC' | 'DESC' }>; limit?: number; offset?: number; deleted?: DeletedScope };
+export type SqlSelectOptions = { table: string; alias?: string; distinct?: boolean; columns?: Record<string, SqlColumn>; sort?: SqlSortOption; includeAll?: boolean; sqliteRowIdAlias?: string; joins?: SqlJoin[]; where?: SqlCondition[]; orderBy?: Array<{ column: string; direction?: 'ASC' | 'DESC' }>; limit?: number; offset?: number; deleted?: DeletedScope; pended?: PendedScope };
 
 export abstract class SqlBuilder {
 	constructor(readonly dialect: SqlDialect, readonly actorContext: SqlActorContext = null, readonly defaultDeletedScope: DeletedScope = 'active', readonly ownerContext: SqlActorContext = null, readonly tenantContext: SqlActorContext = null, readonly branchContext: SqlActorContext = null, readonly subjectRoles: readonly string[] | null = null) {}
@@ -223,6 +230,7 @@ export abstract class SqlBuilder {
 		const columns = selectedColumns.join(', ');
 		let query = `SELECT${options.distinct ? ' DISTINCT' : ''} ${columns} FROM ${quoteIdentifier(options.table, this.dialect)}${options.alias ? ` AS ${quoteIdentifier(options.alias, this.dialect)}` : ''}`;
 		const deletedScope = options.deleted ?? this.defaultDeletedScope;
+		const pendedScope = options.pended ?? 'active';
 		// 关联表的删除状态写进 ON，不写进 WHERE。写进 WHERE 会让 LEFT JOIN 退化成 INNER JOIN：
 		// 没有匹配行时关联表的 deleted_at 是 NULL，而 NULL = 0 求值为 unknown，整行被过滤掉——
 		// 没有资料或没有凭证的账号会从列表里凭空消失。放进 ON 对 INNER JOIN 等价。
@@ -230,15 +238,17 @@ export abstract class SqlBuilder {
 			const joinScope = quoteIdentifier(`${join.alias ?? join.table}.deleted_at`, this.dialect);
 			const joinPended = quoteIdentifier(`${join.alias ?? join.table}.pended_at`, this.dialect);
 			const activeOnly = deletedScope !== 'all' && deletedScope !== 'deleted';
+			const pendedOnly = activeOnly && pendedScope === 'active';
 			// 待审批的新行和已删除的行一样，都要写进 ON 而不是 WHERE，理由同上。
-			query += ` ${join.type ?? 'INNER'} JOIN ${quoteIdentifier(join.table, this.dialect)}${join.alias ? ` AS ${quoteIdentifier(join.alias, this.dialect)}` : ''} ON ${quoteIdentifier(join.left, this.dialect)} = ${quoteIdentifier(join.right, this.dialect)}${activeOnly ? ` AND ${joinScope} = 0 AND ${joinPended} = 0` : ''}`;
+			query += ` ${join.type ?? 'INNER'} JOIN ${quoteIdentifier(join.table, this.dialect)}${join.alias ? ` AS ${quoteIdentifier(join.alias, this.dialect)}` : ''} ON ${quoteIdentifier(join.left, this.dialect)} = ${quoteIdentifier(join.right, this.dialect)}${activeOnly ? ` AND ${joinScope} = 0` : ''}${pendedOnly ? ` AND ${joinPended} = 0` : ''}`;
 		}
 		const deletedConditions: SqlCondition[] = deletedScope === 'all' ? [] : [
 			{ column: `${options.alias ?? options.table}.deleted_at`, operator: deletedScope === 'deleted' ? '!=' as const : '=' as const, value: 0 },
 			// 待审批的新行对所有正常查询不可见：它还没通过审批，在看的人眼里不该存在。
 			// 只在 active 加：回收站（deleted）按 deleted_at != 0 取，本来就收不到它们
 			// （它们的 deleted_at 是 0）；deleted: 'all' 是内部读——算差异、批准写回都要读得到。
-			...(deletedScope === 'active' ? [{ column: `${options.alias ?? options.table}.pended_at`, value: 0 }] : []),
+			// pended: 'all' 是显式的例外，见 PendedScope。
+			...(deletedScope === 'active' && pendedScope === 'active' ? [{ column: `${options.alias ?? options.table}.pended_at`, value: 0 }] : []),
 		];
 		const conditions = [...deletedConditions, ...this.visibilityConditions(options.table, options.alias), ...(options.where ?? [])], boundConditions = conditions.filter(bindsValue);
 		let parameterIndex = 0;
@@ -260,12 +270,12 @@ export abstract class SqlBuilder {
 		return { query, values: [...boundConditions.map((condition) => condition.value as SqlValue), ...(options.limit !== undefined ? [options.limit, ...(options.offset !== undefined ? [options.offset] : [])] : [])] };
 	}
 
-	count(table: string, where: SqlCondition[] = [], deleted: DeletedScope = 'active'): SqlQuery {
+	count(table: string, where: SqlCondition[] = [], deleted: DeletedScope = 'active', pended: PendedScope = 'active'): SqlQuery {
 		let query = `SELECT COUNT(*) AS ${quoteIdentifier('count', this.dialect)} FROM ${quoteIdentifier(table, this.dialect)}`;
 		let parameterIndex = 0;
 		const conditions: SqlCondition[] = [
 			...(deleted === 'all' ? [] : [{ column: 'deleted_at', operator: deleted === 'deleted' ? '!=' as const : '=' as const, value: 0 }]),
-			...(deleted === 'active' ? [{ column: 'pended_at', value: 0 }] : []),
+			...(deleted === 'active' && pended === 'active' ? [{ column: 'pended_at', value: 0 }] : []),
 			...this.visibilityConditions(table),
 			...where,
 		];
@@ -530,6 +540,25 @@ export const runSql = async (database: DatabaseAdapter, statement: SqlQuery): Pr
 		throw new Error(`人工操作的受管写入必须走 runOperation：${statement.audit.table}`);
 	}
 	return runSystemSql(database, statement);
+};
+
+/**
+ * 这个错误是不是撞了唯一索引。
+ *
+ * 四种方言各说各话，所以三种线索都认：驱动的错误码（mysql2 的 ER_DUP_ENTRY、
+ * PostgreSQL 的 23505）、SQLite 的 errcode（2067 唯一索引 / 1555 主键），
+ * 以及消息正文——D1 只给得出消息。
+ *
+ * 用来把「已经有一条一样的了」翻译成 409，而不是让它变成 500：撞唯一索引是
+ * 用户输入的正常结果，不是服务端出错。
+ */
+export const isUniqueViolation = (error: unknown) => {
+	if (!error || typeof error !== 'object') return false;
+	const code = String((error as { code?: unknown }).code ?? '');
+	if (code === 'ER_DUP_ENTRY' || code === '23505') return true;
+	const errcode = Number((error as { errcode?: unknown }).errcode ?? 0);
+	if (errcode === 2067 || errcode === 1555) return true;
+	return /UNIQUE constraint failed|Duplicate entry|duplicate key value/i.test(String((error as { message?: unknown }).message ?? ''));
 };
 
 export const firstSql = <T,>(database: DatabaseAdapter, statement: SqlQuery) => database.prepare(statement.query).bind(...statement.values).first<T>();

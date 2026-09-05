@@ -40,6 +40,16 @@ try {
 	})).status, 202);
 	const queued = await (await app.request('http://localhost/api/panel/admin/base/audit.php?include=data&review_status=pending', { headers: superHeaders })).json();
 	assert.equal((await app.request('http://localhost/api/panel/admin/base/audit.php?action=approve', { method: 'POST', headers: superHeaders, body: JSON.stringify(queued.table.dataSource.map((row) => String(row.id))) })).status, 200);
+	// 重名的建号要在**记录之前**挡掉：审批是先记录后应用，等 INSERT 撞索引才失败的话，
+	// 队列里会留下一条指向从未写成的行的申请，批也批不动。
+	const queuedNow = async () => (await (await app.request('http://localhost/api/panel/admin/base/audit.php?include=data&review_status=pending', { headers: superHeaders })).json()).table.dataSource.length;
+	const queuedBefore = await queuedNow();
+	const duplicate = await app.request('http://localhost/api/panel/admin/base/users.php', {
+		method: 'POST', headers: superHeaders,
+		body: JSON.stringify({ user_name: 'reviewer', password: 'super-password-3', roles: [], status: 'enabled' }),
+	});
+	assert.equal(duplicate.status, 409, '重名建号直接拒绝');
+	assert.equal(await queuedNow(), queuedBefore, '被拒绝的建号不该进队列');
 	const reviewerCookie = await signIn('reviewer', 'super-password-2', 2);
 	const reviewerHeaders = { ...device(2), cookie: reviewerCookie, 'x-change-reason': encodeURIComponent('测试') };
 	// 同一个人的第二台设备：duid 不同、人相同，仍然算「自己」。
