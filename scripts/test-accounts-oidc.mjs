@@ -11,6 +11,14 @@ process.env.SKIP_SERVER_LISTEN = '1';
 
 const base64Url = (bytes) => Buffer.from(bytes).toString('base64url');
 const sha256 = async (value) => new Uint8Array(await crypto.subtle.digest('SHA-256', new TextEncoder().encode(value)));
+const toBase64 = (bytes) => Buffer.from(bytes).toString('base64');
+/** 与 server/modules/base/auth/index.mts 的 hashPassword 同格式，用来直接造出可校验的凭证行。 */
+const storedPassword = async (password) => {
+	const salt = crypto.getRandomValues(new Uint8Array(16));
+	const material = await crypto.subtle.importKey('raw', new TextEncoder().encode(password), 'PBKDF2', false, ['deriveBits']);
+	const bits = new Uint8Array(await crypto.subtle.deriveBits({ name: 'PBKDF2', hash: 'SHA-256', salt: salt.buffer, iterations: 210_000 }, material, 256));
+	return JSON.stringify({ hash: `pbkdf2-sha256$210000$${toBase64(salt)}$${toBase64(bits)}`, pattern: 'L'.repeat(password.length) });
+};
 const originalFetch = globalThis.fetch;
 
 try {
@@ -33,12 +41,22 @@ try {
 	const deviceId = String(database.prepare('SELECT id FROM passport_devices WHERE key = ?').get(deviceKey).id);
 	database.prepare(`INSERT INTO passport_device_users (device_id, user_id, status, last_seen_at, created_at, updated_at) VALUES (?, ?, 'active', ?, ?, ?)`).run(deviceId, userId, now, now, now);
 	database.prepare(`INSERT INTO passport_sessions (token_hash, user_id, expires_at, device_id, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?)`).run(passportSessionHash, userId, now + 3600_000, deviceId, now, now);
+	// 第二个 Accounts 身份，用来验证「绑定到本站已有账号」这条路。
+	const secondUserId = 1000000000000000001n, secondSessionId = crypto.randomUUID();
+	const secondSessionHash = Buffer.from(await sha256(secondSessionId)).toString('hex');
+	database.prepare(`INSERT INTO passport_users (user_id, name, status, created_at, updated_at) VALUES (?, 'binduser', 'enabled', ?, ?)`).run(secondUserId, now, now);
+	database.prepare(`INSERT INTO passport_device_users (device_id, user_id, status, last_seen_at, created_at, updated_at) VALUES (?, ?, 'active', ?, ?, ?)`).run(deviceId, secondUserId, now, now, now);
+	database.prepare(`INSERT INTO passport_sessions (token_hash, user_id, expires_at, device_id, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?)`).run(secondSessionHash, secondUserId, now + 3600_000, deviceId, now, now);
 	const clientId = 'acct_test', clientSecret = 'test-client-secret', verifier = base64Url(crypto.getRandomValues(new Uint8Array(48)));
 	const secretHash = Buffer.from(await sha256(clientSecret)).toString('hex'), challenge = base64Url(await sha256(verifier));
 	database.prepare(`INSERT INTO passport_oidc_clients (client_id, name, secret_hash, redirect_uris, allowed_scopes, require_pkce, status, created_at, updated_at, backchannel_logout_uri)
 		VALUES (?, 'Test Client', ?, '["https://client.test/callback","https://site1.test/api/accounts/oidc/callback"]', 'openid profile email', 1, 'enabled', ?, ?, 'https://site1.test/api/accounts/oidc/backchannel-logout')`).run(clientId, secretHash, now, now);
 	database.prepare(`INSERT INTO base_configs (created_at, updated_at, key, value) VALUES (?, ?, 'accounts-oidc-client', ?)`).run(now, now, JSON.stringify({ enabled: true, issuer: 'https://accounts.test', clientId, clientSecret }));
 	database.prepare(`INSERT INTO base_users (id, name, roles, status, created_at, updated_at) VALUES (77, 'localadmin', '["admin"]', 'enabled', ?, ?)`).run(now, now);
+	// 绑定路径的目标账号：本站已有、且**有本地密码**。localadmin 故意不给密码，用来验证
+	// 「没有本地密码的账号绑不上」——那种账号本来就没有密码可以用来证明所有权。
+	database.prepare(`INSERT INTO base_users (id, name, roles, status, created_at, updated_at) VALUES (78, 'bindtarget', '[]', 'enabled', ?, ?)`).run(now, now);
+	database.prepare('INSERT INTO base_user_credentials (user_id, password, created_at, updated_at) VALUES (78, ?, ?, ?)').run(await storedPassword('bindpassword'), now, now);
 	database.prepare(`INSERT INTO base_devices (id, user_id, key, fingerprint, status, last_seen_at, created_at, updated_at) VALUES (42, 77, ?, ?, 'active', ?, ?, ?)`).run(deviceKey, fingerprintData, now, now, now);
 	database.prepare(`INSERT INTO base_device_users (device_id, user_id, status, last_seen_at, created_at, updated_at) VALUES (42, 77, 'active', ?, ?, ?)`).run(now, now, now);
 	database.prepare(`INSERT INTO base_sessions (created_at, updated_at, token_hash, user_id, expires_at, device_id) VALUES (?, ?, ?, 77, ?, 42)`).run(now, now, sessionHash, now + 3600_000);
@@ -104,10 +122,32 @@ try {
 	const selfAuthorized = await app.request(selfAuthorizeUrl, { headers: { cookie: `passport_session=${sessionId}`, 'x-device-key': deviceKey, 'x-device-fingerprint': fingerprintData } });
 	const selfCallbackResponse = await app.request(selfAuthorized.headers.get('location'), { headers: { cookie: selfLoginCookie, 'x-device-key': deviceKey, 'x-device-fingerprint': fingerprintData } });
 	assert.equal(selfCallbackResponse.status, 200);
-	const selfSessionCookie = selfCallbackResponse.headers.getSetCookie().find((item) => item.startsWith('base_session='))?.split(';')[0];
+	// 首次用这个 Accounts 身份登录本站：回调不建号、也不建会话，把主窗口送去选择页。
+	assert.equal(selfCallbackResponse.headers.getSetCookie().some((item) => item.startsWith('base_session=')), false, '还没选择就不该有会话');
+	assert.match(await selfCallbackResponse.clone().text(), /\/accounts\/oidc\/bind\.html/);
+	const bindPath = '/api/accounts/oidc/bind.php';
+	const choice = await (await request(bindPath, { headers: { cookie: selfLoginCookie } })).json();
+	// 上段建号、下段绑定，各自一个提交按钮；带过来的用户名两段都预填好。
+	assert.deepEqual(choice.formPage.sections.map((section) => section.key), ['create', 'bind']);
+	assert.equal(choice.formPage.sections[1].divider, '或');
+	assert.deepEqual(choice.formPage.sections.map((section) => section.fields.map((field) => field.name)), [['user_name'], ['user_name', 'password']]);
+	assert.equal(choice.formPage.initialValues.user_name, 'oidcuser1');
+	const selfBind = (body) => app.request(`https://accounts.test${bindPath}`, { method: 'POST', headers: { 'content-type': 'application/json', cookie: selfLoginCookie, 'x-device-key': deviceKey, 'x-device-fingerprint': fingerprintData }, body: JSON.stringify(body) });
+	assert.equal((await selfBind({ _section: 'create', user_name: 'localadmin' })).status, 409, '用户名被占用要明说，好让用户改一个');
+	assert.equal((await selfBind({ _section: 'create', user_name: 'AB' })).status, 400, '不合规的用户名要拦下');
+	const createdAccount = await selfBind({ _section: 'create', user_name: 'oidcuser1' });
+	assert.equal(createdAccount.status, 200);
+	assert.deepEqual((await createdAccount.clone().json()).next, { action: 'navigate', path: '/', refreshAuth: true });
+	const selfSessionCookie = createdAccount.headers.getSetCookie().find((item) => item.startsWith('base_session='))?.split(';')[0];
 	assert.ok(selfSessionCookie);
+	// 落定后再进选择页，给的是「重新登录」而不是一个空表单。
+	assert.equal((await app.request(`https://accounts.test${bindPath}`, { headers: { cookie: selfLoginCookie } })).status, 410);
 	const signedInPassport = await (await request('/api/sign.php', { headers: { cookie: selfSessionCookie } })).json();
 	assert.equal(signedInPassport.user.user_name, 'oidcuser1');
+	const settled = new DatabaseSync(process.env.DEFAULT_DATABASE_FILE, { readOnly: true });
+	assert.equal(settled.prepare('SELECT COUNT(*) AS count FROM base_oidc_login_requests').get().count, 0, '落定后待决请求要删掉');
+	assert.equal(settled.prepare("SELECT COUNT(*) AS count FROM base_users WHERE name LIKE 'passport\\_%' ESCAPE '\\'").get().count, 0, '不再有占位用户名');
+	settled.close();
 	const signedInAccounts = await (await request('/api/accounts/sign.php', { headers: { cookie: `passport_session=${sessionId}` } })).json();
 	assert.deepEqual(signedInAccounts.formPage.actions.map((action) => action.key), ['account_center', 'bind_identity', 'logout']);
 	const accountCenter = await request('/api/accounts/sign.php?action=account_center', { method: 'POST', headers: { cookie: `passport_session=${sessionId}`, 'content-type': 'application/json' }, body: '{}' });
@@ -161,6 +201,7 @@ try {
 	assert.match(popupBody, /postMessage/);
 	assert.match(popupBody, /next:\{action:'navigate',path:.*refreshAuth:true\}/);
 	assert.equal(popupBody.includes('/accounts/oidc/popup'), false);
+	// 业务站点与身份中心同库同租户，映射是同一条：这已经不是首次登录，回调直接建会话。
 	const businessSessionCookie = businessCallbackResponse.headers.getSetCookie().find((item) => item.startsWith('base_session='))?.split(';')[0];
 	assert.ok(businessSessionCookie);
 	assert.match(businessSessionCookie, /^base_session=.+/);
@@ -184,6 +225,34 @@ try {
 	businessUsers.close();
 	const completed = new DatabaseSync(process.env.DEFAULT_DATABASE_FILE, { readOnly: true });
 	assert.equal(completed.prepare('SELECT COUNT(*) AS count FROM base_oidc_users').get().count, 1); completed.close();
+	// —— 另一个 Accounts 身份：绑定到本站已有账号 ——
+	// 这条路不建号：验证密码证明「这个本站账号确实是我的」，然后把身份映射指过去，角色不变。
+	const bindStart = await app.request('https://site1.test/api/sign.php', { method: 'POST', headers: { 'content-type': 'application/json' }, body: '{}' });
+	const bindLoginCookie = bindStart.headers.get('set-cookie')?.split(';')[0];
+	const bindAuthorized = await app.request((await bindStart.json()).redirectTo, { headers: { cookie: `passport_session=${secondSessionId}`, 'x-device-key': deviceKey, 'x-device-fingerprint': fingerprintData } });
+	const bindCallback = await app.request(bindAuthorized.headers.get('location'), { headers: { cookie: bindLoginCookie, 'x-device-key': deviceKey, 'x-device-fingerprint': fingerprintData } });
+	assert.equal(bindCallback.headers.getSetCookie().some((item) => item.startsWith('base_session=')), false, '首次登录先选择，不直接建会话');
+	const bindPost = (body) => app.request('https://site1.test/api/accounts/oidc/bind.php', { method: 'POST', headers: { 'content-type': 'application/json', cookie: bindLoginCookie, 'x-device-key': deviceKey, 'x-device-fingerprint': fingerprintData }, body: JSON.stringify(body) });
+	// 密码错、账号不存在、账号没有本地密码，一律同一句话——区分开来就成了账号探测器。
+	for (const attempt of [{ user_name: 'bindtarget', password: 'wrong-password' }, { user_name: 'nobody', password: 'bindpassword' }, { user_name: 'localadmin', password: 'bindpassword' }]) {
+		const rejected = await bindPost({ _section: 'bind', ...attempt });
+		assert.equal(rejected.status, 401, `${attempt.user_name} 应该被拒绝`);
+		assert.match((await rejected.json()).feedback.message, /用户名或密码错误/);
+	}
+	// 已经绑过一个 Accounts 身份的账号不能再绑第二个。
+	assert.equal((await bindPost({ _section: 'bind', user_name: 'oidcuser1', password: 'bindpassword' })).status, 401);
+	const boundResult = await bindPost({ _section: 'bind', user_name: 'bindtarget', password: 'bindpassword' });
+	assert.equal(boundResult.status, 200);
+	const boundCookie = boundResult.headers.getSetCookie().find((item) => item.startsWith('base_session='))?.split(';')[0];
+	assert.ok(boundCookie);
+	const boundSign = await (await app.request('https://site1.test/api/sign.php', { headers: { cookie: boundCookie, 'x-device-key': deviceKey, 'x-device-fingerprint': fingerprintData } })).json();
+	// 绑定保留本站账号自己的用户名：Accounts 那边叫 binduser，本站还是 bindtarget。
+	assert.equal(boundSign.user.user_name, 'bindtarget');
+	const boundDatabase = new DatabaseSync(process.env.DEFAULT_DATABASE_FILE, { readOnly: true });
+	assert.equal(boundDatabase.prepare('SELECT user_id FROM base_oidc_users WHERE subject = ?').get(String(secondUserId)).user_id, 78);
+	assert.equal(boundDatabase.prepare('SELECT COUNT(*) AS count FROM base_users').get().count, 3, '绑定不该建出新账号（localadmin、bindtarget、oidcuser1）');
+	boundDatabase.close();
+
 	const logoutStart = await app.request('https://site1.test/api/sign.php', { method: 'DELETE', headers: { cookie: businessSessionCookie, referer: 'https://site1.test/panel/admin/base/users.html', 'x-device-key': deviceKey, 'x-device-fingerprint': fingerprintData } });
 	const logoutResult = await logoutStart.json();
 	assert.equal(logoutStart.status, 200);

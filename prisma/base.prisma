@@ -173,6 +173,16 @@ model base_oidc_login_requests {
   code_verifier String
   return_path   String @default("/")
   expires_at    BigInt
+
+  /// pending：还在等 Accounts 回调。
+  /// choosing：回调已验证通过，但这个身份在本站还没有账号，正等用户选「新建」还是「绑定已有」。
+  ///
+  /// 之所以要把已验证的身份先存下来而不是当场建号：建号是不可撤销的副作用，而用户此刻
+  /// 还没表态。先建一个占位号再按选择删掉，在没有事务的环境里意味着中间态会被别的请求看见。
+  status        String @default("pending")
+  /// choosing 阶段暂存已验证的 sub 与 claims，供选择页落定时使用；不再向 Accounts 二次换取。
+  subject       String @default("")
+  claims        String @default("{}")
 }
 
 model base_oidc_users {

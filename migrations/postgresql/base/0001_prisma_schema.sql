@@ -163,6 +163,9 @@ CREATE TABLE "base_oidc_login_requests" (
     "code_verifier" TEXT NOT NULL,
     "return_path" TEXT NOT NULL DEFAULT '/',
     "expires_at" BIGINT NOT NULL,
+    "status" TEXT NOT NULL DEFAULT 'pending',
+    "subject" TEXT NOT NULL DEFAULT '',
+    "claims" TEXT NOT NULL DEFAULT '{}',
 
     CONSTRAINT "base_oidc_login_requests_pkey" PRIMARY KEY ("id")
 );

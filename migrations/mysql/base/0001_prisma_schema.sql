@@ -152,6 +152,9 @@ CREATE TABLE `base_oidc_login_requests` (
     `code_verifier` VARCHAR(191) NOT NULL,
     `return_path` VARCHAR(191) NOT NULL DEFAULT '/',
     `expires_at` BIGINT NOT NULL,
+    `status` VARCHAR(191) NOT NULL DEFAULT 'pending',
+    `subject` VARCHAR(191) NOT NULL DEFAULT '',
+    `claims` VARCHAR(191) NOT NULL DEFAULT '{}',
 
     UNIQUE INDEX `base_oidc_login_requests_request_id_deleted_at_key`(`request_id`, `deleted_at`),
     UNIQUE INDEX `base_oidc_login_requests_state_deleted_at_key`(`state`, `deleted_at`),

@@ -2,20 +2,18 @@ import type { ApiHandler } from '@server/modules/base/api-router.mjs';
 import { apiMessage } from '@server/modules/base/api-response.mjs';
 import { clearAccountsLoginCookie, accountsLoginCookieName, loadAccountsOidcConfig, loadDiscovery, oidcFetch, verifyIdToken } from '@server/modules/passport/accounts/client.mjs';
 import { readCookie } from '@server/modules/passport/accounts/oidc.mjs';
-import { isValidAccountUserName } from '@server/modules/passport/account.mjs';
-import { baseSessionMaxAge, createSessionCookie, hashSessionToken } from '@server/modules/base/auth/index.mjs';
-import { ensureBaseDevice } from '@server/modules/base/device.mjs';
-import { hasCredential, setCredential } from '@server/modules/base/credentials.mjs';
-import { profileNicknameOf, profileStatement, readProfileNickname } from '@server/modules/base/profile.mjs';
+import { setCredential } from '@server/modules/base/credentials.mjs';
+import { createAccountsSession, syncAccountsIdentity } from '@server/modules/base/accounts-link.mjs';
 import { readStoredPassword } from '@server/modules/base/auth/index.mjs';
 import { CREDENTIAL_CLAIM } from '@shared/types/oidc-claims.mjs';
-import { withDatabaseActors } from '@server/database/index.mjs';
 import { firstSql, runSql, sql } from '@server/database/sql.mjs';
 import { isSecureRequest, requestOrigin } from '@server/modules/base/request-origin.mjs';
-import { parseRoles } from '@shared/types/role.mjs';
 import type { ApiContext } from '@shared/types/api-response.mjs';
 
 type LoginRequest = { id: string; issuer: string; state: string; nonce: string; code_verifier: string; return_path: string; expires_at: number };
+
+/** 首次用这个 Accounts 身份登录本站时，让主窗口去这个页面选「新建」还是「绑定已有」。 */
+const bindPagePath = (c: Parameters<ApiHandler>[0]) => `/accounts/oidc/bind${c.get('techStackConfig').pageSuffix}`;
 
 /** 弹窗通知打开方；手机直达时没有 opener，直接跳回发起页。 */
 const popupClosePage = (returnPath: string, context?: ApiContext) => {
@@ -23,37 +21,6 @@ const popupClosePage = (returnPath: string, context?: ApiContext) => {
 	const contextValue = JSON.stringify(context ?? null).replaceAll('<', '\\u003c');
 	return `<!doctype html><html lang="zh-CN"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>登录成功</title><style>body{font-family:system-ui;padding:48px;text-align:center;background:#405a75;color:#f2f7fb}p{color:#d8e5f0}</style></head>`
 		+ `<body><h2>登录成功</h2><p>正在返回原页面…</p><script>if(window.opener){window.opener.postMessage({source:'passport',status:'success',next:{action:'navigate',path:${target},refreshAuth:true},context:${contextValue}},window.location.origin);setTimeout(function(){window.close();},100);}else{location.href=${target};}</script></body></html>`;
-};
-
-/** 未设置 Accounts 用户名时的本站占位用户名，带下划线，永远不会与合法用户名冲突。 */
-const placeholderUserName = (subject: string) => `passport_${subject}`;
-const generatedUserName = (userName: string) => userName.startsWith('passport_') || userName.startsWith('accounts_');
-
-/** Accounts 设置用户名后同步改写本站占位用户名；管理员手工改过的名字不覆盖。 */
-const syncLocalUserName = async (database: Parameters<typeof runSql>[0], userId: number, userName: string, tenantId: string | null) => {
-	const current = await firstSql<{ user_name: string }>(database, sql({ database: database }).select({ table: 'base_users', columns: { user_name: 'name' }, where: [{ column: 'id', value: userId }] }));
-	if (!current || current.user_name === userName || !generatedUserName(current.user_name)) return;
-	// 用户名租户内唯一，占用检查同样限本租户。
-	const taken = await firstSql(database, sql({ database: database }).select({ table: 'base_users', columns: { id: 'id' }, where: [{ column: 'name', value: userName }, tenantId === null ? { column: 'owner_tid', operator: 'IS NULL' as const } : { column: 'owner_tid', value: tenantId }] }));
-	if (taken) return;
-	await runSql(database, sql({ database: database }).update('base_users', { name: userName }, { id: userId }));
-};
-
-/**
- * Accounts 昵称同步到本站资料。
- *
- * 和用户名同步是**两套规则**，别照抄：
- * - 用户名是标识，登录用，租户内唯一、字符集窄；「还没被本站定过」的信号是名字仍是占位名。
- * - 昵称是显示名，不参与登录，字符集宽；「还没被本站定过」的信号是**本站昵称为空**
- *   （没有资料行，或有行但 nickname 为 NULL——用户填了联系方式却没填昵称）。
- *
- * 只在本站昵称为空时补上，人工设过的一律不覆盖。撞名（撞别人的昵称或用户名）就跳过，
- * 显示层自会回落到用户名——登录不该因为一个显示名失败。
- */
-const syncLocalProfileNickname = async (database: Parameters<typeof runSql>[0], userId: number, profileNickname: string, tenantScope: { column: string; value?: unknown; operator?: 'IS NULL' }) => {
-	if (await readProfileNickname(database, userId)) return;
-	const result = await profileStatement(database, userId, { profile_nickname: profileNickname }, tenantScope);
-	if ('statement' in result) await runSql(database, result.statement);
 };
 
 const handler: ApiHandler = async (c) => {
@@ -88,54 +55,32 @@ const handler: ApiHandler = async (c) => {
 		let account = await firstSql<{ user_id: number; status: string }>(systemDatabase, sql({ database: systemDatabase }).select({ table: 'base_oidc_users', alias: 'a', columns: { user_id: 'a.user_id', status: 'u.status' }, joins: [{ table: 'base_users', alias: 'u', left: 'u.id', right: 'a.user_id' }], where: [{ column: 'a.issuer', value: config.issuer }, { column: 'a.subject', value: subject }, tenantScope('a.owner_tid')] }));
 		const preferred = typeof claims.preferred_username === 'string' ? claims.preferred_username : '';
 		if (!account) {
-			// 先用占位用户名建号，再按 Accounts 用户名改写，避免撞上本站已有的同名账号。
-			const userName = placeholderUserName(subject);
-			await runSql(systemDatabase, sql({ database: systemDatabase }).ignoreInsert('base_users', ['name', 'owner_tid'], { name: userName, roles: [], status: 'enabled' }));
-			const user = await firstSql<{ id: number; status: string }>(systemDatabase, sql({ database: systemDatabase }).select({ table: 'base_users', columns: { id: 'id', status: 'status' }, where: [{ column: 'name', value: userName }, tenantScope('owner_tid')] }));
-			if (!user) throw new Error('无法创建本站 Accounts 用户');
-			// 凭证分表之后，「有没有本地密码」就是「有没有凭证行」——不用再拿 '!oidc' 当哨兵。
-			if (await hasCredential(systemDatabase, user.id)) throw new Error('本站已存在同名用户，无法绑定 Accounts 身份');
-			// 账号行归属账号自己。
-			await runSql(systemDatabase, sql({ database: systemDatabase }).update('base_users', { owner_uid: user.id }, { id: user.id }));
-			// 身份绑定归属账号本人；OIDC 回调没有本站会话，不显式绑定则 owner_uid 为 NULL。
-			const ownedUser = withDatabaseActors(systemDatabase, { baseUserId: user.id });
-			await runSql(ownedUser, sql({ database: ownedUser }).insert('base_oidc_users', { issuer: config.issuer, subject, user_id: user.id, profile: JSON.stringify(claims) }));
-			account = { user_id: user.id, status: user.status };
-		} else {
-			await runSql(systemDatabase, sql({ database: systemDatabase }).update('base_oidc_users', { profile: JSON.stringify(claims) }, [{ column: 'issuer', value: config.issuer }, { column: 'subject', value: subject }, tenantScope('owner_tid')]));
+			// 身份验证通过了，但这个 Accounts 身份在本站还没有账号。**这里不建号**：
+			// 建号是不可撤销的副作用，而用户此刻还没表态要「新建」还是「绑定到已有账号」。
+			// 先建占位号再按选择删掉，在没有事务的环境里意味着中间态会被别的请求看见。
+			//
+			// 凭证 claim 不存进去——它是密码哈希，而 claims 会进 base_oidc_users.profile，
+			// 那是「数据管理」里可见的普通列。首次登录因此不同步密码，下次 Accounts 登录会补上。
+			await runSql(systemDatabase, sql({ database: systemDatabase }).update('base_oidc_login_requests', {
+				status: 'choosing', subject, claims: JSON.stringify(claims), expires_at: now + 600_000,
+			}, { request_id: request.id }));
+			// 选择页是主窗口的整页，不是弹窗：关掉弹窗，让打开它的页面跳过去。
+			const context = await c.get('apiContext')?.(bindPagePath(c));
+			return c.html(popupClosePage(bindPagePath(c), context));
 		}
-		if (isValidAccountUserName(preferred, c.get('siteSettings').userNameMinLength)) await syncLocalUserName(systemDatabase, account.user_id, preferred, tenantId);
-		// name 只在 Accounts 那边**真设过昵称**时才下发；没设就没这个 claim，本站保持回落到用户名。
-		const remoteProfileNickname = typeof claims.name === 'string' ? claims.name.trim() : '';
-		if (remoteProfileNickname) await syncLocalProfileNickname(systemDatabase, account.user_id, remoteProfileNickname, tenantScope('owner_tid'));
+		await runSql(systemDatabase, sql({ database: systemDatabase }).update('base_oidc_users', { profile: JSON.stringify(claims) }, [{ column: 'issuer', value: config.issuer }, { column: 'subject', value: subject }, tenantScope('owner_tid')]));
+		await syncAccountsIdentity(c, systemDatabase, account.user_id, claims, tenantScope('owner_tid'));
 		// 密码同步：两侧都要开。Accounts 那边给这个客户端打开「下发密码」才会带上 claim，
 		// 本站再打开「同步 Accounts 密码」才会写入。单向——本站改了密码，下次登录会被覆盖回去。
 		if (c.get('siteSettings').passwordSyncEnabled && readStoredPassword(credentialClaim)) {
 			await setCredential(systemDatabase, account.user_id, readStoredPassword(credentialClaim)!);
 		}
 		if (account.status !== 'enabled') return apiMessage(c, 403, '本站用户已停用');
-		const maxAge = baseSessionMaxAge;
-		const previousSession = await firstSql<{ session_id: string }>(systemDatabase, sql({ database: systemDatabase }).select({ table: 'base_oidc_sessions', columns: { session_id: 'session_id' }, where: [{ column: 'issuer', value: config.issuer }, { column: 'sid', value: oidcSessionId }] }));
-		const sessionToken = crypto.randomUUID(), sessionHash = await hashSessionToken(sessionToken);
-		const deviceId = await ensureBaseDevice(systemDatabase, String(account.user_id), c.req.raw, c.get('clientIp'), c.get('transportIp'));
-		// 会话与 OIDC 会话映射同样归属账号本人。
-		const owned = withDatabaseActors(systemDatabase, { baseUserId: account.user_id });
-		let sessionId: string;
-		if (previousSession) {
-			sessionId = previousSession.session_id;
-			await runSql(systemDatabase, sql({ database: systemDatabase }).update('base_sessions', { token_hash: sessionHash, user_id: account.user_id, device_id: deviceId, expires_at: now + maxAge * 1000 }, { id: sessionId }));
-		} else {
-			await runSql(owned, sql({ database: owned }).insert('base_sessions', { token_hash: sessionHash, user_id: account.user_id, device_id: deviceId, expires_at: now + maxAge * 1000 }));
-			const created = await firstSql<{ id: number | string | bigint }>(systemDatabase, sql({ database: systemDatabase }).select({ table: 'base_sessions', columns: { id: 'id' }, where: [{ column: 'token_hash', value: sessionHash }], limit: 1 }));
-			if (!created) throw new Error('本站会话创建失败');
-			sessionId = String(created.id);
-		}
-		await runSql(owned, sql({ database: owned }).upsert('base_oidc_sessions', ['issuer', 'sid'], { issuer: config.issuer, sid: oidcSessionId, session_id: sessionId }, ['session_id', 'updated_at']));
+		// 清 cookie 必须排在建会话**之前**：c.header 不带 append 是覆盖语义，
+		// 放在后面会把 createAccountsSession 追加的 base_session 一起抹掉。
+		c.header('Set-Cookie', clearAccountsLoginCookie(isSecureRequest(c)));
+		await createAccountsSession(c, systemDatabase, account.user_id, config.issuer, oidcSessionId);
 		await runSql(systemDatabase, sql({ database: systemDatabase }).delete('base_oidc_login_requests', { request_id: request.id }));
-		const secure = isSecureRequest(c);
-		c.header('Set-Cookie', clearAccountsLoginCookie(secure)); c.header('Set-Cookie', createSessionCookie(sessionToken, secure, maxAge), { append: true });
-		const localUser = await firstSql<{ id: number; user_name: string; profile_nickname: string | null; roles: string }>(systemDatabase, sql({ database: systemDatabase }).select({ table: 'base_users', alias: 'u', columns: { id: 'u.id', user_name: 'u.name', profile_nickname: 'p.nickname', roles: 'u.roles' }, joins: [{ type: 'LEFT', table: 'base_user_profiles', alias: 'p', left: 'p.user_id', right: 'u.id' }], where: [{ column: 'u.id', value: account.user_id }] }));
-		if (localUser) c.set('currentUser', { id: localUser.id, user_name: localUser.user_name, profile_nickname: profileNicknameOf(localUser.user_name, localUser.profile_nickname), roles: parseRoles(localUser.roles) });
 		const context = await c.get('apiContext')?.(request.return_path);
 		// 登录只在弹窗里完成：直接返回关闭窗口的页面，不再中转到额外的回调页面。
 		return c.html(popupClosePage(request.return_path, context));

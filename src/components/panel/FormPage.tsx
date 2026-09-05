@@ -2,8 +2,8 @@ import React, { useEffect, useRef, useState } from 'react';
 import { Alert, Button, Card, Divider, Form, Input, message, Modal, Select, Space, Spin, Switch, Typography } from 'antd';
 import { ClearOutlined, GoogleCircleFilled, RollbackOutlined, SendOutlined, UserOutlined, WechatFilled } from '@ant-design/icons';
 import type { CommonApi } from '@/utils/common/api.js';
-import type { FormPageField, FormPageResponse } from '@shared/types/form-page.mjs';
-import { changeControlField } from '@shared/types/form-page.mjs';
+import type { FormPageField, FormPageResponse, FormPageSection } from '@shared/types/form-page.mjs';
+import { changeControlField, SECTION_FIELD } from '@shared/types/form-page.mjs';
 import { ChangeControlInput } from '@/utils/antd/table_crud/drawer.js';
 import { CHANGE_CONTROL_FIELD, changeControlHeaders } from '@shared/table-form.mjs';
 import { isFieldReadOnly, type FieldLinkOption } from '@shared/field-linkage.mjs';
@@ -22,6 +22,30 @@ const renderTemplate = (template: string, values: Record<string, React.ReactNode
 	});
 
 type FormResponse = FormPageResponse;
+
+/**
+ * 一段独立的表单。每段一个 antd Form 实例，两段因此可以有同名字段——
+ * 「新建账号」和「绑定已有账号」都要填用户名，共用一个 Form 的话后填的会覆盖先填的，
+ * 而且必填校验会互相牵连。
+ */
+function SectionForm({ section, initialValues, submitting, onSubmit }: {
+	section: FormPageSection;
+	initialValues: Record<string, unknown>;
+	submitting: boolean;
+	onSubmit: (key: string, values: Record<string, unknown>) => Promise<void>;
+}) {
+	const [form] = Form.useForm();
+	return <>
+		{section.divider ? <Divider plain style={{ color: '#8c8c8c' }}>{section.divider}</Divider> : null}
+		{section.description ? <Alert type="info" showIcon message={section.description} style={{ marginBottom: 16 }} /> : null}
+		<Form form={form} layout="vertical" initialValues={initialValues} onFinish={(values) => onSubmit(section.key, values as Record<string, unknown>)}>
+			{section.fields.map((field) => field.type === 'hidden'
+				? <Form.Item key={field.name} name={field.name} hidden><Input /></Form.Item>
+				: <Form.Item key={field.name} label={field.label} name={field.name} extra={field.extra} rules={field.rules}>{fieldControl(field, false)}</Form.Item>)}
+			<Button type="primary" htmlType="submit" loading={submitting}>{section.submitLabel}</Button>
+		</Form>
+	</>;
+}
 
 type FormProps = {
 	commonApi: CommonApi;
@@ -111,7 +135,6 @@ export default function FormPage({ commonApi, apiPath, title, submitMethod = 'PU
 	}, [apiPath, messageApi]);
 
 	useEffect(() => {
-		const feedback = responseFeedback;
 		if (!saved || feedback?.component !== 'message') return;
 		const feedbackMessage = feedback.message ?? '';
 		const countdown = refreshDeadline && refreshTarget
@@ -223,7 +246,7 @@ export default function FormPage({ commonApi, apiPath, title, submitMethod = 'PU
 			}
 			form.resetFields();
 			form.setFieldsValue(defaults);
-			const fieldNames = formConfig.fields.filter((field) => !isSystemField(field.name)).map((field) => field.name);
+			const fieldNames = (formConfig.fields ?? []).filter((field) => !isSystemField(field.name)).map((field) => field.name);
 			const nextValues = form.getFieldsValue(true) as Record<string, unknown>;
 			setLiveValues(nextValues);
 			changedFields.current = new Set(fieldNames);
@@ -248,6 +271,23 @@ export default function FormPage({ commonApi, apiPath, title, submitMethod = 'PU
 			console.error(`执行配置操作失败: ${apiPath}?action=${key}`, error);
 		} finally {
 			setRunningAction(undefined);
+		}
+	};
+
+	/** 分段提交：只发本段的字段，外加 _section 标明走的是哪条路。 */
+	const submitSection = async (key: string, values: Record<string, unknown>) => {
+		setSaving(true);
+		try {
+			const response = await commonApi.apiFetch(apiPath, {
+				method: submitMethod,
+				headers: { 'Content-Type': 'application/json' },
+				body: JSON.stringify({ ...values, [SECTION_FIELD]: key }),
+			});
+			await applyResult(await response.json() as FormResponse, values);
+		} catch (error) {
+			console.error(`提交表单分段失败: ${apiPath}#${key}`, error);
+		} finally {
+			setSaving(false);
 		}
 	};
 
@@ -294,7 +334,9 @@ export default function FormPage({ commonApi, apiPath, title, submitMethod = 'PU
 			{passportError ? <Alert type="error" showIcon message={passportError} style={{ marginTop: 12 }} /> : null}
 		</div> : null}
 		{formConfig?.description ? <Alert type="info" showIcon message={formConfig.description} style={{ marginBottom: 24 }} /> : null}
-		<Form
+		{formConfig?.sections?.length ? formConfig.sections.map((section) => (
+			<SectionForm key={section.key} section={section} initialValues={formConfig.initialValues} submitting={saving} onSubmit={submitSection} />
+		)) : <Form
 			form={form}
 			layout="vertical"
 			onFinish={onFinish}
@@ -304,7 +346,7 @@ export default function FormPage({ commonApi, apiPath, title, submitMethod = 'PU
 				setLiveValues(allValues);
 				for (const field of Object.keys(changedValues)) changedFields.current.add(field);
 				for (const [name, value] of Object.entries(changedValues)) {
-					const option = formConfig?.fields.find((field) => field.name === name)?.options?.find((item) => item.value === String(value));
+					const option = formConfig?.fields?.find((field) => field.name === name)?.options?.find((item) => item.value === String(value));
 					if (option?.fieldValues) {
 						form.setFieldsValue(option.fieldValues);
 						setLiveValues((previous) => ({ ...previous, ...option.fieldValues }));
@@ -317,7 +359,7 @@ export default function FormPage({ commonApi, apiPath, title, submitMethod = 'PU
 			{[...(formConfig?.fields ?? []), ...controlFields].filter((field) => !isSystemField(field.name)).map((field) => field.type === 'hidden' ? (
 				<Form.Item key={field.name} name={field.name} hidden><Input /></Form.Item>
 			) : (() => {
-				const sourceOptions = field.readOnlyWhen ? formConfig?.fields.find((candidate) => candidate.name === field.readOnlyWhen?.field)?.options as FieldLinkOption[] | undefined : undefined;
+				const sourceOptions = field.readOnlyWhen ? formConfig?.fields?.find((candidate) => candidate.name === field.readOnlyWhen?.field)?.options as FieldLinkOption[] | undefined : undefined;
 				const readOnly = isFieldReadOnly(field.readOnlyWhen, field.readOnlyWhen ? liveValues[field.readOnlyWhen.field] : undefined, sourceOptions);
 				return (
 				<Form.Item
@@ -371,7 +413,7 @@ export default function FormPage({ commonApi, apiPath, title, submitMethod = 'PU
 				{!formConfig?.passportLogin?.enabled && formConfig?.submitLabel ? <Button type="primary" htmlType="submit" loading={saving}>{formConfig.submitLabel}</Button> : null}
 				{formConfig?.submitHint ? <Typography.Text type="secondary">{formConfig.submitHint}</Typography.Text> : null}
 			</Space>
-		</Form>
+		</Form>}
 		{formConfig?.externalLogins?.length ? <>
 			<Divider plain style={{ marginTop: 8, color: '#8c8c8c' }}>或使用以下方式登录</Divider>
 			<Space size={28} wrap style={{ width: '100%', justifyContent: 'center' }}>

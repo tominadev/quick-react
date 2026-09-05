@@ -24,7 +24,29 @@ export type FormPageField = {
  */
 export type FormPageExternalLogin = { key: string; label: string; recommended?: boolean; hint?: string };
 
+/**
+ * 一段独立的表单：自己的字段、自己的提交按钮。
+ *
+ * 用在「同一件事有两条互斥的路」的页面上——首次用 Accounts 登录本站时，要么用带过来的
+ * 用户名建个新账号，要么把这个身份绑到已有账号上。两条路各要各的字段（绑定还要密码），
+ * 也各要各的按钮，塞进一个表单会让「必填」互相牵连：填了建号那半，绑定那半的密码也会被要求。
+ *
+ * 提交时只发本段的字段，外加 `_section` 标明走的是哪条路。
+ */
+export type FormPageSection = {
+	key: string;
+	/** 段前分隔线上的文字；第一段通常不需要。 */
+	divider?: string;
+	description?: string;
+	fields: FormPageField[];
+	submitLabel: string;
+};
+
+export const SECTION_FIELD = '_section';
+
 export type FormPageConfig = {
+	/** 分段表单；给出这个就不渲染 fields/submitLabel 那套单表单。 */
+	sections?: FormPageSection[];
 	/** 这个页面要不要收集「变更说明」；由服务端按请求路径注入，登录与注册页不需要。 */
 	changeControl?: boolean;
 	/** 当前用户能不能跳过审批；由服务端在 apiResponse 里统一注入，见 TableOption.canSkipApproval。 */
@@ -40,7 +62,7 @@ export type FormPageConfig = {
 	confirmOnUnchangedSubmit?: string;
 	submitHint?: string;
 	initialValues: Record<string, unknown>;
-	fields: FormPageField[];
+	fields?: FormPageField[];
 };
 
 export type FormPageResponse<T = Record<string, unknown>> = {

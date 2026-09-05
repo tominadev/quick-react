@@ -21,6 +21,9 @@ export const buildAnonymousAuthState = async (c: Context<AppEnv>): Promise<AuthS
 	// 公共 /sign 页面已取消；只保留注册页（初始管理员或开放注册）和身份提供方内部认证页。
 	const signPages: AuthPage[] = [
 		...(c.get('accountsIdentity') ? [{ path: `/accounts/sign${siteConfig.pageSuffix}`, title: 'Accounts 身份认证', description: '验证 Accounts 身份并继续 OIDC 授权', mode: 'sign' as const, apiPath: `/api/accounts/sign${siteConfig.apiSuffix}`, submitMethod: 'POST' as const, redirectPath: `/panel/accounts${siteConfig.pageSuffix}` }] : []),
+		// 首次用 Accounts 身份登录本站的落地页：选「新建账号」还是「绑定到已有账号」。
+		// 始终注册——它是匿名页面，进去了没有待决请求会自己回 410 提示重新登录。
+		...(c.get('accountsIdentity') || c.get('accountsLoginMode') !== 'local' ? [{ path: `/accounts/oidc/bind${siteConfig.pageSuffix}`, title: '选择本站账号', description: '首次用 Accounts 身份登录本站', mode: 'sign' as const, apiPath: `/api/accounts/oidc/bind${siteConfig.apiSuffix}`, submitMethod: 'POST' as const, redirectPath: '/' }] : []),
 		...(signUp ? [{ path: `/sign-up${siteConfig.pageSuffix}`, title: '注册', description: '创建初始管理员', mode: 'sign-up' as const, apiPath: `/api/sign${siteConfig.apiSuffix}`, submitMethod: 'PUT' as const, redirectPath: `/` }] : []),
 	];
 	return {
