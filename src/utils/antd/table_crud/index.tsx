@@ -9,7 +9,7 @@ import type { TableAction, TableQueryField } from '@shared/types/table.mjs';
 import { CHANGE_CONTROL_FIELD, changeControlHeaders, resolveTableFormColumns } from '@shared/table-form.mjs';
 
 import { useRef, useState, useEffect, useMemo } from 'react';
-import { Table, Avatar, Button, Flex, Input, Space, Tag, Select, Progress, Typography, Modal } from 'antd';
+import { Table, Avatar, Button, Flex, Input, Space, Tag, Select, Progress, Typography, Modal, theme } from 'antd';
 import FormPage from '@/components/panel/FormPage.js';
 import { useNavigate } from 'react-router-dom';
 import { PlusOutlined, DeleteOutlined, SearchOutlined, UploadOutlined, DownloadOutlined } from '@ant-design/icons';
@@ -17,6 +17,7 @@ import { useDrawer } from '@/utils/common/drawer.js';
 import dayjs from 'dayjs';
 import { mergeQueryValues, mergeSort, queryUrlValues, readTableUrlState, sortOrderFor, writeTableUrlState } from './url-state.js';
 import { describeFormChanges } from '@/components/panel/form-changes.js';
+import { PENDING_FIELD } from '@shared/types/table.mjs';
 
 // 定义TableCRUD的传参
 type TableCrudType = {
@@ -124,6 +125,7 @@ const TableCRUD = ({ commonApi, resourcePath, initialResponse, initialQueryValue
 	const [exactTotal, setExactTotal] = useState(true);
 	const [filters, setFilters] = useState<Record<string, FilterValue | null>>({});
 	const [dataSource, setDataSource] = useState<DataType[]>([]);
+	const { token } = theme.useToken();
 	const [tableColumns, setTableColumns] = useState<TableColumnsType<DataType>>();
 	const [resJsonColumns, setResJsonColumns] = useState<ResJsonTableColumn[]>([]);
 	const [resJsonTableOption, setResJsonTableOption] = useState<ResJsonTableOption>({ rowKey: 'key' });
@@ -898,6 +900,13 @@ const TableCRUD = ({ commonApi, resourcePath, initialResponse, initialQueryValue
 			loading={loading}
 			rowKey={resJsonTableOption?.rowKey}
 			scroll={{ x: 'max-content' }}
+			// 有修改在等审批的行换个底色，不为它单开一列：一整列只为极少数几行显示一个标签，
+			// 其余每一行都空着，而横向空间是表格里最紧的资源。底色一眼看得出，一格不占。
+			// 用主题令牌而不是写死的浅黄：这一页跟着亮色/暗色主题走，写死的颜色在暗色下
+			// 会把文字压得读不出来。
+			onRow={(record) => (record[PENDING_FIELD] === '1'
+				? { style: { background: token.colorWarningBg }, title: '这一行有修改正在等待审批，尚未生效' }
+				: {})}
 		/>
 	</Flex>);
 };

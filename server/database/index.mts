@@ -26,6 +26,13 @@ export type DatabaseAdapter = {
 	dialect?: 'sqlite' | 'mysql' | 'postgresql';
 	/** Request-scoped default visibility for soft-deleted records. */
 	deletedScope?: 'active' | 'deleted' | 'all';
+	/**
+	 * Request-scoped default visibility for rows still awaiting approval.
+	 *
+	 * 与 deletedScope 分开：它们回答的是两个问题（删了没有 / 批了没有）。管理后台的
+	 * 表格页把它设成 'all'——待审批的新行要出现在列表里，管理员才能在那里直接撤销或批准。
+	 */
+	pendedScope?: 'active' | 'all';
 	/** Request-scoped audit actor used by the SQL builder. */
 	actorUid?: DatabaseActorUid;
 	/** Optional table-aware actor, needed when Base and Passport share a DB. */
@@ -64,6 +71,15 @@ export const withDatabaseDeletedScope = (database: DatabaseAdapter, deletedScope
 	const scoped: DatabaseAdapter = { ...database, deletedScope };
 	if (database.transaction) {
 		scoped.transaction = (callback) => database.transaction!((transactionDatabase) => callback(withDatabaseDeletedScope(transactionDatabase, deletedScope)));
+	}
+	return scoped;
+};
+
+/** Bind an approval-queue visibility scope to the request-scoped adapter. */
+export const withDatabasePendedScope = (database: DatabaseAdapter, pendedScope: NonNullable<DatabaseAdapter['pendedScope']>): DatabaseAdapter => {
+	const scoped: DatabaseAdapter = { ...database, pendedScope };
+	if (database.transaction) {
+		scoped.transaction = (callback) => database.transaction!((transactionDatabase) => callback(withDatabasePendedScope(transactionDatabase, pendedScope)));
 	}
 	return scoped;
 };
@@ -130,7 +146,7 @@ export const withDatabaseActors = (database: DatabaseAdapter, actors: DatabaseAc
 		bound.transaction = (callback) =>
 			database.transaction!((transactionDatabase) => {
 			const scopedTransaction = withDatabaseActors(transactionDatabase, actors);
-			return callback(database.deletedScope ? { ...scopedTransaction, deletedScope: database.deletedScope } : scopedTransaction);
+			return callback({ ...scopedTransaction, ...(database.deletedScope ? { deletedScope: database.deletedScope } : {}), ...(database.pendedScope ? { pendedScope: database.pendedScope } : {}) });
 		});
 	}
 	return bound;

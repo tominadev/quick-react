@@ -95,6 +95,15 @@ export type TableOption = {
  */
 export const ROW_KEY_FIELD = '_row_key';
 
+/**
+ * 这一行有没有修改在等审批。`'1'` 是有，空串是没有。
+ *
+ * 是**数据不是列**：表格不为它开一列（一整列只为极少数几行显示标签，其余全空），
+ * 前端拿它给那几行换底色，服务端的 `visibleWhen` 也拿它决定撤回/批准两个动作显不显示。
+ * 因此它必须两边共用一个名字，写在这里。
+ */
+export const PENDING_FIELD = '_pending';
+
 export type TableSelectOption = {
 	value: string;
 	text: string;

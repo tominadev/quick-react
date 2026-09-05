@@ -220,6 +220,41 @@ const recordInsert = async (
 	return 1;
 };
 
+/**
+ * 把新建那条记录的 `row_id` 补上。
+ *
+ * 记录是在**行写进去之前**落的（§6.2 先记录后应用），那一刻自增主键还不存在，所以
+ * `row_id` 先记 0、定位一律靠 `row_key`。行写成之后 id 就有了，补上它——否则审计页面的
+ * 「记录」那一列对每一条新建都显示 0，看着像缺数据，也没法和数据管理里的 id 对上。
+ *
+ * **补上了也不拿它当定位依据**：`rowCondition` 仍然是 key 优先，因为 row_id 跨库搬迁会变。
+ *
+ * 不用驱动返回的 lastRowId:四种方言里 SQLite 和 MySQL 给得出，PostgreSQL 的适配器不返回
+ * （它要 RETURNING，而适配器没做）。审计里出现「有的表有、有的表没有」比多一次按 key 的
+ * 索引查询糟糕得多。
+ */
+const backfillInsertRowId = async (
+	database: DatabaseAdapter,
+	builder: ReturnType<typeof sql>,
+	metadata: SqlInsertAuditMetadata,
+	operationId: string,
+) => {
+	if (!metadata.rowKey) return;
+	// deleted/pended 都放开：待审批的新行 pended_at 非零，普通查询正好看不见它。
+	const row = await firstSql<{ id: string }>(database, builder.select({
+		table: metadata.table,
+		columns: { id: { column: 'id', cast: 'text' } },
+		where: [{ column: 'key', value: metadata.rowKey }],
+		deleted: 'all', pended: 'all', limit: 1,
+	}));
+	if (!row?.id) return;
+	await runSystemSql(database, builder.update(AUDIT_TABLE, { row_id: row.id }, [
+		{ column: 'operation_id', value: operationId },
+		{ column: 'table_name', value: metadata.table },
+		{ column: 'row_key', value: metadata.rowKey },
+	]));
+};
+
 const recordStatement = async (database: DatabaseAdapter, metadata: SqlAuditMetadata, operationId: string, reason: string, origin: RequestOrigin, scope: 'admin' | 'self', immediate: boolean) => {
 	// 归属与可见性条件都在生成语句时定死了：调用方可能用显式上下文覆盖适配器。
 	const builder = sql({ database, subjectRoles: null, ownerTid: metadata.owner.tid, ownerBid: metadata.owner.bid, ownerUid: metadata.owner.uid, actorUid: metadata.owner.actor });
@@ -330,6 +365,7 @@ export const runOperation = async (
 				// 照原样重建那条 INSERT，只多一个 pended_at——不重新走 insert()，那会再发一个 key，
 				// 而审批记录里记的是原来那一个。
 				await runSystemSql(database, builder.insertExisting(statement.insertAudit.table, { ...statement.insertAudit.values, pended_at: Date.now() }));
+				await backfillInsertRowId(database, builder, statement.insertAudit, operationId);
 			} catch (error) {
 				/**
 				 * 行没写成（多半是撞了唯一索引），把刚记下的那条申请撤掉。
@@ -355,6 +391,14 @@ export const runOperation = async (
 	}
 	const results: DatabaseRunResult[] = [];
 	for (const statement of statements) results.push(await runSystemSql(database, statement));
+	// 立即生效的新建（个人中心、注册引导这类 self 作用域）同样要补 row_id：
+	// 记录一样是先写的，那时也还没有主键。
+	if (operationId) {
+		for (const statement of inserts) {
+			const builder = sql({ database, subjectRoles: null, ownerTid: statement.insertAudit.owner.tid, ownerBid: statement.insertAudit.owner.bid, ownerUid: statement.insertAudit.owner.uid, actorUid: statement.insertAudit.owner.actor });
+			await backfillInsertRowId(database, builder, statement.insertAudit, operationId);
+		}
+	}
 	return results;
 };
 

@@ -138,7 +138,7 @@ const auditRouteFilter = async () => {
 		assert.ok(bob, '新建的账号应该在列表里');
 		assert.equal((await app.request(`${usersApi}/${bob.id}`, { method: 'PUT', headers: { ...headers, cookie }, body: JSON.stringify({ status: 'disabled', __changedFields: ['status'] }) })).status, 202);
 		const marked = await (await app.request(`${usersApi}?include=schema,data`, { headers: { ...headers, cookie } })).json();
-		assert.equal(marked.table.columns[0].dataIndex, '_pending', '标记列排在最前：这是看一行时最先要知道的事');
+		assert.equal(marked.table.columns.some((column) => column.dataIndex === '_pending'), false, '不开「审批」列：标记是数据不是列，前端拿它给那一行换底色');
 		assert.equal(marked.table.dataSource.find((row) => row.user_name === 'pendingbob')._pending, '1');
 		assert.deepEqual(
 			marked.table.option.actions.row.slice(-2).map((action) => action.key),
@@ -148,7 +148,7 @@ const auditRouteFilter = async () => {
 		assert.equal((await app.request(`${usersApi}/${bob.id}?action=approve-pending`, { method: 'POST', headers: { ...headers, cookie }, body: '{}' })).status, 200);
 		const applied = await (await app.request(`${usersApi}?include=schema,data`, { headers: { ...headers, cookie } })).json();
 		assert.equal(applied.table.dataSource.find((row) => row.user_name === 'pendingbob').status, 'disabled');
-		assert.equal(applied.table.columns[0].dataIndex !== '_pending', true, '没有待审批的行时不必占一列');
+		assert.equal(applied.table.dataSource.find((row) => row.user_name === 'pendingbob')._pending, '', '批完标记要清掉');
 
 		// ---- 新建也进审批队列 ----
 		// 行照写进库，但 pended_at 非零让它对所有正常查询不可见；批准把它归零，
@@ -196,9 +196,21 @@ const auditRouteFilter = async () => {
 		// 一次操作里的几行有先后：建起来从账号开始，拆掉反着来（先资料后账号）——
 		// 中间那一刻不能出现「凭证指向一个已经不存在的账号」。
 		assert.equal((await app.request(usersApi, { method: 'POST', headers: { ...headers, cookie }, body: JSON.stringify({ user_name: 'rejectme', password: 'reject-password-1', roles: [], status: 'enabled', profile_nickname: '要被驳回' }) })).status, 202);
-		// 正常列表看不到它：待审批的新行对业务查询不存在。数据管理是显式的例外，不能拿来证明这一条。
-		const pendingList = await (await app.request(`${usersApi}?include=data`, { headers: { ...headers, cookie } })).json();
-		assert.equal(pendingList.table.dataSource.some((row) => row.user_name === 'rejectme'), false, '待审批的新账号不该出现在用户管理里');
+		// 管理后台的列表**看得见**待审批的新行，并且带上「待审批」标记和撤回/批准两个动作——
+		// 看不见的话，提交的人以为没保存成功，审批的人也没地方点。
+		const pendingList = await (await app.request(`${usersApi}?include=schema,data`, { headers: { ...headers, cookie } })).json();
+		const queuedRow = pendingList.table.dataSource.find((row) => row.user_name === 'rejectme');
+		assert.ok(queuedRow, '待审批的新账号要出现在用户管理里');
+		assert.equal(queuedRow._pending, '1', '并且标成待审批');
+		// 不为它开一列：`_pending` 是数据不是列，前端拿它给那几行换底色。
+		assert.equal(pendingList.table.columns.some((column) => column.dataIndex === '_pending'), false, '不该多出一列');
+		const rowActions = pendingList.table.option.actions.row.map((action) => action.key);
+		assert.ok(rowActions.includes('withdraw-pending') && rowActions.includes('approve-pending'), '行上要有撤回和批准');
+		// 写操作之后前端只取 data，用缓存的表结构。那次响应照样要带上 _pending，
+		// 否则删一行之后得整页刷新才看得见「撤回申请」。
+		const dataOnly = await (await app.request(`${usersApi}?include=data`, { headers: { ...headers, cookie } })).json();
+		assert.equal('option' in dataOnly.table, false, '只请求数据时不该下发结构');
+		assert.equal(dataOnly.table.dataSource.find((row) => row.user_name === 'rejectme')?._pending, '1', '只取数据也要带标记');
 		const queuedInsert = await (await app.request('http://localhost/api/panel/admin/base/audit.php?include=data&review_status=pending', { headers: { ...headers, cookie } })).json();
 		assert.equal(queuedInsert.table.dataSource.length, 3, '建号写三行：账号、凭证、资料');
 		assert.equal(new Set(queuedInsert.table.dataSource.map((row) => row.operation_id)).size, 1, '三条共享一个操作号');

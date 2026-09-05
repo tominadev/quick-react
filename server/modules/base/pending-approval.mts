@@ -6,8 +6,7 @@ import { describeAuditChanges, parseAuditChanges, transitionAuditEntries } from 
 import { APPROVAL_SKIP_ROLES, readChangeReason } from './operation.mjs';
 import { assertNotSelfApproval } from './super-users.mjs';
 
-/** 标记列的字段名带下划线前缀，避免和业务列撞名。 */
-export const PENDING_FIELD = '_pending';
+export { PENDING_FIELD } from '@shared/types/table.mjs';
 export const WITHDRAW_ACTION = 'withdraw-pending';
 export const APPROVE_ACTION = 'approve-pending';
 export const REJECT_ACTION = 'reject-pending';

@@ -5,7 +5,7 @@ import type { ApiFeedback, ApiFeedbackOptions, ApiSuccessData } from '@shared/ty
 import { createDeviceKeyTransportCookie } from './device-fingerprint.mjs';
 import { isSecureRequest } from './request-origin.mjs';
 import { deletedScopeFromQuery, queryIncludes } from './query-options.mjs';
-import { APPROVAL_SKIP_ROLES } from './operation.mjs';
+import { APPROVAL_SKIP_ROLES, operationScope } from './operation.mjs';
 import { APPROVE_ACTION, PENDING_FIELD, WITHDRAW_ACTION, pendingRowIds } from './pending-approval.mjs';
 import { tableCrudDatabase } from './table-crud.mjs';
 export type { ApiFeedback, ApiFeedbackOptions, ApiSuccessData } from '@shared/types/api-response.mjs';
@@ -47,6 +47,14 @@ const withSortableColumns = (c: Context<AppEnv>, payload: Record<string, unknown
  * 提交后进了审批队列，列表上却什么都看不出来——显示的仍是旧值，用户以为没保存成功，
  * 于是再改一次，队列里堆出第二条。标记摆在行上，这条路就断了。
  *
+ * **不加「审批」列。** 一整列只为了让极少数几行显示一个标签，其余每一行都空着，
+ * 而横向空间是表格里最紧的资源。改成给那几行换个底色：一眼看得出，一格不占。
+ * `_pending` 仍然发到每一行上——行底色和 `visibleWhen` 都读它，那是数据不是列。
+ *
+ * **两个行操作在管理后台一律挂上，不管当下有没有待审批的行。** 它们由 `visibleWhen`
+ * 按行显隐，没有待审批时一个都不显示，不占任何位置；而挂在结构里意味着**删一行之后
+ * 只重取数据就能让按钮出现**——表结构前端是缓存的，按需下发的话，得整页刷新才看得见。
+ *
  * 「立即批准」与「立即生效」是同一件事的两个入口，共用同一道角色门；撤回不设门槛，
  * 它只是把申请收回去，数据一动不动。
  */
@@ -57,7 +65,9 @@ const withPendingApproval = async (c: Context<AppEnv>, payload: Record<string, u
 	const source = table as Record<string, unknown>;
 	const rows = source.dataSource;
 	const option = source.option;
-	if (!Array.isArray(rows) || !rows.length || !option || typeof option !== 'object') return payload;
+	// option 可能没有：翻页与写操作之后前端只请求 data，结构用缓存的那一份。
+	// 那种响应照样要带上 _pending，否则行底色和按钮的显隐都停在上一次的状态。
+	if (!Array.isArray(rows) || !rows.length) return payload;
 	const database = tableCrudDatabase(c, definition);
 	if (!database) return payload;
 	const tableName = typeof definition.table === 'function' ? await definition.table(c) : definition.table;
@@ -66,7 +76,10 @@ const withPendingApproval = async (c: Context<AppEnv>, payload: Record<string, u
 	const ids = rows.map((row) => String((row as Record<string, unknown>)[rowKey] ?? '')).filter(Boolean);
 	if (!ids.length) return payload;
 	const pending = await pendingRowIds(database, tableName, ids);
-	if (!pending.size) return payload;
+	const marked = rows.map((row) => ({ ...(row as Record<string, unknown>), [PENDING_FIELD]: pending.has(String((row as Record<string, unknown>)[rowKey] ?? '')) ? '1' : '' }));
+	// 只给要走审批的页面挂：问 operationScope，与「这一页看不看得见待审批的行」同一个答案。
+	const withActions = option && typeof option === 'object' && !Array.isArray(option) && operationScope(c) === 'admin';
+	if (!withActions) return { ...payload, table: { ...source, dataSource: marked } };
 	const optionSource = option as Record<string, unknown>;
 	const actions = optionSource.actions && typeof optionSource.actions === 'object' && !Array.isArray(optionSource.actions)
 		? optionSource.actions as Record<string, unknown>
@@ -77,9 +90,7 @@ const withPendingApproval = async (c: Context<AppEnv>, payload: Record<string, u
 		...payload,
 		table: {
 			...source,
-			// 标记列排在最前：一行有没有在等审批，是看这一行时最先要知道的事。
-			columns: [{ dataIndex: PENDING_FIELD, title: '审批', options: [{ value: '1', text: '待审批', color: 'orange' }] }, ...(Array.isArray(source.columns) ? source.columns : [])],
-			dataSource: rows.map((row) => ({ ...(row as Record<string, unknown>), [PENDING_FIELD]: pending.has(String((row as Record<string, unknown>)[rowKey] ?? '')) ? '1' : '' })),
+			dataSource: marked,
 			option: {
 				...optionSource,
 				actions: {

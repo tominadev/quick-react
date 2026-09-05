@@ -2,8 +2,9 @@ import type { Context, Next } from 'hono';
 import type { AppEnv } from './types.mjs';
 import { apiMessage } from './api-response.mjs';
 import { handleTableCrudAction, tableCrudDatabase, type TableCrudDefinition } from './table-crud.mjs';
-import { withDatabaseDeletedScope } from '@server/database/index.mjs';
+import { withDatabaseDeletedScope, withDatabasePendedScope } from '@server/database/index.mjs';
 import { deletedScopeFromQuery } from './query-options.mjs';
+import { operationScope } from './operation.mjs';
 
 export type ApiNext = () => Promise<Response>;
 
@@ -107,9 +108,27 @@ export const createApiGateway = (
 		if (tableCrudEntry) {
 			c.set('tableCrud', tableCrudEntry.module.tableCrud!);
 			const deletedScope = deletedScopeFromQuery(c);
-			if (deletedScope !== 'active') {
-				const database = tableCrudDatabase(c, tableCrudEntry.module.tableCrud!);
-				if (database) c.set(tableCrudEntry.module.tableCrud!.database ?? 'database', withDatabaseDeletedScope(database, deletedScope));
+			/**
+			 * **要走审批的页面**才看得见待审批的新行。
+			 *
+			 * 不然它们在列表里根本不存在——提交的人以为没保存成功，审批的人也没地方点
+			 * 「撤回申请」「立即批准」（那两个按钮由 withPendingApproval 按行挂上，
+			 * 行都不出现就无从谈起）。
+			 *
+			 * 判定直接问 operationScope，不另写一遍路径比较：「这一页要不要走审批」和
+			 * 「这一页看不看得见待审批的行」必须是同一个答案。各判各的迟早会漂移，那时候
+			 * 就会出现「进了队列、却在任何列表里都找不到」的行。前台的自助操作立即生效，
+			 * 本来就没有待审批的行，因此那边一个字都不用改。
+			 */
+			const pendedScope = operationScope(c) === 'admin' ? 'all' as const : 'active' as const;
+			if (deletedScope !== 'active' || pendedScope !== 'active') {
+				const key = tableCrudEntry.module.tableCrud!.database ?? 'database';
+				let database = tableCrudDatabase(c, tableCrudEntry.module.tableCrud!);
+				if (database) {
+					if (deletedScope !== 'active') database = withDatabaseDeletedScope(database, deletedScope);
+					if (pendedScope !== 'active') database = withDatabasePendedScope(database, pendedScope);
+					c.set(key, database);
+				}
 			}
 		}
 		const tableCrudIndex = tableCrudEntry ? loadedModules.findIndex(({ file }) => file === tableCrudEntry.file) : -1;

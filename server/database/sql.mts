@@ -4,7 +4,7 @@ import { nextSnowflake } from '@server/modules/base/snowflake.mjs';
 
 export type SqlDialect = 'sqlite' | 'mysql' | 'postgresql';
 export type SqlActorContext = DatabaseActorUid | DatabaseActorResolver;
-export type SqlContext = { database: DatabaseAdapter; actorUid?: DatabaseActorUid; actorUidForTable?: DatabaseActorResolver; ownerUid?: DatabaseActorUid; ownerUidForTable?: DatabaseActorResolver; ownerTid?: DatabaseActorUid; ownerTidForTable?: DatabaseActorResolver; ownerBid?: DatabaseActorUid; ownerBidForTable?: DatabaseActorResolver; subjectRoles?: readonly string[] | null; deletedScope?: DeletedScope };
+export type SqlContext = { database: DatabaseAdapter; actorUid?: DatabaseActorUid; actorUidForTable?: DatabaseActorResolver; ownerUid?: DatabaseActorUid; ownerUidForTable?: DatabaseActorResolver; ownerTid?: DatabaseActorUid; ownerTidForTable?: DatabaseActorResolver; ownerBid?: DatabaseActorUid; ownerBidForTable?: DatabaseActorResolver; subjectRoles?: readonly string[] | null; deletedScope?: DeletedScope; pendedScope?: PendedScope };
 /**
  * update 附带的变更留痕元信息，由 runSql 消费：读原行、比对、记录，然后才执行。
  * SqlBuilder 保持纯函数，多步副作用放不进去（见需求文档 §6.1）。业务代码不构造也不读取它。
@@ -156,7 +156,7 @@ export type SqlColumn = string | { column: string; cast?: 'text' };
 export type SqlSelectOptions = { table: string; alias?: string; distinct?: boolean; columns?: Record<string, SqlColumn>; sort?: SqlSortOption; includeAll?: boolean; sqliteRowIdAlias?: string; joins?: SqlJoin[]; where?: SqlCondition[]; orderBy?: Array<{ column: string; direction?: 'ASC' | 'DESC' }>; limit?: number; offset?: number; deleted?: DeletedScope; pended?: PendedScope };
 
 export abstract class SqlBuilder {
-	constructor(readonly dialect: SqlDialect, readonly actorContext: SqlActorContext = null, readonly defaultDeletedScope: DeletedScope = 'active', readonly ownerContext: SqlActorContext = null, readonly tenantContext: SqlActorContext = null, readonly branchContext: SqlActorContext = null, readonly subjectRoles: readonly string[] | null = null) {}
+	constructor(readonly dialect: SqlDialect, readonly actorContext: SqlActorContext = null, readonly defaultDeletedScope: DeletedScope = 'active', readonly ownerContext: SqlActorContext = null, readonly tenantContext: SqlActorContext = null, readonly branchContext: SqlActorContext = null, readonly subjectRoles: readonly string[] | null = null, readonly defaultPendedScope: PendedScope = 'active') {}
 
 	/**
 	 * 行级可见性判定。返回要追加到 WHERE 的条件，空数组表示不限制。
@@ -230,7 +230,7 @@ export abstract class SqlBuilder {
 		const columns = selectedColumns.join(', ');
 		let query = `SELECT${options.distinct ? ' DISTINCT' : ''} ${columns} FROM ${quoteIdentifier(options.table, this.dialect)}${options.alias ? ` AS ${quoteIdentifier(options.alias, this.dialect)}` : ''}`;
 		const deletedScope = options.deleted ?? this.defaultDeletedScope;
-		const pendedScope = options.pended ?? 'active';
+		const pendedScope = options.pended ?? this.defaultPendedScope;
 		// 关联表的删除状态写进 ON，不写进 WHERE。写进 WHERE 会让 LEFT JOIN 退化成 INNER JOIN：
 		// 没有匹配行时关联表的 deleted_at 是 NULL，而 NULL = 0 求值为 unknown，整行被过滤掉——
 		// 没有资料或没有凭证的账号会从列表里凭空消失。放进 ON 对 INNER JOIN 等价。
@@ -270,7 +270,7 @@ export abstract class SqlBuilder {
 		return { query, values: [...boundConditions.map((condition) => condition.value as SqlValue), ...(options.limit !== undefined ? [options.limit, ...(options.offset !== undefined ? [options.offset] : [])] : [])] };
 	}
 
-	count(table: string, where: SqlCondition[] = [], deleted: DeletedScope = 'active', pended: PendedScope = 'active'): SqlQuery {
+	count(table: string, where: SqlCondition[] = [], deleted: DeletedScope = 'active', pended: PendedScope = this.defaultPendedScope): SqlQuery {
 		let query = `SELECT COUNT(*) AS ${quoteIdentifier('count', this.dialect)} FROM ${quoteIdentifier(table, this.dialect)}`;
 		let parameterIndex = 0;
 		const conditions: SqlCondition[] = [
@@ -489,9 +489,9 @@ export abstract class SqlBuilder {
 	castText(expression: string) { const quoted = quoteIdentifier(expression, this.dialect); return this.dialect === 'mysql' ? `CAST(${quoted} AS CHAR)` : `CAST(${quoted} AS TEXT)`; }
 }
 
-export class SqliteSqlBuilder extends SqlBuilder { constructor(actorContext: SqlActorContext = null, deletedScope: DeletedScope = 'active', ownerContext: SqlActorContext = null, tenantContext: SqlActorContext = null, branchContext: SqlActorContext = null, subjectRoles: readonly string[] | null = null) { super('sqlite', actorContext, deletedScope, ownerContext, tenantContext, branchContext, subjectRoles); } protected placeholder() { return '?'; } }
-export class MysqlSqlBuilder extends SqlBuilder { constructor(actorContext: SqlActorContext = null, deletedScope: DeletedScope = 'active', ownerContext: SqlActorContext = null, tenantContext: SqlActorContext = null, branchContext: SqlActorContext = null, subjectRoles: readonly string[] | null = null) { super('mysql', actorContext, deletedScope, ownerContext, tenantContext, branchContext, subjectRoles); } protected placeholder() { return '?'; } }
-export class PostgresqlSqlBuilder extends SqlBuilder { constructor(actorContext: SqlActorContext = null, deletedScope: DeletedScope = 'active', ownerContext: SqlActorContext = null, tenantContext: SqlActorContext = null, branchContext: SqlActorContext = null, subjectRoles: readonly string[] | null = null) { super('postgresql', actorContext, deletedScope, ownerContext, tenantContext, branchContext, subjectRoles); } protected placeholder(index: number) { return `$${index}`; } }
+export class SqliteSqlBuilder extends SqlBuilder { constructor(actorContext: SqlActorContext = null, deletedScope: DeletedScope = 'active', ownerContext: SqlActorContext = null, tenantContext: SqlActorContext = null, branchContext: SqlActorContext = null, subjectRoles: readonly string[] | null = null, pendedScope: PendedScope = 'active') { super('sqlite', actorContext, deletedScope, ownerContext, tenantContext, branchContext, subjectRoles, pendedScope); } protected placeholder() { return '?'; } }
+export class MysqlSqlBuilder extends SqlBuilder { constructor(actorContext: SqlActorContext = null, deletedScope: DeletedScope = 'active', ownerContext: SqlActorContext = null, tenantContext: SqlActorContext = null, branchContext: SqlActorContext = null, subjectRoles: readonly string[] | null = null, pendedScope: PendedScope = 'active') { super('mysql', actorContext, deletedScope, ownerContext, tenantContext, branchContext, subjectRoles, pendedScope); } protected placeholder() { return '?'; } }
+export class PostgresqlSqlBuilder extends SqlBuilder { constructor(actorContext: SqlActorContext = null, deletedScope: DeletedScope = 'active', ownerContext: SqlActorContext = null, tenantContext: SqlActorContext = null, branchContext: SqlActorContext = null, subjectRoles: readonly string[] | null = null, pendedScope: PendedScope = 'active') { super('postgresql', actorContext, deletedScope, ownerContext, tenantContext, branchContext, subjectRoles, pendedScope); } protected placeholder(index: number) { return `$${index}`; } }
 
 export const sql = (context: SqlContext) => {
 	const dialect = dialectOf(context.database);
@@ -505,7 +505,8 @@ export const sql = (context: SqlContext) => {
 		?? (Object.prototype.hasOwnProperty.call(context, 'ownerBid') ? context.ownerBid ?? null : context.database.ownerBidForTable ?? context.database.ownerBid ?? null);
 	const subjectRoles = Object.prototype.hasOwnProperty.call(context, 'subjectRoles') ? context.subjectRoles ?? null : context.database.subjectRoles ?? null;
 	const deletedScope = context.deletedScope ?? context.database.deletedScope ?? 'active';
-	return dialect === 'mysql' ? new MysqlSqlBuilder(actorContext, deletedScope, ownerContext, tenantContext, branchContext, subjectRoles) : dialect === 'postgresql' ? new PostgresqlSqlBuilder(actorContext, deletedScope, ownerContext, tenantContext, branchContext, subjectRoles) : new SqliteSqlBuilder(actorContext, deletedScope, ownerContext, tenantContext, branchContext, subjectRoles);
+	const pendedScope = context.pendedScope ?? context.database.pendedScope ?? 'active';
+	return dialect === 'mysql' ? new MysqlSqlBuilder(actorContext, deletedScope, ownerContext, tenantContext, branchContext, subjectRoles, pendedScope) : dialect === 'postgresql' ? new PostgresqlSqlBuilder(actorContext, deletedScope, ownerContext, tenantContext, branchContext, subjectRoles, pendedScope) : new SqliteSqlBuilder(actorContext, deletedScope, ownerContext, tenantContext, branchContext, subjectRoles, pendedScope);
 };
 /**
  * 记录变更后再执行。无事务可用，因此**顺序是强制的：先记录，后应用**——
