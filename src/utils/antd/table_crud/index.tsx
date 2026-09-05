@@ -439,7 +439,12 @@ const TableCRUD = ({ commonApi, resourcePath, initialResponse, initialQueryValue
 
 	}
 
+	const resetInitialized = useRef(false);
 	useEffect(() => {
+		// 首次挂载时什么都不重置：各项状态刚刚从地址栏读出来，这里一重置就全没了，
+		// 连地址栏本身也会被清空——「刷新后页码和筛选回到默认」就是这么来的。
+		// 这个 effect 只负责「换了一张表」的清场，那必然发生在挂载之后。
+		if (!resetInitialized.current) { resetInitialized.current = true; return; }
 		pendingResetKey.current = resetKey;
 		setDataSource([]);
 		setTableColumns(undefined);
