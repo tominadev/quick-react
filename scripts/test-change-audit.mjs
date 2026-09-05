@@ -6,6 +6,52 @@ import { tmpdir } from 'node:os';
 import { pathToFileURL } from 'node:url';
 
 const projectDirectory = resolve(import.meta.dirname, '..');
+
+/**
+ * 状态筛选走真实 HTTP，而不是只对源码做正则匹配。
+ *
+ * 地址栏 `?q.status=all` 会被前端去掉 `q.` 前缀发成 `status=all`，因此这里请求的
+ * 参数名就是 `status`。参数缺失要回落到默认值「待审批」——否则下拉框显示待审批、
+ * 列表却是全部。
+ */
+const auditRouteFilter = async () => {
+	const directory = await mkdtemp(join(tmpdir(), 'quick-react-audit-route-'));
+	const previousFile = process.env.DEFAULT_DATABASE_FILE;
+	process.env.DEFAULT_DATABASE_FILE = join(directory, 'default.sqlite');
+	process.env.SKIP_SERVER_LISTEN = '1';
+	try {
+		const { app, runMaintenanceAction } = await import(`../dist/server.mjs?audit-route=${Date.now()}`);
+		await runMaintenanceAction('restore-admin', { user_name: 'auditadmin', password: 'audit-password-1' });
+		const { DatabaseSync } = await import('node:sqlite');
+		const seed = new DatabaseSync(process.env.DEFAULT_DATABASE_FILE);
+		const at = Date.now();
+		for (const [id, status] of [['1', 'pending'], ['2', 'applied'], ['3', 'rejected'], ['4', 'pending']]) {
+			seed.prepare('INSERT INTO base_audit_entries (created_at,updated_at,operation_id,reason,table_name,row_id,action,changes,status) VALUES (?,?,?,?,?,?,?,?,?)')
+				.run(at, at, id, `理由${id}`, 'base_users', id, 'update', '{}', status);
+		}
+		seed.close();
+		const headers = {
+			'content-type': 'application/json',
+			'x-device-key': '00000000-0000-4000-8000-000000000001',
+			'x-device-fingerprint': JSON.stringify({ canvas_cyrb53: 'a', audio_cyrb53: 'b' }),
+		};
+		const login = await app.request('http://localhost/api/sign.php', { method: 'POST', headers, body: JSON.stringify({ user_name: 'auditadmin', password: 'audit-password-1' }) });
+		const cookie = login.headers.get('set-cookie')?.split(';')[0];
+		const statuses = async (query) => {
+			const response = await app.request(`http://localhost/api/panel/admin/base/audit.php?include=schema,data${query}`, { headers: { ...headers, cookie } });
+			return (await response.json()).table.dataSource.map((row) => row.status).sort();
+		};
+		assert.deepEqual(await statuses(''), ['pending', 'pending'], '参数缺失回落到默认的待审批');
+		assert.deepEqual(await statuses('&status=pending'), ['pending', 'pending']);
+		assert.deepEqual(await statuses('&status=applied'), ['applied']);
+		// 这就是 /panel/admin/base/audit.html?q.status=all 实际发出的请求。
+		assert.deepEqual(await statuses('&status=all'), ['applied', 'pending', 'pending', 'rejected'], 'status=all 要返回全部');
+	} finally {
+		if (previousFile === undefined) delete process.env.DEFAULT_DATABASE_FILE;
+		else process.env.DEFAULT_DATABASE_FILE = previousFile;
+		await rm(directory, { recursive: true, force: true });
+	}
+};
 const temporaryDirectory = await mkdtemp(join(tmpdir(), 'quick-react-change-audit-'));
 try {
 	const result = await build({
@@ -389,16 +435,11 @@ try {
 	const byReason = await listAuditEntries(acting, [], '批量调整');
 	assert.ok(byReason.length && byReason.every((entry) => entry.reason.includes('批量调整')), '按原因模糊匹配');
 	assert.deepEqual(await listAuditEntries(acting, [], '这段文字不存在'), []);
-	// 首次进入时客户端还没带上查询默认值（它拿到 schema 之后才填，那一步刻意跳过重新
-	// 请求以避免首屏两次请求），因此「参数缺失用默认值、参数为空串才是全部」这条语义
-	// 必须由服务端认，否则下拉框显示「待审批」而列表是全部。
-	const auditRoute = await readFile(resolve(projectDirectory, 'server/routes/base/api/panel/admin/base/audit.mts'), 'utf8');
-	assert.match(auditRoute, /c\.req\.query\('status'\) \?\? DEFAULT_STATUS/, '状态过滤必须在参数缺失时回落到默认值');
-	assert.match(auditRoute, /DEFAULT_STATUS = 'pending'/);
 	// 「全部」用显式哨兵值：空串在 antd 的 Select 里等于「没有选中」，选完会显示成空白。
+	const auditRoute = await readFile(resolve(projectDirectory, 'server/routes/base/api/panel/admin/base/audit.mts'), 'utf8');
 	assert.match(auditRoute, /ALL_STATUS = 'all'/);
-	assert.match(auditRoute, /\{ value: ALL_STATUS, text: '全部' \}/);
 	assert.doesNotMatch(auditRoute, /\{ value: '', text: '全部' \}/);
+	await auditRouteFilter();
 
 	// ---- 保留期（§10）----
 	const total = (await entries()).length;
