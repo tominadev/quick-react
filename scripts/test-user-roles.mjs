@@ -93,7 +93,7 @@ try {
 
 	// 注册开关：默认关闭，初始管理员那把一次性闩用掉之后就不再放行；开启后允许注册普通用户。
 	assert.equal((await request('/api/sign.php', { method: 'PUT', body: { user_name: 'walkin', password: 'test-password-123' } })).status, 409, '默认不开放注册');
-	const sitePath = '/api/panel/admin/base/settings/site.php';
+	const sitePath = '/api/panel/admin/base/settings/site-backend.php';
 	const settings = (await (await request(sitePath, { cookie })).json()).currentValues;
 	assert.equal(settings.registrationEnabled, false, '开关默认关闭');
 	assert.equal((await request(sitePath, { method: 'PUT', cookie, body: { ...settings, registrationEnabled: true, __changedFields: ['registrationEnabled'] } })).status, 200);

@@ -29,7 +29,12 @@ const rawSiteNavigation = (): MenuNode[] => [
 					{ label: '系统设置', key: 'settings', icon: 'appstore', roles: ['platform_admin'], children: [
 						{ label: '技术栈伪装', key: 'tech-stack', icon: 'appstore', component: 'form', title: '技术栈伪装', description: '配置 HTTP 技术栈响应头伪装' },
 						{ label: '系统配置', key: 'system-config', icon: 'appstore', component: 'form', title: '系统配置', description: '配置 Quick React 服务运行参数' },
-						{ label: '站点设置', key: 'site', icon: 'appstore', component: 'form', title: '站点设置', description: '配置联系邮箱和退出登录入口' },
+						// 站点配置拆成三张表单，按「这个值管的是哪一层」分：渲染、前台的服务端策略、
+						// 管理后台自己。一张表单里既有页脚文案又有审计保留天数的话，改前者的人得先在
+						// 十几行里认出哪几行与自己无关。
+						{ label: '前台前端设置', key: 'site-frontend', icon: 'appstore', component: 'form', title: '前台前端设置', description: '配置访客在浏览器里看到的部分：联系方式、页脚、退出登录入口、页面启动模式' },
+						{ label: '前台后端设置', key: 'site-backend', icon: 'appstore', component: 'form', title: '前台后端设置', description: '配置前台站点的服务端策略：谁能注册、能用哪几种方式登录、账号规则' },
+						{ label: '后台设置', key: 'admin', icon: 'appstore', component: 'form', title: '后台设置', description: '配置管理后台自己的部分：侧栏形态、审批留痕的保留期' },
 						{ label: 'Accounts 登录', key: 'accounts-oidc', icon: 'appstore', component: 'form', title: 'Accounts OIDC 登录', description: '通过标准 OIDC 接入独立部署的 Accounts 账号中心' },
 					] },
 					{ label: '用户管理', key: 'users', icon: 'appstore', component: 'table', title: '用户管理', description: '管理系统用户、角色和状态' },

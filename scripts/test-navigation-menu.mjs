@@ -48,21 +48,21 @@ try {
 	const panelNavigation = [{ key: '/panel/admin', label: '管理后台', children: [
 		{ key: '/panel/admin/base', label: '基础管理', children: [
 			{ key: '/panel/admin/base/settings', label: '系统设置', children: [
-				{ key: '/panel/admin/base/settings/site', label: '站点设置' },
+				{ key: '/panel/admin/base/settings/site-frontend', label: '前台前端设置' },
 			] },
 			{ key: '/panel/admin/base/data', label: '数据管理', children: [
 				{ key: '/panel/admin/base/data/rows', label: '数据管理' },
 			] },
 		] },
 	] }];
-	assert.deepEqual(navigationBreadcrumb(panelNavigation, '/panel/admin/base/settings/site'), ['管理后台', '基础管理', '系统设置', '站点设置']);
+	assert.deepEqual(navigationBreadcrumb(panelNavigation, '/panel/admin/base/settings/site-frontend'), ['管理后台', '基础管理', '系统设置', '前台前端设置']);
 	// 分组与页面同名时只留一个：写两遍不给读的人任何新信息。
 	assert.deepEqual(navigationBreadcrumb(panelNavigation, '/panel/admin/base/data/rows'), ['管理后台', '基础管理', '数据管理']);
 	// 菜单里没有的页面没有路径可走，调用方据此回落到页面标题。
 	assert.deepEqual(navigationBreadcrumb(panelNavigation, '/panel/me'), []);
 	// 同一条路径同时供菜单展开用：末项是当前页，前面几项就是要展开的父级。
 	assert.deepEqual(
-		findNavigationTrail(panelNavigation, '/panel/admin/base/settings/site').slice(0, -1).map((item) => item.key),
+		findNavigationTrail(panelNavigation, '/panel/admin/base/settings/site-frontend').slice(0, -1).map((item) => item.key),
 		['/panel/admin', '/panel/admin/base', '/panel/admin/base/settings'],
 	);
 
@@ -71,7 +71,7 @@ try {
 	// 而那一下点开还什么都不做（有子菜单的项只展开不跳转）。渲染要浏览器环境才测得到，
 	// 这里守住生成菜单项的那段。
 	const layoutSource = await readFile(resolve(import.meta.dirname, '../src/components/panel/PanelLayout.tsx'), 'utf8');
-	assert.match(layoutSource, /if \(depth === 0 && children\?\.length\) \{/, '顶层要单独成组');
+	assert.match(layoutSource, /if \(depth === 0 && children\?\.length && !initialData\?\.adminMenuFoldable\) \{/, '顶层默认成组，打开开关才折叠');
 	assert.match(layoutSource, /type: 'group', key: item\.key, label: item\.label, children/, '顶层渲染成分组而不是可折叠子菜单');
 	assert.match(layoutSource, /index > 0 \? \[\{ type: 'divider' \}/, '组与组之间要有分隔线');
 

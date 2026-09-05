@@ -317,6 +317,7 @@ const renderDocument = async (c: Context<WorkerEnv>) => {
 			siteNavigation: apiBootstrap ? [] : menuItems,
 			...(apiBootstrap ? {} : { auth }),
 			footer: c.get('siteSettings').footer,
+			adminMenuFoldable: c.get('siteSettings').adminMenuFoldable,
 			pageStatus,
 		},
 	}), (pageStatus?.status ?? 200) as ContentfulStatusCode);

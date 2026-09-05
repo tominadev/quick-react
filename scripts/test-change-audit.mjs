@@ -73,7 +73,7 @@ const auditRouteFilter = async () => {
 
 		// 待审批的修改要在页面上看得见、也动得了：进了队列却什么都看不出来的话，
 		// 表单显示的仍是旧值，用户以为没保存成功，于是再改一次，队列里堆出第二条。
-		const settings = 'http://localhost/api/panel/admin/base/settings/site.php';
+		const settings = 'http://localhost/api/panel/admin/base/settings/site-frontend.php';
 		const put = (body) => app.request(settings, { method: 'PUT', headers: { ...headers, cookie }, body: JSON.stringify(body) });
 		// 第一次保存把 base_configs 那一行建出来。新增不留痕（§3.0），因此这一次不排队，
 		// 直接落库——后面那次才是真正的「改」，也才有前值可比。

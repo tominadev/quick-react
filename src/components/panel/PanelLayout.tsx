@@ -20,7 +20,7 @@ type MenuItem = Required<MenuProps>['items'][number];
 type InitialMenuItem = NavigationItem;
 
 const initialData = (window as Window & {
-	__INITIAL_DATA__?: { apiSuffix?: string; footer?: string };
+	__INITIAL_DATA__?: { apiSuffix?: string; footer?: string; adminMenuFoldable?: boolean };
 }).__INITIAL_DATA__;
 const apiSuffix = initialData?.apiSuffix ?? '';
 const pageSuffix = (window as Window & { __INITIAL_DATA__?: { pageSuffix?: string } }).__INITIAL_DATA__?.pageSuffix ?? '';
@@ -44,8 +44,11 @@ const toMenuItems = (menu: InitialMenuItem[], depth = 0): MenuItem[] => menu.fil
 	 * 折叠起来的话，每次进来只有当前模块是展开的，想看看别的模块有什么得先点开——
 	 * 而那一下点开还什么都不做（有子菜单的项只展开不跳转）。用分组标题加一条分隔线，
 	 * 整张侧栏一眼看全，也省掉了这一次无谓的点击。
+	 *
+	 * 站点接的模块多到侧栏装不下时，摊开反而找不着东西——那时在「后台后端设置」里打开
+	 * 「顶层菜单可折叠」，顶层就变回可折叠的子菜单。
 	 */
-	if (depth === 0 && children?.length) {
+	if (depth === 0 && children?.length && !initialData?.adminMenuFoldable) {
 		const group: MenuItem[] = [{ type: 'group', key: item.key, label: item.label, children }];
 		return index > 0 ? [{ type: 'divider' } as MenuItem, ...group] : group;
 	}

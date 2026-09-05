@@ -45,6 +45,8 @@ export type InitialData = {
 	siteName: string;
 	siteNavigation: NavigationItem[];
 	footer?: string;
+	/** 后台侧栏顶层是否可折叠；关着就是分组加分隔线，一眼看全。 */
+	adminMenuFoldable?: boolean;
 	auth?: AuthState;
 	pageStatus?: PageStatus;
 };

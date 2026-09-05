@@ -75,7 +75,7 @@ const deviceKey = '00000000-0000-4000-8000-000000000001';
 
 	// 「保留本站登录」开关：接入 Accounts 之后两条登录路径并存。
 	// 必须先开这个开关再启用 Accounts——启用那一刻本地会话立即失效，之后就进不来改它了。
-	const sitePath = '/api/panel/admin/base/settings/site.php';
+	const sitePath = '/api/panel/admin/base/settings/site-backend.php';
 	const siteSettings = (await (await request(sitePath, { headers: { cookie } })).json()).currentValues;
 	assert.equal(siteSettings.localLoginEnabled, false, '开关默认关闭');
 	assert.equal((await request(sitePath, { method: 'PUT', headers: { cookie }, body: { ...siteSettings, localLoginEnabled: true, __changedFields: ['localLoginEnabled'] } })).status, 200);

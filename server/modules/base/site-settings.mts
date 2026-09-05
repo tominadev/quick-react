@@ -1,12 +1,12 @@
 import type { ConfigStore } from './config-store.mjs';
 import { clampMinUserNameLength, defaultMinUserNameLength } from '@shared/account-name.mjs';
 
-export type SiteSettings = { contactEmail: string; footer: string; logoutLocalEnabled: boolean; logoutPassportEnabled: boolean; logoutAllEnabled: boolean; apiBootstrapEnabled: boolean; auditRetentionDays: number; registrationEnabled: boolean; localLoginEnabled: boolean; passwordSyncEnabled: boolean; userNameMinLength: number };
+export type SiteSettings = { contactEmail: string; footer: string; logoutLocalEnabled: boolean; logoutPassportEnabled: boolean; logoutAllEnabled: boolean; apiBootstrapEnabled: boolean; auditRetentionDays: number; registrationEnabled: boolean; localLoginEnabled: boolean; passwordSyncEnabled: boolean; userNameMinLength: number; adminMenuFoldable: boolean };
 
 /** 审计保留期上限十年：再长也没有取证价值，却会让表无限增长。0 表示不自动清理。 */
 export const maxAuditRetentionDays = 3650;
 export const defaultAuditRetentionDays = 365;
-export const defaultSiteSettings: SiteSettings = { contactEmail: '', footer: `Ant Design ©${new Date().getFullYear()} Created by Ant UED`, logoutLocalEnabled: false, logoutPassportEnabled: false, logoutAllEnabled: true, apiBootstrapEnabled: true, auditRetentionDays: 365, registrationEnabled: false, localLoginEnabled: false, passwordSyncEnabled: false, userNameMinLength: defaultMinUserNameLength };
+export const defaultSiteSettings: SiteSettings = { contactEmail: '', footer: `Ant Design ©${new Date().getFullYear()} Created by Ant UED`, logoutLocalEnabled: false, logoutPassportEnabled: false, logoutAllEnabled: true, apiBootstrapEnabled: true, auditRetentionDays: 365, registrationEnabled: false, localLoginEnabled: false, passwordSyncEnabled: false, userNameMinLength: defaultMinUserNameLength, adminMenuFoldable: false };
 export const normalizeSiteSettings = (value: unknown): SiteSettings => {
 	const source = value && typeof value === 'object' ? value as Record<string, unknown> : {};
 	return {
@@ -25,6 +25,8 @@ export const normalizeSiteSettings = (value: unknown): SiteSettings => {
 		passwordSyncEnabled: typeof source.passwordSyncEnabled === 'boolean' ? source.passwordSyncEnabled : false,
 		// 用户名下限可调，上限固定 16——放宽下限是主人的选择，放宽上限只会让界面难排版。
 		userNameMinLength: clampMinUserNameLength(source.userNameMinLength),
+		// 默认不折叠：顶层那几项是「在哪一块」，摊开来一眼看全。模块多到侧栏装不下时再打开。
+		adminMenuFoldable: typeof source.adminMenuFoldable === 'boolean' ? source.adminMenuFoldable : false,
 	};
 };
 export const loadSiteSettings = async (store: ConfigStore) => normalizeSiteSettings(await store.get('site_settings'));
