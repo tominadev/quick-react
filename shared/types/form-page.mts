@@ -70,6 +70,14 @@ export type FormPageConfig = {
 	defaultValues?: Record<string, unknown>;
 	externalLogins?: FormPageExternalLogin[];
 	confirmOnUnchangedSubmit?: string;
+	/**
+	 * 提交前把**改了哪几项、从什么变成什么**列出来让人确认。
+	 *
+	 * 设置类页面一屏十几个开关，改完隔一会儿再回来点保存，多半已经记不清动过哪些；
+	 * 而这些改动往往立刻影响整个站点的行为（关掉本站登录、改掉页脚、切换启动模式）。
+	 * 值为确认框的标题。
+	 */
+	confirmChangedSubmit?: string;
 	submitHint?: string;
 	initialValues: Record<string, unknown>;
 	fields?: FormPageField[];

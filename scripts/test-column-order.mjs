@@ -94,6 +94,8 @@ const settingsDirectory = resolve(projectDirectory, 'server/routes/base/api/pane
 for (const name of (await readdir(settingsDirectory)).filter((file) => file.endsWith('.mts'))) {
 	const source = await readFile(join(settingsDirectory, name), 'utf8');
 	assert.match(source, /confirmOnUnchangedSubmit/, `settings/${name} 缺少「当前未修改，仍要提交吗？」的提示`);
+	// 设置页的改动往往立刻影响整个站点的行为，保存前要把改了什么列出来让人确认。
+	assert.match(source, /confirmChangedSubmit/, `settings/${name} 缺少「保存前列出改动」的确认`);
 }
 
 console.log(`column order test passed（${tableRoutes.length - exempt.size} 张表）`);

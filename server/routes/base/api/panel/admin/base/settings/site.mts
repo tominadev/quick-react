@@ -8,6 +8,7 @@ import type { FormPageConfig } from '@shared/types/form-page.mjs';
 const formPage = {
 	description: '配置当前站点的联系信息、页脚、退出登录入口和页面启动模式。',
 	confirmOnUnchangedSubmit: '当前未修改，仍要提交吗？',
+	confirmChangedSubmit: '将保存以下修改，确认继续吗？',
 	submitLabel: '保存配置',
 	actions: [{ key: 'restore-defaults', label: '恢复默认', confirm: '确认恢复所有站点设置的默认值吗？恢复后需要点击“保存配置”才会生效。' }],
 	initialValues: defaultSiteSettings,

@@ -11,6 +11,7 @@ const createFormPage = (): FormPageConfig => {
 		submitLabel: '保存配置',
 		actions: [{ key: 'restore-defaults', label: '恢复默认', confirm: '确认恢复系统设置的默认值吗？恢复后需要点击“保存配置”才会生效。' }],
 		confirmOnUnchangedSubmit: '当前未修改，仍要提交吗？',
+	confirmChangedSubmit: '将保存以下修改，确认继续吗？',
 		submitHint: '部分配置需要重启服务后生效',
 		initialValues: defaults,
 		defaultValues: defaults,
