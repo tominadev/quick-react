@@ -1,7 +1,6 @@
-import type { ApiHandler } from '@server/modules/base/api-router.mjs';
-import { getDefaultSystemConfig, normalizeSystemConfig } from '@server/modules/base/system-config.mjs';
+import { getDefaultSystemConfig, loadSystemConfigFromStore, normalizeSystemConfig } from '@server/modules/base/system-config.mjs';
+import { settingsPageHandler } from '@server/modules/base/settings-page.mjs';
 import { mergeChangedFields } from '@server/modules/base/changed-fields.mjs';
-import { apiMessageData, apiResponse } from '@server/modules/base/api-response.mjs';
 import type { FormPageConfig } from '@shared/types/form-page.mjs';
 
 const createFormPage = (): FormPageConfig => {
@@ -26,18 +25,11 @@ const createFormPage = (): FormPageConfig => {
 	};
 };
 
-const handler: ApiHandler = async (c, next) => {
-	const store = c.get('configStore');
-	if (c.req.method === 'GET') return apiResponse(c, 200, { currentValues: c.get('systemConfig'), formPage: createFormPage() });
-	if (c.req.method === 'PUT') {
-		const body = await c.req.json<unknown>().catch(() => ({}));
-		const next = mergeChangedFields(c.get('systemConfig'), body, ['httpPort', 'domain', 'publicOrigin', 'trustedProxyIps', 'mapAllowedIps', 'debug']);
-		const config = normalizeSystemConfig(next);
-		await store.put('system-config', config);
-		c.set('systemConfig', config);
-		return apiMessageData(c, 200, '系统配置已保存，重启服务后生效', { currentValues: config }, { component: 'inline', showIcon: true, title: '保存结果' });
-	}
-	return next();
-};
-
-export default handler;
+export default settingsPageHandler({
+	key: 'system-config',
+	load: (c) => loadSystemConfigFromStore(c.get('configStore')),
+	formPage: () => createFormPage(),
+	parse: (c, body, current) => normalizeSystemConfig(mergeChangedFields(current, body, ['httpPort', 'domain', 'publicOrigin', 'trustedProxyIps', 'mapAllowedIps', 'debug'])),
+	apply: (c, config) => c.set('systemConfig', config),
+	saved: '系统配置已保存，重启服务后生效',
+});

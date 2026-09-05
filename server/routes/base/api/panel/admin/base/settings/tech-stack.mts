@@ -1,7 +1,6 @@
-import type { ApiHandler } from '@server/modules/base/api-router.mjs';
-import { getDefaultTechStackConfig, normalizeTechStackConfig } from '@server/modules/base/tech-stack.mjs';
+import { getDefaultTechStackConfig, loadTechStackConfigFromStore, normalizeTechStackConfig } from '@server/modules/base/tech-stack.mjs';
+import { settingsPageHandler } from '@server/modules/base/settings-page.mjs';
 import { mergeChangedFields } from '@server/modules/base/changed-fields.mjs';
-import { apiMessageData, apiResponse } from '@server/modules/base/api-response.mjs';
 import type { FormPageConfig } from '@shared/types/form-page.mjs';
 
 const createFormPage = (): FormPageConfig => {
@@ -24,18 +23,13 @@ const createFormPage = (): FormPageConfig => {
 	};
 };
 
-const handler: ApiHandler = async (c, next) => {
-	const store = c.get('configStore');
-	if (c.req.method === 'GET') return apiResponse(c, 200, { currentValues: c.get('techStackConfig'), formPage: createFormPage() });
-	if (c.req.method === 'PUT') {
-		const body = await c.req.json<unknown>().catch(() => ({}));
-		const next = mergeChangedFields(c.get('techStackConfig'), body, ['nginx', 'phpVersion', 'apiSuffix', 'pageSuffix']);
-		const config = normalizeTechStackConfig(next);
-		await store.put('tech-stack', config);
-		c.set('techStackConfig', config);
-		return apiMessageData(c, 200, '保存成功，页面将在 {redirectAfter} 秒后刷新', { currentValues: config }, { component: 'modal', type: 'info', title: '保存结果', refreshNowLabel: '立即刷新', cancelRefreshLabel: '取消', redirectAfter: 2 });
-	}
-	return next();
-};
-
-export default handler;
+export default settingsPageHandler({
+	key: 'tech-stack',
+	load: (c) => loadTechStackConfigFromStore(c.get('configStore')),
+	formPage: () => createFormPage(),
+	parse: (c, body, current) => normalizeTechStackConfig(mergeChangedFields(current, body, ['nginx', 'phpVersion', 'apiSuffix', 'pageSuffix'])),
+	apply: (c, config) => c.set('techStackConfig', config),
+	saved: '保存成功，页面将在 {redirectAfter} 秒后刷新',
+	// 改的是 API/页面路径后缀，当前页面的地址随之失效，只能整页重载。
+	savedFeedback: { component: 'modal', type: 'info', title: '保存结果', refreshNowLabel: '立即刷新', cancelRefreshLabel: '取消', redirectAfter: 2 },
+});

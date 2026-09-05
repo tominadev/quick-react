@@ -92,6 +92,21 @@ const auditRouteFilter = async () => {
 		assert.equal(withdrawn.currentValues.footer, '页脚乙', '撤回不改数据');
 		assert.equal(withdrawn.formPage.notice, undefined);
 
+		// 四个设置页共用同一个模板，别的页也得有同样的提示和动作：之前只有站点设置接了，
+		// 另外三页改了什么在等审批，页面上一点都看不出来。
+		const systemSettings = 'http://localhost/api/panel/admin/base/settings/system-config.php';
+		const putSystem = (domain) => app.request(systemSettings, { method: 'PUT', headers: { ...headers, cookie }, body: JSON.stringify({ domain, __changedFields: ['domain'] }) });
+		await putSystem('unified-jia.example');
+		assert.equal((await putSystem('unified-yi.example')).status, 202, '系统配置也要进审批队列');
+		const systemPage = await (await app.request(systemSettings, { headers: { ...headers, cookie } })).json();
+		assert.match(systemPage.formPage.notice.title, /有 1 项修改正在等待审批/, '系统配置页也要显示待审批提示');
+		assert.match(systemPage.formPage.notice.lines.join('\n'), /unified-jia\.example → unified-yi\.example/);
+		assert.deepEqual(systemPage.formPage.notice.actions.map((action) => action.key), ['withdraw-pending', 'approve-pending', 'reject-pending']);
+		assert.equal((await app.request(`${systemSettings}?action=approve-pending`, { method: 'POST', headers: { ...headers, cookie }, body: '{}' })).status, 200);
+		const systemApproved = await (await app.request(systemSettings, { headers: { ...headers, cookie } })).json();
+		assert.equal(systemApproved.currentValues.domain, 'unified-yi.example', '批准后系统配置也要立刻生效');
+		assert.equal(systemApproved.formPage.notice, undefined);
+
 		// TableCRUD 一律通用：有修改在等审批的行会被标出来，并挂上撤回与立即批准。
 		// 先清掉上面为测总数塞的假记录：它们的 table_name 也是 base_users、row_id 是 0..249，
 		// 会和新建账号的 id 撞上，让这一段测到的是那些假记录。

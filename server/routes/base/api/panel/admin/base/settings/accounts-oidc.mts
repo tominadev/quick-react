@@ -1,6 +1,7 @@
 import type { ApiHandler } from '@server/modules/base/api-router.mjs';
-import { apiMessage, apiMessageData, apiResponse } from '@server/modules/base/api-response.mjs';
-import { accountsOidcConfigKey, defaultAccountsOidcConfig, loadDiscovery, normalizeAccountsOidcConfig, oidcFetch } from '@server/modules/passport/accounts/client.mjs';
+import { apiMessage } from '@server/modules/base/api-response.mjs';
+import { settingsPageHandler } from '@server/modules/base/settings-page.mjs';
+import { accountsOidcConfigKey, defaultAccountsOidcConfig, loadDiscovery, normalizeAccountsOidcConfig, oidcFetch, type AccountsOidcClientConfig } from '@server/modules/passport/accounts/client.mjs';
 import type { FormPageConfig } from '@shared/types/form-page.mjs';
 import { allSql, sql } from '@server/database/sql.mjs';
 import { accountsIdentityApi } from '@server/modules/base/navigation.mjs';
@@ -20,6 +21,8 @@ const createFormPage = (issuerOptions: Array<{ value: string; text: string; fiel
 	],
 });
 
+type IssuerOption = { value: string; text: string; fieldValues?: Record<string, unknown> };
+
 const loadIssuerOptions = async (c: Parameters<ApiHandler>[0], currentIssuer: string) => {
 	const database = c.get('globalDatabase');
 	const accountsSite = await c.get('siteRouter').resolveByApi(accountsIdentityApi);
@@ -30,20 +33,45 @@ const loadIssuerOptions = async (c: Parameters<ApiHandler>[0], currentIssuer: st
 		where: [{ column: 'h.site_key', value: accountsSite.siteKey }, { column: 'h.status', value: 'enabled' }, { column: 's.status', value: 'enabled' }, { column: 's.migration_status', value: 'ready' }],
 		orderBy: [{ column: 'h.hostname' }],
 	})) : [];
-	const options: Array<{ value: string; text: string; fieldValues?: Record<string, unknown> }> = rows.filter((row) => !row.hostname.startsWith('*.')).map((row) => ({ value: `https://${row.hostname}`, text: `Passport (${row.hostname})`, fieldValues: { issuer: `https://${row.hostname}` } }));
+	const options: IssuerOption[] = rows.filter((row) => !row.hostname.startsWith('*.')).map((row) => ({ value: `https://${row.hostname}`, text: `Passport (${row.hostname})`, fieldValues: { issuer: `https://${row.hostname}` } }));
 	if (!options.length && !currentIssuer) options.push({ value: defaultIssuer, text: defaultIssuer, fieldValues: { issuer: defaultIssuer } });
 	options.push({ value: '__custom__', text: '自定义 Issuer' });
 	return options;
 };
 
-const handler: ApiHandler = async (c, next) => {
-	const store = c.get('configStore'), current = normalizeAccountsOidcConfig(await store.get(accountsOidcConfigKey));
-	if (c.req.method === 'GET') {
-		const issuerOptions = await loadIssuerOptions(c, current.issuer);
-		const issuerSource = issuerOptions.some((option) => option.value === current.issuer) ? current.issuer : '__custom__';
-		return apiResponse(c, 200, { currentValues: { ...current, issuerSource, clientSecret: '' }, formPage: { ...createFormPage(issuerOptions), initialValues: { ...current, issuerSource, clientSecret: '' } } });
-	}
-	if (c.req.method === 'POST' && c.req.query('action') === 'test') {
+/**
+ * Issuer 列表要查全局库，而一次请求里表单和回显值都要用它。按请求缓存，
+ * 别为同一份下拉选项查两遍。
+ */
+const issuerOptionsCache = new WeakMap<object, Promise<IssuerOption[]>>();
+const issuerOptions = (c: Parameters<ApiHandler>[0], currentIssuer: string) => {
+	let options = issuerOptionsCache.get(c);
+	if (!options) { options = loadIssuerOptions(c, currentIssuer); issuerOptionsCache.set(c, options); }
+	return options;
+};
+
+/** 选中的是列表里的某个 Passport 域名，还是「自定义」。 */
+const presentConfig = async (c: Parameters<ApiHandler>[0], config: AccountsOidcClientConfig) => {
+	const options = await issuerOptions(c, config.issuer);
+	// 客户端密钥不回显：它只在创建或重置 OIDC 客户端时显示一次。
+	return { ...config, issuerSource: options.some((option) => option.value === config.issuer) ? config.issuer : '__custom__', clientSecret: '' };
+};
+
+export default settingsPageHandler({
+	key: accountsOidcConfigKey,
+	load: async (c) => normalizeAccountsOidcConfig(await c.get('configStore').get(accountsOidcConfigKey)),
+	formPage: async (c, current) => ({ ...createFormPage(await issuerOptions(c, current.issuer)), initialValues: await presentConfig(c, current) }),
+	present: presentConfig,
+	parse: (c, body, current) => {
+		const restoringDefaults = body.restoreDefaults === true;
+		const config = normalizeAccountsOidcConfig(restoringDefaults ? { ...body, clientSecret: '' } : body, restoringDefaults ? defaultAccountsOidcConfig : current);
+		if (config.enabled && (!config.issuer || !config.clientId || !config.clientSecret)) return '启用 Accounts 登录前必须填写有效 Issuer、客户端 ID 和客户端密钥';
+		return config;
+	},
+	saved: 'Accounts OIDC 配置已保存',
+	// 「测试配置」只连一次 Accounts，不写任何东西，因此不走审批。
+	action: async (c, current) => {
+		if (c.req.method !== 'POST' || c.req.query('action') !== 'test') return undefined;
 		const body = await c.req.json<Record<string, unknown>>().catch(() => ({} as Record<string, unknown>));
 		const config = normalizeAccountsOidcConfig(body, current);
 		if (!config.issuer || !config.clientId || !config.clientSecret) return apiMessage(c, 400, '测试前必须填写 Issuer、客户端 ID 和客户端密钥');
@@ -57,15 +85,5 @@ const handler: ApiHandler = async (c, next) => {
 		} catch (error) {
 			return apiMessage(c, 502, error instanceof Error ? error.message : 'Accounts OIDC 配置测试失败');
 		}
-	}
-	if (c.req.method === 'PUT') {
-		const body = await c.req.json<Record<string, unknown>>().catch(() => ({} as Record<string, unknown>));
-		const restoringDefaults = body.restoreDefaults === true;
-		const config = normalizeAccountsOidcConfig(restoringDefaults ? { ...body, clientSecret: '' } : body, restoringDefaults ? defaultAccountsOidcConfig : current);
-		if (config.enabled && (!config.issuer || !config.clientId || !config.clientSecret)) return apiMessage(c, 400, '启用 Accounts 登录前必须填写有效 Issuer、客户端 ID 和客户端密钥');
-		await store.put(accountsOidcConfigKey, config);
-		return apiMessageData(c, 200, 'Accounts OIDC 配置已保存', { currentValues: { ...config, clientSecret: '' } });
-	}
-	return next();
-};
-export default handler;
+	},
+});

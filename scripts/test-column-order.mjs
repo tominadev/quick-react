@@ -96,6 +96,9 @@ for (const name of (await readdir(settingsDirectory)).filter((file) => file.ends
 	assert.match(source, /confirmOnUnchangedSubmit/, `settings/${name} 缺少「当前未修改，仍要提交吗？」的提示`);
 	// 设置页的改动往往立刻影响整个站点的行为，保存前要把改了什么列出来让人确认。
 	assert.match(source, /confirmChangedSubmit/, `settings/${name} 缺少「保存前列出改动」的确认`);
+	// 待审批提示、撤销申请、批准、驳回都由统一模板给出。自己写保存分支的页面会漏掉它们
+	// ——站点设置接了、另外三页没接，就是这么来的。
+	assert.match(source, /settingsPageHandler\(/, `settings/${name} 没有使用统一的设置页模板 settingsPageHandler`);
 }
 
 console.log(`column order test passed（${tableRoutes.length - exempt.size} 张表）`);

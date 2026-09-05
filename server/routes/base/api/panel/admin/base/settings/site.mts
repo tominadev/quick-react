@@ -1,9 +1,6 @@
-import type { ApiHandler } from '@server/modules/base/api-router.mjs';
-import { apiMessage, apiMessageData, apiResponse } from '@server/modules/base/api-response.mjs';
-import { configRowId, handlePendingApprovalAction, pendingApprovalNotice } from '@server/modules/base/pending-approval.mjs';
-import { PendingApprovalError } from '@server/modules/base/operation.mjs';
+import { settingsPageHandler } from '@server/modules/base/settings-page.mjs';
 import { mergeChangedFields } from '@server/modules/base/changed-fields.mjs';
-import { defaultSiteSettings, loadSiteSettings, normalizeSiteSettings, type SiteSettings } from '@server/modules/base/site-settings.mjs';
+import { defaultSiteSettings, loadSiteSettings, normalizeSiteSettings } from '@server/modules/base/site-settings.mjs';
 import { defaultMinUserNameLength, maxUserNameLength } from '@shared/account-name.mjs';
 import type { FormPageConfig } from '@shared/types/form-page.mjs';
 
@@ -32,39 +29,13 @@ const formPage = {
 	],
 } satisfies FormPageConfig;
 
-const CONFIG_KEY = 'site-settings';
+const fields = ['contactEmail', 'footer', 'logoutLocalEnabled', 'logoutPassportEnabled', 'logoutAllEnabled', 'apiBootstrapEnabled', 'userNameMinLength', 'auditRetentionDays', 'registrationEnabled', 'localLoginEnabled', 'passwordSyncEnabled'] as const;
 
-/** GET 与「撤回/批准/驳回」之后共用的页面数据。 */
-const pageData = async (c: Parameters<ApiHandler>[0], settings: SiteSettings) => {
-	const notice = await pendingApprovalNotice(c, 'base_configs', await configRowId(c, CONFIG_KEY));
-	return { currentValues: settings, formPage: notice ? { ...formPage, notice } : formPage };
-};
-
-const handler: ApiHandler = async (c, next) => {
-	const rowId = await configRowId(c, CONFIG_KEY);
-	// 撤回申请 / 批准 / 驳回：提交后进了审批队列，页面上得看得见、也动得了。
-	const handled = await handlePendingApprovalAction(c, 'base_configs', rowId);
-	if (handled) {
-		if (!handled.ok) return apiMessage(c, 409, handled.message);
-		// 回整页数据而不只是一句消息：批准之后值变了、提示块该消失了，只回消息的话
-		// 页面还停在原样，看起来像什么都没发生。批准是直接写表的，配置得重新读一次。
-		return apiMessageData(c, 200, handled.message, await pageData(c, await loadSiteSettings(c.get('configStore'))), { component: 'inline', showIcon: true, title: '审批结果' });
-	}
-	if (c.req.method === 'GET') return apiResponse(c, 200, await pageData(c, c.get('siteSettings')));
-	if (c.req.method === 'PUT') {
-		const body = await c.req.json<unknown>().catch(() => ({}));
-		const settings = normalizeSiteSettings(mergeChangedFields(c.get('siteSettings'), body, ['contactEmail', 'footer', 'logoutLocalEnabled', 'logoutPassportEnabled', 'logoutAllEnabled', 'apiBootstrapEnabled', 'userNameMinLength', 'auditRetentionDays', 'registrationEnabled', 'localLoginEnabled', 'passwordSyncEnabled']));
-		try {
-			await c.get('configStore').put(CONFIG_KEY, settings);
-		} catch (error) {
-			// 进了审批队列。就地接住而不是让它冒到全局处理器：那里只回一句话，页面上
-			// 既看不到刚提交的申请，也没法撤销，非得刷新一次才认。回整页数据就地更新。
-			if (!(error instanceof PendingApprovalError)) throw error;
-			return apiMessageData(c, 202, error.message, await pageData(c, c.get('siteSettings')), { component: 'inline', type: 'warning', showIcon: true, title: '已提交审批' });
-		}
-		c.set('siteSettings', settings);
-		return apiMessageData(c, 200, '站点设置已保存', await pageData(c, settings), { component: 'inline', showIcon: true, title: '保存结果' });
-	}
-	return next();
-};
-export default handler;
+export default settingsPageHandler({
+	key: 'site-settings',
+	load: (c) => loadSiteSettings(c.get('configStore')),
+	formPage: () => formPage,
+	parse: (c, body, current) => normalizeSiteSettings(mergeChangedFields(current, body, fields)),
+	apply: (c, settings) => c.set('siteSettings', settings),
+	saved: '站点设置已保存',
+});
