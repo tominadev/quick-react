@@ -6,7 +6,7 @@ import type { ChangeControlValues, DataType, ResJSON, ResJsonTable } from '@/uti
 import type { ResJsonTableOption } from '@/utils/common/api.js';
 import type { CommonApi, ResJsonTableColumn } from '@/utils/common/api.js';
 import type { TableAction, TableQueryField } from '@shared/types/table.mjs';
-import { CHANGE_CONTROL_FIELD, changeControlColumn, changeControlHeaders, resolveTableFormColumns } from '@shared/table-form.mjs';
+import { CHANGE_CONTROL_FIELD, changeControlHeaders, resolveTableFormColumns } from '@shared/table-form.mjs';
 
 import { useRef, useState, useEffect, useMemo } from 'react';
 import { Table, Avatar, Button, Flex, Input, Space, Tag, Select, Progress, Typography, Modal } from 'antd';
@@ -16,6 +16,7 @@ import { PlusOutlined, DeleteOutlined, SearchOutlined, UploadOutlined, DownloadO
 import { useDrawer } from '@/utils/common/drawer.js';
 import dayjs from 'dayjs';
 import { mergeQueryValues, mergeSort, readTableUrlState, sortOrderFor, writeTableUrlState } from './url-state.js';
+import { describeFormChanges } from '@/components/panel/form-changes.js';
 
 // 定义TableCRUD的传参
 type TableCrudType = {
@@ -173,13 +174,9 @@ const TableCRUD = ({ commonApi, resourcePath, initialResponse, initialQueryValue
 	 */
 	const canSkipApproval = () => Boolean(tableOptionRef.current.canSkipApproval);
 	/** 提交时把两个控制字段摘出去改走请求头：它们不是业务字段。 */
-	const controlHeaders = (values: Record<string, unknown>) => changeControlHeaders(values[CHANGE_CONTROL_FIELD], canSkipApproval());
 	/** 确认框收集到的控制信息转成请求头，与表单那条路径同一套语义。 */
-	const confirmHeaders = (control: ChangeControlValues) => changeControlHeaders(control, canSkipApproval());
-	const confirmChange = (lines: string[]) => commonApi.modalConfirmWithReason(lines, { allowImmediate: canSkipApproval() });
-	/** 登录、注册这类不留痕的页面不注入变更说明；服务端按路径决定。 */
-	const showChangeControl = () => Boolean(tableOptionRef.current.changeControl);
-	const controlColumns = () => showChangeControl() ? [changeControlColumn(canSkipApproval())] : [];
+	const confirmHeaders = (control: ChangeControlValues) => changeControlHeaders(control);
+	const confirmChange = (lines: string[]) => commonApi.modalConfirmWithReason(lines);
 	const withoutControls = (values: Record<string, unknown>) => {
 		const { [CHANGE_CONTROL_FIELD]: _control, ...rest } = values;
 		return rest;
@@ -239,16 +236,30 @@ const TableCRUD = ({ commonApi, resourcePath, initialResponse, initialQueryValue
 			console.error('加载编辑数据失败', ex);
 			return;
 		}
+		const editColumns = resolveTableFormColumns(cacheResJsonTable.current.columns, 'edit');
 		const drawerForm1 = drawer.drawerForm({
 			title: action.label,
-			// 编辑是最典型的人工修改，表单末尾追加一个原因输入框。新增不追加：新增不留痕（§3.2）。
-			columns: [...resolveTableFormColumns(cacheResJsonTable.current.columns, 'edit'), ...controlColumns()],
+			// 变更说明不再当成表单里的一列：它不是这条记录的字段，混在中间既容易被当成
+			// 要填的内容，也让「改了什么」的比对多出一项噪音。改到提交前的确认框里问。
+			columns: editColumns,
 			optionsPath: apiPath,
 		}, async (newRow) => {
 			if (!newRow) {
 				// 用户点了[取消]按钮
 				return;
 			}
+			// 先把改了什么摆出来再确认——编辑抽屉一屏十几个字段，改完点保存时人未必
+			// 还记得动过哪些，而这一步之后要么直接生效、要么进审批队列。
+			const changed = describeFormChanges(
+				editColumns.map((column) => ({ name: column.dataIndex, label: column.title, options: column.options })),
+				Object.keys(newRow),
+				row,
+				newRow,
+			);
+			const control = await confirmChange(changed.length
+				? ['将保存以下修改，确认继续吗？', ...changed]
+				: ['当前未修改，仍要提交吗？']);
+			if (control === undefined) return;
 			drawerForm1.setSubmitting‌(true);
 			try {
 				// 原因与「立即生效」从请求体里摘出去改走请求头：业务路由不该看见它们。
@@ -256,7 +267,7 @@ const TableCRUD = ({ commonApi, resourcePath, initialResponse, initialQueryValue
 					method: 'PUT', // 指定请求方法
 					headers: {
 						'Content-Type': 'application/json', // 指定请求头，表明是 JSON 数据
-						...controlHeaders(newRow),
+						...confirmHeaders(control),
 					},
 					body: JSON.stringify(withoutControls(newRow)), // 将数据转换为 JSON 字符串
 				});
@@ -593,15 +604,18 @@ const TableCRUD = ({ commonApi, resourcePath, initialResponse, initialQueryValue
 		}
 		const drawerForm = drawer.drawerForm({
 			title: action.label,
-			columns: [...action.form.columns, ...controlColumns()],
+			columns: action.form.columns,
 			optionsPath: `${apiPath}/${encodeURIComponent(rowId)}`,
 		}, async (values) => {
 			if (!values) return;
+			// 变更说明在确认框里问，不占表单里的一行。
+			const control = await confirmChange([action.confirm ?? `确认执行「${action.label}」吗？`]);
+			if (control === undefined) return;
 			drawerForm.setSubmitting‌(true);
 			try {
 				await commonApi.apiFetch(url, {
 					method: 'POST',
-					headers: { 'Content-Type': 'application/json', ...controlHeaders(values) },
+					headers: { 'Content-Type': 'application/json', ...confirmHeaders(control) },
 					body: JSON.stringify(withoutControls(values)),
 				});
 				drawer.drawerClose();
@@ -615,13 +629,16 @@ const TableCRUD = ({ commonApi, resourcePath, initialResponse, initialQueryValue
 
 	const onToolbarFormAction = (action: TableAction) => {
 		if (!action.form) return;
-		const drawerForm = drawer.drawerForm({ title: action.label, columns: [...action.form.columns, ...controlColumns()], optionsPath: apiPath }, async (values) => {
+		const drawerForm = drawer.drawerForm({ title: action.label, columns: action.form.columns, optionsPath: apiPath }, async (values) => {
 			if (!values) return;
+			// 变更说明在确认框里问，不占表单里的一行。
+			const control = await confirmChange([action.confirm ?? `确认执行「${action.label}」吗？`]);
+			if (control === undefined) return;
 			drawerForm.setSubmitting‌(true);
 			try {
 				await commonApi.apiFetch(`${apiPath}?action=${encodeURIComponent(action.key)}`, {
 					method: 'POST',
-					headers: { 'Content-Type': 'application/json', ...controlHeaders(values) },
+					headers: { 'Content-Type': 'application/json', ...confirmHeaders(control) },
 					body: JSON.stringify(withoutControls(values)),
 				});
 				drawer.drawerClose();
@@ -684,15 +701,18 @@ const TableCRUD = ({ commonApi, resourcePath, initialResponse, initialQueryValue
 		if (action.confirm && !await commonApi.modalConfirm([rowConfirmText(action.confirm, record)])) return;
 		const drawerForm = drawer.drawerForm({
 			title: action.label,
-			columns: [...action.form.columns, ...controlColumns()],
+			columns: action.form.columns,
 			optionsPath: `${apiPath}/${encodeURIComponent(rowId)}`,
 		}, async (values) => {
 			if (!values) return;
+			// 变更说明在确认框里问，不占表单里的一行。
+			const control = await confirmChange([action.confirm ?? `确认执行「${action.label}」吗？`]);
+			if (control === undefined) return;
 			drawerForm.setSubmitting‌(true);
 			try {
 				const response = await commonApi.apiFetch(`${apiPath}/${encodeURIComponent(rowId)}?action=${encodeURIComponent(action.key)}`, {
 					method: 'POST',
-					headers: { 'Content-Type': 'application/json', ...controlHeaders(values) },
+					headers: { 'Content-Type': 'application/json', ...confirmHeaders(control) },
 					body: JSON.stringify(withoutControls(values)),
 				});
 				if (!response.ok) return;

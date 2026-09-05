@@ -17,7 +17,7 @@ export type AuditEntryRow = {
 	row_id: string;
 	action: SqlAuditAction;
 	changes: string;
-	status: 'pending' | 'applied' | 'rejected' | 'reverted';
+	status: 'pending' | 'applied' | 'rejected' | 'withdrawn' | 'reverted';
 	reviewed_at: number | null;
 	reviewed_duid: string | null;
 	review_reason: string;
@@ -182,12 +182,19 @@ export const readAuditEntry = (database: DatabaseAdapter, id: string) => firstSq
 export type AuditRevertResult = { id: string; ok: boolean; message: string };
 export type AuditStatus = AuditEntryRow['status'];
 
-/** 允许的状态迁移，其余一概拒绝。 */
+/**
+ * 允许的状态迁移，其余一概拒绝。
+ *
+ * 「撤销申请」与「撤回变更」按对象区分，不靠词义：前者收回的是还没生效的申请
+ * （从 pending 出发，数据从未动过），后者回滚的是已经生效的变更（从 applied 出发，
+ * 数据要改回去）。两者的起点、后果和权限都不同，合成一个动作只会让人分不清点了什么。
+ */
 const TRANSITIONS: Record<AuditStatus, { to: AuditStatus; label: string }[]> = {
-	pending: [{ to: 'applied', label: '批准' }, { to: 'rejected', label: '驳回' }],
-	applied: [{ to: 'reverted', label: '撤回' }],
+	pending: [{ to: 'applied', label: '批准' }, { to: 'rejected', label: '驳回' }, { to: 'withdrawn', label: '撤销申请' }],
+	applied: [{ to: 'reverted', label: '回滚' }],
 	reverted: [{ to: 'applied', label: '恢复' }],
 	rejected: [],
+	withdrawn: [],
 };
 
 /**
@@ -201,16 +208,18 @@ const TRANSITIONS: Record<AuditStatus, { to: AuditStatus; label: string }[]> = {
 const transitionOne = async (database: DatabaseAdapter, entry: AuditEntryRow, to: AuditStatus, reason: string): Promise<AuditRevertResult> => {
 	const allowed = TRANSITIONS[entry.status].find((transition) => transition.to === to);
 	if (!allowed) return { id: entry.id, ok: false, message: `当前状态是「${STATUS_LABELS[entry.status]}」，不能执行这个操作` };
-	// 三种迁移各写自己那一组：同一条记录可能先被批准、再被撤回、又被恢复，
+	// 三种迁移各写自己那一组：同一条记录可能先被批准、再被回滚、又被恢复，
 	// 合用一组的话后发生的会覆盖先发生的——恢复完之后「撤回人」就成了恢复的人。
 	const now = Date.now(), actor = actorOf(database);
+	// 撤销申请是申请人自己收回，写进「审批」那一组：这一格回答的是「谁把这条从队列里
+	// 拿掉的、为什么」，申请人自己拿掉也是这个问题的答案之一。
 	const statusFields = entry.status === 'pending'
 		? { reviewed_at: now, reviewed_duid: actor, review_reason: reason }
 		: to === 'reverted'
 			? { reverted_at: now, reverted_duid: actor, revert_reason: reason }
 			: { restored_at: now, restored_duid: actor, restore_reason: reason };
-	// 驳回不碰数据：待审批的修改从未写入过。
-	if (to !== 'rejected') {
+	// 驳回与撤销申请都不碰数据：待审批的修改从未写入过。
+	if (to !== 'rejected' && to !== 'withdrawn') {
 		const changes = parseAuditChanges(entry.changes);
 		const columns = Object.keys(changes);
 		if (!columns.length) return { id: entry.id, ok: false, message: '该记录没有可还原的字段' };
@@ -281,7 +290,7 @@ const transitionOne = async (database: DatabaseAdapter, entry: AuditEntryRow, to
 
 const actorOf = (database: DatabaseAdapter) => database.actorUidForTable?.(AUDIT_TABLE) ?? database.actorUid ?? null;
 
-export const STATUS_LABELS: Record<AuditStatus, string> = { pending: '待审批', applied: '已生效', rejected: '已驳回', reverted: '已撤回' };
+export const STATUS_LABELS: Record<AuditStatus, string> = { pending: '待审批', applied: '已生效', rejected: '已驳回', withdrawn: '已撤销申请', reverted: '已回滚' };
 
 /**
  * 批量迁移是逐条执行的入口，**不是原子的级联回滚**——无事务环境下做不到。

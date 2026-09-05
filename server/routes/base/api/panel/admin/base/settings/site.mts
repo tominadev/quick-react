@@ -2,7 +2,7 @@ import type { ApiHandler } from '@server/modules/base/api-router.mjs';
 import { apiMessage, apiMessageData, apiResponse } from '@server/modules/base/api-response.mjs';
 import { configRowId, handlePendingApprovalAction, pendingApprovalNotice } from '@server/modules/base/pending-approval.mjs';
 import { mergeChangedFields } from '@server/modules/base/changed-fields.mjs';
-import { defaultSiteSettings, normalizeSiteSettings } from '@server/modules/base/site-settings.mjs';
+import { defaultSiteSettings, loadSiteSettings, normalizeSiteSettings, type SiteSettings } from '@server/modules/base/site-settings.mjs';
 import { defaultMinUserNameLength, maxUserNameLength } from '@shared/account-name.mjs';
 import type { FormPageConfig } from '@shared/types/form-page.mjs';
 
@@ -33,20 +33,23 @@ const formPage = {
 
 const CONFIG_KEY = 'site-settings';
 
+/** GET 与「撤回/批准/驳回」之后共用的页面数据。 */
+const pageData = async (c: Parameters<ApiHandler>[0], settings: SiteSettings) => {
+	const notice = await pendingApprovalNotice(c, 'base_configs', await configRowId(c, CONFIG_KEY));
+	return { currentValues: settings, formPage: notice ? { ...formPage, notice } : formPage };
+};
+
 const handler: ApiHandler = async (c, next) => {
 	const rowId = await configRowId(c, CONFIG_KEY);
-	// 撤回申请 / 立即批准：提交后进了审批队列，页面上得看得见、也动得了。
+	// 撤回申请 / 批准 / 驳回：提交后进了审批队列，页面上得看得见、也动得了。
 	const handled = await handlePendingApprovalAction(c, 'base_configs', rowId);
-	if (handled) return apiMessage(c, handled.ok ? 200 : 409, handled.message);
-	if (c.req.method === 'GET') {
-		const pending = await pendingApprovalNotice(c, 'base_configs', rowId);
-		return apiResponse(c, 200, {
-			currentValues: c.get('siteSettings'),
-			formPage: pending
-				? { ...formPage, description: `${pending.notice}\n\n${formPage.description}`, actions: [...pending.actions, ...formPage.actions] }
-				: formPage,
-		});
+	if (handled) {
+		if (!handled.ok) return apiMessage(c, 409, handled.message);
+		// 回整页数据而不只是一句消息：批准之后值变了、提示块该消失了，只回消息的话
+		// 页面还停在原样，看起来像什么都没发生。批准是直接写表的，配置得重新读一次。
+		return apiMessageData(c, 200, handled.message, await pageData(c, await loadSiteSettings(c.get('configStore'))), { component: 'inline', showIcon: true, title: '审批结果' });
 	}
+	if (c.req.method === 'GET') return apiResponse(c, 200, await pageData(c, c.get('siteSettings')));
 	if (c.req.method === 'PUT') {
 		const body = await c.req.json<unknown>().catch(() => ({}));
 		const settings = normalizeSiteSettings(mergeChangedFields(c.get('siteSettings'), body, ['contactEmail', 'footer', 'logoutLocalEnabled', 'logoutPassportEnabled', 'logoutAllEnabled', 'apiBootstrapEnabled', 'userNameMinLength', 'auditRetentionDays', 'registrationEnabled', 'localLoginEnabled', 'passwordSyncEnabled']));

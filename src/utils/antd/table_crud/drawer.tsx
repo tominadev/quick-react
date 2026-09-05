@@ -33,41 +33,8 @@ function getFullFileExtension(filename: string): string {
 	return index !== -1 ? filename.slice(index) : '';
 }
 
-/**
- * 变更说明：操作原因与「立即生效」是同一件事的两半——「为什么改」和「现在改还是等人批」，
- * 合成一个受控控件，与确认框里的呈现一致。值是 { reason, immediate }。
- */
-export const ChangeControlInput = ({ allowImmediate, placeholder, value, onChange }: {
-	allowImmediate: boolean;
-	placeholder?: string;
-	value?: ChangeControlValue;
-	onChange?: (next: ChangeControlValue) => void;
-}) => {
-	const current = value ?? {};
-	return (
-		<div>
-			<Input.TextArea
-				autoSize={{ minRows: 2, maxRows: 4 }}
-				maxLength={500}
-				placeholder={placeholder}
-				value={current.reason ?? ''}
-				onChange={(event) => onChange?.({ ...current, reason: event.target.value })}
-			/>
-			{allowImmediate ? (
-				<Checkbox
-					style={{ marginTop: 8 }}
-					checked={Boolean(current.immediate)}
-					onChange={(event) => onChange?.({ ...current, immediate: event.target.checked })}
-				>立即生效（跳过审批）</Checkbox>
-			) : null}
-		</div>
-	);
-};
-
 function getFormItemComponent(item: ResJsonTableColumn, row: DataType, parentValue?: unknown, remoteOptions?: TableSelectOption[], optionsLoading?: boolean, onOptionChange?: (value: unknown) => void, readOnly = false) {
 	switch (item.component) {
-		case ('change-control'):
-			return <ChangeControlInput allowImmediate={Boolean(item.allowImmediate)} placeholder={item.placeholder} />;
 		case ('textbox'):
 			return (
 				item.inputType === 'password'

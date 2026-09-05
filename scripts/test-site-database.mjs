@@ -22,10 +22,19 @@ try {
 		if (!headers.has('x-device-fingerprint')) headers.set('x-device-fingerprint', fingerprintData);
 		if (options.cookie) headers.set('cookie', options.cookie);
 		if (options.body !== undefined) headers.set('content-type', 'application/json');
-		// 后台的写操作默认走审批（§11.3）。这里模拟管理员勾了「立即生效」，
-		// 用例验的是业务行为本身；审批流程由 test:change-audit 单独覆盖。
-		if (!headers.has('x-change-immediate')) headers.set('x-change-immediate', '1');
-		return app.request(`http://localhost${requestUrl.pathname}${requestUrl.search}`, { method: options.method, headers, body: options.body === undefined ? undefined : JSON.stringify(options.body) });
+		// 后台的写操作一律进审批队列（§11.3）——「立即生效」勾选框已废除。这些用例验的是
+		// 业务行为本身，审批流程由 test:change-audit 单独覆盖，所以这里透明地把队列走完：
+		// 收到 202 就把待审批的记录批掉，再把响应当成 200 交回去。
+		const response = await app.request(`http://localhost${requestUrl.pathname}${requestUrl.search}`, { method: options.method, headers, body: options.body === undefined ? undefined : JSON.stringify(options.body) });
+		if (response.status !== 202 || !options.cookie) return response;
+		const auditHeaders = new Headers(headers);
+		auditHeaders.set('content-type', 'application/json');
+		const pending = await (await app.request('http://localhost/api/panel/admin/base/audit.php?include=data&status=pending', { headers: auditHeaders })).json();
+		const ids = (pending.table?.dataSource ?? []).map((row) => String(row.id));
+		if (ids.length) {
+			await app.request('http://localhost/api/panel/admin/base/audit.php?action=approve', { method: 'POST', headers: auditHeaders, body: JSON.stringify(ids) });
+		}
+		return new Response(await response.text(), { status: 200, headers: response.headers });
 	};
 	assert.equal((await request('/api/sign.php', { method: 'PUT', body: { user_name: 'siteadmin', password: 'test-password-123' } })).status, 201);
 	const login = await request('/api/sign.php', { method: 'POST', body: { user_name: 'siteadmin', password: 'test-password-123' } });

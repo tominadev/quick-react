@@ -1,4 +1,4 @@
-export type FormPageFieldType = 'text' | 'password' | 'switch' | 'select' | 'hidden' | 'change-control';
+export type FormPageFieldType = 'text' | 'password' | 'switch' | 'select' | 'hidden';
 
 export type FormPageField = {
 	name: string;
@@ -14,8 +14,6 @@ export type FormPageField = {
 	/** 字段为空时“还原”使用的后端默认值。 */
 	defaultValue?: unknown;
 	rules?: { required?: boolean; message?: string }[];
-	/** 仅 change-control 使用：要不要渲染「立即生效」勾选。 */
-	allowImmediate?: boolean;
 };
 
 /**
@@ -48,7 +46,24 @@ export type FormPageSection = {
 
 export const SECTION_FIELD = '_section';
 
+/**
+ * 置顶提示块：一个显眼的框，自带标题、逐条内容和自己的按钮。
+ *
+ * 与 `description` 的区别在于「要不要人现在就处理」：description 是这个页面是干什么的，
+ * 提示块是**这里有件事在等你**。因此按钮跟内容放在一起——「有 3 项修改在等审批」和
+ * 「批准 / 驳回」隔着半屏，人得先看懂上面那句再去下面找按钮。
+ */
+export type FormPageNotice = {
+	type?: 'info' | 'warning' | 'error';
+	title: string;
+	/** 一条一行，例如逐项列出待审批的改动。 */
+	lines?: string[];
+	actions?: Array<{ key: string; label: string; confirm?: string; danger?: boolean }>;
+};
+
 export type FormPageConfig = {
+	/** 置顶提示块，排在描述之前。 */
+	notice?: FormPageNotice;
 	/** 分段表单；给出这个就不渲染 fields/submitLabel 那套单表单。 */
 	sections?: FormPageSection[];
 	/**
@@ -97,15 +112,3 @@ export type FormPageResponse<T = Record<string, unknown>> = {
 };
 import type { ApiContext, ApiContextPatch, ApiFeedback, ApiNextAction } from './api-response.mjs';
 import type { FieldReadOnlyWhen } from '../field-linkage.mjs';
-
-/**
- * 客户端注入的**变更说明**字段：操作原因与「立即生效」合成一个控件，
- * 与 TableCRUD 的 changeControlColumn 同源。默认不勾，即默认走审批。
- */
-export const changeControlField = (allowImmediate: boolean): FormPageField => ({
-	name: '_change',
-	label: '变更说明',
-	type: 'change-control',
-	allowImmediate,
-	placeholder: '操作原因（可留空）；写清为什么改，事后追查时最有用',
-});

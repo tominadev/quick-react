@@ -1,10 +1,9 @@
 import React, { useEffect, useRef, useState } from 'react';
 import { Alert, Button, Card, Divider, Form, Input, message, Modal, Select, Space, Spin, Switch, Tabs, Typography } from 'antd';
 import { ClearOutlined, GoogleCircleFilled, RollbackOutlined, SendOutlined, UserOutlined, WechatFilled } from '@ant-design/icons';
-import type { CommonApi } from '@/utils/common/api.js';
+import type { ChangeControlValues, CommonApi } from '@/utils/common/api.js';
 import type { FormPageField, FormPageResponse, FormPageSection } from '@shared/types/form-page.mjs';
-import { changeControlField, SECTION_FIELD } from '@shared/types/form-page.mjs';
-import { ChangeControlInput } from '@/utils/antd/table_crud/drawer.js';
+import { SECTION_FIELD } from '@shared/types/form-page.mjs';
 import { CHANGE_CONTROL_FIELD, changeControlHeaders } from '@shared/table-form.mjs';
 import { isFieldReadOnly, type FieldLinkOption } from '@shared/field-linkage.mjs';
 import { changedFieldsKey, type ChangedFieldsPayload } from '@shared/types/changed-fields.mjs';
@@ -14,6 +13,7 @@ import { loginWithAccountsPopup } from '@/utils/common/passport.js';
 import { runApiNextAction } from '@/utils/common/response-action.js';
 import { isSystemField } from '@shared/system-fields.mjs';
 import { describeFormChanges } from './form-changes.js';
+import { WITHDRAW_ACTION } from '@shared/table-form.mjs';
 
 const renderTemplate = (template: string, values: Record<string, React.ReactNode>) => template
 	.split(/(\{[^{}]+\})/g)
@@ -122,7 +122,6 @@ const isRecord = (value: unknown): value is Record<string, unknown> => (
 );
 
 const fieldControl = (field: FormPageField, readOnly: boolean) => {
-	if (field.type === 'change-control') return <ChangeControlInput allowImmediate={Boolean(field.allowImmediate)} placeholder={field.placeholder} />;
 	if (field.type === 'switch') return <Switch checkedChildren={field.checkedChildren} unCheckedChildren={field.unCheckedChildren} />;
 	if (field.type === 'select') return <Select options={field.options?.map((option) => ({ value: option.value, label: option.text }))} placeholder={field.placeholder} />;
 	return <Input type={field.type === 'password' ? 'password' : 'text'} placeholder={field.placeholder} maxLength={field.maxLength} readOnly={readOnly} disabled={readOnly} />;
@@ -253,8 +252,10 @@ export default function FormPage({ commonApi, apiPath, title, submitMethod = 'PU
 	// 「立即生效」默认不勾，且只对管理员渲染；放行与否服务端另有一道校验。
 	const canSkipApproval = Boolean(formConfig?.canSkipApproval);
 	// 登录、注册这类不留痕的页面不注入变更说明；服务端按路径决定。
-	const controlFields = formConfig?.changeControl ? [changeControlField(canSkipApproval)] : [];
-	const controlHeaders = (values: Record<string, unknown>) => changeControlHeaders(values[CHANGE_CONTROL_FIELD], canSkipApproval);
+	// 变更说明不再当成表单里的一个字段：它不是配置项，混在字段中间既容易被当成要填的内容，
+	// 又会跟着「还原默认」一起被重置。改成在提交前的确认框里收集。
+	const controlFields: FormPageField[] = [];
+	const controlHeaders = (control: ChangeControlValues | undefined) => changeControlHeaders(control);
 	const controlNames = [CHANGE_CONTROL_FIELD];
 
 	const onFinish = async (values: Record<string, unknown>) => {
@@ -263,15 +264,17 @@ export default function FormPage({ commonApi, apiPath, title, submitMethod = 'PU
 		// 「还原默认」会把每个字段都标记成已改，不管值有没有真的变；用户打一个字又删掉
 		// 也会留下标记。照标记列的话，确认框里全是「8088 → 8088」这种自说自话的行。
 		const changedLines = describeFormChanges(formConfig?.fields, changedFields.current, initialValues, values, controlNames);
-		if (!changedLines.length && formConfig?.confirmOnUnchangedSubmit) {
-			const confirmed = await commonApi.modalConfirm([formConfig.confirmOnUnchangedSubmit]);
-			if (!confirmed) return;
-		}
-		// 改了东西时把改动逐条列出来让人确认：设置页一屏十几个开关，改完隔一会儿再回来
-		// 点保存，多半已经记不清动过哪些，而这些改动往往立刻影响整个站点的行为。
-		if (changedLines.length && formConfig?.confirmChangedSubmit) {
-			const confirmed = await commonApi.modalConfirm([formConfig.confirmChangedSubmit, ...changedLines]);
-			if (!confirmed) return;
+		// 确认框里一并收集变更说明：改了什么、为什么改、要不要立即生效，在同一个地方问完。
+		// **没改动就不问原因**：一次什么都没变的提交没有「原因」可言，摆个必填框只会逼人瞎写。
+		let control: ChangeControlValues | undefined;
+		if (changedLines.length) {
+			const lines = [formConfig?.confirmChangedSubmit ?? '将保存以下修改，确认继续吗？', ...changedLines];
+			if (formConfig?.changeControl) {
+				control = await commonApi.modalConfirmWithReason(lines);
+				if (control === undefined) return;
+			} else if (!await commonApi.modalConfirm(lines)) return;
+		} else if (formConfig?.confirmOnUnchangedSubmit) {
+			if (!await commonApi.modalConfirm([formConfig.confirmOnUnchangedSubmit])) return;
 		}
 		setSaving(true);
 		try {
@@ -280,7 +283,7 @@ export default function FormPage({ commonApi, apiPath, title, submitMethod = 'PU
 			const payload = { ...submitted, [changedFieldsKey]: [...changedFields.current].filter((name) => !controlNames.includes(name)), ...(restoreDefaultsPending.current ? { restoreDefaults: true } : {}) };
 			const response = await commonApi.apiFetch(apiPath, {
 				method: submitMethod,
-				headers: { 'Content-Type': 'application/json', ...controlHeaders(values) },
+				headers: { 'Content-Type': 'application/json', ...controlHeaders(control) },
 				body: JSON.stringify(payload satisfies ChangedFieldsPayload & Record<string, unknown>),
 			});
 			await applyResult(await response.json() as FormResponse, values);
@@ -292,8 +295,17 @@ export default function FormPage({ commonApi, apiPath, title, submitMethod = 'PU
 		}
 	};
 	const runAction = async (key: string) => {
-		const action = formConfig?.actions?.find((item) => item.key === key);
-		if (action?.confirm && !await commonApi.modalConfirm([action.confirm])) return;
+		// 提示块里的按钮也要能确认——撤回、批准、驳回都会立刻改动数据或否掉别人的申请，
+		// 只在 formConfig.actions 里找的话它们会一声不吭地执行。
+		const action = formConfig?.actions?.find((item) => item.key === key)
+			?? formConfig?.notice?.actions?.find((item) => item.key === key);
+		let control: ChangeControlValues | undefined;
+		// 撤销自己的申请不问原因：那是把自己提的东西收回去，不需要向谁交代。
+		// 批准与驳回要问：那是给申请人的答复，记进审批意见。
+		if (formConfig?.changeControl && action?.confirm && key !== WITHDRAW_ACTION) {
+			control = await commonApi.modalConfirmWithReason([action.confirm]);
+			if (control === undefined) return;
+		} else if (action?.confirm && !await commonApi.modalConfirm([action.confirm])) return;
 		if (key === 'restore-defaults') {
 			const defaults = formConfig?.defaultValues;
 			if (!defaults || !formConfig) {
@@ -319,7 +331,7 @@ export default function FormPage({ commonApi, apiPath, title, submitMethod = 'PU
 		try {
 			const response = await commonApi.apiFetch(actionPath(apiPath, key), {
 				method: 'POST',
-				headers: { 'Content-Type': 'application/json', ...controlHeaders(values) },
+				headers: { 'Content-Type': 'application/json', ...controlHeaders(control) },
 				body: JSON.stringify({ ...actionValues, [changedFieldsKey]: [...changedFields.current].filter((name) => !controlNames.includes(name)) } satisfies ChangedFieldsPayload & Record<string, unknown>),
 			});
 			await applyResult(await response.json() as FormResponse, values);
@@ -389,6 +401,26 @@ export default function FormPage({ commonApi, apiPath, title, submitMethod = 'PU
 			<Button type="primary" onClick={loginWithPassport}>使用 Passport 登录</Button>
 			{passportError ? <Alert type="error" showIcon message={passportError} style={{ marginTop: 12 }} /> : null}
 		</div> : null}
+		{/* 置顶提示块：按钮跟内容放在一起——「有 3 项修改在等审批」和「批准 / 驳回」
+		    隔着半屏的话，人得先看懂上面那句再去下面找按钮。 */}
+		{formConfig?.notice ? <Alert
+			type={formConfig.notice.type ?? 'warning'}
+			showIcon
+			style={{ marginBottom: 24 }}
+			message={<strong>{formConfig.notice.title}</strong>}
+			description={<Space direction="vertical" size={12} style={{ width: '100%' }}>
+				{formConfig.notice.lines?.length ? <div style={{ whiteSpace: 'pre-wrap' }}>{formConfig.notice.lines.join('\n')}</div> : null}
+				{formConfig.notice.actions?.length ? <Space wrap>
+					{formConfig.notice.actions.map((action) => <Button
+						key={action.key}
+						danger={action.danger}
+						loading={runningAction === action.key}
+						disabled={saving || Boolean(runningAction)}
+						onClick={() => runAction(action.key)}
+					>{action.label}</Button>)}
+				</Space> : null}
+			</Space>}
+		/> : null}
 		{formConfig?.description ? <Alert type="info" showIcon message={formConfig.description} style={{ marginBottom: 24 }} /> : null}
 		{formConfig?.sections?.length ? (formConfig.sectionLayout === 'tabs' ? (
 			// 每段自带一个 Form 实例，选项卡切走也不会互相牵连，因此不需要 forceRender。

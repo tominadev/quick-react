@@ -75,21 +75,22 @@ const auditRouteFilter = async () => {
 		await put({ footer: '页脚甲', __changedFields: ['footer'] }, true);
 		assert.equal((await put({ footer: '页脚乙', __changedFields: ['footer'] })).status, 202, '不勾立即生效就进审批队列');
 		const pendingPage = await (await app.request(settings, { headers: { ...headers, cookie } })).json();
-		assert.match(pendingPage.formPage.description, /有 1 项修改正在等待审批/);
-		assert.match(pendingPage.formPage.description, /value\.footer：页脚甲 → 页脚乙/, '提示里要写清改了什么');
-		assert.deepEqual(pendingPage.formPage.actions.slice(0, 2).map((action) => action.key), ['withdraw-pending', 'approve-pending']);
+		// 提示块是独立的一块，不是塞进页面描述里：它要显眼，还要把按钮放在内容旁边。
+		assert.match(pendingPage.formPage.notice.title, /有 1 项修改正在等待审批/);
+		assert.match(pendingPage.formPage.notice.lines.join('\n'), /value\.footer：页脚甲 → 页脚乙/, '提示里要写清改了什么');
+		assert.deepEqual(pendingPage.formPage.notice.actions.map((action) => action.key), ['withdraw-pending', 'approve-pending', 'reject-pending']);
 		assert.equal(pendingPage.currentValues.footer, '页脚甲', '还没批准，页面上仍是旧值');
 		assert.equal((await app.request(`${settings}?action=approve-pending`, { method: 'POST', headers: { ...headers, cookie }, body: '{}' })).status, 200);
 		const approved = await (await app.request(settings, { headers: { ...headers, cookie } })).json();
 		// 批准是直接写回表的，绕过了 configStore 那条会清缓存的路；不清缓存的话这里还是旧值。
 		assert.equal(approved.currentValues.footer, '页脚乙', '批准后要立刻生效，不能被配置缓存挡住');
-		assert.doesNotMatch(approved.formPage.description, /正在等待审批/);
+		assert.equal(approved.formPage.notice, undefined);
 		// 撤回只收回申请，数据一动不动。
 		await put({ footer: '页脚丙', __changedFields: ['footer'] });
 		assert.equal((await app.request(`${settings}?action=withdraw-pending`, { method: 'POST', headers: { ...headers, cookie }, body: '{}' })).status, 200);
 		const withdrawn = await (await app.request(settings, { headers: { ...headers, cookie } })).json();
 		assert.equal(withdrawn.currentValues.footer, '页脚乙', '撤回不改数据');
-		assert.doesNotMatch(withdrawn.formPage.description, /正在等待审批/);
+		assert.equal(withdrawn.formPage.notice, undefined);
 
 		// TableCRUD 一律通用：有修改在等审批的行会被标出来，并挂上撤回与立即批准。
 		// 先清掉上面为测总数塞的假记录：它们的 table_name 也是 base_users、row_id 是 0..249，
@@ -179,15 +180,18 @@ try {
 	// runOperation 只用请求上下文取「操作原因」，测试给一个最小桩。
 	// 原因走 X-Change-Reason 请求头，客户端 encodeURIComponent 后再发。
 	// 默认「立即生效」，绝大多数用例验的是留痕本身；审批那几条单独构造未勾选的上下文。
-	const context = (reason, immediate = true) => ({
+	// 「立即生效」的请求头已废除：管理后台的写入一律进队列，只有路由内部的机器写入
+	// 可以用 options.immediate 显式声明。这些用例大多验的是记录内容本身，因此默认直写；
+	// 要验排队的地方显式传 { immediate: false }。
+	const context = (reason) => ({
 		req: {
 			path: '/api/panel/admin/base/users',
-			header: (name) => name === 'x-change-reason' ? (reason === undefined ? undefined : encodeURIComponent(reason)) : name === 'x-change-immediate' && immediate ? '1' : undefined,
+			header: (name) => name === 'x-change-reason' && reason !== undefined ? encodeURIComponent(reason) : undefined,
 		},
 		get: (key) => key === 'effectiveRoles' ? ['platform_admin'] : undefined,
 		set: () => {},
 	});
-	const op = (statement, options) => runOperationSql(context(), acting, statement, options);
+	const op = (statement, options) => runOperationSql(context(), acting, statement, { immediate: true, ...options });
 
 	const entries = async () => (await allSql(acting, sql({ database: acting }).select({ table: 'base_audit_entries', includeAll: true, orderBy: [{ column: 'id', direction: 'ASC' }] }))).map((entry) => ({ ...entry, id: String(entry.id) }));
 	const changesOf = (entry) => JSON.parse(entry.changes);
@@ -227,7 +231,7 @@ try {
 	assert.ok(prepared.some((query) => query.startsWith('SELECT')), '业务变更要读一次原行');
 
 	// 原因随表单一起提交时从请求体里取，业务路由因此不用改签名。
-	await runOperationSql(context('表单里填的原因：中文也要能过'), acting, sql({ database: acting }).update('base_users', { status: 'disabled' }, { id: alice.id }));
+	await runOperationSql(context('表单里填的原因：中文也要能过'), acting, sql({ database: acting }).update('base_users', { status: 'disabled' }, { id: alice.id }), { immediate: true });
 	assert.equal((await latestEntry()).reason, '表单里填的原因：中文也要能过', '请求头里的原因要能正确解码');
 	await op(sql({ database: acting }).update('base_users', { status: 'enabled' }, { id: alice.id }));
 
@@ -263,7 +267,7 @@ try {
 	await runOperation(context(), acting, [
 		sql({ database: acting }).update('base_users', { status: 'disabled' }, { id: alice.id }),
 		sql({ database: acting }).update('base_users', { status: 'enabled' }, { id: bob.id }),
-	], { reason: '批量调整状态' });
+	], { reason: '批量调整状态', immediate: true });
 	const multi = (await entries()).slice(beforeMulti);
 	assert.equal(multi.length, 2, '一次操作写两行就记两条');
 	assert.equal(multi[0].operation_id, multi[1].operation_id, '同一次操作共享 operation_id');
@@ -294,7 +298,7 @@ try {
 
 	// ---- 操作者与归属：created_duid 是真实操作者，owner_uid 是作用账号（§4.1）----
 	const delegated = sql({ database: acting, actorUid: '77', ownerUid: '42', ownerTid: '3', ownerBid: '5' });
-	await runOperationSql(context(), acting, delegated.update('base_users', { name: 'alice-3' }, { id: alice.id }));
+	await runOperationSql(context(), acting, delegated.update('base_users', { name: 'alice-3' }, { id: alice.id }), { immediate: true });
 	const delegatedEntry = await latestEntry();
 	assert.equal(String(delegatedEntry.created_duid), '77', 'created_duid 应是客服的 device-user');
 	assert.equal(String(delegatedEntry.owner_uid), '42', 'owner_uid 应是被代查的账号');
@@ -311,7 +315,7 @@ try {
 			: database.prepare(query),
 	}, { subjectRoles: ['platform_admin'], humanOperation: true });
 	await assert.rejects(
-		() => runOperationSql(context(), failing, sql({ database: failing }).update('base_users', { name: 'alice-4' }, { id: alice.id })),
+		() => runOperationSql(context(), failing, sql({ database: failing }).update('base_users', { name: 'alice-4' }, { id: alice.id }), { immediate: true }),
 		/audit write failed/,
 		'审计写不进去时整个操作必须失败',
 	);
@@ -329,9 +333,9 @@ try {
 	const daveEntry = await latestEntry();
 	const beforeRevert = (await entries()).length;
 	// 「恢复」按钮点在一条已生效的记录上（列表过期）：拒绝，而不是翻成相反方向。
-	assert.deepEqual(await restore([daveEntry.id]), [{ id: daveEntry.id, ok: false, message: '当前状态是「已生效」，不能执行这个操作' }]);
+	assert.deepEqual(await restore([daveEntry.id]), [{ id: daveEntry.id, ok: false, message: '当前状态是「已生效」，不能执行这个操作' }], { immediate: true });
 	assert.equal(await nameOf(alice.id), 'dave', '被拒绝时数据不变');
-	assert.deepEqual(await revert([daveEntry.id], '撤回理由：改错了'), [{ id: daveEntry.id, ok: true, message: '已撤回' }]);
+	assert.deepEqual(await revert([daveEntry.id], '撤回理由：改错了'), [{ id: daveEntry.id, ok: true, message: '已回滚' }]);
 	assert.equal(await nameOf(alice.id), 'alice-3', '撤回后字段应恢复原值');
 	assert.equal(await statusOf(daveEntry.id), 'reverted');
 	assert.equal((await entries()).length, beforeRevert, '撤回不产生新的审计记录');
@@ -342,7 +346,7 @@ try {
 	assert.equal(flipped.reason, daveEntry.reason, '原操作的理由不应被覆盖');
 
 	// 撤回错了就再翻回来，不会堆出一串互相指向的记录。
-	assert.deepEqual(await revert([daveEntry.id]), [{ id: daveEntry.id, ok: false, message: '当前状态是「已撤回」，不能执行这个操作' }]);
+	assert.deepEqual(await revert([daveEntry.id]), [{ id: daveEntry.id, ok: false, message: '当前状态是「已回滚」，不能执行这个操作' }]);
 	assert.deepEqual(await restore([daveEntry.id], '恢复：撤错了'), [{ id: daveEntry.id, ok: true, message: '已恢复' }]);
 	assert.equal(await nameOf(alice.id), 'dave', '恢复后应回到变更后的值');
 	assert.equal(await statusOf(daveEntry.id), 'applied');
@@ -482,7 +486,7 @@ try {
 
 	// ---- 审批（§11）----
 	// 默认不勾「立即生效」：记录成待审批，数据一条都不动。
-	const pendingContext = context('申请调整角色', false);
+	const pendingContext = context('申请调整角色');
 	const beforePending = (await entries()).length;
 	const { PendingApprovalError } = await import(pathToFileURL(moduleFile));
 	await assert.rejects(
@@ -500,31 +504,31 @@ try {
 
 	// 同一个人对同一条记录再提交一次：覆盖自己那条待审批记录，不再排一条。
 	const beforeResubmit = (await entries()).length;
-	await assert.rejects(() => runOperationSql(context('改主意了，换成分站管理员', false), acting, sql({ database: acting }).update('base_users', { roles: '["branch_admin"]' }, { id: alice.id })));
+	await assert.rejects(() => runOperationSql(context('改主意了，换成分站管理员'), acting, sql({ database: acting }).update('base_users', { roles: '["branch_admin"]' }, { id: alice.id })));
 	assert.equal((await entries()).length, beforeResubmit, '同一个人对同一行重复提交不该堆出多条待审批记录');
 	const resubmitted = await entryById(pendingEntry.id);
 	assert.equal(resubmitted.reason, '改主意了，换成分站管理员', '待审批记录被覆盖成最新一版');
 	assert.deepEqual(JSON.parse(resubmitted.changes).roles, { before: [], after: ['branch_admin'] });
 	// 换个人提交同一行：那是另一件事，各排各的队。
 	const otherActor = withDatabaseActors(counting, { subjectRoles: ['platform_admin'], humanOperation: true, base: '99' });
-	await assert.rejects(() => runOperationSql(context('另一个人的申请', false), otherActor, sql({ database: otherActor }).update('base_users', { roles: '["tenant_admin"]' }, { id: alice.id })));
+	await assert.rejects(() => runOperationSql(context('另一个人的申请'), otherActor, sql({ database: otherActor }).update('base_users', { roles: '["tenant_admin"]' }, { id: alice.id })));
 	assert.equal((await entries()).length, beforeResubmit + 1, '不同操作者的申请各排各的队');
 	await transitionAuditEntries(acting, [(await latestEntry()).id], 'rejected', '清理测试数据');
 	// 把这条改回原先的值，后面的断言接得上。
-	await assert.rejects(() => runOperationSql(context('申请调整角色', false), acting, sql({ database: acting }).update('base_users', { roles: '["tenant_admin"]' }, { id: alice.id })));
+	await assert.rejects(() => runOperationSql(context('申请调整角色'), acting, sql({ database: acting }).update('base_users', { roles: '["tenant_admin"]' }, { id: alice.id })));
 
-	// 先提交待审批、再用「立即生效」改同一行：作废的申请被覆盖，不留孤儿记录。
+	// 先提交待审批、再直写同一行（路由内部的机器写入）：作废的申请被覆盖，不留孤儿记录。
 	const beforeSupersede = (await entries()).length;
-	await runOperationSql(context('这次直接生效', true), acting, sql({ database: acting }).update('base_users', { roles: '["platform_support"]' }, { id: alice.id }));
-	assert.equal((await entries()).length, beforeSupersede, '立即生效应覆盖自己那条待审批记录，而不是再插一条');
+	await runOperationSql(context('这次直接生效'), acting, sql({ database: acting }).update('base_users', { roles: '["platform_support"]' }, { id: alice.id }), { immediate: true });
+	assert.equal((await entries()).length, beforeSupersede, '直写应覆盖自己那条待审批记录，而不是再插一条');
 	const superseded = await entryById(pendingEntry.id);
 	assert.equal(superseded.status, 'applied');
 	assert.equal(superseded.reason, '这次直接生效');
-	assert.equal(superseded.reviewed_at, null, '立即生效不是审批，不该伪造审批时间');
+	assert.equal(superseded.reviewed_at, null, '直写不是审批，不该伪造审批时间');
 	assert.equal(await rolesOf(), '["platform_support"]');
 	// 复位，后面的断言接得上。
-	await runOperationSql(context('复位', true), acting, sql({ database: acting }).update('base_users', { roles: originalRoles }, { id: alice.id }));
-	await assert.rejects(() => runOperationSql(context('申请调整角色', false), acting, sql({ database: acting }).update('base_users', { roles: '["tenant_admin"]' }, { id: alice.id })));
+	await runOperationSql(context('复位'), acting, sql({ database: acting }).update('base_users', { roles: originalRoles }, { id: alice.id }), { immediate: true });
+	await assert.rejects(() => runOperationSql(context('申请调整角色'), acting, sql({ database: acting }).update('base_users', { roles: '["tenant_admin"]' }, { id: alice.id })));
 	pendingEntry = await latestEntry();
 
 	// 待审批的记录不能撤回，只能批准或驳回。
@@ -548,7 +552,7 @@ try {
 	assert.equal(await rolesOf(), originalRoles);
 
 	// 驳回：不碰数据，只落状态。
-	await assert.rejects(() => runOperationSql(context('申请改名', false), acting, sql({ database: acting }).update('base_users', { name: 'rejected-name' }, { id: alice.id })));
+	await assert.rejects(() => runOperationSql(context('申请改名'), acting, sql({ database: acting }).update('base_users', { name: 'rejected-name' }, { id: alice.id })));
 	const rejectEntry = await latestEntry();
 	assert.deepEqual(await transitionAuditEntries(acting, [rejectEntry.id], 'rejected', '不同意'), [{ id: rejectEntry.id, ok: true, message: '已驳回' }]);
 	assert.equal(await nameOf(alice.id), 'frank', '驳回不该改动数据');
@@ -557,7 +561,7 @@ try {
 	assert.equal((await transitionAuditEntries(acting, [rejectEntry.id], 'applied'))[0].message, '当前状态是「已驳回」，不能执行这个操作');
 
 	// 非管理员就算发了 X-Change-Immediate 也照样进队列：放行由服务端角色说了算。
-	const forged = { req: context('', true).req, get: (key) => key === 'effectiveRoles' ? ['user'] : undefined, set: () => {} };
+	const forged = { req: context('').req, get: (key) => key === 'effectiveRoles' ? ['user'] : undefined, set: () => {} };
 	await assert.rejects(
 		() => runOperationSql(forged, acting, sql({ database: acting }).update('base_users', { name: 'forged' }, { id: alice.id })),
 		(error) => error instanceof PendingApprovalError,

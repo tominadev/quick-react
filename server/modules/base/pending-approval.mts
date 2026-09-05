@@ -9,8 +9,14 @@ import { APPROVAL_SKIP_ROLES, readChangeReason } from './operation.mjs';
 export const PENDING_FIELD = '_pending';
 export const WITHDRAW_ACTION = 'withdraw-pending';
 export const APPROVE_ACTION = 'approve-pending';
+export const REJECT_ACTION = 'reject-pending';
 
-type PendingEntry = { id: string; changes: string; reason: string; created_at: number };
+type PendingEntry = { id: string; changes: string; reason: string; created_at: number; created_duid: string | null };
+
+/** 当前请求的操作者（device_user_id）；系统或无设备操作为 null。 */
+const actorOf = (database: DatabaseAdapter) => database.actorUidForTable?.('base_audit_entries') ?? database.actorUid ?? null;
+const sameActor = (entry: PendingEntry, actor: string | number | bigint | null) =>
+	actor !== null && entry.created_duid !== null && String(entry.created_duid) === String(actor);
 
 /**
  * 这一行上还没落地的修改。
@@ -21,7 +27,7 @@ type PendingEntry = { id: string; changes: string; reason: string; created_at: n
 export const pendingEntriesFor = async (database: DatabaseAdapter, table: string, rowId: string | number | bigint) =>
 	allSql<PendingEntry>(database, sql({ database }).select({
 		table: 'base_audit_entries',
-		columns: { id: { column: 'id', cast: 'text' }, changes: 'changes', reason: 'reason', created_at: 'created_at' },
+		columns: { id: { column: 'id', cast: 'text' }, changes: 'changes', reason: 'reason', created_at: 'created_at', created_duid: { column: 'created_duid', cast: 'text' } },
 		where: [{ column: 'table_name', value: table }, { column: 'row_id', value: String(rowId) }, { column: 'status', value: 'pending' }],
 		orderBy: [{ column: 'id' }],
 	}));
@@ -58,40 +64,59 @@ export const configRowId = async (c: Context<AppEnv>, key: string) => {
 const canApprove = (c: Context<AppEnv>) => (c.get('effectiveRoles') ?? []).some((role) => APPROVAL_SKIP_ROLES.includes(role));
 
 /**
- * 待审批提示与可执行的动作。
+ * 待审批提示块与可执行的动作。
  *
- * 「立即批准」与「立即生效」是同一件事的两个入口，因此走同一道角色门：能跳过审批的人
- * 才批得动。撤回不设门槛——撤回只是把自己提的申请收回去，数据一动不动。
+ * 三个按钮各有各的出现条件：
+ * - **撤回申请**只在「这条是我自己提的」时出现——撤回的意思是把自己的申请收回去，
+ *   替别人撤等于替别人做决定，那是驳回该干的事。
+ * - **批准 / 驳回**只对有审批权的人出现。批准与「立即生效」是同一件事的两个入口，
+ *   共用同一道角色门。
+ *
+ * 驳回和撤回落到同一个状态，但不是同一件事：一个是审批人否掉别人的申请，
+ * 一个是申请人收回自己的，因此权限和按钮都分开。
  */
 export const pendingApprovalNotice = async (c: Context<AppEnv>, table: string, rowId: string | number | bigint | undefined) => {
 	if (rowId === undefined) return undefined;
-	const entries = await pendingEntriesFor(c.get('database'), table, rowId);
+	const database = c.get('database');
+	const entries = await pendingEntriesFor(database, table, rowId);
 	if (!entries.length) return undefined;
-	const lines = entries.map((entry) => {
-		const detail = describeAuditChanges(parseAuditChanges(entry.changes));
-		return entry.reason ? `${detail}（原因：${entry.reason}）` : detail;
-	});
+	const actor = actorOf(database);
+	const mine = entries.filter((entry) => sameActor(entry, actor));
+	const approver = canApprove(c);
 	return {
-		notice: `有 ${entries.length} 项修改正在等待审批，尚未生效：\n${lines.join('\n')}`,
+		type: 'warning' as const,
+		title: `有 ${entries.length} 项修改正在等待审批，尚未生效`,
+		lines: entries.map((entry) => {
+			const detail = describeAuditChanges(parseAuditChanges(entry.changes));
+			const who = sameActor(entry, actor) ? '（本人提交）' : '';
+			return entry.reason ? `${detail}${who}（原因：${entry.reason}）` : `${detail}${who}`;
+		}),
 		actions: [
-			{ key: WITHDRAW_ACTION, label: '撤回申请', confirm: '确认撤回这些还没生效的修改吗？数据不会被改动。' },
-			...(canApprove(c) ? [{ key: APPROVE_ACTION, label: '立即批准', confirm: '确认立即批准并生效吗？' }] : []),
+			...(mine.length ? [{ key: WITHDRAW_ACTION, label: mine.length === entries.length ? '撤销申请' : `撤销我的 ${mine.length} 项申请`, confirm: '确认撤销这些还没生效的申请吗？数据不会被改动。' }] : []),
+			...(approver ? [
+				{ key: APPROVE_ACTION, label: '批准并生效', confirm: '确认批准并立即生效吗？' },
+				{ key: REJECT_ACTION, label: '驳回', confirm: '确认驳回这些修改吗？数据不会被改动。', danger: true },
+			] : []),
 		],
-		ids: entries.map((entry) => entry.id),
 	};
 };
 
 /** 处理提示里那两个动作；不是这两个就返回 undefined，交回给路由自己的分支。 */
 export const handlePendingApprovalAction = async (c: Context<AppEnv>, table: string, rowId: string | number | bigint | undefined) => {
 	const action = c.req.query('action');
-	if (action !== WITHDRAW_ACTION && action !== APPROVE_ACTION) return undefined;
+	if (action !== WITHDRAW_ACTION && action !== APPROVE_ACTION && action !== REJECT_ACTION) return undefined;
 	if (rowId === undefined) return { ok: false as const, message: '没有待审批的修改' };
-	if (action === APPROVE_ACTION && !canApprove(c)) return { ok: false as const, message: '没有批准权限' };
+	// 权限在服务端再判一次：按钮不出现只是不引诱人去点，挡住伪造请求靠这一句。
+	if (action !== WITHDRAW_ACTION && !canApprove(c)) return { ok: false as const, message: '没有审批权限' };
 	const database = c.get('database');
-	const entries = await pendingEntriesFor(database, table, rowId);
-	if (!entries.length) return { ok: false as const, message: '没有待审批的修改' };
-	const results = await transitionAuditEntries(database, entries.map((entry) => entry.id), action === APPROVE_ACTION ? 'applied' : 'rejected', readChangeReason(c));
+	const all = await pendingEntriesFor(database, table, rowId);
+	// 撤销只动自己提的那几条：替别人撤等于替别人做决定，那是驳回该干的事。
+	const entries = action === WITHDRAW_ACTION ? all.filter((entry) => sameActor(entry, actorOf(database))) : all;
+	if (!entries.length) return { ok: false as const, message: action === WITHDRAW_ACTION ? '没有你自己提交的待审批申请' : '没有待审批的修改' };
+	const target = action === APPROVE_ACTION ? 'applied' as const : action === REJECT_ACTION ? 'rejected' as const : 'withdrawn' as const;
+	const results = await transitionAuditEntries(database, entries.map((entry) => entry.id), target, readChangeReason(c));
 	const failed = results.filter((result) => !result.ok);
 	if (failed.length) return { ok: false as const, message: failed.map((result) => `#${result.id} ${result.message}`).join('；') };
-	return { ok: true as const, message: action === APPROVE_ACTION ? `已批准并生效 ${results.length} 项修改` : `已撤回 ${results.length} 项申请` };
+	const label = action === APPROVE_ACTION ? '已批准并生效' : action === REJECT_ACTION ? '已驳回' : '已撤销';
+	return { ok: true as const, message: `${label} ${results.length} 项修改` };
 };

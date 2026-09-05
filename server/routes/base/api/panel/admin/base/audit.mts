@@ -11,6 +11,7 @@ const statusOptions = [
 	{ value: 'pending', text: STATUS_LABELS.pending, color: 'gold' },
 	{ value: 'applied', text: STATUS_LABELS.applied, color: 'green' },
 	{ value: 'rejected', text: STATUS_LABELS.rejected, color: 'red' },
+	{ value: 'withdrawn', text: STATUS_LABELS.withdrawn, color: 'default' },
 	{ value: 'reverted', text: STATUS_LABELS.reverted, color: 'default' },
 ];
 /**
@@ -32,7 +33,10 @@ const queryFields = [
 const flipActions = [
 	{ key: 'approve', label: '批准', to: 'applied' as const, from: 'pending', confirm: '确认批准这条修改吗？批准后立即生效。' },
 	{ key: 'reject', label: '驳回', to: 'rejected' as const, from: 'pending', confirm: '确认驳回这条修改吗？数据不会被改动。' },
-	{ key: 'revert', label: '撤回', to: 'reverted' as const, from: 'applied', confirm: '确认撤回这条变更吗？' },
+	// 「撤销申请」动的是还没生效的申请，「回滚」动的是已经生效的数据。不用「撤回」——
+	// 它和「撤销」太近，读的人分不清哪个会改到数据。
+	{ key: 'withdraw', label: '撤销申请', to: 'withdrawn' as const, from: 'pending', confirm: '确认撤销这条还没生效的申请吗？数据不会被改动。' },
+	{ key: 'revert', label: '回滚', to: 'reverted' as const, from: 'applied', confirm: '确认把这条已经生效的变更改回去吗？' },
 	{ key: 'restore', label: '恢复', to: 'applied' as const, from: 'reverted', confirm: '确认恢复这条变更吗？' },
 ];
 

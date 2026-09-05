@@ -20,21 +20,18 @@ export const resolveTableFormColumns = (columns: TableColumn[], mode: TableFormM
  * 提交前从请求体里摘出去、改走请求头，业务路由永远看不见它。
  */
 export const CHANGE_CONTROL_FIELD = '_change';
-export type ChangeControlValue = { reason?: string; immediate?: boolean };
-export const changeControlColumn = (allowImmediate: boolean): TableColumn => ({
-	dataIndex: CHANGE_CONTROL_FIELD,
-	title: '变更说明',
-	component: 'change-control',
-	allowImmediate,
-	placeholder: '操作原因（可留空）；写清为什么改，事后追查时最有用',
-});
+/** 撤销自己的申请不问原因；与服务端 pending-approval 里的动作名保持一致。 */
+export const WITHDRAW_ACTION = 'withdraw-pending';
+export type ChangeControlValue = { reason?: string };
 
-/** 从合并字段里取出请求头。头部只能放 ASCII，因此原因先 encodeURIComponent。 */
-export const changeControlHeaders = (value: unknown, allowImmediate: boolean): Record<string, string> => {
+/**
+ * 从确认框收到的值取出请求头。头部只能放 ASCII，因此原因先 encodeURIComponent。
+ *
+ * 只剩「操作原因」一项：「立即生效」那个勾选框已废除——管理后台的修改一律进审批队列，
+ * 有权限的人在待审批提示里点「批准并生效」。两条路做同一件事，留一条就够。
+ */
+export const changeControlHeaders = (value: unknown): Record<string, string> => {
 	const control = (value ?? {}) as ChangeControlValue;
 	const reason = typeof control.reason === 'string' ? control.reason.trim().slice(0, 500) : '';
-	return {
-		...(reason ? { 'X-Change-Reason': encodeURIComponent(reason) } : {}),
-		...(allowImmediate && control.immediate ? { 'X-Change-Immediate': '1' } : {}),
-	};
+	return reason ? { 'X-Change-Reason': encodeURIComponent(reason) } : {};
 };

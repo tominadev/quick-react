@@ -18,7 +18,8 @@ export type ResJsonTable = TableResponse;
 
 export type ApiFeedback = SharedApiFeedback;
 /** 确认框里收集到的变更控制信息：操作原因与「立即生效」。 */
-export type ChangeControlValues = { reason: string; immediate: boolean };
+/** 「立即生效」已废除：管理后台的修改一律进审批队列，有权限的人在待审批提示里点批准。 */
+export type ChangeControlValues = { reason: string };
 
 export type ResJSON = ApiResponseBody;
 
@@ -34,7 +35,7 @@ export interface CommonApi {
 	modalError: (aContentLine: string[], props?: ModalFuncProps) => Promise<void>,
 	modalConfirm: (aContentLine: string[], props?: ModalFuncProps) => Promise<boolean>
 	/** 带「操作原因」输入的确认框；取消时返回 undefined。原因可以留空，「立即生效」默认不勾。 */
-	modalConfirmWithReason: (aContentLine: string[], options?: { allowImmediate?: boolean }, props?: ModalFuncProps) => Promise<ChangeControlValues | undefined>
+	modalConfirmWithReason: (aContentLine: string[], props?: ModalFuncProps) => Promise<ChangeControlValues | undefined>
 	apiFetch: (input: RequestInfo | URL, init?: RequestInit) => Promise<Response>;
 	uploadFile: (input: string | URL, file: Blob, options?: UploadFileOptions) => Promise<void>;
 }
@@ -79,36 +80,45 @@ export function useCommonApi(): [CommonApi, React.JSX.Element] {
 	 * 不强制填：改个昵称也弹框要理由，人会填「1」「。」，垃圾原因比没有原因更糟，
 	 * 它给了假的可信度。哪些操作强制填由服务端另行判定。
 	 */
-	const modalConfirmWithReason = async (aContentLine: string[], options?: { allowImmediate?: boolean }, props?: ModalFuncProps): Promise<ChangeControlValues | undefined> => {
+	/**
+	 * 带「操作原因」的确认框。
+	 *
+	 * 原因**必填**：事后追查时，一条写着空原因的记录和没有记录差不多。为此确认按钮在
+	 * 填之前一直是禁用的，而不是点了再弹一个「请填写原因」——后者要人多点一次才知道。
+	 */
+	const modalConfirmWithReason = async (aContentLine: string[], props?: ModalFuncProps): Promise<ChangeControlValues | undefined> => {
 		const reasonRef = { current: '' };
-		// 默认不勾：不勾就走审批。只有管理员看得到这个勾选框。
-		const immediateRef = { current: false };
-		const confirmed = await modalApi.confirm({
-			title: '确认提示',
-			icon: <ExclamationCircleOutlined />,
-			content: (
-				<>
-					{getContentLine(aContentLine)}
-					<Input.TextArea
-						autoSize={{ minRows: 2, maxRows: 4 }}
-						maxLength={500}
-						placeholder="操作原因（可留空）"
-						style={{ marginTop: 12 }}
-						onChange={(event) => { reasonRef.current = event.target.value; }}
-					/>
-					{options?.allowImmediate ? (
-						<Checkbox style={{ marginTop: 8 }} onChange={(event) => { immediateRef.current = event.target.checked; }}>
-							立即生效（跳过审批）
-						</Checkbox>
-					) : null}
-				</>
-			),
-			okText: '确定',
-			cancelText: '取消',
-			maskClosable: true,
-			...props,
+		let modal: { update: (config: ModalFuncProps) => void; destroy: () => void } | undefined;
+		const content = (
+			<>
+				{getContentLine(aContentLine)}
+				<Input.TextArea
+					autoSize={{ minRows: 2, maxRows: 4 }}
+					maxLength={500}
+					placeholder="操作原因（必填）"
+					style={{ marginTop: 12 }}
+					onChange={(event) => {
+						reasonRef.current = event.target.value;
+						modal?.update({ okButtonProps: { disabled: !event.target.value.trim() } });
+					}}
+				/>
+			</>
+		);
+		const confirmed = await new Promise<boolean>((resolve) => {
+			modal = modalApi.confirm({
+				title: '确认提示',
+				icon: <ExclamationCircleOutlined />,
+				content,
+				okText: '确定',
+				cancelText: '取消',
+				maskClosable: true,
+				okButtonProps: { disabled: true },
+				onOk: () => { resolve(true); },
+				onCancel: () => { resolve(false); },
+				...props,
+			});
 		});
-		return confirmed ? { reason: reasonRef.current.trim().slice(0, 500), immediate: immediateRef.current } : undefined;
+		return confirmed ? { reason: reasonRef.current.trim().slice(0, 500) } : undefined;
 	};
 
 	const getJsonByRes = async (res: Response): Promise<ParsedResJSON> => {

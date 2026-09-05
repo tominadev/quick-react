@@ -64,9 +64,10 @@ const skipsApproval = (c: Context<AppEnv>, options: OperationOptions) => {
 	// 以及任何显式声明的操作都照常留痕但立即生效——那些要么是用户处置自己的数据，
 	// 要么根本没有审批人可言（初始管理员注册时系统里一个账号都还没有）。
 	if (!c.req.path.startsWith('/api/panel/admin/')) return true;
-	const requested = options.immediate ?? c.req.header(CHANGE_IMMEDIATE_HEADER) === '1';
-	if (!requested) return false;
-	return (c.get('effectiveRoles') ?? []).some((role) => APPROVAL_SKIP_ROLES.includes(role));
+	// 「立即生效」这个勾选框已废除：管理后台的修改一律进队列，有权限的人在待审批提示里
+	// 点「批准并生效」。两条路做同一件事，留一条就够，而勾选框那条还得在每个表单里占一格。
+	// options.immediate 仍保留给路由内部的机器写入（建号收尾之类）显式声明。
+	return options.immediate === true;
 };
 
 /**
