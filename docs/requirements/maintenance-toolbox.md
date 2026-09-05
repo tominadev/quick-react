@@ -289,6 +289,14 @@ source_ip, details, completed_at
 - Node SQLite、MySQL、PostgreSQL 以及 Worker D1 的类型检查、Worker 构建和相关协议测试通过；
 - 正常站点后台、Passport、Global 与业务站点继续使用同一套 Base 工具箱协议。
 
+## 回归测试
+
+`npm run test:maintenance-rescue` 覆盖全部救援动作，重点是**救援设的密码必须真的能登录**。
+
+这个测试的由来：凭证从 `base_users.password` 拆到 `base_user_credentials` 之后，`readAdmin` 仍在查那一列，于是**整个工具箱**（不只是密码重设）一律报 `no such column: password`——而它失效的时候，恰恰是 Accounts 登不进来、只剩救援这一条路的时候。
+
+救援入口跑在没有请求上下文的 CLI 里，绕过了所有 HTTP 层测试，任何一处引用了已删除的列都不会被别的测试发现，只能由它自己盯着。
+
 ## 11. 实施顺序
 
 1. 增加 CLI 工具箱协议、开发启动器工具箱入口和统一输出闸门。

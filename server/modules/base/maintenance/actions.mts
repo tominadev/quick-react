@@ -2,21 +2,21 @@ import type { DatabaseAdapter } from '@server/database/index.mjs';
 import { firstSql, runSql, sql } from '@server/database/sql.mjs';
 import { createDatabaseConfigStore } from '@server/modules/base/config-store.mjs';
 import { passwordError } from '@server/modules/base/auth/password-policy.mjs';
-import { createStoredPassword } from '@server/modules/base/auth/index.mjs';
-import { setCredential } from '../credentials.mjs';
+import { hasCredential, setCredential } from '../credentials.mjs';
 import { accountsOidcConfigKey, defaultAccountsOidcConfig, normalizeAccountsOidcConfig } from '@server/modules/passport/accounts/client.mjs';
 import { userNameError } from '@shared/account-name.mjs';
 import { parseRoles, serializeRoles } from '@shared/types/role.mjs';
 
 type MaintenanceInput = Record<string, unknown>;
-type AdminRow = { id: string | number | bigint; name: string; password: string; roles: string; status: string; deleted_at: string | number | bigint };
+type AdminRow = { id: string | number | bigint; name: string; roles: string; status: string; deleted_at: string | number | bigint };
 
 const inputValue = (input: MaintenanceInput, key: string) => typeof input[key] === 'string' ? input[key] as string : '';
 const inputText = (input: MaintenanceInput, key: string) => inputValue(input, key).trim();
 
+// 凭证在 base_user_credentials，不在 base_users——这里读的是账号本体，不带密码。
 const readAdmin = async (database: DatabaseAdapter) => firstSql<AdminRow>(database, sql({ database }).select({
 	table: 'base_users',
-	columns: { id: 'id', name: 'name', password: 'password', roles: 'roles', status: 'status', deleted_at: 'deleted_at' },
+	columns: { id: 'id', name: 'name', roles: 'roles', status: 'status', deleted_at: 'deleted_at' },
 	where: [{ column: 'id', value: 1 }],
 	deleted: 'all',
 }));
@@ -77,7 +77,10 @@ const adminStatus = async (database: DatabaseAdapter) => {
 	const row = await readAdmin(database);
 	if (!row) return 'base_users.id = 1 不存在';
 	const roles = parseRoles(row.roles);
-	return [`id=1`, `用户名：${row.name}`, `状态：${row.status}`, `删除标记：${String(row.deleted_at)}`, `角色：${roles.join('、') || '无'}`].join('\n');
+	// 「有没有本地密码」是救援时最要紧的一条：没有就只能走 Accounts 登录，
+	// 而救援场景往往正是 Accounts 登不进来。
+	const credential = await hasCredential(database, 1) ? '已设置' : '未设置（只能用 Accounts 登录）';
+	return [`id=1`, `用户名：${row.name}`, `状态：${row.status}`, `删除标记：${String(row.deleted_at)}`, `角色：${roles.join('、') || '无'}`, `本地密码：${credential}`].join('\n');
 };
 
 const accountsOidcStatus = async (database: DatabaseAdapter) => {
