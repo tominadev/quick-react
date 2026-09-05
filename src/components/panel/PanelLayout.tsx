@@ -35,12 +35,28 @@ const iconComponents = {
  * 哪些页面」变成了「被拽去 base 的仪表盘」。而仪表盘本来就是这些分组的第一个子项
  * （`/panel/admin/base/dashboard`），标题上再挂一个入口只是重复，代价却是展开不能用了。
  */
-const toMenuItems = (menu: InitialMenuItem[]): MenuItem[] => menu.filter((item) => !item.hidden).map((item) => ({
-	label: item.label,
-	key: item.key,
-	icon: iconComponents[item.icon as keyof typeof iconComponents],
-	children: item.children ? toMenuItems(item.children) : undefined,
-}));
+const toMenuItems = (menu: InitialMenuItem[], depth = 0): MenuItem[] => menu.filter((item) => !item.hidden).flatMap((item, index) => {
+	const children = item.children ? toMenuItems(item.children, depth + 1) : undefined;
+	/**
+	 * **最顶层不折叠，用分隔线隔开。**
+	 *
+	 * 顶层那几项（基础管理、全局管理、Passport、PVE）是「在哪一块」，不是一层菜单：
+	 * 折叠起来的话，每次进来只有当前模块是展开的，想看看别的模块有什么得先点开——
+	 * 而那一下点开还什么都不做（有子菜单的项只展开不跳转）。用分组标题加一条分隔线，
+	 * 整张侧栏一眼看全，也省掉了这一次无谓的点击。
+	 */
+	if (depth === 0 && children?.length) {
+		const group: MenuItem[] = [{ type: 'group', key: item.key, label: item.label, children }];
+		return index > 0 ? [{ type: 'divider' } as MenuItem, ...group] : group;
+	}
+	const entry: MenuItem[] = [{
+		label: item.label,
+		key: item.key,
+		icon: iconComponents[item.icon as keyof typeof iconComponents],
+		children,
+	}];
+	return entry;
+});
 const pageUrl = (path: string) => path === '/' ? path : `${path}${pageSuffix}`;
 
 

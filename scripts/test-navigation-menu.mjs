@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import { build } from 'esbuild';
-import { mkdtemp, rm, writeFile } from 'node:fs/promises';
+import { mkdtemp, readFile, rm, writeFile } from 'node:fs/promises';
 import { join, resolve } from 'node:path';
 import { tmpdir } from 'node:os';
 import { pathToFileURL } from 'node:url';
@@ -65,6 +65,15 @@ try {
 		findNavigationTrail(panelNavigation, '/panel/admin/base/settings/site').slice(0, -1).map((item) => item.key),
 		['/panel/admin', '/panel/admin/base', '/panel/admin/base/settings'],
 	);
+
+	// 侧栏最顶层（基础管理、全局管理、Passport、PVE）不折叠，用分组标题加分隔线隔开：
+	// 折叠起来的话，每次进来只有当前模块是展开的，想看看别的模块有什么得先点一下，
+	// 而那一下点开还什么都不做（有子菜单的项只展开不跳转）。渲染要浏览器环境才测得到，
+	// 这里守住生成菜单项的那段。
+	const layoutSource = await readFile(resolve(import.meta.dirname, '../src/components/panel/PanelLayout.tsx'), 'utf8');
+	assert.match(layoutSource, /if \(depth === 0 && children\?\.length\) \{/, '顶层要单独成组');
+	assert.match(layoutSource, /type: 'group', key: item\.key, label: item\.label, children/, '顶层渲染成分组而不是可折叠子菜单');
+	assert.match(layoutSource, /index > 0 \? \[\{ type: 'divider' \}/, '组与组之间要有分隔线');
 
 	console.log('navigation menu test passed');
 } finally {
