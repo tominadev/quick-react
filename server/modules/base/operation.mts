@@ -32,7 +32,8 @@ export class PendingApprovalError extends Error {
 }
 
 /** 有权跳过审批的角色，与 §9 的撤回权限一致。 */
-const APPROVAL_SKIP_ROLES = ['platform_admin', 'tenant_admin', 'branch_admin'];
+/** 能跳过审批的角色。「立即生效」与「立即批准」是同一件事的两个入口，共用这一道门。 */
+export const APPROVAL_SKIP_ROLES = ['platform_admin', 'tenant_admin', 'branch_admin'];
 
 const MAX_REASON_LENGTH = 500;
 

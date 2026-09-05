@@ -5,6 +5,9 @@ import type { ApiFeedback, ApiFeedbackOptions, ApiSuccessData } from '@shared/ty
 import { createDeviceKeyTransportCookie } from './device-fingerprint.mjs';
 import { isSecureRequest } from './request-origin.mjs';
 import { deletedScopeFromQuery, queryIncludes } from './query-options.mjs';
+import { APPROVAL_SKIP_ROLES } from './operation.mjs';
+import { APPROVE_ACTION, PENDING_FIELD, WITHDRAW_ACTION, pendingRowIds } from './pending-approval.mjs';
+import { tableCrudDatabase } from './table-crud.mjs';
 export type { ApiFeedback, ApiFeedbackOptions, ApiSuccessData } from '@shared/types/api-response.mjs';
 
 const isSuccessStatus = (status: number) => status >= 200 && status < 300;
@@ -34,6 +37,60 @@ const withSortableColumns = (c: Context<AppEnv>, payload: Record<string, unknown
 				const item = column as Record<string, unknown>;
 				return allowed.has(String(item.dataIndex)) ? { ...item, sortable: true } : item;
 			}),
+		},
+	};
+};
+
+/**
+ * 给列表里「有修改在等审批」的行打上标记，并挂上撤回与立即批准两个行操作。
+ *
+ * 提交后进了审批队列，列表上却什么都看不出来——显示的仍是旧值，用户以为没保存成功，
+ * 于是再改一次，队列里堆出第二条。标记摆在行上，这条路就断了。
+ *
+ * 「立即批准」与「立即生效」是同一件事的两个入口，共用同一道角色门；撤回不设门槛，
+ * 它只是把申请收回去，数据一动不动。
+ */
+const withPendingApproval = async (c: Context<AppEnv>, payload: Record<string, unknown>) => {
+	const definition = c.get('tableCrud');
+	const table = payload.table;
+	if (!definition || !table || typeof table !== 'object' || Array.isArray(table)) return payload;
+	const source = table as Record<string, unknown>;
+	const rows = source.dataSource;
+	const option = source.option;
+	if (!Array.isArray(rows) || !rows.length || !option || typeof option !== 'object') return payload;
+	const database = tableCrudDatabase(c, definition);
+	if (!database) return payload;
+	const tableName = typeof definition.table === 'function' ? await definition.table(c) : definition.table;
+	const rowKey = typeof definition.rowKey === 'function' ? await definition.rowKey(c) : definition.rowKey;
+	if (!tableName || !rowKey) return payload;
+	const ids = rows.map((row) => String((row as Record<string, unknown>)[rowKey] ?? '')).filter(Boolean);
+	if (!ids.length) return payload;
+	const pending = await pendingRowIds(database, tableName, ids);
+	if (!pending.size) return payload;
+	const optionSource = option as Record<string, unknown>;
+	const actions = optionSource.actions && typeof optionSource.actions === 'object' && !Array.isArray(optionSource.actions)
+		? optionSource.actions as Record<string, unknown>
+		: {};
+	const rowActions = Array.isArray(actions.row) ? actions.row : [];
+	const canApprove = (c.get('effectiveRoles') ?? []).some((role) => APPROVAL_SKIP_ROLES.includes(role));
+	return {
+		...payload,
+		table: {
+			...source,
+			// 标记列排在最前：一行有没有在等审批，是看这一行时最先要知道的事。
+			columns: [{ dataIndex: PENDING_FIELD, title: '审批', options: [{ value: '1', text: '待审批', color: 'orange' }] }, ...(Array.isArray(source.columns) ? source.columns : [])],
+			dataSource: rows.map((row) => ({ ...(row as Record<string, unknown>), [PENDING_FIELD]: pending.has(String((row as Record<string, unknown>)[rowKey] ?? '')) ? '1' : '' })),
+			option: {
+				...optionSource,
+				actions: {
+					...actions,
+					row: [
+						...rowActions,
+						{ key: WITHDRAW_ACTION, label: '撤回申请', confirm: '确认撤回这一行还没生效的修改吗？数据不会被改动。', visibleWhen: { field: PENDING_FIELD, values: ['1'] } },
+						...(canApprove ? [{ key: APPROVE_ACTION, label: '立即批准', confirm: '确认立即批准并生效吗？', visibleWhen: { field: PENDING_FIELD, values: ['1'] } }] : []),
+					],
+				},
+			},
 		},
 	};
 };
@@ -134,7 +191,6 @@ const writeApiResponse = (c: Context<AppEnv>, status: number, data: Record<strin
 );
 
 /** 有权跳过审批的角色，与 §9 的撤回权限一致。 */
-const APPROVAL_SKIP_ROLES = ['platform_admin', 'tenant_admin', 'branch_admin'];
 
 /**
  * 告诉前端要不要渲染「立即生效」勾选框。
@@ -176,7 +232,7 @@ export const apiResponse = async <T extends ApiSuccessData>(
 	const next = payload.next;
 	const refreshesAuth = Boolean(next && typeof next === 'object' && !Array.isArray(next) && (next as { refreshAuth?: unknown }).refreshAuth === true);
 	const includesAuth = requestsAuthContext(c);
-	const utilityPayload = withChangeControl(c, withSortableColumns(c, withTableUtilities(c, payload)));
+	const utilityPayload = withChangeControl(c, withSortableColumns(c, await withPendingApproval(c, withTableUtilities(c, payload))));
 	let responseData: Record<string, unknown> = selectTableResponse(utilityPayload, c);
 	const contextProvider = c.get('apiContext');
 	if ((includesAuth || refreshesAuth) && contextProvider) {

@@ -1,5 +1,6 @@
 import { withDatabaseActors, type DatabaseAdapter } from '@server/database/index.mjs';
 import { createDatabaseConfigStore } from './config-store.mjs';
+import { CONFIG_TABLE, invalidateConfigurationCache } from './configuration-cache.mjs';
 import { normalizeSiteSettings } from './site-settings.mjs';
 import { allSql, AUDIT_TABLE, firstSql, runSql, runSystemSql, sql, type SqlAuditAction, type SqlCondition, type SqlSortOption } from '@server/database/sql.mjs';
 import { isHiddenValueColumn, isHiddenValueKey } from '@shared/audit-tables.mjs';
@@ -266,6 +267,9 @@ const transitionOne = async (database: DatabaseAdapter, entry: AuditEntryRow, to
 		if (Number(result.meta?.changes ?? 0) === 0) {
 			return { id: entry.id, ok: false, message: `该记录已被后续修改覆盖，无法${allowed.label}` };
 		}
+		// 审批通过是直接把值写回表的，绕过了 configStore 那条会清缓存的路；不清的话
+		// 批准完页面还显示旧值，看起来像批准没生效。
+		if (entry.table_name === CONFIG_TABLE) invalidateConfigurationCache();
 	}
 	// 带上原状态做条件：并发下只有一个请求能迁移成功。
 	// 走 runSystemSql：这次迁移的留痕就是这几列本身，再记一条是重复；

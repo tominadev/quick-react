@@ -29,6 +29,7 @@ import { parseRoles } from '@shared/types/role.mjs';
 import { normalizePagePath, stripPageSuffix } from '@shared/navigation-tree.mjs';
 import type { AppEnv, RuntimeBindings } from './modules/base/types.mjs';
 import { workerApiModules, workerApiRoutes } from './.generated/worker-api-registry.mjs';
+import { configurationBucket as sharedConfigurationBucket } from './modules/base/configuration-cache.mjs';
 
 export type WorkerBindings = RuntimeBindings & {
 	ASSETS?: { fetch: (request: Request) => Promise<Response> };
@@ -44,15 +45,9 @@ type CachedConfiguration = {
 	techStackConfig: Awaited<ReturnType<typeof loadTechStackConfigFromStore>>;
 	siteSettings: Awaited<ReturnType<typeof loadSiteSettings>>;
 };
-// 配置按租户独立，缓存键必须是（库，租户）而不只是库。
-const configurationCache = new WeakMap<object, Map<string, CachedConfiguration>>();
-const configurationBucket = (database: object) => {
-	const existing = configurationCache.get(database);
-	if (existing) return existing;
-	const bucket = new Map<string, CachedConfiguration>();
-	configurationCache.set(database, bucket);
-	return bucket;
-};
+// 配置按租户独立，缓存键必须是（库，租户）而不只是库。缓存本体在 configuration-cache，
+// 因为审批通过那条路径也要能清它，而那里够不着 worker。
+const configurationBucket = (database: object) => sharedConfigurationBucket(database) as Map<string, CachedConfiguration>;
 
 const asAdapter = (binding: unknown): DatabaseAdapter | undefined => {
 	if (!binding || typeof binding !== 'object' || !('prepare' in binding)) return undefined;

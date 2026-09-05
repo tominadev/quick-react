@@ -68,6 +68,54 @@ const auditRouteFilter = async () => {
 		assert.equal(capped.rows, 200, '列表仍按上限返回');
 		assert.equal(capped.total, 252, '总数是真实条数，不是取回的条数');
 
+		// 待审批的修改要在页面上看得见、也动得了：进了队列却什么都看不出来的话，
+		// 表单显示的仍是旧值，用户以为没保存成功，于是再改一次，队列里堆出第二条。
+		const settings = 'http://localhost/api/panel/admin/base/settings/site.php';
+		const put = (body, immediate) => app.request(settings, { method: 'PUT', headers: { ...headers, cookie, ...(immediate ? { 'x-change-immediate': '1' } : {}) }, body: JSON.stringify(body) });
+		await put({ footer: '页脚甲', __changedFields: ['footer'] }, true);
+		assert.equal((await put({ footer: '页脚乙', __changedFields: ['footer'] })).status, 202, '不勾立即生效就进审批队列');
+		const pendingPage = await (await app.request(settings, { headers: { ...headers, cookie } })).json();
+		assert.match(pendingPage.formPage.description, /有 1 项修改正在等待审批/);
+		assert.match(pendingPage.formPage.description, /value\.footer：页脚甲 → 页脚乙/, '提示里要写清改了什么');
+		assert.deepEqual(pendingPage.formPage.actions.slice(0, 2).map((action) => action.key), ['withdraw-pending', 'approve-pending']);
+		assert.equal(pendingPage.currentValues.footer, '页脚甲', '还没批准，页面上仍是旧值');
+		assert.equal((await app.request(`${settings}?action=approve-pending`, { method: 'POST', headers: { ...headers, cookie }, body: '{}' })).status, 200);
+		const approved = await (await app.request(settings, { headers: { ...headers, cookie } })).json();
+		// 批准是直接写回表的，绕过了 configStore 那条会清缓存的路；不清缓存的话这里还是旧值。
+		assert.equal(approved.currentValues.footer, '页脚乙', '批准后要立刻生效，不能被配置缓存挡住');
+		assert.doesNotMatch(approved.formPage.description, /正在等待审批/);
+		// 撤回只收回申请，数据一动不动。
+		await put({ footer: '页脚丙', __changedFields: ['footer'] });
+		assert.equal((await app.request(`${settings}?action=withdraw-pending`, { method: 'POST', headers: { ...headers, cookie }, body: '{}' })).status, 200);
+		const withdrawn = await (await app.request(settings, { headers: { ...headers, cookie } })).json();
+		assert.equal(withdrawn.currentValues.footer, '页脚乙', '撤回不改数据');
+		assert.doesNotMatch(withdrawn.formPage.description, /正在等待审批/);
+
+		// TableCRUD 一律通用：有修改在等审批的行会被标出来，并挂上撤回与立即批准。
+		// 先清掉上面为测总数塞的假记录：它们的 table_name 也是 base_users、row_id 是 0..249，
+		// 会和新建账号的 id 撞上，让这一段测到的是那些假记录。
+		const cleanup = new DatabaseSync(process.env.DEFAULT_DATABASE_FILE);
+		cleanup.prepare("DELETE FROM base_audit_entries WHERE changes = '{}'").run();
+		cleanup.close();
+		const usersApi = 'http://localhost/api/panel/admin/base/users.php';
+		await app.request(usersApi, { method: 'POST', headers: { ...headers, cookie }, body: JSON.stringify({ user_name: 'pendingbob', password: 'bob-password-123', roles: [], status: 'enabled' }) });
+		const listBefore = await (await app.request(`${usersApi}?include=schema,data`, { headers: { ...headers, cookie } })).json();
+		const bob = listBefore.table.dataSource.find((row) => row.user_name === 'pendingbob');
+		assert.ok(bob, '新建的账号应该在列表里');
+		assert.equal((await app.request(`${usersApi}/${bob.id}`, { method: 'PUT', headers: { ...headers, cookie }, body: JSON.stringify({ status: 'disabled', __changedFields: ['status'] }) })).status, 202);
+		const marked = await (await app.request(`${usersApi}?include=schema,data`, { headers: { ...headers, cookie } })).json();
+		assert.equal(marked.table.columns[0].dataIndex, '_pending', '标记列排在最前：这是看一行时最先要知道的事');
+		assert.equal(marked.table.dataSource.find((row) => row.user_name === 'pendingbob')._pending, '1');
+		assert.deepEqual(
+			marked.table.option.actions.row.slice(-2).map((action) => action.key),
+			['withdraw-pending', 'approve-pending'],
+		);
+		assert.equal(marked.table.dataSource.find((row) => row.user_name === 'pendingbob').status, 'enabled', '还没批准就不该生效');
+		assert.equal((await app.request(`${usersApi}/${bob.id}?action=approve-pending`, { method: 'POST', headers: { ...headers, cookie }, body: '{}' })).status, 200);
+		const applied = await (await app.request(`${usersApi}?include=schema,data`, { headers: { ...headers, cookie } })).json();
+		assert.equal(applied.table.dataSource.find((row) => row.user_name === 'pendingbob').status, 'disabled');
+		assert.equal(applied.table.columns[0].dataIndex !== '_pending', true, '没有待审批的行时不必占一列');
+
 		// 列的先后要与 prisma 里的字段顺序一致：两处对照着看时不用来回找。
 		// 只比相对次序——不是每个字段都显示（operation_id 就不显示），也允许有计算列。
 		const schema = await readFile(resolve(projectDirectory, 'prisma/base.prisma'), 'utf8');

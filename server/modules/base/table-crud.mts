@@ -6,6 +6,7 @@ import { firstSql, runSql, sql, type SqlCondition } from '@server/database/sql.m
 import { runOperationSql } from './operation.mjs';
 import { apiMessage } from './api-response.mjs';
 import { deletedScopeFromQuery } from './query-options.mjs';
+import { APPROVE_ACTION, WITHDRAW_ACTION, handlePendingApprovalAction } from './pending-approval.mjs';
 
 export type TableCrudDatabase = 'database' | 'passportDatabase' | 'globalDatabase';
 export type TableCrudValue = string | ((c: Context<AppEnv>) => string | undefined | Promise<string | undefined>);
@@ -26,9 +27,23 @@ const readIds = async (c: Context<AppEnv>, routeId?: string) => {
 	return Array.isArray(body) ? body.map((value) => String(value)).filter(Boolean) : [];
 };
 
-/** 处理所有 TableCRUD 共用的恢复/彻底删除动作；请求路径仍是原表格接口。 */
+/** 处理所有 TableCRUD 共用的恢复/彻底删除、撤回申请/立即批准动作；请求路径仍是原表格接口。 */
 export const handleTableCrudAction = async (c: Context<AppEnv>, definition: TableCrudDefinition, routeId?: string): Promise<Response | undefined> => {
 	if (c.req.method !== 'POST') return undefined;
+	const pendingAction = c.req.query('action');
+	if (pendingAction === WITHDRAW_ACTION || pendingAction === APPROVE_ACTION) {
+		const database = tableCrudDatabase(c, definition);
+		if (!database) return apiMessage(c, 503, '目标数据库不可用');
+		const table = await resolveValue(c, definition.table);
+		if (!table) return apiMessage(c, 400, '目标数据表未配置');
+		const ids = await readIds(c, routeId);
+		if (!ids.length) return apiMessage(c, 400, '请选择要处理的记录');
+		// 逐行处理：一行的申请撤不动不该连累其余的（§7.4）。
+		const results = await Promise.all(ids.map((id) => handlePendingApprovalAction(c, table, id)));
+		const failed = results.flatMap((result) => result && !result.ok ? [result.message] : []);
+		if (failed.length) return apiMessage(c, 409, failed.join('；'));
+		return apiMessage(c, 200, pendingAction === APPROVE_ACTION ? '已批准并生效' : '已撤回申请');
+	}
 	if (deletedScopeFromQuery(c) !== 'deleted') return undefined;
 	const action = c.req.query('action');
 	if (action !== 'restore' && action !== 'purge') return undefined;

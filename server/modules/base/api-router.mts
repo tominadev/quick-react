@@ -117,9 +117,12 @@ export const createApiGateway = (
 		const execute = async (index: number): Promise<Response> => {
 			const { module } = loadedModules[index];
 			if (typeof module.default !== 'function') throw new Error(`API module must export a handler: ${loadedModules[index].file}`);
-			if (index === tableCrudIndex && deletedScopeFromQuery(c) === 'deleted') {
-				const recycleResponse = await handleTableCrudAction(c, tableCrudEntry!.module.tableCrud!, matched.params.id);
-				if (recycleResponse) return recycleResponse;
+			// 共用动作（回收站的恢复/彻底删除、审批的撤回/立即批准）先于路由自己的分支处理。
+			// 不再只在回收站范围里调用：撤回与立即批准发生在正常列表上，
+			// 只在 deleted 范围里调的话它们永远走不到，表现是「API route did not return a response」。
+			if (index === tableCrudIndex) {
+				const sharedResponse = await handleTableCrudAction(c, tableCrudEntry!.module.tableCrud!, matched.params.id);
+				if (sharedResponse) return sharedResponse;
 			}
 			const next = async () => index + 1 < files.length
 				? execute(index + 1)

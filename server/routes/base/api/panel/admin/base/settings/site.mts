@@ -1,5 +1,6 @@
 import type { ApiHandler } from '@server/modules/base/api-router.mjs';
-import { apiMessageData, apiResponse } from '@server/modules/base/api-response.mjs';
+import { apiMessage, apiMessageData, apiResponse } from '@server/modules/base/api-response.mjs';
+import { configRowId, handlePendingApprovalAction, pendingApprovalNotice } from '@server/modules/base/pending-approval.mjs';
 import { mergeChangedFields } from '@server/modules/base/changed-fields.mjs';
 import { defaultSiteSettings, normalizeSiteSettings } from '@server/modules/base/site-settings.mjs';
 import { defaultMinUserNameLength, maxUserNameLength } from '@shared/account-name.mjs';
@@ -30,12 +31,26 @@ const formPage = {
 	],
 } satisfies FormPageConfig;
 
+const CONFIG_KEY = 'site-settings';
+
 const handler: ApiHandler = async (c, next) => {
-	if (c.req.method === 'GET') return apiResponse(c, 200, { currentValues: c.get('siteSettings'), formPage });
+	const rowId = await configRowId(c, CONFIG_KEY);
+	// 撤回申请 / 立即批准：提交后进了审批队列，页面上得看得见、也动得了。
+	const handled = await handlePendingApprovalAction(c, 'base_configs', rowId);
+	if (handled) return apiMessage(c, handled.ok ? 200 : 409, handled.message);
+	if (c.req.method === 'GET') {
+		const pending = await pendingApprovalNotice(c, 'base_configs', rowId);
+		return apiResponse(c, 200, {
+			currentValues: c.get('siteSettings'),
+			formPage: pending
+				? { ...formPage, description: `${pending.notice}\n\n${formPage.description}`, actions: [...pending.actions, ...formPage.actions] }
+				: formPage,
+		});
+	}
 	if (c.req.method === 'PUT') {
 		const body = await c.req.json<unknown>().catch(() => ({}));
 		const settings = normalizeSiteSettings(mergeChangedFields(c.get('siteSettings'), body, ['contactEmail', 'footer', 'logoutLocalEnabled', 'logoutPassportEnabled', 'logoutAllEnabled', 'apiBootstrapEnabled', 'userNameMinLength', 'auditRetentionDays', 'registrationEnabled', 'localLoginEnabled', 'passwordSyncEnabled']));
-		await c.get('configStore').put('site-settings', settings);
+		await c.get('configStore').put(CONFIG_KEY, settings);
 		c.set('siteSettings', settings);
 		return apiMessageData(c, 200, '站点设置已保存', { currentValues: settings }, { component: 'inline', showIcon: true, title: '保存结果' });
 	}
