@@ -33,7 +33,15 @@ const applyMigrations = async (database) => {
 };
 const tables = (database) => new Map(database.prepare("SELECT name, sql FROM sqlite_master WHERE type = 'table' AND name NOT LIKE 'sqlite_%'").all().map((row) => [row.name, row.sql]));
 const columns = (database, table) => new Set(database.prepare(`PRAGMA table_info(${JSON.stringify(table)})`).all().map((row) => row.name));
+/**
+ * 建表语句里的 UNIQUE 会生成 sql 为 NULL 的自动索引，这里只比对显式 CREATE INDEX——
+ * migrations 里的唯一约束都是独立语句，按名字比对因此是完整的。
+ */
+const indexes = (database, table) => new Map(database
+	.prepare("SELECT name, sql FROM sqlite_master WHERE type = 'index' AND tbl_name = ? AND sql IS NOT NULL")
+	.all(table).map((row) => [row.name, row.sql]));
 const identifier = (value) => `"${String(value).replaceAll('"', '""')}"`;
+
 const rebuildTable = (actual, expected, table, createSql, wanted, present) => {
 	const temporaryTable = `__schema_repair_${table}`;
 	const temporaryCreate = createSql.replace(/^CREATE TABLE\s+(?:IF NOT EXISTS\s+)?(?:"[^"]+"|`[^`]+`|\[[^\]]+\]|\S+)/i, `CREATE TABLE ${identifier(temporaryTable)}`);
@@ -60,13 +68,36 @@ try {
 	await applyMigrations(expected);
 	if (!checkOnly) await applyMigrations(actual);
 	const expectedTables = tables(expected), actualTables = tables(actual), differences = [], rebuilds = [];
+	// 建表和建索引分开做：漏建索引不会让任何查询报错，只会让唯一性悄悄失效，
+	// 直到某次 upsert 撞上「ON CONFLICT clause does not match any ... UNIQUE constraint」
+	// 才暴露出来——那时错的是数据，不只是这一次写入。
+	const repairIndexes = (table) => {
+		const wanted = indexes(expected, table), present = indexes(actual, table);
+		for (const [name, createIndexSql] of wanted) {
+			if (present.has(name)) continue;
+			differences.push(`缺少索引：${name}`);
+			if (checkOnly) continue;
+			// 唯一索引可能被既有的重复数据挡住。报清楚是哪一条，让人先去处理数据，
+			// 而不是让整轮修复中断在这里。
+			try { actual.exec(createIndexSql); }
+			catch (error) { differences.push(`  ↑ 建索引失败（多半是已有重复数据）：${error instanceof Error ? error.message : error}`); }
+		}
+		for (const name of present.keys()) if (!wanted.has(name)) differences.push(`多余索引：${name}（不会自动删除）`);
+	};
 	for (const [table, createSql] of expectedTables) {
-		if (!actualTables.has(table)) { differences.push(`缺少表：${table}`); if (!checkOnly) actual.exec(createSql); continue; }
+		if (!actualTables.has(table)) {
+			differences.push(`缺少表：${table}`);
+			if (!checkOnly) { actual.exec(createSql); repairIndexes(table); }
+			continue;
+		}
 		const wanted = columns(expected, table), present = columns(actual, table);
-		for (const column of wanted) if (!present.has(column)) differences.push(`缺少字段：${table}.${column}（请通过 migration 补齐）`);
+		// migrations 是单文件全量 schema，标记应用过就不会再跑，后来加的列在旧库里
+		// 因此永远不会出现。这里只报不补：新项目直接删库重建，不为此维护迁移路径。
+		for (const column of wanted) if (!present.has(column)) differences.push(`缺少字段：${table}.${column}（删库重建即可）`);
 		const extras = [...present].filter((column) => !wanted.has(column));
 		for (const column of extras) differences.push(`多余字段：${table}.${column}`);
 		if (extras.length && !checkOnly && dropExtra) rebuilds.push(() => rebuildTable(actual, expected, table, createSql, wanted, present));
+		else repairIndexes(table);
 	}
 	for (const rebuild of rebuilds) rebuild();
 	for (const table of actualTables.keys()) if (!expectedTables.has(table)) differences.push(`未管理表：${table}（不会自动删除）`);
