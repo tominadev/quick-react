@@ -86,7 +86,7 @@ try {
 	const binView = await (await request(recyclePath, { cookie })).json();
 	assert.equal(binView.table.dataSource.find((row) => row.id === fixture.id)?._pending, 'restore-mine', '回收站里也要标出待审批，并且说清等的是哪一种');
 	const binActions = binView.table.option.actions.row.filter((action) => action.visibleWhen?.values?.includes('restore-mine')).map((action) => action.label);
-	assert.deepEqual(binActions, ['撤回恢复', '批准恢复'], '回收站的行上要有说清动作的撤回与批准');
+	assert.deepEqual(binActions, ['撤销还原', '批准还原'], '回收站的行上要有说清动作的撤销与批准');
 	assert.equal((await request(`${recyclePath}&action=approve-pending`, { method: 'POST', cookie, keepPending: true, body: [fixture.id] })).status, 200, '就地批准');
 	const restored = await (await request(rowsPath, { cookie })).json();
 	assert.ok(restored.table.dataSource.some((row) => row.id === fixture.id), '批准后记录应回到普通列表');

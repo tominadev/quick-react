@@ -375,11 +375,11 @@ export abstract class SqlBuilder {
 	auditActor(table: string): DatabaseActorUid | null { return this.actorUidFor(table); }
 
 	/**
-	 * 撤回专用：把审计记录里的前值写回。
+	 * 回滚专用：把审计记录里的前值写回。
 	 *
 	 * 与 update 的唯一区别是允许写 deleted_at——软删除与恢复的逆操作要还原它，
 	 * 而 restore() 只能写 0、softDelete() 只能写当前时间，都还原不了原时间戳。
-	 * where 里带上"当前值仍等于变更后的值"这组条件，撤回因此天然是条件更新。
+	 * where 里带上"当前值仍等于变更后的值"这组条件，回滚因此天然是条件更新。
 	 */
 	revert(table: string, values: Values, where: SqlCondition[]): SqlQuery {
 		return this.updateManaged(table, values, where, true);

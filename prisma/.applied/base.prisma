@@ -435,9 +435,9 @@ model base_approvals {
   /// 后发生的会把先发生的覆盖掉——恢复完之后「回滚人」显示的就成了恢复的人。
   /// 撤销单独一组同理：它和审批都从 pending 出发，但一个是审批人的决定、
   /// 一个是申请人自己收回，混在一起就分不清那一格记的是谁。
-  redone_at      BigInt?
-  redone_duid    BigInt?
-  redo_reason    String @default("")
+  reapplied_at    BigInt?
+  reapplied_duid  BigInt?
+  reapply_reason  String @default("")
   /// 恢复申请（把被驳回或撤销的申请放回队列）的时间、操作者与理由。
   ///
   /// 与上面那组「重做」分开：它们一个在审批轴上（rejected/withdrawn → pending），

@@ -49,11 +49,11 @@ export type OperationOptions = {
  * 批准修改」这类组合根本没人想要——那条修改作用在一行已经进了回收站的记录上。
  *
  * 界面上会把编辑与删除按钮一并收起来，这一句是挡伪造请求的那道门：按钮不出现只是不
- * 引诱人去点。要改就先撤回。
+ * 引诱人去点。要改就先撤销。
  */
 export class PendingLockError extends Error {
 	constructor(readonly table: string, readonly action: string) {
-		super(`这一行有一条「${action}」申请正在等待审批，请先撤回或等它审批完再操作`);
+		super(`这一行有一条「${action}」申请正在等待审批，请先撤销或等它审批完再操作`);
 		this.name = 'PendingLockError';
 	}
 }
@@ -65,7 +65,7 @@ export class PendingApprovalError extends Error {
 	}
 }
 
-/** 有权跳过审批的角色，与 §9 的撤回权限一致。 */
+/** 有权跳过审批的角色，与 §9 的回滚权限一致。 */
 /** 能跳过审批的角色。「立即生效」与「立即批准」是同一件事的两个入口，共用这一道门。 */
 export const APPROVAL_SKIP_ROLES = ['platform_admin', 'tenant_admin', 'branch_admin'];
 
@@ -157,9 +157,9 @@ const asJson = (value: unknown) => {
  * **同一列会因为从哪个页面改而记成两种形态**——
  * `{"before":["a"],"after":["b"]}` 与 `{"before":"[\"a\"]","after":"[\"b\"]"}`。
  *
- * 因此只要写入侧能解析成 JSON，两边就都还原成对象或数组。撤回时写回对象同样正确：
+ * 因此只要写入侧能解析成 JSON，两边就都还原成对象或数组。回滚时写回对象同样正确：
  * 适配器会 JSON.stringify 后入库，WHERE 里的条件值走同一条路径，能和存储的文本对上。
- * 即便某个业务列的值恰好长得像 JSON（误判），来回一趟仍是同一串文本，撤回不受影响。
+ * 即便某个业务列的值恰好长得像 JSON（误判），来回一趟仍是同一串文本，回滚不受影响。
  */
 const logicalPair = (stored: unknown, written: unknown): [unknown, unknown] => {
 	const writtenJson = asJson(written);
@@ -206,8 +206,8 @@ const findPendingEntry = async (database: DatabaseAdapter, builder: ReturnType<t
  *
  * 这条比「存在性申请挡住内容申请」更严，理由是按钮上写不下第二种动作：一行同时挂着
  * 「修改」和「删除」时，`?action=withdraw-pending` 这个请求本身说不清撤的是哪一件，
- * 而界面只显示得出一对按钮——点「撤回删除」却把别人那条修改也一起撤了。要么把动作也
- * 编进每一个请求里，要么根本不让这种局面出现；后者简单得多，代价只是「先撤回再改」。
+ * 而界面只显示得出一对按钮——点「撤销删除」却把别人那条修改也一起撤了。要么把动作也
+ * 编进每一个请求里，要么根本不让这种局面出现；后者简单得多，代价只是「先撤销再改」。
  *
  * 不看是谁提的：一行的去留没定下来，谁来改都一样要等——挡的是「叠加」，不是「越权」。
  */
@@ -232,7 +232,7 @@ type RequestOrigin = { hostname: string; path: string };
 /**
  * 两侧都是普通对象时，只留变了的那几个键；否则返回 undefined，按整值记录。
  *
- * 嵌套对象整块留下：撤回要把这几个键原样写回去，留半截会把没提到的子键抹掉。
+ * 嵌套对象整块留下：回滚要把这几个键原样写回去，留半截会把没提到的子键抹掉。
  * 顶层逐键已经足够回答「改了什么」，再往下拆只会让写回的逻辑变复杂。
  */
 const jsonKeyDiff = (before: unknown, after: unknown) => {
@@ -382,7 +382,7 @@ const recordStatement = async (database: DatabaseAdapter, metadata: SqlAuditMeta
 			if (sameValue(before, after)) continue;
 			// JSON 列只记**变了的那几个键**：改一个页脚而把整块站点配置抄进审计，
 			// 「改了什么」等于没答，记录也会随配置一起膨胀。
-			// 撤回时按键合并回去，不整块覆盖，见 audit.mts 的 transitionOne。
+			// 回滚时按键合并回去，不整块覆盖，见 audit.mts 的 transitionOne。
 			changes[column] = jsonKeyDiff(before, after) ?? { before, after };
 		}
 		if (!Object.keys(changes).length) continue;

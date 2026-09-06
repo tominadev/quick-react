@@ -17,7 +17,7 @@ type PendingEntry = { id: string; changes: string; reason: string; created_at: n
  * 这几条申请里哪些是**当前这个人**提的。
  *
  * 比到人，不比到设备：记录里存的是 created_duid（设备用户），直接拿它和当前请求的 duid 比，
- * 同一个人换台设备就成了「两个人」——他会看到「批准」而不是「撤回」，点下去又被四眼原则
+ * 同一个人换台设备就成了「两个人」——他会看到「批准」而不是「撤销」，点下去又被四眼原则
  * 挡回来。四眼原则那一侧（assertNotSelfApproval）早就落到人了，这一侧要用同一把尺子。
  */
 const mineOf = async (c: Context<AppEnv>, database: DatabaseAdapter, entries: readonly PendingEntry[]) => {
@@ -38,7 +38,7 @@ export const pendingEntriesFor = async (database: DatabaseAdapter, table: string
 		table: 'base_approvals',
 		// 回收站视图会把适配器的默认范围设成 deleted，那说的是**被浏览的那张表**。
 		// 不写死 active 的话，这里会去找「已删除的审批记录」，一条都找不到——
-		// 于是在回收站里恢复一条记录、进了队列，行上却不显示待审批，撤回和批准两个按钮
+		// 于是在回收站里恢复一条记录、进了队列，行上却不显示待审批，撤销和批准两个按钮
 		// 被 visibleWhen 一起藏掉。
 		deleted: 'active',
 		columns: { id: { column: 'id', cast: 'text' }, changes: 'changes', reason: 'reason', created_at: 'created_at', created_duid: { column: 'created_duid', cast: 'text' } },
@@ -49,9 +49,9 @@ export const pendingEntriesFor = async (database: DatabaseAdapter, table: string
 /**
  * 这一行等着审批的是**哪一种**申请、是不是**我自己**提的。
  *
- * 两件事决定了行上该出现哪几个按钮：撤回只对自己提的有意义（替别人撤等于替别人做决定，
- * 那是驳回该干的事），驳回只对别人提的有意义（自己的东西直接撤回就是了）。而新增与修改
- * 要分开说：「撤回新增」会把那一行删掉，「撤回修改」一个字都不动数据，同一句话概括不了。
+ * 两件事决定了行上该出现哪几个按钮：撤销只对自己提的有意义（替别人撤等于替别人做决定，
+ * 那是驳回该干的事），驳回只对别人提的有意义（自己的东西直接撤销就是了）。而新增与修改
+ * 要分开说：「撤销新增」会让那一行进回收站，「撤销修改」一个字都不动数据，同一句话概括不了。
  *
  * 一次问清整批行：逐行去查会把一次列表变成 N 次查询。取的是这张表**全部**待审批记录
  * 再在内存里取交集，而不是按当前页的 id 过滤——待审批的行天然很少（它们在等人处理），
@@ -85,8 +85,8 @@ export const pendingRowStates = async (c: Context<AppEnv>, database: DatabaseAda
 			// 新增压过其余：一行同时挂着新建与随后的改草稿时，「这一行还不存在」是更要紧的事。
 			// 其余按记录顺序取最后一条——那是这一行上最新的一次申请。
 			kind: previous?.kind === 'insert' ? 'insert' : kind,
-			// 只要有一条不是自己提的，整行就不算「我的申请」——撤回只撤得动自己那几条，
-			// 按钮显示成撤回却只撤走一半，比不显示更糟。
+			// 只要有一条不是自己提的，整行就不算「我的申请」——撤销只撤得动自己那几条，
+			// 按钮显示成撤销却只撤走一半，比不显示更糟。
 			mine: (previous?.mine ?? true) && mine.has(String(row.id)),
 		});
 	}
@@ -103,7 +103,7 @@ export const pendingRowStates = async (c: Context<AppEnv>, database: DatabaseAda
  * - 删除、恢复发的是另一种动作，只在这一行干干净净时出现。
  *
  * 挡在这里不是为了省一次请求，而是因为按钮上写不下第二种动作：一行同时挂着「修改」和
- * 「删除」时，界面只显示得出一对撤回/批准按钮，点「撤回删除」却把那条修改也一起撤了。
+ * 「删除」时，界面只显示得出一对撤销/批准按钮，点「撤销删除」却把那条修改也一起撤了。
  */
 export const EDIT_ACTION_VALUES = ['', 'update-mine', 'update-other'];
 export const IDLE_ACTION_VALUES = [''];
@@ -114,18 +114,18 @@ export const pendingRowToken = (state: PendingRowState | undefined) => state ? `
 /**
  * 四种申请各自的说法。
  *
- * 一句「撤回申请」概括不了它们:撤回新增会把那一行删掉,撤回修改一个字都不动数据,
- * 撤回删除是让记录留在原处,撤回恢复是让它留在回收站里——后果各不相同,而这正是
+ * 一句「撤销」概括不了它们:撤销新增会让那一行进回收站,撤销修改一个字都不动数据,
+ * 撤销删除是让记录留在原处,撤销还原是让它留在回收站里——后果各不相同,而这正是
  * 点下去之前要知道的事。
  */
 export const PENDING_KINDS: ReadonlyArray<{ kind: PendingRowKind; label: string; approve: string; reject: string; withdraw: string }> = [
 	// 一行上可能同时挂着好几条申请（新建之后又改过草稿，建号那三行还共享一个操作号），
 	// 点一次就是把这一行上的它们**一起**处理掉，因此措辞说的是「这一行上的申请」而不是
 	// 「这一条」——按钮上只写得下最要紧的那一种（新增压过其余），别让它听起来只动一条。
-	{ kind: 'insert', label: '新增', approve: '确认批准这一行上的申请吗？这一行会开始生效。', reject: '确认驳回这一行上的申请吗？这一行是新建的，驳回后会进回收站。', withdraw: '确认撤回这一行上还没生效的申请吗？这一行是新建的，撤回后会进回收站。' },
-	{ kind: 'update', label: '修改', approve: '确认批准这一行上的修改并立即生效吗？', reject: '确认驳回这一行上的修改吗？数据不会被改动。', withdraw: '确认撤回这一行上还没生效的修改吗？数据不会被改动。' },
-	{ kind: 'soft_delete', label: '删除', approve: '确认批准并把这条记录移入回收站吗？', reject: '确认驳回这条删除吗？记录会留在原处。', withdraw: '确认撤回这条还没生效的删除吗？记录会留在原处。' },
-	{ kind: 'restore', label: '恢复', approve: '确认批准并把这条记录放回列表吗？', reject: '确认驳回这条恢复吗？记录会留在回收站里。', withdraw: '确认撤回这条还没生效的恢复吗？记录会留在回收站里。' },
+	{ kind: 'insert', label: '新增', approve: '确认批准这一行上的申请吗？这一行会开始生效。', reject: '确认驳回这一行上的申请吗？这一行是新建的，驳回后会进回收站。', withdraw: '确认撤销这一行上还没生效的申请吗？这一行是新建的，撤销后会进回收站。' },
+	{ kind: 'update', label: '修改', approve: '确认批准这一行上的修改并立即生效吗？', reject: '确认驳回这一行上的修改吗？数据不会被改动。', withdraw: '确认撤销这一行上还没生效的修改吗？数据不会被改动。' },
+	{ kind: 'soft_delete', label: '删除', approve: '确认批准并把这条记录移入回收站吗？', reject: '确认驳回这条删除吗？记录会留在原处。', withdraw: '确认撤销这条还没生效的删除吗？记录会留在原处。' },
+	{ kind: 'restore', label: '还原', approve: '确认批准并把这条记录放回列表吗？', reject: '确认驳回这条还原吗？记录会留在回收站里。', withdraw: '确认撤销这条还没生效的还原吗？记录会留在回收站里。' },
 ];
 
 /** 配置项在 base_configs 里的行号；还没有这一行就没有待审批可言。 */
@@ -148,12 +148,12 @@ const canApproveOwn = (c: Context<AppEnv>) => canApprove(c) && isSuperUser(c);
  * 待审批提示块与可执行的动作。
  *
  * 三个按钮各有各的出现条件：
- * - **撤回申请**只在「这条是我自己提的」时出现——撤回的意思是把自己的申请收回去，
+ * - **撤销**只在「这条是我自己提的」时出现——撤销的意思是把自己的申请收回去，
  *   替别人撤等于替别人做决定，那是驳回该干的事。
  * - **批准 / 驳回**只对有审批权的人出现。批准与「立即生效」是同一件事的两个入口，
  *   共用同一道角色门。
  *
- * 驳回和撤回落到同一个状态，但不是同一件事：一个是审批人否掉别人的申请，
+ * 驳回和撤销落到同一个状态，但不是同一件事：一个是审批人否掉别人的申请，
  * 一个是申请人收回自己的，因此权限和按钮都分开。
  */
 export const pendingApprovalNotice = async (c: Context<AppEnv>, table: string, rowId: string | number | bigint | undefined) => {
@@ -186,7 +186,7 @@ export const pendingApprovalNotice = async (c: Context<AppEnv>, table: string, r
 		 * 批准自己那一份只给超级用户：其余人受四眼原则限制，点了必然失败（§13.5）。
 		 */
 		actions: [
-			...(mine.length ? [{ key: WITHDRAW_ACTION, label: mine.length === entries.length ? '撤销申请' : `撤销我的 ${mine.length} 项申请`, confirm: '确认撤销这些还没生效的申请吗？数据不会被改动。' }] : []),
+			...(mine.length ? [{ key: WITHDRAW_ACTION, label: mine.length === entries.length ? '撤销' : `撤销我的 ${mine.length} 项申请`, confirm: '确认撤销这些还没生效的申请吗？数据不会被改动。' }] : []),
 			...(approver && (superUser || !mine.length) ? [{ key: APPROVE_ACTION, label: '批准并生效', confirm: '确认批准并立即生效吗？' }] : []),
 			...(approver && others.length ? [{ key: REJECT_ACTION, label: others.length === entries.length ? '驳回' : `驳回其他人的 ${others.length} 项申请`, confirm: '确认驳回这些修改吗？数据不会被改动。', danger: true }] : []),
 		],
@@ -224,7 +224,7 @@ export const handlePendingApprovalAction = async (c: Context<AppEnv>, table: str
 	 * 撤销只动自己提的，驳回只动别人提的——**两个动作作用在不相交的两批申请上**。
 	 *
 	 * 撤销是把自己提的东西收回去，替别人撤等于替别人做决定；驳回是审批人否掉别人的申请，
-	 * 自己的东西直接撤回就是了。分开之后，一行上两个人各提过一次时，两个按钮各管各的那几条，
+	 * 自己的东西直接撤销就是了。分开之后，一行上两个人各提过一次时，两个按钮各管各的那几条，
 	 * 不会互相踩；驳回也不再会撞上四眼原则那道判定而整批失败。
 	 */
 	const mineIds = action === APPROVE_ACTION ? undefined : await mineOf(c, database, all);

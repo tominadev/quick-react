@@ -96,11 +96,11 @@ const auditRouteFilter = async () => {
 		// 批准是直接写回表的，绕过了 configStore 那条会清缓存的路；不清缓存的话这里还是旧值。
 		assert.equal(approved.currentValues.footer, '页脚乙', '批准后要立刻生效，不能被配置缓存挡住');
 		assert.equal(approved.formPage.notice, undefined);
-		// 撤回只收回申请，数据一动不动。
+		// 撤销只收回申请，数据一动不动。
 		await put({ footer: '页脚丙', __changedFields: ['footer'] });
 		assert.equal((await app.request(`${settings}?action=withdraw-pending`, { method: 'POST', headers: { ...headers, cookie }, body: '{}' })).status, 200);
 		const withdrawn = await (await app.request(settings, { headers: { ...headers, cookie } })).json();
-		assert.equal(withdrawn.currentValues.footer, '页脚乙', '撤回不改数据');
+		assert.equal(withdrawn.currentValues.footer, '页脚乙', '撤销不改数据');
 		assert.equal(withdrawn.formPage.notice, undefined);
 
 		// 四个设置页共用同一个模板，别的页也得有同样的提示和动作：之前只有站点设置接了，
@@ -118,7 +118,7 @@ const auditRouteFilter = async () => {
 		assert.equal(systemApproved.currentValues.domain, 'unified-yi.example', '批准后系统配置也要立刻生效');
 		assert.equal(systemApproved.formPage.notice, undefined);
 
-		// TableCRUD 一律通用：有修改在等审批的行会被标出来，并挂上撤回与立即批准。
+		// TableCRUD 一律通用：有修改在等审批的行会被标出来，并挂上撤销与批准。
 		// 先清掉上面为测总数塞的假记录：它们的 table_name 也是 base_users、row_id 是 0..249，
 		// 会和新建账号的 id 撞上，让这一段测到的是那些假记录。
 		const cleanup = new DatabaseSync(process.env.DEFAULT_DATABASE_FILE);
@@ -143,10 +143,10 @@ const auditRouteFilter = async () => {
 		const marked = await (await app.request(`${usersApi}?include=schema,data`, { headers: { ...headers, cookie } })).json();
 		assert.equal(marked.table.columns.some((column) => column.dataIndex === '_pending'), false, '不开「审批」列：标记是数据不是列，前端拿它给那一行换底色');
 		assert.equal(marked.table.dataSource.find((row) => row.user_name === 'pendingbob')._pending, 'update-mine');
-		// 四种申请各挂一组按钮，由 visibleWhen 按行显隐：撤回只对自己提的出现，
+		// 四种申请各挂一组按钮，由 visibleWhen 按行显隐：撤销只对自己提的出现，
 		// 驳回只对别人提的出现，批准自己那一份只给超级用户。
 		const markedActions = marked.table.option.actions.row.filter((action) => action.visibleWhen?.field === '_pending');
-		assert.ok(markedActions.some((action) => action.label === '撤回修改' && action.visibleWhen.values.includes('update-mine')));
+		assert.ok(markedActions.some((action) => action.label === '撤销修改' && action.visibleWhen.values.includes('update-mine')));
 		assert.ok(markedActions.some((action) => action.label === '批准新增'));
 		assert.ok(markedActions.some((action) => action.label === '驳回删除' && action.visibleWhen.values.includes('soft_delete-other')));
 		assert.equal(marked.table.dataSource.find((row) => row.user_name === 'pendingbob').status, 'enabled', '还没批准就不该生效');
@@ -209,7 +209,7 @@ const auditRouteFilter = async () => {
 		assert.equal(Number(rejectedRow.pended_at), 0, '并且是一条普通的已删除记录');
 		leftovers.close();
 
-		// 点批准/撤回/驳回时，动的是**页面上看到的那几条**申请。
+		// 点批准/撤销/驳回时，动的是**页面上看到的那几条**申请。
 		//
 		// 只按行号解的话，服务端会在收到请求时重新问一遍「这一行有哪些待审批」——中间别人
 		// 又提了一条，点下去就连它一起处理了，而那一条操作者根本没看见。列表把待审批记录的
@@ -241,12 +241,12 @@ const auditRouteFilter = async () => {
 			.table.dataSource.map((row) => row.action).sort();
 		assert.equal((await app.request(mixApi, { method: 'DELETE', headers: { ...headers, cookie }, body: JSON.stringify([String(mixTarget.id)]) })).status, 202);
 		assert.deepEqual(await mixQueue(), ['soft_delete']);
-		// 界面上先收起按钮：这一行只剩撤回/批准。
+		// 界面上先收起按钮：这一行只剩撤销/批准。
 		const lockedTable = await mixList();
 		const lockedRow = lockedTable.dataSource.find((row) => String(row.id) === String(staleId));
 		assert.equal(lockedRow._pending, 'soft_delete-mine');
 		const lockedLabels = lockedTable.option.actions.row.filter((action) => !action.visibleWhen || action.visibleWhen.values.includes(lockedRow._pending)).map((action) => action.label);
-		assert.deepEqual(lockedLabels, ['撤回删除', '批准删除'], '待删除的行不给编辑和删除按钮');
+		assert.deepEqual(lockedLabels, ['撤销删除', '批准删除'], '待删除的行不给编辑和删除按钮');
 		// 服务端再挡一次：按钮不出现只是不引诱人去点。
 		const locked = await app.request(`${mixApi}/${mixTarget.id}`, { method: 'PUT', headers: { ...headers, cookie }, body: JSON.stringify({ status: 'enabled', __changedFields: ['status'] }) });
 		assert.equal(locked.status, 409, '待删除的行不接受修改申请');
@@ -256,7 +256,7 @@ const auditRouteFilter = async () => {
 		assert.deepEqual(await mixQueue(), ['soft_delete'], '还是一条');
 		// 反过来也一样：挂着修改申请时不给删除按钮，也不接受删除申请——
 		// 一行同时挂着「修改」和「删除」的话，`?action=withdraw-pending` 这个请求本身说不清
-		// 撤的是哪一件，而界面只显示得出一对按钮，点「撤回删除」会把那条修改一起撤了。
+		// 撤的是哪一件，而界面只显示得出一对按钮，点「撤销删除」会把那条修改一起撤了。
 		assert.equal((await app.request(`${mixApi}/${mixTarget.id}?action=withdraw-pending`, { method: 'POST', headers: { ...headers, cookie }, body: JSON.stringify({ _pending_ids: lockedRow._pending_ids }) })).status, 200);
 		assert.equal((await app.request(`${mixApi}/${mixTarget.id}`, { method: 'PUT', headers: { ...headers, cookie }, body: JSON.stringify({ status: 'enabled', __changedFields: ['status'] }) })).status, 202);
 		const editingTable = await mixList();
@@ -264,7 +264,7 @@ const auditRouteFilter = async () => {
 		assert.equal(editingRow._pending, 'update-mine');
 		assert.deepEqual(
 			editingTable.option.actions.row.filter((action) => !action.visibleWhen || action.visibleWhen.values.includes(editingRow._pending)).map((action) => action.label),
-			['编辑', '撤回修改', '批准修改'],
+			['编辑', '撤销修改', '批准修改'],
 			'编辑留着（重新提交等于重说一遍，覆盖上一条），删除收起来',
 		);
 		const blockedDelete = await app.request(mixApi, { method: 'DELETE', headers: { ...headers, cookie }, body: JSON.stringify([String(mixTarget.id)]) });
@@ -289,30 +289,30 @@ const auditRouteFilter = async () => {
 		// 一次操作里的几行有先后：建起来从账号开始，拆掉反着来（先资料后账号）——
 		// 中间那一刻不能出现「凭证指向一个已经不存在的账号」。
 		assert.equal((await app.request(usersApi, { method: 'POST', headers: { ...headers, cookie }, body: JSON.stringify({ user_name: 'rejectme', password: 'reject-password-1', roles: [], status: 'enabled', profile_nickname: '要被驳回' }) })).status, 202);
-		// 管理后台的列表**看得见**待审批的新行，并且带上「待审批」标记和撤回/批准两个动作——
+		// 管理后台的列表**看得见**待审批的新行，并且带上「待审批」标记和撤销/批准两个动作——
 		// 看不见的话，提交的人以为没保存成功，审批的人也没地方点。
 		const pendingList = await (await app.request(`${usersApi}?include=schema,data`, { headers: { ...headers, cookie } })).json();
 		const queuedRow = pendingList.table.dataSource.find((row) => row.user_name === 'rejectme');
 		assert.ok(queuedRow, '待审批的新账号要出现在用户管理里');
-		assert.equal(queuedRow._pending, 'insert-mine', '标成「我提的新增」——按钮据此显示成「撤回新增」而不是笼统的「撤回申请」');
+		assert.equal(queuedRow._pending, 'insert-mine', '标成「我提的新增」——按钮据此显示成「撤销新增」而不是笼统的「撤销」');
 		// 不为它开一列：`_pending` 是数据不是列，前端拿它给那几行换底色。
 		assert.equal(pendingList.table.columns.some((column) => column.dataIndex === '_pending'), false, '不该多出一列');
 		const rowActions = pendingList.table.option.actions.row.map((action) => action.key);
-		assert.ok(rowActions.includes('withdraw-pending') && rowActions.includes('approve-pending'), '行上要有撤回和批准');
+		assert.ok(rowActions.includes('withdraw-pending') && rowActions.includes('approve-pending'), '行上要有撤销和批准');
 		// 写操作之后前端只取 data，用缓存的表结构。那次响应照样要带上 _pending，
-		// 否则删一行之后得整页刷新才看得见「撤回申请」。
+		// 否则删一行之后得整页刷新才看得见「撤销」。
 		const dataOnly = await (await app.request(`${usersApi}?include=data`, { headers: { ...headers, cookie } })).json();
 		assert.equal('option' in dataOnly.table, false, '只请求数据时不该下发结构');
 		assert.equal(dataOnly.table.dataSource.find((row) => row.user_name === 'rejectme')?._pending, 'insert-mine', '只取数据也要带标记');
 
-		// 待审批的新行同样锁着：改它、删它都不接受，界面上也只剩撤回/批准。
+		// 待审批的新行同样锁着：改它、删它都不接受，界面上也只剩回滚/批准。
 		//
 		// 不锁的话那条 insert 会被随后的 update 覆盖，批准时就没有人再去把 pended_at 归零
 		// ——行永远隐身、账号登不进去，而审批列表显示一切正常。这条路是「管理列表看得见
 		// 待审批的新行」之后才走得到的：看不见就点不到编辑。
 		const draft = pendingList.table.dataSource.find((row) => row.user_name === 'rejectme');
 		const draftLabels = pendingList.table.option.actions.row.filter((action) => !action.visibleWhen || action.visibleWhen.values.includes(draft._pending)).map((action) => action.label);
-		assert.deepEqual(draftLabels, ['撤回新增', '批准新增'], '待审批的新行不给编辑和删除按钮');
+		assert.deepEqual(draftLabels, ['撤销新增', '批准新增'], '待审批的新行不给编辑和删除按钮');
 		const draftEdit = await app.request(`${usersApi}/${draft.id}`, { method: 'PUT', headers: { ...headers, cookie }, body: JSON.stringify({ status: 'disabled', __changedFields: ['status'] }) });
 		assert.equal(draftEdit.status, 409, '待审批的新行不接受修改申请');
 		assert.match((await draftEdit.json()).feedback?.message ?? '', /「新增」申请正在等待审批/);
@@ -340,7 +340,7 @@ const auditRouteFilter = async () => {
 		 * 凭证、资料），捞回账号那一行而漏掉凭证，账号看着正常却登不进去。审批页按操作分组，
 		 * 天然一起处理。
 		 *
-		 * 「恢复」在审批轴（rejected/withdrawn → pending），「重做」在数据轴（reverted →
+		 * 「恢复」在审批轴（rejected/withdrawn → pending），「重新应用」在数据轴（reverted →
 		 * applied），两个名字分开：状态上互斥，但可以先后发生在同一条记录上。
 		 */
 		assert.equal((await app.request('http://localhost/api/panel/admin/base/audit.php?action=requeue', { method: 'POST', headers: { ...headers, cookie }, body: JSON.stringify([String(queuedInserts[0].id)]) })).status, 200);
@@ -487,7 +487,7 @@ try {
 	assert.equal((await entries()).length, beforeNoop, '逐列一致时不应产生记录');
 
 	// 数组值要按驱动的绑定规则归一：写入的是数组，读回来的是 JSON 文本。
-	// 不归一的话同样的值再存一次会被判成「变了」，撤回时的值校验也永远匹配不上。
+	// 不归一的话同样的值再存一次会被判成「变了」，回滚时的值校验也永远匹配不上。
 	const beforeArray = (await entries()).length;
 	await op(sql({ database: acting }).update('base_users', { roles: ['tenant_admin'] }, { id: alice.id }));
 	const arrayEntry = await latestEntry();
@@ -500,9 +500,9 @@ try {
 	// JSON 字符串，两条路径都要还原成数组。
 	await op(sql({ database: acting }).update('base_users', { roles: '["branch_admin"]' }, { id: alice.id }));
 	assert.deepEqual(changesOf(await latestEntry()).roles, { before: ['tenant_admin'], after: ['branch_admin'] }, '写入 JSON 字符串时同样记成数组');
-	assert.equal((await transitionAuditEntries(acting, [(await latestEntry()).id], 'revert'))[0].ok, true, '写入字符串的那条也要能撤回');
+	assert.equal((await transitionAuditEntries(acting, [(await latestEntry()).id], 'revert'))[0].ok, true, '写入字符串的那条也要能回滚');
 	assert.equal((await firstSql(acting, sql({ database: acting }).select({ table: 'base_users', columns: { roles: 'roles' }, where: [{ column: 'id', value: alice.id }] }))).roles, '["tenant_admin"]');
-	assert.equal((await transitionAuditEntries(acting, [arrayEntry.id], 'revert'))[0].ok, true, '数组列必须能撤回');
+	assert.equal((await transitionAuditEntries(acting, [arrayEntry.id], 'revert'))[0].ok, true, '数组列必须能回滚');
 	assert.equal((await firstSql(acting, sql({ database: acting }).select({ table: 'base_users', columns: { roles: 'roles' }, where: [{ column: 'id', value: alice.id }] }))).roles, '[]');
 
 	// ---- 一次操作可以包含多条写入，它们共享同一个 operation_id 与同一条原因 ----
@@ -567,75 +567,76 @@ try {
 	);
 	assert.equal((await firstSql(acting, sql({ database: acting }).select({ table: 'base_users', columns: { name: 'name' }, where: [{ column: 'id', value: alice.id }] }))).name, 'alice-3', '审计失败后业务数据不应被改动');
 
-	// ---- 撤回（§7）----
+	// ---- 回滚（§7）----
 	const nameOf = async (id) => (await firstSql(acting, sql({ database: acting }).select({ table: 'base_users', columns: { name: 'name' }, where: [{ column: 'id', value: id }], deleted: 'all' }))).name;
 	const statusOf = async (entryId) => (await firstSql(acting, sql({ database: acting }).select({ table: 'base_approvals', columns: { data_status: 'data_status' }, where: [{ column: 'id', value: entryId }] }))).data_status;
 	const revert = (ids, reason = '') => transitionAuditEntries(acting, ids, 'revert', reason);
 	const redo = (ids, reason = '') => transitionAuditEntries(acting, ids, 'redo', reason);
 	const entryById = async (id) => (await entries()).find((entry) => entry.id === id);
 
-	// 撤回不新开记录，而是把这一条翻到另一面。
+	// 回滚不新开记录，而是把这一条翻到另一面。
 	await op(sql({ database: acting }).update('base_users', { name: 'dave' }, { id: alice.id }));
 	const daveEntry = await latestEntry();
 	const beforeRevert = (await entries()).length;
 	// 「恢复」按钮点在一条已生效的记录上（列表过期）：拒绝，而不是翻成相反方向。
 	assert.deepEqual(await redo([daveEntry.id]), [{ id: daveEntry.id, ok: false, message: '当前数据状态是「已生效」，不能执行这个操作' }], { immediate: true });
 	assert.equal(await nameOf(alice.id), 'dave', '被拒绝时数据不变');
-	assert.deepEqual(await revert([daveEntry.id], '撤回理由：改错了'), [{ id: daveEntry.id, ok: true, message: '已回滚' }]);
-	assert.equal(await nameOf(alice.id), 'alice-3', '撤回后字段应恢复原值');
+	assert.deepEqual(await revert([daveEntry.id], '回滚理由：改错了'), [{ id: daveEntry.id, ok: true, message: '已回滚' }]);
+	assert.equal(await nameOf(alice.id), 'alice-3', '回滚后字段应恢复原值');
 	assert.equal(await statusOf(daveEntry.id), 'reverted');
-	assert.equal((await entries()).length, beforeRevert, '撤回不产生新的审计记录');
+	assert.equal((await entries()).length, beforeRevert, '回滚不产生新的审计记录');
 	// 翻转的操作者、时间与理由另存三列：原记录的 created_* 属于原操作者，不能复用。
 	const flipped = await entryById(daveEntry.id);
-	assert.equal(flipped.revert_reason, '撤回理由：改错了');
+	assert.equal(flipped.revert_reason, '回滚理由：改错了');
 	assert.ok(Number(flipped.reverted_at) > 0, '要记下什么时候撤的');
 	assert.equal(flipped.reason, daveEntry.reason, '原操作的理由不应被覆盖');
 
 	// 回滚错了就再翻回来，不会堆出一串互相指向的记录。
 	//
-	// 这一个叫**重做**（数据轴：把回滚掉的变更再写回去，就是编辑器里的撤销/重做）。
+	// 这一个叫**重新应用**（数据轴：把回滚掉的变更再写回去）。它不是一次决定，只是把已经
+	// 批准过的东西再写一遍，因此审批状态一动不动。
 	// 审批轴上那个把被驳回/撤销的申请放回队列的叫**恢复**，两个名字分开——见 TRANSITIONS 上的注释。
 	assert.deepEqual(await revert([daveEntry.id]), [{ id: daveEntry.id, ok: false, message: '当前数据状态是「已回滚」，不能执行这个操作' }]);
-	assert.deepEqual(await redo([daveEntry.id], '重做：撤错了'), [{ id: daveEntry.id, ok: true, message: '已重做' }]);
-	assert.equal(await nameOf(alice.id), 'dave', '重做后应回到变更后的值');
+	assert.deepEqual(await redo([daveEntry.id], '重新应用：回滚错了'), [{ id: daveEntry.id, ok: true, message: '已重新应用' }]);
+	assert.equal(await nameOf(alice.id), 'dave', '重新应用后应回到变更后的值');
 	assert.equal(await statusOf(daveEntry.id), 'applied');
-	assert.equal((await entries()).length, beforeRevert, '重做同样不产生新记录');
-	// 回滚与重做各写自己那一组：重做不能把「谁回滚的」覆盖掉。
+	assert.equal((await entries()).length, beforeRevert, '重新应用同样不产生新记录');
+	// 回滚与重新应用各写自己那一组：重新应用不能把「谁回滚的」覆盖掉。
 	const afterRestore = await entryById(daveEntry.id);
-	assert.equal(afterRestore.redo_reason, '重做：撤错了');
-	assert.ok(Number(afterRestore.redone_at) > 0, '要记下什么时候重做的');
-	assert.equal(afterRestore.revert_reason, '撤回理由：改错了', '恢复不能覆盖撤回理由');
-	assert.ok(Number(afterRestore.reverted_at) > 0, '撤回时间要保留');
-	// 再撤回一次，把数据放回后面用例期望的位置。
+	assert.equal(afterRestore.reapply_reason, '重新应用：回滚错了');
+	assert.ok(Number(afterRestore.reapplied_at) > 0, '要记下什么时候重新应用的');
+	assert.equal(afterRestore.revert_reason, '回滚理由：改错了', '重新应用不能覆盖回滚理由');
+	assert.ok(Number(afterRestore.reverted_at) > 0, '回滚时间要保留');
+	// 再回滚一次，把数据放回后面用例期望的位置。
 	assert.equal((await revert([daveEntry.id]))[0].ok, true);
 	assert.equal(await nameOf(alice.id), 'alice-3');
 
-	// 要还原的列在变更之后又被改过时，撤回被拒绝且数据不变。
+	// 要还原的列在变更之后又被改过时，回滚被拒绝且数据不变。
 	await op(sql({ database: acting }).update('base_users', { name: 'erin' }, { id: alice.id }));
 	const erinEntry = await latestEntry();
 	await op(sql({ database: acting }).update('base_users', { name: 'frank' }, { id: alice.id }));
 	const rejected = await revert([erinEntry.id]);
 	assert.equal(rejected[0].ok, false);
 	assert.match(rejected[0].message, /已被后续修改覆盖/);
-	assert.equal(await nameOf(alice.id), 'frank', '撤回被拒绝时数据不变');
-	assert.equal(await statusOf(erinEntry.id), 'applied', '被拒绝的记录不应标记为已撤回');
+	assert.equal(await nameOf(alice.id), 'frank', '回滚被拒绝时数据不变');
+	assert.equal(await statusOf(erinEntry.id), 'applied', '被拒绝的记录不应标记为已回滚');
 
-	// 同一行上与本次变更无关的列被改过，不影响撤回。
+	// 同一行上与本次变更无关的列被改过，不影响回滚。
 	await op(sql({ database: acting }).update('base_users', { name: 'grace' }, { id: alice.id }));
 	const graceEntry = await latestEntry();
 	await op(sql({ database: acting }).update('base_users', { status: 'disabled' }, { id: alice.id }));
-	assert.equal((await revert([graceEntry.id]))[0].ok, true, '无关列被改动不应挡住撤回');
+	assert.equal((await revert([graceEntry.id]))[0].ok, true, '无关列被改动不应挡住回滚');
 	assert.equal(await nameOf(alice.id), 'frank');
 
-	// 同一列的两次连续变更：倒序撤回全部成功，数据回到最初值。
+	// 同一列的两次连续变更：倒序回滚全部成功，数据回到最初值。
 	await op(sql({ database: acting }).update('base_users', { name: 'step-b' }, { id: alice.id }));
 	const stepB = await latestEntry();
 	await op(sql({ database: acting }).update('base_users', { name: 'step-c' }, { id: alice.id }));
 	const stepC = await latestEntry();
 	const chained = await revert([stepB.id, stepC.id]);
-	assert.deepEqual(chained.map((r) => r.ok), [true, true], '链式变更倒序撤回应全部成功');
+	assert.deepEqual(chained.map((r) => r.ok), [true, true], '链式变更倒序回滚应全部成功');
 	assert.equal(chained[0].id, stepC.id, '执行顺序必须是从新到旧，不沿用传入顺序');
-	assert.equal(await nameOf(alice.id), 'frank', '连续撤回后应回到最初值');
+	assert.equal(await nameOf(alice.id), 'frank', '连续回滚后应回到最初值');
 	// 恢复方向相反：从旧到新才走得通。
 	const restored = await redo([stepC.id, stepB.id]);
 	assert.deepEqual(restored.map((r) => r.ok), [true, true], '链式恢复应全部成功');
@@ -654,7 +655,7 @@ try {
 
 	assert.deepEqual(await revert(['999999']), [{ id: '999999', ok: false, message: '审计记录不存在或无权访问' }]);
 
-	// 撤回软删除后回到未删除；再翻回来时 deleted_at 写回**原时间戳**而不是当前时间。
+	// 回滚软删除后回到未删除；再翻回来时 deleted_at 写回**原时间戳**而不是当前时间。
 	const deletedAtOf = async () => (await firstSql(acting, sql({ database: acting }).select({ table: 'base_users', columns: { deleted_at: 'deleted_at' }, where: [{ column: 'id', value: alice.id }], deleted: 'all' }))).deleted_at;
 	await op(sql({ database: acting }).softDelete('base_users', { id: alice.id }));
 	const deleteEntry = await latestEntry();
@@ -663,28 +664,28 @@ try {
 	assert.ok(Number(deletedAt) > 0);
 	const beforeFlip = (await entries()).length;
 	assert.equal((await revert([deleteEntry.id]))[0].ok, true);
-	assert.equal(Number(await deletedAtOf()), 0, '撤回软删除后记录应回到未删除');
-	assert.equal((await entries()).length, beforeFlip, '撤回软删除不产生新记录');
+	assert.equal(Number(await deletedAtOf()), 0, '回滚软删除后记录应回到未删除');
+	assert.equal((await entries()).length, beforeFlip, '回滚软删除不产生新记录');
 	assert.equal(await statusOf(deleteEntry.id), 'reverted');
 	assert.equal((await redo([deleteEntry.id]))[0].ok, true);
 	assert.equal(String(await deletedAtOf()), String(deletedAt), '恢复删除应写回原时间戳，而不是当前时间');
 	assert.equal((await revert([deleteEntry.id]))[0].ok, true);
 	assert.equal(Number(await deletedAtOf()), 0);
 
-	// ---- 凭证列：照常记录、照常撤回，只是接口不返回值（§5）----
+	// ---- 凭证列：照常记录、照常回滚，只是接口不返回值（§5）----
 	// 凭证与账号资料分表；password 是 JSON 列（存 { hash, pattern }），前后值都记成对象。
 	await runSql(acting, sql({ database: acting }).insert('base_user_credentials', { user_id: alice.id, password: { hash: 'hash-1', pattern: 'LLLL' } }));
 	await op(sql({ database: acting }).update('base_user_credentials', { password: { hash: 'hash-2', pattern: 'LLLL' } }, { user_id: alice.id }));
 	const passwordEntry = await latestEntry();
 	const storedChanges = parseAuditChanges(passwordEntry.changes);
-	// 只记变了的键：pattern 没变就不进记录。撤回按键合并回去，下面那条断言验证了合并结果。
+	// 只记变了的键：pattern 没变就不进记录。回滚按键合并回去，下面那条断言验证了合并结果。
 	assert.deepEqual(storedChanges.password, { before: { hash: 'hash-1' }, after: { hash: 'hash-2' } }, '存储层只记变化的键，且不做加密');
 	assert.deepEqual(publicAuditChanges(storedChanges), { password: { hidden: true } }, '接口不得返回凭证值');
-	assert.equal((await revert([passwordEntry.id]))[0].ok, true, '凭证列仍然可以撤回');
+	assert.equal((await revert([passwordEntry.id]))[0].ok, true, '凭证列仍然可以回滚');
 	// 比对象而不是比 JSON 文本：键序在 JSON 里没有语义，拿文本比会为了一个无关的差别失败。
-	// 撤回只写回记录里提到的键（hash），没提到的（pattern）保持当前值——这正是差异存储换来的：
+	// 回滚只写回记录里提到的键（hash），没提到的（pattern）保持当前值——这正是差异存储换来的：
 	// 中途被别人改过的其他键不会被一起抹掉。
-	assert.deepEqual(JSON.parse((await firstSql(acting, sql({ database: acting }).select({ table: 'base_user_credentials', columns: { password: 'password' }, where: [{ column: 'user_id', value: alice.id }] }))).password), { hash: 'hash-1', pattern: 'LLLL' }, '撤回后凭证应还原');
+	assert.deepEqual(JSON.parse((await firstSql(acting, sql({ database: acting }).select({ table: 'base_user_credentials', columns: { password: 'password' }, where: [{ column: 'user_id', value: alice.id }] }))).password), { hash: 'hash-1', pattern: 'LLLL' }, '回滚后凭证应还原');
 
 	// 多列一起改时，摘要一列一行，不挤在一行里。
 	const { describeAuditChanges } = await import(pathToFileURL(moduleFile));
@@ -782,7 +783,7 @@ try {
 	await assert.rejects(() => runOperationSql(context('申请调整角色'), acting, sql({ database: acting }).update('base_users', { roles: '["tenant_admin"]' }, { id: alice.id })));
 	pendingEntry = await latestEntry();
 
-	// 待审批的记录不能撤回，只能批准或驳回。
+	// 待审批的记录不能回滚，只能批准或驳回。
 	assert.equal((await revert([pendingEntry.id]))[0].message, '当前数据状态是「未写入」，不能执行这个操作');
 
 	// 批准：把 after 写进去，并记下审批人与意见。
@@ -793,24 +794,24 @@ try {
 	assert.equal(approved.data_status, 'applied');
 	assert.equal(approved.review_reason, '同意');
 	assert.ok(Number(approved.reviewed_at) > 0, '要记下什么时候批的');
-	assert.equal(approved.revert_reason, '', '审批与撤回各用一组字段，不能互相覆盖');
+	assert.equal(approved.revert_reason, '', '审批与回滚各用一组字段，不能互相覆盖');
 
-	// 批准过的可以再撤回，撤回信息不会覆盖掉「谁批准的」。
+	// 批准过的可以再回滚，回滚信息不会覆盖掉「谁批准的」。
 	assert.equal((await revert([pendingEntry.id], '批错了'))[0].ok, true);
 	const afterRevert = await entryById(pendingEntry.id);
 	// 两列正交：回滚只把数据翻回去，「是谁放行的」原样留着。合成一列时这条信息会被冲掉。
 	assert.equal(afterRevert.review_status, 'approved', '回滚不该改动审批状态');
 	assert.equal(afterRevert.data_status, 'reverted');
-	assert.equal(afterRevert.review_reason, '同意', '撤回不能覆盖审批意见');
+	assert.equal(afterRevert.review_reason, '同意', '回滚不能覆盖审批意见');
 	assert.equal(afterRevert.revert_reason, '批错了');
-	assert.equal(afterRevert.redo_reason, '', '每组字段互不干扰');
+	assert.equal(afterRevert.reapply_reason, '', '每组字段互不干扰');
 	assert.equal(await rolesOf(), originalRoles);
 
 	// 撤销申请自己一组字段：它和审批都从 pending 出发，但一个是审批人的决定、
 	// 一个是申请人自己收回，混在一起就分不清那一格记的是谁。
 	await assert.rejects(() => runOperationSql(context('申请改名'), acting, sql({ database: acting }).update('base_users', { name: 'withdrawn-name' }, { id: alice.id })));
 	const withdrawEntry = await latestEntry();
-	assert.deepEqual(await transitionAuditEntries(acting, [withdrawEntry.id], 'withdraw', ''), [{ id: withdrawEntry.id, ok: true, message: '已撤销申请' }]);
+	assert.deepEqual(await transitionAuditEntries(acting, [withdrawEntry.id], 'withdraw', ''), [{ id: withdrawEntry.id, ok: true, message: '已撤销' }]);
 	const withdrawn = await entryById(withdrawEntry.id);
 	assert.equal(withdrawn.review_status, 'withdrawn');
 	assert.equal(withdrawn.data_status, 'unwritten', '撤销的申请从未写入');
@@ -848,7 +849,7 @@ try {
 	assert.ok(selfOnly.every((entry) => entry.scope === 'self'), '按来源筛选');
 	const byTable = await listAuditEntries(acting, [{ column: 'table_name', value: 'base_users' }]);
 	assert.ok(byTable.length && byTable.every((entry) => entry.table_name === 'base_users'), '按数据表筛选');
-	// 匹配的是提交时填的「操作原因」，不含撤回理由与审批意见——那两个各有自己的列。
+	// 匹配的是提交时填的「操作原因」，不含回滚理由与审批意见——那两个各有自己的列。
 	const byReason = await listAuditEntries(acting, [], '批量调整');
 	assert.ok(byReason.length && byReason.every((entry) => entry.reason.includes('批量调整')), '按原因模糊匹配');
 	assert.deepEqual(await listAuditEntries(acting, [], '这段文字不存在'), []);

@@ -112,7 +112,7 @@ export const createApiGateway = (
 			 * **要走审批的页面**才看得见待审批的新行。
 			 *
 			 * 不然它们在列表里根本不存在——提交的人以为没保存成功，审批的人也没地方点
-			 * 「撤回申请」「立即批准」（那两个按钮由 withPendingApproval 按行挂上，
+			 * 「撤销」「批准」（那几个按钮由 withPendingApproval 按行挂上，
 			 * 行都不出现就无从谈起）。
 			 *
 			 * 判定直接问 operationScope，不另写一遍路径比较：「这一页要不要走审批」和
@@ -136,8 +136,8 @@ export const createApiGateway = (
 		const execute = async (index: number): Promise<Response> => {
 			const { module } = loadedModules[index];
 			if (typeof module.default !== 'function') throw new Error(`API module must export a handler: ${loadedModules[index].file}`);
-			// 共用动作（回收站的恢复/彻底删除、审批的撤回/立即批准）先于路由自己的分支处理。
-			// 不再只在回收站范围里调用：撤回与立即批准发生在正常列表上，
+			// 共用动作（回收站的还原/彻底删除、审批的撤销/立即批准）先于路由自己的分支处理。
+			// 不再只在回收站范围里调用：撤销与批准发生在正常列表上，
 			// 只在 deleted 范围里调的话它们永远走不到，表现是「API route did not return a response」。
 			if (index === tableCrudIndex) {
 				const sharedResponse = await handleTableCrudAction(c, tableCrudEntry!.module.tableCrud!, matched.params.id);

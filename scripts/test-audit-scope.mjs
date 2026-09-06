@@ -27,7 +27,7 @@ const { HIDDEN_VALUE_COLUMNS, isHiddenValueColumn, isHiddenValueKey, ...constant
 // 因此改一条审计记录会照常留痕，留下的那条新记录就是「谁动了审计」的证据。
 assert.deepEqual(Object.keys(constants).filter((name) => /TABLES$/.test(name)), [], '不该再有按表划分的清单');
 
-// 凭证列照常记录、照常撤回，只是接口不返回值（§5）。整列隐藏的列绝不逐键展开。
+// 凭证列照常记录、照常回滚，只是接口不返回值（§5）。整列隐藏的列绝不逐键展开。
 assert.ok(isHiddenValueColumn('password') && !isHiddenValueColumn('name'));
 // base_configs.value 不再整列隐藏：JSON 按键求差异之后能逐键区分，密钥那几个键单独藏，
 // 其余（页脚、联系邮箱这些）照常可见——原先整列藏掉，站点配置改了什么完全看不见。

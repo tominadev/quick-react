@@ -43,7 +43,7 @@ const withSortableColumns = (c: Context<AppEnv>, payload: Record<string, unknown
 };
 
 /**
- * 给列表里「有修改在等审批」的行打上标记，并挂上撤回与立即批准两个行操作。
+ * 给列表里「有修改在等审批」的行打上标记，并挂上撤销、批准与驳回三个行操作。
  *
  * 提交后进了审批队列，列表上却什么都看不出来——显示的仍是旧值，用户以为没保存成功，
  * 于是再改一次，队列里堆出第二条。标记摆在行上，这条路就断了。
@@ -56,7 +56,7 @@ const withSortableColumns = (c: Context<AppEnv>, payload: Record<string, unknown
  * 按行显隐，没有待审批时一个都不显示，不占任何位置；而挂在结构里意味着**删一行之后
  * 只重取数据就能让按钮出现**——表结构前端是缓存的，按需下发的话，得整页刷新才看得见。
  *
- * 「立即批准」与「立即生效」是同一件事的两个入口，共用同一道角色门；撤回不设门槛，
+ * 「批准」与「立即生效」是同一件事的两个入口，共用同一道角色门；撤销不设门槛，
  * 它只是把申请收回去，数据一动不动。
  */
 const withPendingApproval = async (c: Context<AppEnv>, payload: Record<string, unknown>) => {
@@ -79,7 +79,7 @@ const withPendingApproval = async (c: Context<AppEnv>, payload: Record<string, u
 	const states = await pendingRowStates(c, database, tableName, ids);
 	const marked = rows.map((row) => {
 		const state = states.get(String((row as Record<string, unknown>)[rowKey] ?? ''));
-		// 待审批记录的 id 跟着行一起发下去：撤回/批准/驳回原样带回来，动的就是这里看到的那几条。
+		// 待审批记录的 id 跟着行一起发下去：撤销/批准/驳回原样带回来，动的就是这里看到的那几条。
 		return { ...(row as Record<string, unknown>), [PENDING_FIELD]: pendingRowToken(state), [PENDING_IDS_FIELD]: state?.ids.join(',') ?? '' };
 	});
 	// 只给要走审批的页面挂：问 operationScope，与「这一页看不看得见待审批的行」同一个答案。
@@ -92,13 +92,13 @@ const withPendingApproval = async (c: Context<AppEnv>, payload: Record<string, u
 	const rowActions = Array.isArray(actions.row) ? actions.row : [];
 	const canApprove = (c.get('effectiveRoles') ?? []).some((role) => APPROVAL_SKIP_ROLES.includes(role));
 	/**
-	 * 按钮按「谁提的」和「哪一种申请」分开挂，不是一对通用的撤回/批准。
+	 * 按钮按「谁提的」和「哪一种申请」分开挂，不是一对通用的撤销/批准。
 	 *
-	 * - **撤回**只对自己提的出现：替别人撤等于替别人做决定，那是驳回该干的事。原先它对每
+	 * - **撤销**只对自己提的出现：替别人撤等于替别人做决定，那是驳回该干的事。原先它对每
 	 *   一行都出现，点下去才被服务端挡回来（「没有你自己提交的待审批申请」）。
-	 * - **驳回**只对别人提的出现：自己的东西直接撤回就是了，多一个按钮只会让人犹豫该点哪个。
+	 * - **驳回**只对别人提的出现：自己的东西直接撤销就是了，多一个按钮只会让人犹豫该点哪个。
 	 * - **批准**自己提的那一份只给超级用户：其余人受四眼原则限制，点了必然失败（§13.5）。
-	 * - 新增与修改分开说：「撤回新增」会把那一行删掉，「撤回修改」一个字都不动数据。
+	 * - 新增与修改分开说：「撤销新增」会让那一行进回收站，「撤销修改」一个字都不动数据。
 	 *
 	 * 同一个 key 出现两次没问题：`visibleWhen` 互斥，前端过滤之后一行上只会渲染其中一个。
 	 */
@@ -106,7 +106,7 @@ const withPendingApproval = async (c: Context<AppEnv>, payload: Record<string, u
 	const on = (values: string[]) => ({ visibleWhen: { field: PENDING_FIELD, values } });
 	const sendFields = [PENDING_IDS_FIELD];
 	const approvalRowActions = PENDING_KINDS.flatMap((item) => [
-		{ key: WITHDRAW_ACTION, label: `撤回${item.label}`, confirm: item.withdraw, sendFields, ...on([`${item.kind}-mine`]) },
+		{ key: WITHDRAW_ACTION, label: `撤销${item.label}`, confirm: item.withdraw, sendFields, ...on([`${item.kind}-mine`]) },
 		...(canApprove ? [
 			{ key: APPROVE_ACTION, label: `批准${item.label}`, confirm: item.approve, sendFields, ...on(superUser ? [`${item.kind}-other`, `${item.kind}-mine`] : [`${item.kind}-other`]) },
 			{ key: REJECT_ACTION, label: `驳回${item.label}`, confirm: item.reject, sendFields, ...on([`${item.kind}-other`]) },
@@ -165,11 +165,11 @@ const withTableUtilities = (c: Context<AppEnv>, payload: Record<string, unknown>
 					actions: {
 						...actions,
 						toolbar: [
-							{ key: 'restore', label: '恢复选中记录', confirm: '确认恢复选中的记录吗？', selection: true },
+							{ key: 'restore', label: '还原选中记录', confirm: '确认还原选中的记录吗？', selection: true },
 							{ key: 'purge', label: '彻底删除选中记录', confirm: '彻底删除后无法恢复，确认继续吗？', selection: true },
 						],
 						row: [
-							{ key: 'restore', label: '恢复', confirm: '确认恢复这条记录吗？' },
+							{ key: 'restore', label: '还原', confirm: '确认还原这条记录吗？' },
 							{ key: 'purge', label: '彻底删除', confirm: '彻底删除后无法恢复，确认继续吗？' },
 						],
 					},
@@ -238,7 +238,7 @@ const writeApiResponse = (c: Context<AppEnv>, status: number, data: Record<strin
 	c.json(data, status as ContentfulStatusCode)
 );
 
-/** 有权跳过审批的角色，与 §9 的撤回权限一致。 */
+/** 有权跳过审批的角色，与 §9 的回滚权限一致。 */
 
 /**
  * 告诉前端要不要渲染「立即生效」勾选框。

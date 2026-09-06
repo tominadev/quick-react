@@ -28,7 +28,7 @@ const readIds = async (c: Context<AppEnv>, routeId?: string) => {
 	return Array.isArray(body) ? body.map((value) => String(value)).filter(Boolean) : [];
 };
 
-/** 处理所有 TableCRUD 共用的恢复/彻底删除、撤回申请/立即批准动作；请求路径仍是原表格接口。 */
+/** 处理所有 TableCRUD 共用的还原/彻底删除、撤销/批准/驳回动作；请求路径仍是原表格接口。 */
 export const handleTableCrudAction = async (c: Context<AppEnv>, definition: TableCrudDefinition, routeId?: string): Promise<Response | undefined> => {
 	if (c.req.method !== 'POST') return undefined;
 	const pendingAction = c.req.query('action');
@@ -53,7 +53,7 @@ export const handleTableCrudAction = async (c: Context<AppEnv>, definition: Tabl
 		const results = await Promise.all(ids.map((id) => handlePendingApprovalAction(c, table, id, selected)));
 		const failed = results.flatMap((result) => result && !result.ok ? [result.message] : []);
 		if (failed.length) return apiMessage(c, 409, failed.join('；'));
-		return apiMessage(c, 200, pendingAction === APPROVE_ACTION ? '已批准并生效' : pendingAction === REJECT_ACTION ? '已驳回' : '已撤回申请');
+		return apiMessage(c, 200, pendingAction === APPROVE_ACTION ? '已批准并生效' : pendingAction === REJECT_ACTION ? '已驳回' : '已撤销');
 	}
 	if (deletedScopeFromQuery(c) !== 'deleted') return undefined;
 	const action = c.req.query('action');
@@ -101,5 +101,5 @@ export const handleTableCrudAction = async (c: Context<AppEnv>, definition: Tabl
 	const pending = c.get('pendingApproval');
 	if (pending?.operationId === operationId) throw new PendingApprovalError(pending.operationId, pending.entries);
 	await c.get('siteRouter').refresh();
-	return apiMessage(c, 200, action === 'restore' ? '记录已恢复' : '记录已彻底删除');
+	return apiMessage(c, 200, action === 'restore' ? '记录已还原' : '记录已彻底删除');
 };

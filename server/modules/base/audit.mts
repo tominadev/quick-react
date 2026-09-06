@@ -27,9 +27,9 @@ export type AuditEntryRow = {
 	withdrawn_at: number | null;
 	withdrawn_duid: string | null;
 	reverted_at: number | null;
-	redone_at: number | null;
-	redone_duid: string | null;
-	redo_reason: string;
+	reapplied_at: number | null;
+	reapplied_duid: string | null;
+	reapply_reason: string;
 	reverted_duid: string | null;
 	revert_reason: string;
 	created_at: number;
@@ -56,9 +56,9 @@ const entryColumns = {
 	review_reason: 'review_reason',
 	withdrawn_at: 'withdrawn_at',
 	withdrawn_duid: { column: 'withdrawn_duid', cast: 'text' as const },
-	redone_at: 'redone_at',
-	redone_duid: { column: 'redone_duid', cast: 'text' as const },
-	redo_reason: 'redo_reason',
+	reapplied_at: 'reapplied_at',
+	reapplied_duid: { column: 'reapplied_duid', cast: 'text' as const },
+	reapply_reason: 'reapply_reason',
 	reverted_at: 'reverted_at',
 	reverted_duid: { column: 'reverted_duid', cast: 'text' as const },
 	revert_reason: 'revert_reason',
@@ -139,7 +139,7 @@ const flattenChange = (column: string, change: { before?: unknown; after?: unkno
 const flattenChanges = (changes: AuditChanges) => Object.entries(changes).flatMap(([column, change]) => flattenChange(column, change));
 
 /**
- * 凭证列照常记录、照常撤回，只是**接口不返回它的前后值**：撤回由服务端直接写回，
+ * 凭证列照常记录、照常回滚，只是**接口不返回它的前后值**：回滚由服务端直接写回，
  * 不需要任何人看见它（见需求文档 §5）。脱敏发生在这里，不在存储层。
  */
 export const publicAuditChanges = (changes: AuditChanges) => Object.fromEntries(flattenChanges(changes).map((item) => [
@@ -234,13 +234,19 @@ const TRANSITIONS: Record<ApprovalTransition, {
 }> = {
 	approve: { label: '批准', fromReview: ['pending'], review: 'approved', data: 'applied', write: 'after' },
 	reject: { label: '驳回', fromReview: ['pending'], review: 'rejected', write: 'none' },
-	withdraw: { label: '撤销申请', fromReview: ['pending'], review: 'withdrawn', write: 'none' },
+	withdraw: { label: '撤销', fromReview: ['pending'], review: 'withdrawn', write: 'none' },
 	revert: { label: '回滚', fromData: ['applied'], data: 'reverted', write: 'before' },
 	/**
 	 * **两个「往回走」在不同的轴上，因此名字要分开。**
 	 *
-	 * - 「重做」在**数据轴**：把回滚掉的变更再写回去（reverted → applied）。撤销/重做是
-	 *   编辑器里那一对，读的人不用先去看状态列就知道它做什么。
+	 * - 「重新应用」在**数据轴**：把回滚掉的变更再写回去（reverted → applied）。它**不是一次
+	 *   决定**，只是把已经批准过的东西再写一遍，因此审批状态一动不动。
+	 *
+	 * 不叫「重做」：这一页上已经有「撤销」了，撤销/重做那一对会让人以为它俩相反，而它们
+	 * 根本不在同一根轴上。也不叫「还原」——那个词留给回收站里把删掉的行捞回来。
+	 *
+	 * 「第一次生效」没有独立的名字，它就是**批准**的效果：批准同时推两根轴（审批 → 已批准，
+	 * 数据 → 已生效），而重新应用只推数据那一根。
 	 * - 「恢复」在**审批轴**：把被驳回或撤销的申请放回队列（rejected/withdrawn → pending），
 	 *   让人再看一眼；数据一个字都不写回去，等批准了才写。
 	 *
@@ -248,14 +254,14 @@ const TRANSITIONS: Record<ApprovalTransition, {
 	 * 满足不了重做的起点；回滚过的 review 是 approved，满足不了恢复的起点。但它们**可以先后
 	 * 发生在同一条记录上**（驳回 → 恢复 → 批准 → 回滚 → 重做），所以时间/操作者各占一组列。
 	 */
-	redo: { label: '重做', fromData: ['reverted'], data: 'applied', write: 'after' },
+	redo: { label: '重新应用', fromData: ['reverted'], data: 'applied', write: 'after' },
 	requeue: { label: '恢复', fromReview: ['rejected', 'withdrawn'], review: 'pending', write: 'none' },
 };
 
 export const transitionLabel = (transition: ApprovalTransition) => TRANSITIONS[transition].label;
 
 /**
- * 状态迁移：撤回、恢复、批准、驳回是同一段代码。
+ * 状态迁移：撤销、恢复、批准、驳回是同一段代码。
  *
  * 一次变更**永远只有一条记录**：`changes` 里同时有前值和后值，`status` 说明当前停在哪一边。
  * 写哪一侧只看目标状态——落到 `applied` 就写 `after`、校验 `before`；落到 `reverted` 就反过来。
@@ -302,7 +308,7 @@ const applyInsertTransition = async (database: DatabaseAdapter, entry: AuditEntr
 	 */
 	const pendedAt = to === 'requeue' ? Number(parseAuditChanges(entry.changes).pended_at?.before ?? 0) : 0;
 	const statement = to === 'approve' ? builder.activate(entry.table_name, where)
-		// 重做的对象是**被回滚过的**那一行，它当时是被软删除掉的，因此这里要动的是 deleted_at。
+		// 重新应用的对象是**被回滚过的**那一行，它当时是被软删除掉的，因此这里要动的是 deleted_at。
 		: to === 'redo' ? builder.restore(entry.table_name, where)
 			: to === 'requeue' ? builder.revert(entry.table_name, { deleted_at: 0, pended_at: pendedAt || Date.now() }, where)
 				: builder.revert(entry.table_name, { deleted_at: Date.now(), pended_at: 0 }, where);
@@ -326,7 +332,7 @@ const transitionOne = async (database: DatabaseAdapter, entry: AuditEntryRow, to
 		: to === 'approve' || to === 'reject' ? { reviewed_at: now, reviewed_duid: actor, review_reason: reason }
 			: to === 'revert' ? { reverted_at: now, reverted_duid: actor, revert_reason: reason }
 				: to === 'requeue' ? { requeued_at: now, requeued_duid: actor, requeue_reason: reason }
-					: { redone_at: now, redone_duid: actor, redo_reason: reason };
+					: { reapplied_at: now, reapplied_duid: actor, reapply_reason: reason };
 	// 新建：行已经在库里，区别只在看不看得见（驳回与撤销则把它删掉）。
 	if (entry.action === 'insert') {
 		if (!await applyInsertTransition(database, entry, to)) {
@@ -365,7 +371,7 @@ const transitionOne = async (database: DatabaseAdapter, entry: AuditEntryRow, to
 					}
 				}
 				// 按当前值的键序重建，只替换这条记录提到的键：JSON 的键序本无语义，但保持稳定
-				// 能让存储和后续 diff 都可读，也免得每次撤回都把整行的文本形态搅一遍。
+				// 能让存储和后续 diff 都可读，也免得每次回滚都把整行的文本形态搅一遍。
 				const replacement = asObject(write(column)) ?? {};
 				const target: Record<string, unknown> = {};
 				for (const [key, existing] of Object.entries(value)) {
@@ -412,7 +418,7 @@ const transitionOne = async (database: DatabaseAdapter, entry: AuditEntryRow, to
 
 const actorOf = (database: DatabaseAdapter) => database.actorUidForTable?.(AUDIT_TABLE) ?? database.actorUid ?? null;
 
-export const REVIEW_LABELS: Record<ReviewStatus, string> = { none: '无需审批', pending: '待审批', approved: '已批准', rejected: '已驳回', withdrawn: '已撤销申请' };
+export const REVIEW_LABELS: Record<ReviewStatus, string> = { none: '无需审批', pending: '待审批', approved: '已批准', rejected: '已驳回', withdrawn: '已撤销' };
 export const DATA_LABELS: Record<DataStatus, string> = { unwritten: '未写入', applied: '已生效', reverted: '已回滚' };
 
 /**

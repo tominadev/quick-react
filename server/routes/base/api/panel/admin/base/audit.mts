@@ -18,7 +18,7 @@ const actionOptions = [
 	{ value: 'insert', text: '新增', color: 'green' },
 	{ value: 'update', text: '修改', color: 'blue' },
 	{ value: 'soft_delete', text: '删除', color: 'red' },
-	{ value: 'restore', text: '恢复', color: 'cyan' },
+	{ value: 'restore', text: '还原', color: 'cyan' },
 ];
 /**
  * 审批状态与数据状态是两件事，分两列显示。
@@ -86,13 +86,12 @@ const STAGE_FIELD = '_stage';
 const flipActions = (superUser: boolean) => [
 	{ key: 'approve' as const, label: '批准', from: superUser ? ['pending-other', 'pending-mine'] : ['pending-other'], confirm: '确认批准这条修改吗？批准后立即生效。' },
 	{ key: 'reject' as const, label: '驳回', from: ['pending-other'], confirm: '确认驳回这条修改吗？数据不会被改动。' },
-	// 「撤销申请」动的是还没生效的申请，「回滚」动的是已经生效的数据。不用「撤回」——
-	// 它和「撤销」太近，读的人分不清哪个会改到数据。
-	{ key: 'withdraw' as const, label: '撤销申请', from: ['pending-mine'], confirm: '确认撤销这条还没生效的申请吗？数据不会被改动。' },
+	// 「撤销」动的是还没生效的申请，「回滚」动的是已经生效的数据。全站只用「撤销」这一个词
+	// ——行上原先叫「撤回」，同一件事两种说法，读的人会以为是两个动作。
+	{ key: 'withdraw' as const, label: '撤销', from: ['pending-mine'], confirm: '确认撤销这条还没生效的申请吗？数据不会被改动。' },
 	{ key: 'revert' as const, label: '回滚', from: ['applied'], confirm: '确认把这条已经生效的变更改回去吗？' },
-	// 两个「往回走」在不同的轴上，名字分开：重做动数据（回滚的逆，就是编辑器里的撤销/重做），
-	// 恢复动申请（驳回/撤销的逆）。
-	{ key: 'redo' as const, label: '重做', from: ['reverted'], confirm: '确认把这条回滚掉的变更再写回去吗？' },
+	// 两个「往回走」在不同的轴上，名字分开：重新应用动数据（回滚的逆），恢复动申请（驳回/撤销的逆）。
+	{ key: 'redo' as const, label: '重新应用', from: ['reverted'], confirm: '确认把这条回滚掉的变更再写回去吗？' },
 	// 驳回是审批人的决定，可以由审批人收回；撤销是申请人自己收回的，只有他自己能再放回去。
 	{ key: 'requeue' as const, label: '恢复', from: ['rejected', 'withdrawn-mine'], confirm: '确认把这条申请放回队列吗？数据不会被改动，等批准了才生效。' },
 ];
@@ -129,9 +128,9 @@ const columns = [
 	{ dataIndex: 'reverted_at', title: '回滚时间', dataType: 'js_timestamp' as const, dayjsFormat: 'YYYY-MM-DD HH:mm:ss' },
 	{ dataIndex: 'reverted_duid', title: '回滚人' },
 	{ dataIndex: 'revert_reason', title: '回滚理由' },
-	{ dataIndex: 'redone_at', title: '重做时间', dataType: 'js_timestamp' as const, dayjsFormat: 'YYYY-MM-DD HH:mm:ss' },
-	{ dataIndex: 'redone_duid', title: '重做人' },
-	{ dataIndex: 'redo_reason', title: '重做理由' },
+	{ dataIndex: 'reapplied_at', title: '重新应用时间', dataType: 'js_timestamp' as const, dayjsFormat: 'YYYY-MM-DD HH:mm:ss' },
+	{ dataIndex: 'reapplied_duid', title: '重新应用人' },
+	{ dataIndex: 'reapply_reason', title: '重新应用理由' },
 ];
 
 const publicEntry = (row: AuditEntryRow) => ({
@@ -160,9 +159,9 @@ const publicEntry = (row: AuditEntryRow) => ({
 	reverted_at: row.reverted_at ?? '',
 	reverted_duid: row.reverted_duid ?? '',
 	revert_reason: row.revert_reason ?? '',
-	redone_at: row.redone_at ?? '',
-	redone_duid: row.redone_duid ?? '',
-	redo_reason: row.redo_reason ?? '',
+	reapplied_at: row.reapplied_at ?? '',
+	reapplied_duid: row.reapplied_duid ?? '',
+	reapply_reason: row.reapply_reason ?? '',
 });
 
 const readIds = async (c: Parameters<ApiHandler>[0], routeId?: string) => {
@@ -205,13 +204,13 @@ const handler: ApiHandler = async (c, next, params) => {
 		const totalRecords = await countAuditEntries(database, filters, reason);
 		return apiResponse(c, 200, { table: {
 			// 审计记录不可修改、不可删除，接口层因此没有新增、编辑与删除入口（§7.3）。
-			// 这一页的动作本身就是审批机制，不经过审批门：撤回、批准、驳回走的是
+			// 这一页的动作本身就是审批机制，不经过审批门：撤销、批准、驳回走的是
 			// runSystemSql，勾「立即生效」不改变任何行为，因此显式关掉这个勾选框。
-			// 操作原因仍然要收：它会写进审批意见、撤回理由或恢复理由。
+			// 操作原因仍然要收：它会写进审批意见、回滚理由或重新应用理由。
 			option: { rowKey: 'id', queryFields, actions: {
 				query: [{ key: 'search', label: '搜索' }],
-				// 撤回不新开记录，而是把这一条翻到另一面；已撤回的再点一次就恢复。
-				// 撤回与恢复是互斥的两个动作，一行上只显示其中适用的那个。
+				// 回滚不新开记录，而是把这一条翻到另一面；已回滚的再点一次就重新应用。
+				// 回滚与重新应用是互斥的两个动作，一行上只显示其中适用的那个。
 				toolbar: flipActions(isSuperUser(c)).map((action) => ({ key: action.key, label: `${action.label}选中记录`, confirm: action.confirm, selection: true })),
 				row: flipActions(isSuperUser(c)).map((action) => ({ key: action.key, label: action.label, confirm: action.confirm, visibleWhen: { field: STAGE_FIELD, values: action.from } })),
 			} },
