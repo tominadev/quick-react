@@ -399,9 +399,21 @@ const TableCRUD = ({ commonApi, resourcePath, initialResponse, initialQueryValue
 								render: (value, record) => {
 								if (column.component === 'avatar') return value ? <Avatar src={String(value)} /> : <Avatar />;
 								if (column.component === 'avatar_text') return <Space size={8}><Avatar src={record.avatar ? String(record.avatar) : undefined} /> <span>{String(value ?? '') || '未设置昵称'}</span></Space>;
+								/**
+								 * NULL 单独标出来。
+								 *
+								 * 空格子在表格里有三种可能：NULL、空串、0。在数据管理这类直接看原始表的地方
+								 * 它们完全是三回事——唯一索引里 NULL 互不相等（`(key, deleted_at)` 那类约束
+								 * 靠这一点成立），`owner_uid` 为 NULL 是「没有归属」而不是归属给 0 号。
+								 * 分不出来的时候，查一个「为什么这两行都能建出来」要靠猜。
+								 *
+								 * 排在时间列判断之前：可空的时间列 NULL 与 0 是两种状态，都显示成「(空)」
+								 * 就把它们抹平了。头像列不在此列——那里 NULL 显示成默认头像比一行灰字有用。
+								 */
+								if (value === null || value === undefined) return <Typography.Text type="secondary">(NULL)</Typography.Text>;
 								if (column.dayjsFormat) {
 									if (!value) {
-										return <span style={{ color: '#CCCCCC' }}>(空)</span>;
+										return <Typography.Text type="secondary">(空)</Typography.Text>;
 									}
 								}
 								if (column.dataType === 'js_timestamp') {
