@@ -14,19 +14,19 @@ CREATE TYPE "BaseDeviceStatus" AS ENUM ('active', 'revoked');
 CREATE TYPE "BaseTenantStatus" AS ENUM ('enabled', 'disabled');
 
 -- CreateEnum
-CREATE TYPE "BaseApprovalAction" AS ENUM ('insert', 'update', 'soft_delete', 'restore', 'purge');
+CREATE TYPE "BaseAuditAction" AS ENUM ('insert', 'update', 'soft_delete', 'restore', 'purge');
 
 -- CreateEnum
-CREATE TYPE "BaseApprovalEvent" AS ENUM ('approve', 'reject', 'withdraw', 'requeue', 'revert', 'redo');
+CREATE TYPE "BaseAuditTransition" AS ENUM ('approve', 'reject', 'withdraw', 'requeue', 'revert', 'redo');
 
 -- CreateEnum
-CREATE TYPE "BaseApprovalReview" AS ENUM ('none', 'pending', 'approved', 'rejected', 'withdrawn');
+CREATE TYPE "BaseAuditReview" AS ENUM ('none', 'pending', 'approved', 'rejected', 'withdrawn');
 
 -- CreateEnum
-CREATE TYPE "BaseApprovalState" AS ENUM ('unwritten', 'applied', 'reverted');
+CREATE TYPE "BaseAuditDataState" AS ENUM ('unwritten', 'applied', 'reverted');
 
 -- CreateEnum
-CREATE TYPE "BaseApprovalScope" AS ENUM ('admin', 'self');
+CREATE TYPE "BaseAuditScope" AS ENUM ('admin', 'self');
 
 -- CreateTable
 CREATE TABLE "base_tenants" (
@@ -313,7 +313,7 @@ CREATE TABLE "base_device_snapshots" (
 );
 
 -- CreateTable
-CREATE TABLE "base_approval_events" (
+CREATE TABLE "base_audit_transitions" (
     "id" BIGSERIAL NOT NULL,
     "key" VARCHAR(36) NOT NULL,
     "created_at" BIGINT NOT NULL,
@@ -325,15 +325,15 @@ CREATE TABLE "base_approval_events" (
     "owner_tid" BIGINT NOT NULL DEFAULT 1,
     "owner_bid" BIGINT NOT NULL DEFAULT 1,
     "owner_uid" BIGINT,
-    "approval_id" BIGINT NOT NULL,
-    "kind" "BaseApprovalEvent" NOT NULL,
+    "audit_id" BIGINT NOT NULL,
+    "kind" "BaseAuditTransition" NOT NULL,
     "reason" TEXT NOT NULL DEFAULT '',
 
-    CONSTRAINT "base_approval_events_pkey" PRIMARY KEY ("id")
+    CONSTRAINT "base_audit_transitions_pkey" PRIMARY KEY ("id")
 );
 
 -- CreateTable
-CREATE TABLE "base_approvals" (
+CREATE TABLE "base_audits" (
     "id" BIGSERIAL NOT NULL,
     "key" VARCHAR(36) NOT NULL,
     "created_at" BIGINT NOT NULL,
@@ -347,20 +347,20 @@ CREATE TABLE "base_approvals" (
     "owner_uid" BIGINT,
     "operation_id" TEXT NOT NULL,
     "reason" TEXT NOT NULL DEFAULT '',
-    "scope" "BaseApprovalScope" NOT NULL DEFAULT 'admin',
+    "scope" "BaseAuditScope" NOT NULL DEFAULT 'admin',
     "request_hostname" TEXT NOT NULL DEFAULT '',
     "request_path" TEXT NOT NULL DEFAULT '',
     "table_name" TEXT NOT NULL,
     "row_id" BIGINT NOT NULL,
     "row_key" VARCHAR(36) NOT NULL DEFAULT '',
-    "action" "BaseApprovalAction" NOT NULL,
+    "action" "BaseAuditAction" NOT NULL,
     "changes_before" JSONB NOT NULL DEFAULT '{}',
     "changes_after" JSONB NOT NULL DEFAULT '{}',
-    "review_status" "BaseApprovalReview" NOT NULL DEFAULT 'none',
-    "data_status" "BaseApprovalState" NOT NULL DEFAULT 'applied',
+    "review_status" "BaseAuditReview" NOT NULL DEFAULT 'none',
+    "data_status" "BaseAuditDataState" NOT NULL DEFAULT 'applied',
     "settled_at" BIGINT NOT NULL DEFAULT 0,
 
-    CONSTRAINT "base_approvals_pkey" PRIMARY KEY ("id")
+    CONSTRAINT "base_audits_pkey" PRIMARY KEY ("id")
 );
 
 -- CreateTable
@@ -486,37 +486,37 @@ CREATE UNIQUE INDEX "base_device_users_key_key" ON "base_device_users"("key");
 CREATE UNIQUE INDEX "base_device_snapshots_key_key" ON "base_device_snapshots"("key");
 
 -- CreateIndex
-CREATE INDEX "base_approval_events_approval_id_id_idx" ON "base_approval_events"("approval_id", "id");
+CREATE INDEX "base_audit_transitions_audit_id_id_idx" ON "base_audit_transitions"("audit_id", "id");
 
 -- CreateIndex
-CREATE UNIQUE INDEX "base_approval_events_key_key" ON "base_approval_events"("key");
+CREATE UNIQUE INDEX "base_audit_transitions_key_key" ON "base_audit_transitions"("key");
 
 -- CreateIndex
-CREATE INDEX "base_approvals_owner_tid_created_at_idx" ON "base_approvals"("owner_tid", "created_at");
+CREATE INDEX "base_audits_owner_tid_created_at_idx" ON "base_audits"("owner_tid", "created_at");
 
 -- CreateIndex
-CREATE INDEX "base_approvals_owner_bid_created_at_idx" ON "base_approvals"("owner_bid", "created_at");
+CREATE INDEX "base_audits_owner_bid_created_at_idx" ON "base_audits"("owner_bid", "created_at");
 
 -- CreateIndex
-CREATE INDEX "base_approvals_owner_uid_created_at_idx" ON "base_approvals"("owner_uid", "created_at");
+CREATE INDEX "base_audits_owner_uid_created_at_idx" ON "base_audits"("owner_uid", "created_at");
 
 -- CreateIndex
-CREATE INDEX "base_approvals_table_name_row_id_created_at_idx" ON "base_approvals"("table_name", "row_id", "created_at");
+CREATE INDEX "base_audits_table_name_row_id_created_at_idx" ON "base_audits"("table_name", "row_id", "created_at");
 
 -- CreateIndex
-CREATE INDEX "base_approvals_operation_id_idx" ON "base_approvals"("operation_id");
+CREATE INDEX "base_audits_operation_id_idx" ON "base_audits"("operation_id");
 
 -- CreateIndex
-CREATE INDEX "base_approvals_review_status_created_at_idx" ON "base_approvals"("review_status", "created_at");
+CREATE INDEX "base_audits_review_status_created_at_idx" ON "base_audits"("review_status", "created_at");
 
 -- CreateIndex
-CREATE INDEX "base_approvals_scope_created_at_idx" ON "base_approvals"("scope", "created_at");
+CREATE INDEX "base_audits_scope_created_at_idx" ON "base_audits"("scope", "created_at");
 
 -- CreateIndex
-CREATE UNIQUE INDEX "base_approvals_table_name_row_key_settled_at_key" ON "base_approvals"("table_name", "row_key", "settled_at");
+CREATE UNIQUE INDEX "base_audits_table_name_row_key_settled_at_key" ON "base_audits"("table_name", "row_key", "settled_at");
 
 -- CreateIndex
-CREATE UNIQUE INDEX "base_approvals_key_key" ON "base_approvals"("key");
+CREATE UNIQUE INDEX "base_audits_key_key" ON "base_audits"("key");
 
 -- CreateIndex
 CREATE UNIQUE INDEX "base_user_credentials_user_id_key" ON "base_user_credentials"("user_id");

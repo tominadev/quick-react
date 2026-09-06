@@ -117,7 +117,7 @@ const telegramForm = (email: string, options: SelectOption[]): FormPageConfig =>
 		{ name: 'account_id', label: 'Telegram 账号', type: 'select', options, rules: [{ required: true, message: '请选择 Telegram 账号' }] },
 	],
 });
-const approvalForm = (challengeId: string, expectedNumber: number): FormPageConfig => ({
+const auditForm = (challengeId: string, expectedNumber: number): FormPageConfig => ({
 	description: `请在 Telegram 消息中点击数字 ${expectedNumber}，然后返回这里完成登录。`,
 	submitLabel: '我已批准登录',
 	initialValues: { step: 'poll', challenge_id: challengeId },
@@ -523,7 +523,7 @@ const handler: ApiHandler = async (c, next) => {
 			await runSql(database, sql({ database }).update('passport_login_challenges', { status: 'expired' }, { challenge_id: challengeId }));
 			return apiMessage(c, 502, error instanceof Error ? error.message : 'Telegram 登录确认发送失败');
 		}
-		const formPage = approvalForm(challengeId, expectedNumber);
+		const formPage = auditForm(challengeId, expectedNumber);
 		return apiResponse(c, 200, { formPage, currentValues: formPage.initialValues, feedback: { component: 'inline' as const, type: 'info' as const, message: '登录确认已发送到 Telegram' } });
 	}
 
@@ -537,7 +537,7 @@ const handler: ApiHandler = async (c, next) => {
 			return apiMessage(c, 409, '登录确认已过期，请重新开始');
 		}
 		if (challenge.status === 'pending') {
-			const formPage = approvalForm(challengeId, challenge.expected_number);
+			const formPage = auditForm(challengeId, challenge.expected_number);
 			return apiResponse(c, 200, { formPage, currentValues: formPage.initialValues, feedback: { component: 'inline' as const, type: 'warning' as const, message: '尚未收到 Telegram 批准，请确认数字后重试' } });
 		}
 		if (challenge.status !== 'approved') return apiMessage(c, 409, challenge.status === 'denied' ? '本次登录已被拒绝' : '登录确认已经失效');

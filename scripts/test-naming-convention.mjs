@@ -86,7 +86,7 @@ for (const file of (await readdir(prismaDirectory)).filter((name) => name.endsWi
 		 * **只有 `name` 参与的唯一索引带 `deleted_at`。**
 		 *
 		 * 其余的要么是机器生成、永不重复的标识（key、各种 hash、token），要么是外部给定的
-		 * 稳定标识，带上 `deleted_at` 纯属多余。`base_approvals.settled_at` 是唯一的例外：
+		 * 稳定标识，带上 `deleted_at` 纯属多余。`base_audits.settled_at` 是唯一的例外：
 		 * 它是那条「一行同时只能有一条在队列里」的哨兵位，与软删无关。
 		 */
 		for (const unique of uniqueIndexes) {
@@ -103,9 +103,9 @@ for (const file of (await readdir(prismaDirectory)).filter((name) => name.endsWi
  */
 {
 	const base = await readFile(resolve(projectDirectory, 'prisma/base.prisma'), 'utf8');
-	const approvals = /^model base_approvals \{(.*?)^\}/ms.exec(base)?.[1] ?? '';
-	if (!/@@unique\(\[table_name, row_key, settled_at\]\)/.test(approvals)) problems.push('base_approvals 缺少 @@unique([table_name, row_key, settled_at])');
-	if (!/\n\s+settled_at\s+BigInt\s+@default\(0\)/.test(approvals)) problems.push('base_approvals.settled_at 要是 BigInt @default(0)');
+	const audits = /^model base_audits \{(.*?)^\}/ms.exec(base)?.[1] ?? '';
+	if (!/@@unique\(\[table_name, row_key, settled_at\]\)/.test(audits)) problems.push('base_audits 缺少 @@unique([table_name, row_key, settled_at])');
+	if (!/\n\s+settled_at\s+BigInt\s+@default\(0\)/.test(audits)) problems.push('base_audits.settled_at 要是 BigInt @default(0)');
 }
 assert.deepEqual(problems, [], `列命名不符合约定：\n  ${problems.join('\n  ')}`);
 console.log('naming convention test passed');

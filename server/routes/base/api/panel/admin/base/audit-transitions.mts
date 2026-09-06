@@ -1,7 +1,7 @@
 import type { ApiHandler } from '@server/modules/base/api-router.mjs';
 import { apiResponse } from '@server/modules/base/api-response.mjs';
 import { allSql, sql, type SqlCondition } from '@server/database/sql.mjs';
-import { APPROVAL_EVENT_TABLE, eventLabel, type ApprovalTransition } from '@server/modules/base/audit.mjs';
+import { AUDIT_TRANSITION_TABLE, kindLabel, type AuditTransition } from '@server/modules/base/audit.mjs';
 import { tableSort } from '@server/modules/base/query-options.mjs';
 
 /**
@@ -18,24 +18,24 @@ import { tableSort } from '@server/modules/base/query-options.mjs';
  * 处理经过是可以改的。保留期清理连着主记录一起删（见 purgeExpiredAuditEntries）。
  */
 /** 与审批页的动作颜色对齐：装回去的绿、拆下来的红、动数据的青/蓝。 */
-const KIND_COLORS: Record<ApprovalTransition, string> = {
+const KIND_COLORS: Record<AuditTransition, string> = {
 	approve: 'green', reject: 'red', withdraw: 'default',
 	requeue: 'gold', revert: 'volcano', redo: 'cyan',
 };
 
 const kindOptions = (['withdraw', 'approve', 'reject', 'requeue', 'revert', 'redo'] as const)
-	.map((kind) => ({ value: kind, text: eventLabel(kind), color: KIND_COLORS[kind] }));
+	.map((kind) => ({ value: kind, text: kindLabel(kind), color: KIND_COLORS[kind] }));
 
 const columns = [
 	{ dataIndex: 'id', title: 'ID', dataType: 'int' as const },
 	{ dataIndex: 'created_at', title: '时间', dataType: 'js_timestamp' as const, dayjsFormat: 'YYYY-MM-DD HH:mm:ss' },
 	{ dataIndex: 'created_duid', title: '操作者', emptyText: '系统' },
-	{ dataIndex: 'approval_id', title: '审批记录', dataType: 'int' as const },
+	{ dataIndex: 'audit_id', title: '审批记录', dataType: 'int' as const },
 	{ dataIndex: 'kind', title: '处理类型', options: kindOptions },
 	{ dataIndex: 'reason', title: '理由' }];
 
 const queryFields = [
-	{ dataIndex: 'approval_id', label: '审批记录', component: 'textbox' as const, placeholder: '审批记录的 ID' },
+	{ dataIndex: 'audit_id', label: '审批记录', component: 'textbox' as const, placeholder: '审批记录的 ID' },
 	// 不摆「全部」：空着就是不筛这一项（与审计页同一套说法）。
 	{ dataIndex: 'kind', label: '处理类型', component: 'select' as const, options: kindOptions },
 ];
@@ -46,12 +46,12 @@ const handler: ApiHandler = async (c, next) => {
 	const builder = sql({ database });
 	const kind = c.req.query('kind')?.trim();
 	const where: SqlCondition[] = [
-		...builder.search('approval_id', c.req.query('approval_id')?.trim()),
+		...builder.search('audit_id', c.req.query('audit_id')?.trim()),
 		...(kind && kindOptions.some((option) => option.value === kind) ? [{ column: 'kind', value: kind }] : []),
 	];
 	const rows = await allSql<Record<string, unknown>>(database, builder.select({
-		table: APPROVAL_EVENT_TABLE,
-		columns: { id: { column: 'id', cast: 'text' }, created_at: 'created_at', created_duid: { column: 'created_duid', cast: 'text' }, approval_id: { column: 'approval_id', cast: 'text' }, kind: 'kind', reason: 'reason' },
+		table: AUDIT_TRANSITION_TABLE,
+		columns: { id: { column: 'id', cast: 'text' }, created_at: 'created_at', created_duid: { column: 'created_duid', cast: 'text' }, audit_id: { column: 'audit_id', cast: 'text' }, kind: 'kind', reason: 'reason' },
 		where, sort: tableSort(c), orderBy: [{ column: 'id', direction: 'DESC' }], limit: 200,
 	}));
 	return apiResponse(c, 200, { table: {

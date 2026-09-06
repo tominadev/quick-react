@@ -260,7 +260,7 @@ CREATE TABLE "base_device_snapshots" (
 );
 
 -- CreateTable
-CREATE TABLE "base_approval_events" (
+CREATE TABLE "base_audit_transitions" (
     "id" INTEGER NOT NULL PRIMARY KEY AUTOINCREMENT,
     "key" TEXT NOT NULL,
     "created_at" BIGINT NOT NULL,
@@ -272,13 +272,13 @@ CREATE TABLE "base_approval_events" (
     "owner_tid" BIGINT NOT NULL DEFAULT 1,
     "owner_bid" BIGINT NOT NULL DEFAULT 1,
     "owner_uid" BIGINT,
-    "approval_id" BIGINT NOT NULL,
+    "audit_id" BIGINT NOT NULL,
     "kind" TEXT NOT NULL,
     "reason" TEXT NOT NULL DEFAULT ''
 );
 
 -- CreateTable
-CREATE TABLE "base_approvals" (
+CREATE TABLE "base_audits" (
     "id" INTEGER NOT NULL PRIMARY KEY AUTOINCREMENT,
     "key" TEXT NOT NULL,
     "created_at" BIGINT NOT NULL,
@@ -425,37 +425,37 @@ CREATE UNIQUE INDEX "base_device_users_key_key" ON "base_device_users"("key");
 CREATE UNIQUE INDEX "base_device_snapshots_key_key" ON "base_device_snapshots"("key");
 
 -- CreateIndex
-CREATE INDEX "base_approval_events_approval_id_id_idx" ON "base_approval_events"("approval_id", "id");
+CREATE INDEX "base_audit_transitions_audit_id_id_idx" ON "base_audit_transitions"("audit_id", "id");
 
 -- CreateIndex
-CREATE UNIQUE INDEX "base_approval_events_key_key" ON "base_approval_events"("key");
+CREATE UNIQUE INDEX "base_audit_transitions_key_key" ON "base_audit_transitions"("key");
 
 -- CreateIndex
-CREATE INDEX "base_approvals_owner_tid_created_at_idx" ON "base_approvals"("owner_tid", "created_at");
+CREATE INDEX "base_audits_owner_tid_created_at_idx" ON "base_audits"("owner_tid", "created_at");
 
 -- CreateIndex
-CREATE INDEX "base_approvals_owner_bid_created_at_idx" ON "base_approvals"("owner_bid", "created_at");
+CREATE INDEX "base_audits_owner_bid_created_at_idx" ON "base_audits"("owner_bid", "created_at");
 
 -- CreateIndex
-CREATE INDEX "base_approvals_owner_uid_created_at_idx" ON "base_approvals"("owner_uid", "created_at");
+CREATE INDEX "base_audits_owner_uid_created_at_idx" ON "base_audits"("owner_uid", "created_at");
 
 -- CreateIndex
-CREATE INDEX "base_approvals_table_name_row_id_created_at_idx" ON "base_approvals"("table_name", "row_id", "created_at");
+CREATE INDEX "base_audits_table_name_row_id_created_at_idx" ON "base_audits"("table_name", "row_id", "created_at");
 
 -- CreateIndex
-CREATE INDEX "base_approvals_operation_id_idx" ON "base_approvals"("operation_id");
+CREATE INDEX "base_audits_operation_id_idx" ON "base_audits"("operation_id");
 
 -- CreateIndex
-CREATE INDEX "base_approvals_review_status_created_at_idx" ON "base_approvals"("review_status", "created_at");
+CREATE INDEX "base_audits_review_status_created_at_idx" ON "base_audits"("review_status", "created_at");
 
 -- CreateIndex
-CREATE INDEX "base_approvals_scope_created_at_idx" ON "base_approvals"("scope", "created_at");
+CREATE INDEX "base_audits_scope_created_at_idx" ON "base_audits"("scope", "created_at");
 
 -- CreateIndex
-CREATE UNIQUE INDEX "base_approvals_table_name_row_key_settled_at_key" ON "base_approvals"("table_name", "row_key", "settled_at");
+CREATE UNIQUE INDEX "base_audits_table_name_row_key_settled_at_key" ON "base_audits"("table_name", "row_key", "settled_at");
 
 -- CreateIndex
-CREATE UNIQUE INDEX "base_approvals_key_key" ON "base_approvals"("key");
+CREATE UNIQUE INDEX "base_audits_key_key" ON "base_audits"("key");
 
 -- CreateIndex
 CREATE UNIQUE INDEX "base_user_credentials_user_id_key" ON "base_user_credentials"("user_id");

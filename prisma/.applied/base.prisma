@@ -18,7 +18,7 @@ enum BaseTenantStatus {
   disabled
 }
 
-enum BaseApprovalAction {
+enum BaseAuditAction {
   /// 新建一行。待审批期间行**已经写进库**，但 `queued_at` 非零让它对所有正常查询不可见——
   /// 批准就是把 queued_at 归零，驳回就是把那一行物理删掉（它从未生效过，历史留在这条记录上）。
   /// 这样待建行的值不必存进审批表：值就在行上，凭证也就不会在这张表里躺满保留期。
@@ -30,7 +30,7 @@ enum BaseApprovalAction {
   purge
 }
 
-enum BaseApprovalEvent {
+enum BaseAuditTransition {
   approve
   reject
   withdraw
@@ -43,7 +43,7 @@ enum BaseApprovalEvent {
 ///
 /// 「没人批过」和「批过了」是两回事：前台自助与路由显式声明的机器写入根本没进过队列，
 /// 把它们记成「已批准」是在伪造一次不存在的审批。
-enum BaseApprovalReview {
+enum BaseAuditReview {
   /// 无需审批：用户自助操作，或路由显式声明的机器写入（建号收尾、回收站恢复）。
   none
   /// 已提交，等审批：记录已写，数据还没动。
@@ -61,7 +61,7 @@ enum BaseApprovalReview {
 /// 与审批状态**正交**。「撤销申请」与「回滚」因此各管一列：前者收回的是还没生效的申请
 /// （审批状态变、数据没动过），后者把已经生效的变更改回去（数据状态变、是谁放行的不变）。
 /// 合成一列的话，一条自助操作被回滚再恢复就会凭空变成「已批准」——记录被自己的状态机洗白。
-enum BaseApprovalState {
+enum BaseAuditDataState {
   /// 从未写入：待审批、被驳回、被撤销的申请都停在这里。
   unwritten
   applied
@@ -71,7 +71,7 @@ enum BaseApprovalState {
 
 /// 后台操作要审批，用户处置自己的数据不排队。两者留在同一张表里（分表会把「这一行被谁
 /// 改过」的时间线劈成两半），靠这一列区分。
-enum BaseApprovalScope {
+enum BaseAuditScope {
   /// /panel/admin 下的后台操作。
   admin
   /// 个人中心、账户中心一类的用户自助操作，照常留痕但不排队。
@@ -392,16 +392,16 @@ model base_device_snapshots {
 /// 只覆盖 update（软删除与恢复同为 UPDATE），不覆盖 insert 与物理 delete。
 /// 一条审批记录上发生过的每一次迁移，只追加不修改。
 ///
-/// **不把它们压进 base_approvals 的列里。** 那样每加一种迁移就要加三列（谁、什么时候、
+/// **不把它们压进 base_audits 的列里。** 那样每加一种迁移就要加三列（谁、什么时候、
 /// 为什么），而且只记得住最后一次——一条记录可以回滚→重新应用→再回滚，第一次回滚的
 /// 时间和理由就没了。审计系统丢历史，比字段多更严重。
 ///
 /// 业务列只有三个：谁和什么时候由公共层的 `created_duid` / `created_at` 顺带填上。
 ///
-/// **不记「提交」。** base_approvals 那一行本身就是提交，`created_*` 已经写着谁在什么
+/// **不记「提交」。** base_audits 那一行本身就是提交，`created_*` 已经写着谁在什么
 /// 时候提的。因此前台自助改一次数据只有主表一行、事件表零行——它压根没走过审批，
 /// 不必用一条事件去假装。
-model base_approval_events {
+model base_audit_transitions {
   id           BigInt @id @default(autoincrement())
   key          String @db.VarChar(36)
   created_at   BigInt
@@ -413,15 +413,15 @@ model base_approval_events {
   owner_tid    BigInt @default(1)
   owner_bid    BigInt @default(1)
   owner_uid    BigInt?
-  approval_id  BigInt
-  kind         BaseApprovalEvent
+  audit_id  BigInt
+  kind         BaseAuditTransition
   /// 这一次的理由。撤销没有理由——那是申请人把自己提的东西收回去，不需要向谁交代。
   reason       String @default("")
-  @@index([approval_id, id])
+  @@index([audit_id, id])
   @@unique([key])
 }
 
-model base_approvals {
+model base_audits {
   id           BigInt @id @default(autoincrement())
   key          String @db.VarChar(36)
   created_at   BigInt
@@ -442,7 +442,7 @@ model base_approvals {
   ///
   /// 写入时定下来，而不是事后拿 request_path 去 LIKE：判定规则以后会变（四眼原则要把
   /// 「谁能批」从按角色改成按操作），历史记录记的必须是**当时判定的事实**。
-  scope        BaseApprovalScope @default(admin)
+  scope        BaseAuditScope @default(admin)
   /// 这次操作是从哪个域名、哪个接口发起的。
   ///
   /// 多站点共用一套代码，同一张表在不同域名下都可能被改；只记"改了什么"而不记"在哪改的"，
@@ -462,7 +462,7 @@ model base_approvals {
   /// RETURNING（本项目的 pg 适配器目前也没实现），而 key 三种方言一视同仁。
   /// row_id 仍然记着，用于显示与筛选；跨库搬迁后自增值会变，key 不会。
   row_key      String @db.VarChar(36) @default("")
-  action       BaseApprovalAction
+  action       BaseAuditAction
   /// 变更前后的值，**前后各一列**：`{列名: 值}`，只含实际发生变化的列。
   ///
   /// 不合成一列 `{列名: {before, after}}`：那样每个列名要写两遍、`"before"` 与 `"after"`
@@ -475,10 +475,10 @@ model base_approvals {
   changes_before Json @default("{}")
   changes_after  Json @default("{}")
   /// 审批走到哪一步。没进过队列的写入是 none，不是 approved。
-  review_status BaseApprovalReview @default(none)
+  review_status BaseAuditReview @default(none)
   /// 数据当前停在哪一边。applied ↔ reverted 可以来回翻：回滚不新开记录，
   /// 而是把这一条翻到另一面；审批状态不跟着变。
-  data_status  BaseApprovalState @default(applied)
+  data_status  BaseAuditDataState @default(applied)
   /// 这条申请**了结**了没有：`0` 是还在队列里等着，非 0 是已经了结。
   ///
   /// 批准、驳回、撤销都是了结；恢复（requeue）把它放回队列，归零。回滚与重新应用不动它

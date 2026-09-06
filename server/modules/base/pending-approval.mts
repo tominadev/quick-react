@@ -35,7 +35,7 @@ const mineOf = async (c: Context<AppEnv>, database: DatabaseAdapter, entries: re
  */
 export const pendingEntriesFor = async (database: DatabaseAdapter, table: string, rowId: string | number | bigint) =>
 	allSql<PendingEntry>(database, sql({ database }).select({
-		table: 'base_approvals',
+		table: 'base_audits',
 		// 回收站视图会把适配器的默认范围设成 deleted，那说的是**被浏览的那张表**。
 		// 不写死 active 的话，这里会去找「已删除的审批记录」，一条都找不到——
 		// 于是在回收站里恢复一条记录、进了队列，行上却不显示待审批，撤销和批准两个按钮
@@ -65,7 +65,7 @@ export const pendingRowStates = async (c: Context<AppEnv>, database: DatabaseAda
 	const states = new Map<string, PendingRowState>();
 	if (!rowIds.length) return states;
 	const rows = await allSql<PendingEntry & { row_id: string; action: string }>(database, sql({ database }).select({
-		table: 'base_approvals',
+		table: 'base_audits',
 		// 审批记录自己有没有被删，与正在浏览的那张表是不是回收站视图无关。
 		deleted: 'active',
 		columns: { id: { column: 'id', cast: 'text' }, row_id: { column: 'row_id', cast: 'text' }, action: 'action', created_duid: { column: 'created_duid', cast: 'text' }, changes_before: 'changes_before', changes_after: 'changes_after', reason: 'reason', created_at: 'created_at' },

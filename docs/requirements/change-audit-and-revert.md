@@ -79,9 +79,9 @@ await runOperation(c, database, [sql({ database }).update('base_users', values, 
 
 ## 4. 数据结构
 
-### 4.1 `base_approvals`
+### 4.1 `base_audits`
 
-表名叫 `base_approvals` 而不是 `base_audit_entries`：这里存的不是「谁看了什么」的审计流水，
+表名叫 `base_audits` 而不是 `base_audit_entries`：这里存的不是「谁看了什么」的审计流水，
 而是每一次后台修改的**申请与它的去向**——待审批、已生效、已驳回、已撤销、已回滚。
 审批与审计用同一张表（§11.4），命名跟着更常用的那一面走。
 
@@ -96,7 +96,7 @@ await runOperation(c, database, [sql({ database }).update('base_users', values, 
 | `scope` | `admin` / `self`：后台操作还是用户自助。与「要不要走审批」是同一条判定（§11.2），由 `operationScope()` 一处算出、两处使用 |
 | `review_status` | 审批状态：`none` / `pending` / `approved` / `rejected` / `withdrawn`，见 §11.4 |
 | `data_status` | 数据状态：`unwritten` / `applied` / `reverted`，见 §11.4 |
-| — | 迁移的时间、操作者与理由不占列：每一次追加一条 `base_approval_events`，见 §7.3 |
+| — | 迁移的时间、操作者与理由不占列：每一次追加一条 `base_audit_transitions`，见 §7.3 |
 
 加上统一的系统字段与归属字段。**操作者复用现成的机制**：`created_duid` 是真实操作者的 device-user，`owner_uid` 是作用账号——代用户操作时两者不同，正好还原出"客服 A 以用户 B 的身份改了这一行"。归属字段同时让审计记录自动落入正确的租户与分站，可见性因此免费获得（§8）。
 
@@ -251,11 +251,11 @@ WHERE id = ? AND name = ?          -- after
 
 **但只翻状态不够。** 原记录的 `created_duid`、`created_at`、`reason` 属于**原操作者**——"张三上午十点因为客诉改了价格"，不能拿来表示"李四下午三点把它撤了"。因此每一次状态迁移都另存自己的操作者、时间与理由。
 
-**每一次迁移追加一条事件，不往列里塞。** `base_approval_events` 只追加不修改：
+**每一次迁移追加一条事件，不往列里塞。** `base_audit_transitions` 只追加不修改：
 
 ```
-base_approval_events
-  approval_id   指向 base_approvals
+base_audit_transitions
+  audit_id   指向 base_audits
   kind          approve / reject / withdraw / requeue / revert / redo
   reason        这一次的理由（撤销没有理由，留空）
 ```
@@ -267,11 +267,11 @@ base_approval_events
 - **只记得住最后一次。** 一条记录可以回滚 → 重新应用 → 再回滚，第一次回滚的时间和理由就被覆盖了。审计系统丢历史，比字段多严重得多。
 - **每加一种迁移就要加三列。** 加「恢复」那次就加了 `requeued_*` 并压了一次迁移基线；事件表下只是多一个 `kind` 取值。
 
-**不记「提交」事件。** `base_approvals` 那一行本身就是提交，`created_*` 已经写着谁在什么时候提的。因此**前台自助改一次数据只有主表一行、事件表零行**——它压根没走过审批，不必用一条事件去假装。
+**不记「提交」事件。** `base_audits` 那一行本身就是提交，`created_*` 已经写着谁在什么时候提的。因此**前台自助改一次数据只有主表一行、事件表零行**——它压根没走过审批，不必用一条事件去假装。
 
 **页面上叫「处理经过」，不叫「审批历史」。** 这张表里六种事件只有两种是审批（批准、驳回），另外四种是撤销、恢复、回滚、重新应用；叫「审批历史」会让人以为回滚不在里面。审批页列表上那一列叫「最近处理」，点开就是「处理经过」，两处对得上。
 
-它有两个入口：审批页行上的一个弹窗（带 `approval_id`，只看这一条记录的经过），以及基础管理下单独的一页（按操作者或按处理筛全站——查「上周谁批了什么」「谁回滚过东西」在这里比在主表里翻方便）。这一页**只读**：事件只追加不修改，改一条已经发生的处理经过等于篡改证据。因此它不声明 `tableCrud`——那个声明会让公共层自动挂上回收站、还原/彻底删除和整套审批按钮，摆出来只会让人以为处理经过是可以改的。
+它有两个入口：审批页行上的一个弹窗（带 `audit_id`，只看这一条记录的经过），以及基础管理下单独的一页（按操作者或按处理筛全站——查「上周谁批了什么」「谁回滚过东西」在这里比在主表里翻方便）。这一页**只读**：事件只追加不修改，改一条已经发生的处理经过等于篡改证据。因此它不声明 `tableCrud`——那个声明会让公共层自动挂上回收站、还原/彻底删除和整套审批按钮，摆出来只会让人以为处理经过是可以改的。
 
 **`review_status` / `data_status` 保留，当物化缓存。** 筛选「待审批」是这一页最常用的查询，走索引等值最便宜；由事件推导要按记录分组取最后一条，那正是本文一直在避开的形状。真相仍然是事件序列，因此写入顺序是**先追加事件、再更新这两列**：无事务环境下断在中间的表现是「事件在、状态没跟上」，读的时候以事件为准就能自愈；反过来则是「状态改了但没人知道是谁改的」。
 
@@ -482,7 +482,7 @@ if (c.get('pendingApproval') && c.res.status !== 202) {
 
 ## 12. 实施步骤
 
-1. 新建 `base_approvals`，补四个迁移组 × 四种方言的迁移文件。
+1. 新建 `base_audits`，补四个迁移组 × 四种方言的迁移文件。
 2. `shared/audit-tables.mts` 定义 `AUDITED_TABLES`、`UNAUDITED_TABLES`、`NON_AUDITED_COLUMNS` 与 `HIDDEN_VALUE_COLUMNS`，并加上 §3.4 的覆盖性测试。
 3. 在 `update` 上记录变更（`softDelete`、`restore` 自动覆盖）：先按表白名单过滤，再按写入的列名判断是否只碰了排除列（不读行即可短路），确认可能有业务列变化后才读原行逐列比对，逐列一致时同样不记录。
 
@@ -520,7 +520,7 @@ if (c.get('pendingApproval') && c.res.status !== 202) {
 
 ## 列的顺序
 
-管理后台列的先后与 `prisma/base.prisma` 里 `base_approvals` 的字段顺序**一致**：两处对照着看时不用来回找。不是每个字段都显示（`operation_id` 就不显示），因此比的是**相对次序**而不是完整相等；计算列排在它所依据的那一列的位置上（`summary` 之于 `changes_before` / `changes_after`）。迁移的经过不占列：列表上只显示**最近处理**一行（最后一条事件），完整时间线在详情页——横着摆十几列时，一条记录最多经历两三种迁移，其余格子永远空着。
+管理后台列的先后与 `prisma/base.prisma` 里 `base_audits` 的字段顺序**一致**：两处对照着看时不用来回找。不是每个字段都显示（`operation_id` 就不显示），因此比的是**相对次序**而不是完整相等；计算列排在它所依据的那一列的位置上（`summary` 之于 `changes_before` / `changes_after`）。迁移的经过不占列：列表上只显示**最近处理**一行（最后一条事件），完整时间线在详情页——横着摆十几列时，一条记录最多经历两三种迁移，其余格子永远空着。
 
 由 `test:change-audit` 守着——加了新列忘了对齐会直接报错。
 
@@ -538,7 +538,7 @@ if (c.get('pendingApproval') && c.res.status !== 202) {
 
 `rejected` 与 `withdrawn` 落在同一侧但不是同一件事，因此分开记——追查时「是被否掉的还是自己撤的」是两个不同的结论。
 
-**每一次迁移追加一条 `base_approval_events`**，不往列里塞：同一条记录会被反复翻面，压进列里只记得住最后一次（§7.3）。
+**每一次迁移追加一条 `base_audit_transitions`**，不往列里塞：同一条记录会被反复翻面，压进列里只记得住最后一次（§7.3）。
 
 `withdraw` 那一条**没有理由**：撤销是申请人把自己提的东西收回去，不需要向谁交代，界面上也不问——留一格永远是空的，比不留更容易让人以为漏填了。
 
@@ -751,7 +751,7 @@ JSON 里的键名列不全（各处配置自己定），所以除了同名列的
 
 **是不是人做的新增，由调用方选 `runOperationSql` 还是 `runSql` 声明**，与 update 那边
 同一条线。会话、登录挑战、OIDC 码、设备注册、验证码这些机器写入继续走 `runSql`——
-把它们一并记下来会把审批表冲爆。代价是漏用 `runOperationSql` 的人工新增会静悄悄不留痕，
+把它们一并记下来会把审计表冲爆。代价是漏用 `runOperationSql` 的人工新增会静悄悄不留痕，
 守卫拦不住（它分不清人和机器）。
 
 ## 13.8 一次操作，一起批准
@@ -840,7 +840,7 @@ JSON 里的键名列不全（各处配置自己定），所以除了同名列的
 请求同时进来，也认不出没有登录身份的模块级调用是谁。硬约束在数据库上：
 
 ```
-base_approvals
+base_audits
   settled_at BigInt @default(0)
   @@unique([table_name, row_key, settled_at])
 ```
@@ -867,6 +867,35 @@ base_approvals
 **裸的 UNIQUE 错误要翻译。** 约束触发时应用层的判定已经放行了，拿不到队列里那条的任何
 信息，因此给的是笼统那句「这一行已经有一条申请在等待审批，一行上同时只能有一条」——与
 行锁的说法一致，读起来是同一条规则而不是两条。
+
+## 13.12 为什么这张表叫 `base_audits` 而不是 `base_approvals`
+
+它装的**不只是审批**。前台自助的每一次修改都在这里留一条 `review_status = none` 的记录，
+那种记录从来没进过审批队列：
+
+```
+4 条   scope=self   review_status=none      ← 建号之后用户自己改了四次昵称
+2 条   scope=admin  review_status=approved
+```
+
+用户越多、前台越活跃，`none` 的占比只会越高。叫 approvals 的话，表名说的是那 1/3。
+
+两处旁证都是这套代码自己写下的：`review_status` 的注释说「没进过队列的写入是 none，不是
+approved」；§14 说不分表的理由是「分表会把『这一行被谁改过』的时间线劈成两半，而**那正是
+审计最常回答的问题**」。
+
+**审批是这张表上的一个状态子集，不是它的全部。** 因此两个词各有地盘：`audit` 是这张表和
+它的页面（所有变更），`approval` 留给走审批那条路的部分——`review_status`、
+`pending-approval.mts`、`PendingApprovalError`、四眼原则那一套，一个都没改。
+
+事件表跟着叫 `base_audit_transitions` 而不是 `base_audit_events`：这套机制的核心动词一直是
+**transition**（`TRANSITIONS` 规则表、`transitionOne`、`transitionAuditEntries`、
+`applyInsertTransition`，四十来处），而 `event` 只活在那张表自己的名字里。叫 events 只是把
+错位从 approval/audit 挪到 event/transition。
+
+同一批六个值有两套文案，那不是重复，名字也分开了：`TRANSITIONS[x].label` 是按钮上的动作名
+（「批准」），`KIND_LABELS[x]` 是记录里读的处理类型（「管理批准」），后者对应
+`base_audit_transitions.kind` 那一列。
 
 ## 14. 已知限制
 

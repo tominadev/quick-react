@@ -85,7 +85,7 @@ try {
 		await runSql(source, sql({ database: source }).insert('base_configs', { name: 'site_title', value: 'Accounts' }));
 
 		const progress = await transferPortableDatabase(source, mysqlFacade(target), ['base']);
-		assert.equal(progress.length, 17, "base 组的表数——加了 base_approval_events");
+		assert.equal(progress.length, 17, "base 组的表数——加了 base_audit_transitions");
 		assert.equal((await firstSql(target, sql({ database: target }).select({ table: 'base_users', columns: { id: 'id' }, limit: 1 }))).id, userId);
 		assert.equal((await firstSql(target, sql({ database: target }).count('base_sessions'))).count, 1n);
 		assert.equal((await firstSql(target, sql({ database: target }).select({ table: 'base_bootstrap', columns: { value: 'value' }, where: [{ column: 'name', value: 'initial_admin' }] }))).value, 'open');

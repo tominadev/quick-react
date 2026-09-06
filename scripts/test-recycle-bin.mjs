@@ -97,7 +97,7 @@ try {
 	assert.equal(purged.table.dataSource.some((row) => row.id === fixture.id), false, '彻底删除后回收站不应保留记录');
 	// 审计表本身也受管：从「数据管理」改一条审计记录会照常留痕、照常走审批。
 	// 递归由 runSystemSql 挡住（审计模块自己的写入不留痕），不靠把这张表排除在外。
-	const auditBase = '/api/panel/admin/base/data/rows.php?table=base_approvals';
+	const auditBase = '/api/panel/admin/base/data/rows.php?table=base_audits';
 	const auditList = await (await request(`${auditBase}&include=schema,data`, { cookie })).json();
 	assert.ok(auditList.table.dataSource.length, '前面的操作应该已经留下审计记录');
 	const entryId = auditList.table.dataSource[0].id;
@@ -111,27 +111,27 @@ try {
 	assert.equal((await request(auditBase.replace('?', `/${entryId}?`), { method: 'PUT', cookie, body: { reason: '改写了' } })).status, 200);
 	const afterTamper = await (await request(`${auditBase}&include=schema,data`, { cookie })).json();
 	assert.equal(afterTamper.table.dataSource.find((row) => String(row.id) === String(entryId)).reason, '改写了');
-	assert.ok(afterTamper.table.dataSource.some((row) => row.table_name === 'base_approvals'), '改审计表也要留痕');
+	assert.ok(afterTamper.table.dataSource.some((row) => row.table_name === 'base_audits'), '改审计表也要留痕');
 
 	// 审批页自己也是 TableCRUD 路由：它不给删除按钮（审批记录不该在这一页被删），但必须有
 	// 回收站——「数据管理」能软删除任何表，包括这一张，删掉之后它就从审批页上消失，而审批页
 	// 恰恰是唯一会去看它的地方。没有回收站的话，谁把审批记录删了既看不见也找不回。
-	const approvals = '/api/panel/admin/base/audit.php';
-	const approvalPage = await (await request(`${approvals}?include=schema,data&review_status=all`, { cookie })).json();
-	const approvalToolbar = approvalPage.table.option.actions.toolbar.map((action) => action.key);
-	assert.ok(approvalToolbar.includes('recycle-bin'), '审批页要有回收站入口');
-	assert.equal(approvalToolbar.includes('delete'), false, '审批页不给删除按钮');
-	const victim = approvalPage.table.dataSource[0].id;
+	const auditApi = '/api/panel/admin/base/audit.php';
+	const auditPage = await (await request(`${auditApi}?include=schema,data&review_status=all`, { cookie })).json();
+	const auditToolbar = auditPage.table.option.actions.toolbar.map((action) => action.key);
+	assert.ok(auditToolbar.includes('recycle-bin'), '审批页要有回收站入口');
+	assert.equal(auditToolbar.includes('delete'), false, '审批页不给删除按钮');
+	const victim = auditPage.table.dataSource[0].id;
 	assert.equal((await request(`${auditBase}&include=schema,data`, { method: 'DELETE', cookie, body: [String(victim)] })).status, 200);
-	const withoutVictim = await (await request(`${approvals}?include=data&review_status=all`, { cookie })).json();
+	const withoutVictim = await (await request(`${auditApi}?include=data&review_status=all`, { cookie })).json();
 	assert.equal(withoutVictim.table.dataSource.some((row) => String(row.id) === String(victim)), false, '软删除的审批记录不在正常列表');
-	const approvalBin = await (await request(`${approvals}?include=schema,data,deleted&review_status=all`, { cookie })).json();
-	assert.ok(approvalBin.table.dataSource.some((row) => String(row.id) === String(victim)), '软删除的审批记录要出现在审批页的回收站');
-	assert.deepEqual(approvalBin.table.option.actions.toolbar.map((action) => action.key), ['restore', 'purge']);
-	assert.equal((await request(`${approvals}/${victim}?include=deleted&action=restore`, { method: 'POST', cookie, keepPending: true, body: {} })).status, 202, '审批记录的恢复同样要进队列');
+	const auditBin = await (await request(`${auditApi}?include=schema,data,deleted&review_status=all`, { cookie })).json();
+	assert.ok(auditBin.table.dataSource.some((row) => String(row.id) === String(victim)), '软删除的审批记录要出现在审批页的回收站');
+	assert.deepEqual(auditBin.table.option.actions.toolbar.map((action) => action.key), ['restore', 'purge']);
+	assert.equal((await request(`${auditApi}/${victim}?include=deleted&action=restore`, { method: 'POST', cookie, keepPending: true, body: {} })).status, 202, '审批记录的恢复同样要进队列');
 	await approvePending();
-	const restoredApproval = await (await request(`${approvals}?include=data&review_status=all`, { cookie })).json();
-	assert.ok(restoredApproval.table.dataSource.some((row) => String(row.id) === String(victim)), '恢复后要回到审批列表');
+	const restoredAudit = await (await request(`${auditApi}?include=data&review_status=all`, { cookie })).json();
+	assert.ok(restoredAudit.table.dataSource.some((row) => String(row.id) === String(victim)), '恢复后要回到审批列表');
 
 	console.log('recycle-bin test passed');
 } finally {

@@ -67,7 +67,7 @@
 再用；`key`、各种 hash、token、外部给的 provider/subject 都是机器生成或外部给定、永不重复的
 标识，带上 `deleted_at` 纯属多余。代价是这些值软删之后不能重建同一个。
 
-唯一的例外是 `base_approvals.settled_at`：它不是软删标记，是「一行同时只能有一条申请在
+唯一的例外是 `base_audits.settled_at`：它不是软删标记，是「一行同时只能有一条申请在
 队列里」那条约束的哨兵位（见 change-audit-and-revert.md §13.11）。
 
 以上四条都由 `test:naming` 守着——`key` 有没有被塞进复合索引、有 `key` 的表有没有自己那条

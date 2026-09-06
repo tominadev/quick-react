@@ -42,7 +42,7 @@ const rawSiteNavigation = (): MenuNode[] => [
 					{ label: '审计审批', key: 'audit', icon: 'appstore', component: 'table', title: '审计审批', description: '审批待生效的修改，并查看已生效变更的记录与回滚' },
 					// 处理经过单独一页：审批页是按「一次变更」看的，这一页是按「一次处理」看的
 					// ——查「上周谁批了什么」「谁回滚过东西」在这里筛比在主表里翻方便。
-					{ label: '处理经过', key: 'approval-events', icon: 'appstore', component: 'table', title: '处理经过', description: '每一次批准、驳回、撤销、恢复、回滚与重新应用的操作者、时间与理由' },
+					{ label: '处理经过', key: 'audit-transitions', icon: 'appstore', component: 'table', title: '处理经过', description: '每一次批准、驳回、撤销、恢复、回滚与重新应用的操作者、时间与理由' },
 					{
 						label: '数据管理',
 						key: 'data',

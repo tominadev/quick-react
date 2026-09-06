@@ -70,7 +70,7 @@ export class PendingLockError extends Error {
 	constructor(readonly table: string, readonly action: string, readonly submitter?: string) {
 		// 三句话，按知道多少说多少：知道是谁提的就说是谁（他只能等审批人处理），
 		// 只知道动作就说动作（自己的那条撤了就能接着改），什么都不知道就笼统说——
-		// 最后一种是数据库那条唯一索引兜底拦下的（见 base_approvals.settled_at），
+		// 最后一种是数据库那条唯一索引兜底拦下的（见 base_audits.settled_at），
 		// 那时应用层的判定已经放行了，拿不到队列里那条的任何信息。
 		super(submitter ? `${submitter}提交的「${action}」申请正在等待审批，这条记录暂时不能动——要先由审批人批准或驳回`
 			: action ? `这一行有一条「${action}」申请正在等待审批，请先撤销或等它审批完再操作`
@@ -133,7 +133,7 @@ export const readChangeReason = (c: Context<AppEnv>) => {
 /**
  * 这次操作算后台还是用户自助。
  *
- * **与「要不要走审批」是同一条判定**，因此只算这一处：写进 base_approvals.scope 的值和
+ * **与「要不要走审批」是同一条判定**，因此只算这一处：写进 base_audits.scope 的值和
  * 审批门用的必须是同一个结论，各判各的迟早会漂移——那时候审计里记着「后台操作」，
  * 而它当初其实没进过队列。
  */

@@ -30,7 +30,7 @@ const auditRouteFilter = async () => {
 		// 「一行上同时只能有一条在队列里」是数据库约束。种子里这四条本来就是四个不同的行，
 		// 排队中的记 0，已了结的各带一个时间戳。
 		for (const [id, review, data] of [['1', 'pending', 'unwritten'], ['2', 'approved', 'applied'], ['3', 'rejected', 'unwritten'], ['4', 'pending', 'unwritten']]) {
-			seed.prepare('INSERT INTO base_approvals (key, created_at,updated_at,operation_id,reason,table_name,row_id,row_key,action,changes_before,changes_after,review_status,data_status,settled_at) VALUES (lower(hex(randomblob(16))), ?,?,?,?,?,?,?,?,?,?,?,?,?)')
+			seed.prepare('INSERT INTO base_audits (key, created_at,updated_at,operation_id,reason,table_name,row_id,row_key,action,changes_before,changes_after,review_status,data_status,settled_at) VALUES (lower(hex(randomblob(16))), ?,?,?,?,?,?,?,?,?,?,?,?,?)')
 				.run(at, at, id, `理由${id}`, 'base_users', id, `seed-row-${id}`, 'update', '{}', '{}', review, data, review === 'pending' ? 0 : at + Number(id));
 		}
 		seed.close();
@@ -69,7 +69,7 @@ const auditRouteFilter = async () => {
 		const now = Date.now();
 		for (let index = 0; index < 250; index += 1) {
 			// 250 条排队中的记录必须是 250 个不同的行：同一行只放得下一条（唯一索引）。
-			overflow.prepare('INSERT INTO base_approvals (key, created_at,updated_at,operation_id,reason,table_name,row_id,row_key,action,changes_before,changes_after,review_status,data_status,settled_at) VALUES (lower(hex(randomblob(16))), ?,?,?,?,?,?,?,?,?,?,?,?,0)')
+			overflow.prepare('INSERT INTO base_audits (key, created_at,updated_at,operation_id,reason,table_name,row_id,row_key,action,changes_before,changes_after,review_status,data_status,settled_at) VALUES (lower(hex(randomblob(16))), ?,?,?,?,?,?,?,?,?,?,?,?,0)')
 				.run(now, now, `bulk${index}`, '批量', 'base_users', String(index), `bulk-row-${index}`, 'update', '{}', '{}', 'pending', 'unwritten');
 		}
 		overflow.close();
@@ -129,7 +129,7 @@ const auditRouteFilter = async () => {
 		// 先清掉上面为测总数塞的假记录：它们的 table_name 也是 base_users、row_id 是 0..249，
 		// 会和新建账号的 id 撞上，让这一段测到的是那些假记录。
 		const cleanup = new DatabaseSync(process.env.DEFAULT_DATABASE_FILE);
-		cleanup.prepare("DELETE FROM base_approvals WHERE changes_after = '{}'").run();
+		cleanup.prepare("DELETE FROM base_audits WHERE changes_after = '{}'").run();
 		cleanup.close();
 		const usersApi = 'http://localhost/api/panel/admin/base/users.php';
 		// 建号也进审批队列（§13.6），三行共享一个操作号；先批掉，后面验的是「改」不是「建」。
@@ -181,32 +181,32 @@ const auditRouteFilter = async () => {
 
 		/**
 		 * 完整经过要点得到：列表上只有「最近处理」一行，而一条记录可能被驳回、恢复、批准、
-		 * 回滚、重新应用地翻好几轮。行上挂一个「处理经过」弹窗，带上 approval_id——不带的话
+		 * 回滚、重新应用地翻好几轮。行上挂一个「处理经过」弹窗，带上 audit_id——不带的话
 		 * 弹开的是全站事件。
 		 */
 		const auditTable = await (await app.request('http://localhost/api/panel/admin/base/audit.php?include=schema,data&review_status=all', { headers: { ...headers, cookie } })).json();
-		const eventsAction = auditTable.table.option.actions.row.find((action) => action.key === 'events');
-		assert.equal(eventsAction?.label, '处理经过');
-		assert.equal(eventsAction.modalComponent, 'table');
-		assert.deepEqual(eventsAction.modalQueryFields, { approval_id: 'id' }, '带上本行的 id，否则弹开的是全站事件');
+		const transitionsAction = auditTable.table.option.actions.row.find((action) => action.key === 'transitions');
+		assert.equal(transitionsAction?.label, '处理经过');
+		assert.equal(transitionsAction.modalComponent, 'table');
+		assert.deepEqual(transitionsAction.modalQueryFields, { audit_id: 'id' }, '带上本行的 id，否则弹开的是全站事件');
 		/**
 		 * **两条以上才给按钮。** 一条的时候列表上那一列「最近处理」显示的就是它的全部
 		 * （时间、处理类型、操作者、理由），点开只是把同一行字换个地方再看一遍。
 		 */
-		assert.deepEqual(eventsAction.visibleWhen, { field: '_events', values: ['many'] });
-		const eventCounts = new Set(auditTable.table.dataSource.map((row) => row._events));
-		assert.ok(eventCounts.has('one') || eventCounts.has(''), '只处理过一次或没处理过的行不给按钮');
-		const eventsPage = await (await app.request('http://localhost/api/panel/admin/base/approval-events.php?include=schema,data', { headers: { ...headers, cookie } })).json();
+		assert.deepEqual(transitionsAction.visibleWhen, { field: '_transitions', values: ['many'] });
+		const transitionCounts = new Set(auditTable.table.dataSource.map((row) => row._transitions));
+		assert.ok(transitionCounts.has('one') || transitionCounts.has(''), '只处理过一次或没处理过的行不给按钮');
+		const transitionsPage = await (await app.request('http://localhost/api/panel/admin/base/audit-transitions.php?include=schema,data', { headers: { ...headers, cookie } })).json();
 		// 只读：事件只追加不修改，改一条已经发生的处理经过等于篡改证据。
-		assert.deepEqual(Object.keys(eventsPage.table.option.actions), ['query'], '没有新增、编辑、删除，也没有回收站');
-		assert.deepEqual(eventsPage.table.columns.map((column) => column.dataIndex), ['id', 'created_at', 'created_duid', 'approval_id', 'kind', 'reason']);
+		assert.deepEqual(Object.keys(transitionsPage.table.option.actions), ['query'], '没有新增、编辑、删除，也没有回收站');
+		assert.deepEqual(transitionsPage.table.columns.map((column) => column.dataIndex), ['id', 'created_at', 'created_duid', 'audit_id', 'kind', 'reason']);
 		/**
 		 * 处理类型的说法与按钮上的不同：按钮是祈使的、越短越好（一行上并排三四个），而记录
 		 * 里那一格是读的，前缀直接说清这一步是谁做的、动的是什么——管理X 是审批人的决定、
 		 * 执行X 动的是已生效的数据、撤销申请是唯一由申请人自己做的。括号里是这一列的原文。
 		 */
 		assert.deepEqual(
-			eventsPage.table.columns.find((column) => column.dataIndex === 'kind').options.map((option) => option.text),
+			transitionsPage.table.columns.find((column) => column.dataIndex === 'kind').options.map((option) => option.text),
 			['撤销申请(withdraw)', '管理批准(approve)', '管理驳回(reject)', '管理恢复(requeue)', '执行回滚(revert)', '执行重做(redo)'],
 		);
 
@@ -562,7 +562,7 @@ const auditRouteFilter = async () => {
 			// 乙自己改主意照旧放行，而且覆盖同一条记录，不堆第二条。
 			assert.equal((await app.request(`${lockApi}/${victim.id}`, { method: 'PUT', headers: lockerHeaders, body: JSON.stringify({ status: 'locked', __changedFields: ['status'] }) })).status, 202);
 			const stillOne = new DatabaseSync(process.env.DEFAULT_DATABASE_FILE);
-			assert.equal(Number(stillOne.prepare("SELECT COUNT(*) AS n FROM base_approvals WHERE table_name='base_users' AND row_id=? AND review_status='pending'").get(String(victim.id)).n), 1, '一行上最多一条待审批');
+			assert.equal(Number(stillOne.prepare("SELECT COUNT(*) AS n FROM base_audits WHERE table_name='base_users' AND row_id=? AND review_status='pending'").get(String(victim.id)).n), 1, '一行上最多一条待审批');
 			stillOne.close();
 			// 行上那句话：按钮不藏，点进去看到是谁在申请什么。
 			const marked = await (await app.request(`${lockApi}?include=schema,data`, { headers: { ...headers, cookie } })).json();
@@ -613,7 +613,7 @@ const auditRouteFilter = async () => {
 			assert.equal((await decide('approve', await pendingIds())).status, 200);
 			// 待审批的新建直接改，不另开申请：改的是一份还没生效的东西，没有可批的内容。
 			const beforeEdit = new DatabaseSync(process.env.DEFAULT_DATABASE_FILE);
-			const queuedRows = Number(beforeEdit.prepare("SELECT COUNT(*) AS n FROM base_approvals WHERE review_status='pending'").get().n);
+			const queuedRows = Number(beforeEdit.prepare("SELECT COUNT(*) AS n FROM base_audits WHERE review_status='pending'").get().n);
 			beforeEdit.close();
 			assert.equal(queuedRows, 0, '批完队列是空的');
 
@@ -653,7 +653,7 @@ const auditRouteFilter = async () => {
 		const backRow = requeued.prepare("SELECT deleted_at, queued_at FROM base_users WHERE name = 'rejectme'").get();
 		assert.equal(Number(backRow.deleted_at), 0, '从回收站捞出来');
 		assert.notEqual(Number(backRow.queued_at), 0, '重新隐身，等着被批——时间戳取自记录里的 queued_at.before');
-		assert.equal(requeued.prepare("SELECT COUNT(*) AS n FROM base_approvals WHERE operation_id = ? AND review_status = 'pending'").get(queuedInserts[0].operation_id).n, 3, '只点一条，同一次操作的另外两条跟着回来');
+		assert.equal(requeued.prepare("SELECT COUNT(*) AS n FROM base_audits WHERE operation_id = ? AND review_status = 'pending'").get(queuedInserts[0].operation_id).n, 3, '只点一条，同一次操作的另外两条跟着回来');
 		requeued.close();
 		// 批准之后账号真的能用——凭证那一行也跟着回来了。
 		assert.equal((await decide('approve', await pendingIds())).status, 200);
@@ -665,8 +665,8 @@ const auditRouteFilter = async () => {
 		// 列的先后要与 prisma 里的字段顺序一致：两处对照着看时不用来回找。
 		// 只比相对次序——不是每个字段都显示（operation_id 就不显示），也允许有计算列。
 		const schema = await readFile(resolve(projectDirectory, 'prisma/base.prisma'), 'utf8');
-		const model = /model base_approvals \{([\s\S]*?)\n\}/.exec(schema);
-		assert.ok(model, '找不到 base_approvals 模型');
+		const model = /model base_audits \{([\s\S]*?)\n\}/.exec(schema);
+		assert.ok(model, '找不到 base_audits 模型');
 		const schemaOrder = [...model[1].matchAll(/^\s{2}([a-z_]+)\s+\S/gm)].map((match) => match[1]);
 		const listed = (await (await app.request('http://localhost/api/panel/admin/base/audit.php?include=schema,data', { headers: { ...headers, cookie } })).json()).table.columns
 			.map((column) => column.dataIndex)
@@ -725,7 +725,7 @@ try {
 	});
 	const moduleFile = join(temporaryDirectory, 'audit.mjs');
 	await writeFile(moduleFile, result.outputFiles[0].contents);
-	const { useMemorySnowflake, allSql, createSqliteAdapter, firstSql, approvalEventsFor, parseAuditChanges, publicAuditChanges, purgeAuditRetention, purgeExpiredAuditEntries, transitionAuditEntries, runOperationSql, runSql, sql, withDatabaseActors } = await import(pathToFileURL(moduleFile));
+	const { useMemorySnowflake, allSql, createSqliteAdapter, firstSql, auditTransitionsFor, parseAuditChanges, publicAuditChanges, purgeAuditRetention, purgeExpiredAuditEntries, transitionAuditEntries, runOperationSql, runSql, sql, withDatabaseActors } = await import(pathToFileURL(moduleFile));
 	// 单元测试不连库，用内存号段：生产路径一律走 primeSnowflake，那里的原子预留才防得住重启和多进程。
 	useMemorySnowflake();
 
@@ -757,7 +757,7 @@ try {
 	});
 	const op = (statement, options) => runOperationSql(context(), acting, statement, { immediate: true, ...options });
 
-	const entries = async () => (await allSql(acting, sql({ database: acting }).select({ table: 'base_approvals', includeAll: true, orderBy: [{ column: 'id', direction: 'ASC' }] }))).map((entry) => ({ ...entry, id: String(entry.id) }));
+	const entries = async () => (await allSql(acting, sql({ database: acting }).select({ table: 'base_audits', includeAll: true, orderBy: [{ column: 'id', direction: 'ASC' }] }))).map((entry) => ({ ...entry, id: String(entry.id) }));
 	// 前后两份值分开存，比对时拼回成对的形状（parseAuditChanges 做的就是这件事）。
 	const changesOf = (entry) => parseAuditChanges(entry);
 	const latestEntry = async () => (await entries()).at(-1);
@@ -879,7 +879,7 @@ try {
 	const failWrite = async () => { throw new Error('audit write failed'); };
 	const failing = withDatabaseActors({
 		...database,
-		prepare: (query) => query.startsWith('INSERT INTO "base_approvals"') || query.startsWith('UPDATE "base_approvals"')
+		prepare: (query) => query.startsWith('INSERT INTO "base_audits"') || query.startsWith('UPDATE "base_audits"')
 			? { bind: () => ({ run: failWrite, first: failWrite, all: failWrite }) }
 			: database.prepare(query),
 	}, { subjectRoles: ['platform_admin'], humanOperation: true });
@@ -892,7 +892,7 @@ try {
 
 	// ---- 回滚（§7）----
 	const nameOf = async (id) => (await firstSql(acting, sql({ database: acting }).select({ table: 'base_users', columns: { name: 'name' }, where: [{ column: 'id', value: id }], deleted: 'all' }))).name;
-	const statusOf = async (entryId) => (await firstSql(acting, sql({ database: acting }).select({ table: 'base_approvals', columns: { data_status: 'data_status' }, where: [{ column: 'id', value: entryId }] }))).data_status;
+	const statusOf = async (entryId) => (await firstSql(acting, sql({ database: acting }).select({ table: 'base_audits', columns: { data_status: 'data_status' }, where: [{ column: 'id', value: entryId }] }))).data_status;
 	const revert = (ids, reason = '') => transitionAuditEntries(acting, ids, 'revert', reason);
 	const redo = (ids, reason = '') => transitionAuditEntries(acting, ids, 'redo', reason);
 	const entryById = async (id) => (await entries()).find((entry) => entry.id === id);
@@ -911,7 +911,7 @@ try {
 	// 迁移的操作者、时间与理由**追加成一条事件**：原记录的 created_* 属于原操作者，不能复用。
 	const flipped = await entryById(daveEntry.id);
 	assert.equal(flipped.reason, daveEntry.reason, '原操作的理由不应被覆盖');
-	const flippedEvents = (await approvalEventsFor(acting, [daveEntry.id])).get(String(daveEntry.id)) ?? [];
+	const flippedEvents = (await auditTransitionsFor(acting, [daveEntry.id])).get(String(daveEntry.id)) ?? [];
 	assert.deepEqual(flippedEvents.map((event) => event.kind), ['revert']);
 	assert.equal(flippedEvents[0].reason, '回滚理由：改错了');
 	assert.ok(Number(flippedEvents[0].created_at) > 0, '要记下什么时候回滚的');
@@ -932,7 +932,7 @@ try {
 	 * 旧模型把「谁、什么时候、为什么」压进列里，只记得住**最后一次**：一条记录回滚→
 	 * 重新应用→再回滚，第一次回滚的理由就没了。事件表下整条经过都在。
 	 */
-	const restoredEvents = (await approvalEventsFor(acting, [daveEntry.id])).get(String(daveEntry.id)) ?? [];
+	const restoredEvents = (await auditTransitionsFor(acting, [daveEntry.id])).get(String(daveEntry.id)) ?? [];
 	assert.deepEqual(restoredEvents.map((event) => event.kind), ['revert', 'redo']);
 	assert.deepEqual(restoredEvents.map((event) => event.reason), ['回滚理由：改错了', '重新应用：回滚错了'], '先发生的那条一个字没被覆盖');
 	// 再回滚一次，把数据放回后面用例期望的位置。
@@ -1115,7 +1115,7 @@ try {
 	assert.equal(superseded.review_status, 'none', '直写不是审批');
 	assert.equal(superseded.data_status, 'applied');
 	assert.equal(superseded.reason, '这次直接生效');
-	assert.equal((await approvalEventsFor(acting, [pendingEntry.id])).get(String(pendingEntry.id)), undefined, '直写不是审批，不该冒出一条审批事件');
+	assert.equal((await auditTransitionsFor(acting, [pendingEntry.id])).get(String(pendingEntry.id)), undefined, '直写不是审批，不该冒出一条审批事件');
 	assert.equal(await rolesOf(), '["platform_support"]');
 	// 复位，后面的断言接得上。
 	await runOperationSql(context('复位'), acting, sql({ database: acting }).update('base_users', { roles: originalRoles }, { id: alice.id }), { immediate: true });
@@ -1131,7 +1131,7 @@ try {
 	const approved = await entryById(pendingEntry.id);
 	assert.equal(approved.review_status, 'approved', '走完队列的才叫已批准');
 	assert.equal(approved.data_status, 'applied');
-	const approveEvents = (await approvalEventsFor(acting, [pendingEntry.id])).get(String(pendingEntry.id)) ?? [];
+	const approveEvents = (await auditTransitionsFor(acting, [pendingEntry.id])).get(String(pendingEntry.id)) ?? [];
 	assert.deepEqual(approveEvents.map((event) => [event.kind, event.reason]), [['approve', '同意']]);
 	assert.ok(Number(approveEvents[0].created_at) > 0, '要记下什么时候批的');
 
@@ -1143,7 +1143,7 @@ try {
 	assert.equal(afterRevert.data_status, 'reverted');
 	// 事件一条条追加：回滚这条盖不掉「谁批准的、批注写了什么」。
 	assert.deepEqual(
-		((await approvalEventsFor(acting, [pendingEntry.id])).get(String(pendingEntry.id)) ?? []).map((event) => [event.kind, event.reason]),
+		((await auditTransitionsFor(acting, [pendingEntry.id])).get(String(pendingEntry.id)) ?? []).map((event) => [event.kind, event.reason]),
 		[['approve', '同意'], ['revert', '批错了']],
 	);
 	assert.equal(await rolesOf(), originalRoles);
@@ -1156,7 +1156,7 @@ try {
 	const withdrawn = await entryById(withdrawEntry.id);
 	assert.equal(withdrawn.review_status, 'withdrawn');
 	assert.equal(withdrawn.data_status, 'unwritten', '撤销的申请从未写入');
-	const withdrawEvents = (await approvalEventsFor(acting, [withdrawEntry.id])).get(String(withdrawEntry.id)) ?? [];
+	const withdrawEvents = (await auditTransitionsFor(acting, [withdrawEntry.id])).get(String(withdrawEntry.id)) ?? [];
 	assert.deepEqual(withdrawEvents.map((event) => event.kind), ['withdraw'], '只有一条撤销事件——它不是审批，也不是回滚');
 	assert.ok(Number(withdrawEvents[0].created_at) > 0, '要记下什么时候撤销的');
 	assert.equal(withdrawEvents[0].reason, '', '撤销没有理由：申请人收回自己提的东西，不需要向谁交代');
@@ -1219,7 +1219,7 @@ try {
 	assert.equal((await entries()).length, total);
 	const oldest = (await entries()).slice(0, 3).map((entry) => entry.id);
 	const staleAt = Date.now() - 400 * 86400_000;
-	for (const id of oldest) database.prepare('UPDATE base_approvals SET created_at = ? WHERE id = ?').bind(staleAt, id).run();
+	for (const id of oldest) database.prepare('UPDATE base_audits SET created_at = ? WHERE id = ?').bind(staleAt, id).run();
 	assert.equal(await purgeExpiredAuditEntries(database, 365, { batchSize: 2 }), 3, '过期记录应被物理删除，且分批可重入');
 	assert.equal((await entries()).length, total - 3, '未到期的记录不受影响');
 	assert.equal(await purgeExpiredAuditEntries(database, 365), 0, '再跑一次没有可清理的记录');
@@ -1227,7 +1227,7 @@ try {
 	// 保留期按租户独立：读各租户自己的站点设置。
 	await runSql(database, sql({ database }).ignoreInsert('base_tenants', ['name'], { name: 'default', title: '默认租户', status: 'enabled' }));
 	const remaining = (await entries()).find((entry) => String(entry.owner_tid) === '1');
-	database.prepare('UPDATE base_approvals SET created_at = ? WHERE id = ?').bind(staleAt, remaining.id).run();
+	database.prepare('UPDATE base_audits SET created_at = ? WHERE id = ?').bind(staleAt, remaining.id).run();
 	assert.equal(await purgeAuditRetention(database), 1, '未配置保留期的租户应回落到默认的 365 天');
 
 	// 空串与 NULL 都念作「空」：在「改了什么」这个问题上它们是同一件事——原来没有值。

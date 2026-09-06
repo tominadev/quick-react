@@ -313,7 +313,7 @@ CREATE TABLE `base_device_snapshots` (
 ) DEFAULT CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci;
 
 -- CreateTable
-CREATE TABLE `base_approval_events` (
+CREATE TABLE `base_audit_transitions` (
     `id` BIGINT NOT NULL AUTO_INCREMENT,
     `key` VARCHAR(36) NOT NULL,
     `created_at` BIGINT NOT NULL,
@@ -325,17 +325,17 @@ CREATE TABLE `base_approval_events` (
     `owner_tid` BIGINT NOT NULL DEFAULT 1,
     `owner_bid` BIGINT NOT NULL DEFAULT 1,
     `owner_uid` BIGINT NULL,
-    `approval_id` BIGINT NOT NULL,
+    `audit_id` BIGINT NOT NULL,
     `kind` ENUM('approve', 'reject', 'withdraw', 'requeue', 'revert', 'redo') NOT NULL,
     `reason` VARCHAR(191) NOT NULL DEFAULT '',
 
-    INDEX `base_approval_events_approval_id_id_idx`(`approval_id`, `id`),
-    UNIQUE INDEX `base_approval_events_key_key`(`key`),
+    INDEX `base_audit_transitions_audit_id_id_idx`(`audit_id`, `id`),
+    UNIQUE INDEX `base_audit_transitions_key_key`(`key`),
     PRIMARY KEY (`id`)
 ) DEFAULT CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci;
 
 -- CreateTable
-CREATE TABLE `base_approvals` (
+CREATE TABLE `base_audits` (
     `id` BIGINT NOT NULL AUTO_INCREMENT,
     `key` VARCHAR(36) NOT NULL,
     `created_at` BIGINT NOT NULL,
@@ -362,15 +362,15 @@ CREATE TABLE `base_approvals` (
     `data_status` ENUM('unwritten', 'applied', 'reverted') NOT NULL DEFAULT 'applied',
     `settled_at` BIGINT NOT NULL DEFAULT 0,
 
-    INDEX `base_approvals_owner_tid_created_at_idx`(`owner_tid`, `created_at`),
-    INDEX `base_approvals_owner_bid_created_at_idx`(`owner_bid`, `created_at`),
-    INDEX `base_approvals_owner_uid_created_at_idx`(`owner_uid`, `created_at`),
-    INDEX `base_approvals_table_name_row_id_created_at_idx`(`table_name`, `row_id`, `created_at`),
-    INDEX `base_approvals_operation_id_idx`(`operation_id`),
-    INDEX `base_approvals_review_status_created_at_idx`(`review_status`, `created_at`),
-    INDEX `base_approvals_scope_created_at_idx`(`scope`, `created_at`),
-    UNIQUE INDEX `base_approvals_table_name_row_key_settled_at_key`(`table_name`, `row_key`, `settled_at`),
-    UNIQUE INDEX `base_approvals_key_key`(`key`),
+    INDEX `base_audits_owner_tid_created_at_idx`(`owner_tid`, `created_at`),
+    INDEX `base_audits_owner_bid_created_at_idx`(`owner_bid`, `created_at`),
+    INDEX `base_audits_owner_uid_created_at_idx`(`owner_uid`, `created_at`),
+    INDEX `base_audits_table_name_row_id_created_at_idx`(`table_name`, `row_id`, `created_at`),
+    INDEX `base_audits_operation_id_idx`(`operation_id`),
+    INDEX `base_audits_review_status_created_at_idx`(`review_status`, `created_at`),
+    INDEX `base_audits_scope_created_at_idx`(`scope`, `created_at`),
+    UNIQUE INDEX `base_audits_table_name_row_key_settled_at_key`(`table_name`, `row_key`, `settled_at`),
+    UNIQUE INDEX `base_audits_key_key`(`key`),
     PRIMARY KEY (`id`)
 ) DEFAULT CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci;
 
