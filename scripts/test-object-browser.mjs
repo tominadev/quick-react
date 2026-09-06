@@ -73,6 +73,12 @@ try {
 	const path = '/api/panel/admin/global/cloud/object-storage/objects.php';
 	const browse = async (prefix) => (await (await app.request(`http://localhost${path}?include=schema,data&binding_id=93${prefix === undefined ? '' : `&prefix=${encodeURIComponent(prefix)}`}`, { headers: h })).json()).table;
 
+	// 还没选绑定时也要下发完整的列：前端只在第一次响应里取结构，之后只请求数据，
+	// 那时回一个空 columns 就再也没机会替换——页面上只剩一列复选框。
+	const empty = (await (await app.request(`http://localhost${path}?include=schema,data`, { headers: h })).json()).table;
+	assert.deepEqual(empty.columns.map((column) => column.dataIndex), ['name', 'size', 'lastModified', 'etag'], '没选绑定时也要有列定义');
+	assert.deepEqual(empty.dataSource, []);
+
 	const root = await browse();
 	assert.equal(received.at(-1).delimiter, '/', 'list 必须带 delimiter，否则根本没有目录这回事');
 	assert.deepEqual(root.dataSource.map((row) => row.name), ['shortcuts/', 'avatars/', '中文 文件.txt'], '根目录是两个目录加一个文件，不是五个带全路径的 key');

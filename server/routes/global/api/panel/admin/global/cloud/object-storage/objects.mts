@@ -25,6 +25,20 @@ const bindingOptions = async (database: Parameters<typeof loadCloudStorageTarget
 	});
 };
 
+/**
+ * 列的定义**不依赖选了哪个绑定**，因此没选的时候也要照常下发。
+ *
+ * 早先没选绑定时回的是 `columns: []`，而前端只在**第一次**响应里取结构、之后只请求数据
+ * （`include=data`）——那个空结构被缓存下来，选定绑定之后再也没机会替换，页面上就只剩
+ * 一列复选框，文件名、大小、时间全都不显示。
+ */
+const objectColumns = [
+	{ dataIndex: 'name', title: '名称' },
+	{ dataIndex: 'size', title: '大小', dataType: 'int' as const },
+	{ dataIndex: 'lastModified', title: '最后修改', emptyText: '—' },
+	{ dataIndex: 'etag', title: 'ETag', emptyText: '—' },
+];
+
 const handler: ApiHandler = async (c, next) => {
 	const database = c.get('database');
 	const bindingId = Number(c.req.query('binding_id'));
@@ -34,7 +48,7 @@ const handler: ApiHandler = async (c, next) => {
 		{ dataIndex: 'prefix', label: '对象前缀', component: 'textbox' as const, placeholder: '可选' },
 	];
 	if (c.req.method === 'GET') {
-		if (!Number.isInteger(bindingId) || bindingId <= 0) return apiResponse(c, 200, { table: { option: { rowKey: 'key', queryFields, actions: { query: [{ key: 'search', label: '查询' }] } }, columns: [], dataSource: [], totalRecords: 0 } });
+		if (!Number.isInteger(bindingId) || bindingId <= 0) return apiResponse(c, 200, { table: { option: { rowKey: 'key', queryFields, actions: { query: [{ key: 'search', label: '查询' }] } }, columns: objectColumns, dataSource: [], totalRecords: 0 } });
 		const target = await loadCloudStorageTarget(database, bindingId);
 		if (!target) return apiMessage(c, 404, 'Bucket 绑定不存在或已停用');
 		try {
@@ -65,12 +79,7 @@ const handler: ApiHandler = async (c, next) => {
 				{ key: 'enter', label: '进入', applyQueryFields: { prefix: 'relative_key' }, visibleWhen: { field: 'is_prefix', values: ['1'] } },
 				{ key: 'download', label: '下载', visibleWhen: { field: 'is_prefix', values: ['0'] } },
 				{ key: 'delete', label: '删除', confirm: '确认删除对象吗？', visibleWhen: { field: 'is_prefix', values: ['0'] } },
-			] }, queryFields }, columns: [
-				{ dataIndex: 'name', title: '名称' },
-				{ dataIndex: 'size', title: '大小', dataType: 'int' },
-				{ dataIndex: 'lastModified', title: '最后修改', emptyText: '—' },
-				{ dataIndex: 'etag', title: 'ETag', emptyText: '—' },
-			], dataSource, totalRecords: dataSource.length, nextCursor: page.nextToken, hasMore: page.hasMore } });
+			] }, queryFields }, columns: objectColumns, dataSource, totalRecords: dataSource.length, nextCursor: page.nextToken, hasMore: page.hasMore } });
 		} catch (error) { return apiMessage(c, 502, error instanceof Error ? error.message : '对象列表读取失败'); }
 	}
 	if (!Number.isInteger(bindingId) || bindingId <= 0) return apiMessage(c, 400, '请选择站点 Bucket 绑定');
