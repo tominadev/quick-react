@@ -152,9 +152,9 @@ return next();
 
 ### 实体字段与跨表引用命名
 
-实体表内部的业务字段只使用字段本身的名称，不重复实体前缀。例如设备表保存 UUID 业务键时字段名为 `key`，按“实体名 + 字段名”组合后的跨表名称就是 `device_key`，不可能产生 `device_device_key`；后者仅会在设备表错误地把字段命名为 `device_key` 后又重复添加实体前缀时出现，属于错误命名。关联设备记录主键时统一使用 `device_id`；Passport 设备使用 `passport_device_id`。字段名和跨表引用名不能通过机械重复前缀生成。
+实体表内部的业务字段只使用字段本身的名称，不重复实体前缀。例如设备表保存设备键时字段名为 `key`，按“实体名 + 字段名”组合后的跨表名称就是 `device_key`，不可能产生 `device_device_key`；后者仅会在设备表错误地把字段命名为 `device_key` 后又重复添加实体前缀时出现，属于错误命名。关联设备记录主键时统一使用 `device_id`；Passport 设备使用 `passport_device_id`。字段名和跨表引用名不能通过机械重复前缀生成。
 
-设备键的业务语义统一使用 `device_key`：设备表内部字段为 `key`，浏览器存储键为 `device_key`，请求头为 `X-Device-Key`。这些稳定名称不得带入当前项目或产品名称；设备键不是会话凭证，禁止改名为 `session_key`。浏览器长期保存设备键于 `localStorage.device_key`；浏览器导航和 OAuth/OIDC 回调使用会话级 HttpOnly `device_key` Cookie 携带设备键，浏览器重启后由前端从 localStorage 优先通过请求头提交，后端响应重新写入会话 Cookie。首次 HTML 导航暂时没有设备键时只读取活动会话和设备关系，不删除会话；后续 API 请求仍必须携带并校验设备键。它只用于设备键传输，不代表登录会话，登录成功后不能清除。
+设备键的业务语义统一使用 `device_key`：设备表内部字段为 `key`，浏览器存储键为 `device_key`，请求头为 `X-Device-Key`。格式是 **32 位小写十六进制**（16 字节随机），由客户端用 `crypto.getRandomValues` 生成，格式、归一与生成函数都在 `shared/device-key.mts` 一处，前后端共用。**不使用 `crypto.randomUUID()`**：那个函数只在安全上下文（HTTPS 或 localhost）存在，用 HTTP 访问自定义域名时它是 `undefined`，设备键因此拿不到，整个站点连登录都进不去，而失败在浏览器里是静默的。读取时先去掉连字符再校验，历史上由 `randomUUID()` 产出的带连字符写法由此归一到同一个值——两者本来就是同一个东西，只差四个连字符，不归一的话同一台设备会被记成两台。这些稳定名称不得带入当前项目或产品名称；设备键不是会话凭证，禁止改名为 `session_key`。浏览器长期保存设备键于 `localStorage.device_key`；浏览器导航和 OAuth/OIDC 回调使用会话级 HttpOnly `device_key` Cookie 携带设备键，浏览器重启后由前端从 localStorage 优先通过请求头提交，后端响应重新写入会话 Cookie。首次 HTML 导航暂时没有设备键时只读取活动会话和设备关系，不删除会话；后续 API 请求仍必须携带并校验设备键。它只用于设备键传输，不代表登录会话，登录成功后不能清除。
 
 OAuth/OIDC 回调必须在一次服务端回调请求内完成授权码处理、设备绑定和会话建立，不得为了补充设备信息增加“回调页面再请求 API”的额外往返。第三方导航无法携带自定义请求头时，必要的设备键使用 HttpOnly `device_key` Cookie；非认证性的 fingerprint 缺失时直接跳过或初始化，不得触发补充请求。
 
