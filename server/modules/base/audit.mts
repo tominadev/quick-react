@@ -369,6 +369,40 @@ const rowCondition = (entry: AuditEntryRow): SqlCondition => (
  * 恢复出来的行仍然对业务查询不可见，却又出现在管理列表里(那里看得见待审批的行)，
  * 成了一个谁也说不清状态的幽灵。
  */
+/**
+ * 比较用的归一形式：BIGINT 各驱动返回的类型不一（number / string / bigint），一律按字符串比；
+ * 数组与对象按 JSON 比，`String(['a','b'])` 会得到 `a,b`，两个不同的数组可能撞上。
+ */
+const storedKey = (value: unknown) => value === null || value === undefined ? ''
+	: typeof value === 'object' ? JSON.stringify(value) : String(value);
+
+/**
+ * 批准之前核一遍：这一行的内容还是不是申请里写的那一份。
+ *
+ * **批准修改早就有这道校验**（每一列的当前值必须还等于记录里的前值），批准新增却没有——
+ * `activate()` 只把 `pended_at` 归零，不看内容。于是待审批期间那一行被别处改过的话，
+ * 审批人看着「newguy / 普通用户」点了批准，生效的却是「hijacked / 平台管理员」，
+ * 而记录上仍然写着他看过的那一份。**你批的必须就是你看到的。**
+ *
+ * 只核记录里写下的那几列：归属、时间戳这些本来就不进 changes（见 insertChanges），
+ * 它们在待审批期间被公共层动过是正常的。`pended_at` 更要排除——它正是这一步要改的那一列。
+ */
+const insertContentMatches = async (database: DatabaseAdapter, entry: AuditEntryRow) => {
+	const expected = Object.entries(parseAuditChanges(entry))
+		.filter(([column]) => column !== 'pended_at')
+		.map(([column, change]) => [column, change.after] as const);
+	if (!expected.length) return true;
+	const builder = sql({ database, subjectRoles: null });
+	// 一律 cast 成文本：BIGINT 是雪花号，按数字读会溢出；归一之后两边才比得起来。
+	const row = await firstSql<Record<string, unknown>>(database, builder.select({
+		table: entry.table_name,
+		columns: Object.fromEntries(expected.map(([column]) => [column, { column, cast: 'text' as const }])),
+		where: [rowCondition(entry)], deleted: 'all', pended: 'all', limit: 1,
+	}));
+	if (!row) return false;
+	return expected.every(([column, value]) => storedKey(row[column]) === storedKey(value));
+};
+
 const applyInsertTransition = async (database: DatabaseAdapter, entry: AuditEntryRow, to: ApprovalTransition) => {
 	const where = [rowCondition(entry)];
 	const builder = sql({ database, subjectRoles: null });
@@ -399,6 +433,11 @@ const transitionOne = async (database: DatabaseAdapter, entry: AuditEntryRow, to
 	}
 	// 新建：行已经在库里，区别只在看不看得见（驳回与撤销则把它删掉）。
 	if (entry.action === 'insert') {
+		// 批准之前核一遍内容：你批的必须就是你看到的（见 insertContentMatches）。
+		// 别的迁移不核——驳回与撤销是把它拿掉，回滚与重做动的是已经生效过的东西。
+		if (to === 'approve' && !await insertContentMatches(database, entry)) {
+			return { id: entry.id, ok: false, message: '这一行的内容与申请里的不一致，无法批准——它在等待期间被改过，请刷新后重新确认' };
+		}
 		if (!await applyInsertTransition(database, entry, to)) {
 			return { id: entry.id, ok: false, message: `原记录已不存在，无法${allowed.label}` };
 		}

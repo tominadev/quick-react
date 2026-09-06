@@ -390,6 +390,30 @@ const auditRouteFilter = async () => {
 		afterReject.close();
 
 		/**
+		 * **批准之前核一遍内容：你批的必须就是你看到的。**
+		 *
+		 * 批准修改早就有这道校验（每一列的当前值必须还等于记录里的前值），批准新增却没有：
+		 * `activate()` 只把 pended_at 归零，不看内容。于是待审批期间那一行被别处改过的话，
+		 * 审批人看着「newguy / 普通用户」点了批准，生效的却是别的东西，而记录上仍然写着
+		 * 他看过的那一份。
+		 */
+		{
+			const contentApi = 'http://localhost/api/panel/admin/base/users.php';
+			assert.equal((await app.request(contentApi, { method: 'POST', headers: { ...headers, cookie }, body: JSON.stringify({ user_name: 'tampered', password: 'tamper-password-1', roles: [], status: 'enabled' }) })).status, 202);
+			const queued = (await pendingIds());
+			const tamper = new DatabaseSync(process.env.DEFAULT_DATABASE_FILE);
+			tamper.prepare("UPDATE base_users SET name='hijacked' WHERE name='tampered'").run();
+			tamper.close();
+			const decided = await decide('approve', queued);
+			assert.equal(decided.status, 200);
+			assert.match((await decided.json()).feedback?.message ?? '', /内容与申请里的不一致/);
+			const checked = new DatabaseSync(process.env.DEFAULT_DATABASE_FILE);
+			assert.notEqual(Number(checked.prepare("SELECT pended_at FROM base_users WHERE name='hijacked'").get().pended_at), 0, '核不上就不生效');
+			checked.close();
+			assert.equal((await decide('reject', await pendingIds())).status, 200);
+		}
+
+		/**
 		 * 被驳回的申请可以**恢复**：整个操作一起放回队列，行也回到待审批的样子。
 		 *
 		 * 没有这一条的话，驳回错了只能去每张表的回收站里一行一行捞——建号写三行（账号、
