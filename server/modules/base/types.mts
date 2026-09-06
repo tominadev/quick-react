@@ -46,6 +46,17 @@ export type AppEnv = {
 		techStackConfig: TechStackConfig;
 		/** 当前 API 资源的公共 TableCRUD 回收能力配置。 */
 		tableCrud?: TableCrudDefinition;
+		/**
+		 * 协议接口验完凭证之后得到的**主体**。
+		 *
+		 * `/api/panel/` 的身份来自会话，而协议接口（`/api/token/`、`/api/ed25519/`）的身份
+		 * 跟着请求走。目录级中间件在进入叶子之前验完凭证并把结果放在这里，叶子只管业务，
+		 * 不再各自重复一遍「取头、算摘要、查表、比对」。
+		 *
+		 * `kind` 说的是**凭什么进来的**，不同凭证的有效期与泄露后果不同（静态令牌长期有效、
+		 * 签名票据一次性），叶子偶尔需要据此收窄。
+		 */
+		protocolSubject?: { kind: 'token' | 'ed25519'; ownerUid: string; deviceId?: string };
 		clientIp?: string;
 		transportIp?: string;
 		accountsIdentity: boolean;

@@ -6,7 +6,7 @@
 
 ## 0. 词汇约定
 
-与绑定文档 §0 一致：**手机 → SMS 叫"接收"**（接收接口 `/api/sms/messages/receive`），**SMS → 用户服务端叫"推送"**（`sms_push_endpoints`，不在本工具范围）。本工具只关心前者，因为接收地址要写进每个 Shortcut。
+与绑定文档 §0 一致：**手机 → SMS 叫"接收"**（接收接口 `/api/shortcut/message-receive`），**SMS → 用户服务端叫"推送"**（`sms_push_endpoints`，不在本工具范围）。本工具只关心前者，因为接收地址要写进每个 Shortcut。
 
 ## 1. 背景
 

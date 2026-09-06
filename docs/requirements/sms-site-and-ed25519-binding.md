@@ -10,7 +10,7 @@
 
 | 方向 | 用词 | 对应 |
 | --- | --- | --- |
-| 手机 → SMS | **接收** | 接收接口 `/api/sms/messages/receive`，字段 `received_at` |
+| 手机 → SMS | **接收** | 接收接口 `/api/shortcut/message-receive`，字段 `received_at` |
 | SMS → 用户服务端 | **推送** | `sms_push_endpoints` |
 
 其余称谓遵循 [AGENTS.md](../../AGENTS.md)：本文中的"用户"一律指网站终端用户。
@@ -461,7 +461,7 @@ base64url(payload).base64url(signature)
 接收接口的规范路径：
 
 ```http
-POST /api/sms/messages/receive
+POST /api/shortcut/message-receive
 Authorization: Bearer <原始令牌>
 Content-Type: application/json
 ```
