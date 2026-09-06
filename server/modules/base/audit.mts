@@ -77,7 +77,15 @@ export const serializeAuditChanges = (changes: AuditChanges) => ({
 });
 
 /** 数组与对象按 JSON 显示：`String(['a','b'])` 得到 `a,b`，看不出它本来是个数组。 */
-const displayValue = (value: unknown) => value === null || value === undefined ? '空'
+/**
+ * 值读成人话。**空串与 NULL 都念作「空」**：在「改了什么」这个问题上它们是同一件事——
+ * 原来没有值。要分清是 NULL 还是空串，看的是数据管理那张原始表（那里 NULL 单独标出来），
+ * 不是这里。
+ *
+ * 不这么做的话空串会渲染成空白，摘要里读到的是 `微信号： → 1`，一个断掉的箭头。前端
+ * 确认框（readableFieldValue）本来就把两者都念作「空」，两处必须读起来一样。
+ */
+const displayValue = (value: unknown) => value === null || value === undefined || value === '' ? '空'
 	: typeof value === 'object' ? JSON.stringify(value) : String(value);
 
 const plainObject = (value: unknown): value is Record<string, unknown> =>

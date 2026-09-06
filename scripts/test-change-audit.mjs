@@ -997,6 +997,13 @@ try {
 	database.prepare('UPDATE base_approvals SET created_at = ? WHERE id = ?').bind(staleAt, remaining.id).run();
 	assert.equal(await purgeAuditRetention(database), 1, '未配置保留期的租户应回落到默认的 365 天');
 
+	// 空串与 NULL 都念作「空」：在「改了什么」这个问题上它们是同一件事——原来没有值。
+	// 不这么念的话空串渲染成空白，摘要读起来是 `微信号： → 1`，一个断掉的箭头。
+	// 要分清是 NULL 还是空串，看的是数据管理那张原始表（那里 NULL 单独标出来）。
+	assert.equal(describeAuditChanges({ wechat: { before: '', after: '1' } }), '微信号：空 → 1'.replace('微信号', 'wechat'));
+	assert.equal(describeAuditChanges({ wechat: { before: null, after: '1' } }), 'wechat：空 → 1');
+	assert.equal(describeAuditChanges({ wechat: { before: '1', after: '' } }), 'wechat：1 → 空');
+
 	console.log('change audit ok');
 } finally {
 	await rm(temporaryDirectory, { recursive: true, force: true });
