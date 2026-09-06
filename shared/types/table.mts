@@ -102,6 +102,14 @@ export type TableColumn = TableColumnFormProperties & {
 	 * 因为那里要分的是存储形态，不是业务含义。
 	 */
 	emptyText?: string;
+	/**
+	 * 这一列没值时**显示**成同一行哪一列的值，例如昵称回落到用户名。
+	 *
+	 * 回落是显示规则，不是数据：接口发的仍是真值（没设昵称就是 `null`），编辑表单因此
+	 * 编辑的也是真值——点 ✕ 就是「不设昵称」，不必靠「把它改回用户名」这种没人猜得到的
+	 * 操作。回落只在列表上生效，并且用次要色标出来，与真的填了那个名字区分得开。
+	 */
+	fallbackField?: string;
 	ellipsis?: boolean;
 	hideInTable?: boolean;
 	/** 这一列能不能排序；由服务端按它是否真的可排序下发，前端不自行推断。 */

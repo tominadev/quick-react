@@ -6,7 +6,7 @@ import { allSql, firstSql, isUniqueViolation, runSql, runSystemSql, sql, type Sq
 import { PendingApprovalError, runOperation, runOperationSql } from '@server/modules/base/operation.mjs';
 import { finishUserCreation } from '@server/modules/base/registration.mjs';
 import { credentialStatement, setCredential } from '@server/modules/base/credentials.mjs';
-import { profileNicknameOf, profileStatement } from '@server/modules/base/profile.mjs';
+import { profileStatement } from '@server/modules/base/profile.mjs';
 import { userNameError } from '@shared/account-name.mjs';
 import { tableSort } from '@server/modules/base/query-options.mjs';
 import { enabledDisabledOptions, statusValues } from '@shared/types/status.mjs';
@@ -23,7 +23,7 @@ const columns = [
 	{ dataIndex: 'roles', title: '角色', component: 'select' as const, multiple: true, options: assignableRoleOptions, placeholder: '留空表示仅具备登录用户权限' },
 	{ dataIndex: 'status', title: '状态', component: 'switch' as const, checkedValue: statusValues.enabled, uncheckedValue: statusValues.disabled, options: enabledDisabledOptions },
 	// 个人简介都存在 base_user_profiles：没有资料行就是没设过，昵称回落到用户名。
-	{ dataIndex: 'profile_nickname', title: '昵称', component: 'textbox' as const, placeholder: '默认与用户名相同', group: '个人简介' },
+	{ dataIndex: 'profile_nickname', title: '昵称', component: 'textbox' as const, nullable: true, fallbackField: 'user_name', placeholder: '默认与用户名相同', group: '个人简介' },
 	// 三列都可能没填。空格子看不出是「没填」还是「显示坏了」，写明白。
 	{ dataIndex: 'profile_qq', title: 'QQ', component: 'textbox' as const, nullable: true, emptyText: '未填写', group: '个人简介' },
 	{ dataIndex: 'profile_wechat', title: '微信号', component: 'textbox' as const, nullable: true, emptyText: '未填写', group: '个人简介' },
@@ -53,8 +53,10 @@ const profileFieldsFrom = (body: Record<string, unknown>, changed?: Set<string>)
 const publicUser = (row: Record<string, unknown>) => ({
 	id: row.id,
 	user_name: row.user_name,
-	// 没设过资料就回落到用户名。
-	profile_nickname: profileNicknameOf(String(row.user_name ?? ''), row.profile_nickname as string | null),
+	// 发真值：没设过昵称就是 null。列表上回落到用户名由列上的 fallbackField 声明——
+	// 在这里回落的话，编辑表单拿到的是用户名而不是真值，「不设昵称」就只能靠
+	// 「把它改回用户名」这种没人猜得到的操作来表达。
+	profile_nickname: row.profile_nickname ?? null,
 	// 没值就发 null，不折成空串：接口说真话，「没填」怎么显示由列上的 emptyText 声明。
 	// 表单那一侧的归一在 drawer 里按控件做——受控输入吃不下 null，但那是它的事，不是这里的。
 	profile_qq: row.profile_qq ?? null,

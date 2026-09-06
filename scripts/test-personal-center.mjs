@@ -104,11 +104,17 @@ try {
 
 	// —— 个人简介 ——
 	const profileSave = (fields) => save({ _section: 'profile', profile_nickname: '', profile_qq: '', profile_wechat: '', profile_email: '', ...fields });
-	// 昵称的默认值就是用户名（没设过时回落显示的那个），表单里不会是空白。
-	assert.equal(before.initialValues.profile_nickname, 'meadmin');
+	/**
+	 * **表单里编辑的是真值**：没设过昵称就是 `null`，控件显示成「未填写，点击填写」。
+	 *
+	 * 回落到用户名是**显示规则**，在看得到名字的地方做（右上角、列表），不在表单初值里
+	 * ——在初值里回落的话，「不设昵称」就只能靠「把它改回用户名」这种没人猜得到的操作
+	 * 来表达，而那一列明明是可空的。
+	 */
+	assert.equal(before.initialValues.profile_nickname, null, '没设过就是 null，不是回落后的用户名');
 	assert.equal((await (await request(mePath, { cookie })).json()).user.profile_nickname, 'meadmin', '右上角显示的是昵称，没设过就回落到用户名');
-	// 原样提交回来当作「没设昵称」：不写资料行，继续回落。用户名只有 7 位、短于昵称下限
-	// 4 个半角也不该因此保存失败——比对必须发生在长度校验之前。
+	// 填成用户名仍然当作「没设昵称」：那是同一个显示效果，占着唯一索引没有意义。
+	// 用户名只有 7 位、短于昵称下限 4 个半角也不该因此保存失败——比对必须发生在长度校验之前。
 	assert.equal((await profileSave({ profile_nickname: 'meadmin' })).status, 200);
 	const untouched = new DatabaseSync(process.env.DEFAULT_DATABASE_FILE, { readOnly: true });
 	assert.equal(untouched.prepare('SELECT nickname FROM base_user_profiles p JOIN base_users u ON u.id = p.user_id WHERE u.name = ?').get('meadmin')?.nickname ?? null, null, '原样保存不该写入昵称');

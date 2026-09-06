@@ -23,8 +23,10 @@ const profileForm = (values: ProfileRow, hasPassword: boolean): FormPageConfig =
 	sectionLayout: 'tabs',
 	initialValues: {
 		user_name: values.user_name,
-		// 昵称没设过时回落显示用户名，表单里因此不是空白；原样提交回来当作没设。
-		profile_nickname: profileNicknameOf(values.user_name, values.profile_nickname),
+		// 发真值：没设过昵称就是 null，表单里显示成「未填写，点击填写」。回落到用户名是
+		// **显示规则**，在看得到名字的地方做（列表、页面标题），不在这里——在这里回落的话，
+		// 「不设昵称」就只能靠「把它改回用户名」这种没人猜得到的操作来表达。
+		profile_nickname: values.profile_nickname,
 		// 不折成空串：这三个字段的控件认得 NULL，「没填过」和「填过又清掉」要分得开。
 		profile_qq: values.profile_qq, profile_wechat: values.profile_wechat, profile_email: values.profile_email,
 		currentPassword: '', newPassword: '',
@@ -38,7 +40,7 @@ const profileForm = (values: ProfileRow, hasPassword: boolean): FormPageConfig =
 		{
 			key: 'profile', title: '个人简介', submitLabel: '保存简介',
 			fields: [
-				{ name: 'profile_nickname', label: '昵称', maxLength: maxNicknameWidth, extra: `显示名，本站内唯一，可以用各国语言；宽度 ${minNicknameWidth} 到 ${maxNicknameWidth} 个半角字符（一个全角按两个半角计）。默认就是用户名，改成别的才会单独保存。` },
+				{ name: 'profile_nickname', label: '昵称', maxLength: maxNicknameWidth, nullable: true, extra: `显示名，本站内唯一，可以用各国语言；宽度 ${minNicknameWidth} 到 ${maxNicknameWidth} 个半角字符（一个全角按两个半角计）。留作「未填写」就用用户名显示。` },
 				{ name: 'profile_qq', label: 'QQ', maxLength: 20, nullable: true },
 				{ name: 'profile_wechat', label: '微信号', maxLength: 64, nullable: true },
 				{ name: 'profile_email', label: '联系邮箱', maxLength: 254, nullable: true, extra: '本站不做验证，仅作联系方式。' },
