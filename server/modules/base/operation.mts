@@ -490,7 +490,7 @@ const recordStatement = async (database: DatabaseAdapter, metadata: SqlAuditMeta
 			written[column] = after;
 			// JSON 列只记**变了的那几个键**：改一个页脚而把整块站点配置抄进审计，
 			// 「改了什么」等于没答，记录也会随配置一起膨胀。
-			// 回滚时按键合并回去，不整块覆盖，见 audit.mts 的 transitionOne。
+			// 回滚时按键合并回去，不整块覆盖，见 audit.mts 的 applyApproval。
 			changes[column] = jsonKeyDiff(before, after) ?? { before, after };
 		}
 		if (!Object.keys(changes).length) continue;

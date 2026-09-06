@@ -2,7 +2,7 @@ import type { ApiHandler } from '@server/modules/base/api-router.mjs';
 import { apiMessage, apiResponse } from '@server/modules/base/api-response.mjs';
 import { readChangeReason } from '@server/modules/base/operation.mjs';
 import { allSql, AUDIT_TABLE, sql, type SqlCondition } from '@server/database/sql.mjs';
-import { DATA_LABELS, REVIEW_LABELS, auditTransitionsFor, countAuditEntries, describeAuditChanges, kindLabel, listAuditEntries, parseAuditChanges, publicAuditChanges, readAuditEntry, transitionAuditEntries, type AuditTransitionRow, type AuditEntryRow } from '@server/modules/base/audit.mjs';
+import { DATA_LABELS, REVIEW_LABELS, auditApprovalsFor, countAuditEntries, describeAuditChanges, kindLabel, listAuditEntries, parseAuditChanges, publicAuditChanges, readAuditEntry, applyAuditApprovals, type AuditApprovalRow, type AuditEntryRow } from '@server/modules/base/audit.mjs';
 import { tableSort } from '@server/modules/base/query-options.mjs';
 import { assertNotSelfApproval, isSuperUser, submitterIdsOf } from '@server/modules/base/super-users.mjs';
 import type { TableCrudDefinition } from '@server/modules/base/table-crud.mjs';
@@ -62,7 +62,7 @@ const queryFields = [
 ];
 
 /**
- * 每个动作对应一次迁移，并且只对处在起点的行显示。
+ * 每个动作对应一次审批，并且只对处在起点的行显示。
  *
  * 审批类动作看审批状态，数据类动作看数据状态——两列各管各的：一条「无需审批」的自助
  * 操作照样能回滚，而它压根没有可批准的申请。
@@ -76,13 +76,13 @@ const queryFields = [
 const STAGE_FIELD = '_stage';
 
 /**
- * 这一行的迁移记录值不值得点开：`''` 没有、`one` 一条、`many` 两条以上。
+ * 这一行的审批记录值不值得点开：`''` 没有、`one` 一条、`many` 两条以上。
  *
- * **只有两条以上才给按钮。** 一条的时候列表上那一列「最近迁移」显示的就是它的全部
- * （时间、迁移类型、操作者、理由），点开只是把同一行字换个地方再看一遍；零条更不用说。
+ * **只有两条以上才给按钮。** 一条的时候列表上那一列「最近审批」显示的就是它的全部
+ * （时间、审批动作、操作者、理由），点开只是把同一行字换个地方再看一遍；零条更不用说。
  * 时间线要到「先被谁驳回、又被谁放回队列、最后谁批的」才开始有信息。
  */
-const TRANSITIONS_FIELD = '_transitions';
+const APPROVALS_FIELD = '_approvals';
 
 /**
  * **撤销与驳回互斥**：自己提的叫撤销，别人提的叫驳回，同一条记录上不会同时出现两个。
@@ -101,7 +101,7 @@ const flipActions = (superUser: boolean) => [
 	{ key: 'revert' as const, label: '回滚', from: ['applied'], confirm: '确认把这条已经生效的变更改回去吗？' },
 	// 两个「往回走」在不同的轴上，名字分开：重新应用动数据（回滚的逆），恢复动申请（驳回/撤销的逆）。
 	{ key: 'redo' as const, label: '重新应用', from: ['reverted'], confirm: '确认把这条回滚掉的变更再写回去吗？' },
-	// 只对被否掉的**新增**开放：其余重新提交一次就是了（见 TRANSITIONS.requeue 的 insertOnly）。
+	// 只对被否掉的**新增**开放：其余重新提交一次就是了（见 APPROVAL_KINDS.requeue 的 insertOnly）。
 	// 驳回是审批人的决定，可以由审批人收回；撤销是申请人自己收回的，只有他自己能再放回去。
 	{ key: 'requeue' as const, label: '恢复', from: ['rejected-insert', 'withdrawn-insert-mine'], confirm: '确认把这条新增放回队列吗？那一行会从回收站回到待审批，等批准了才生效。' },
 ];
@@ -130,22 +130,22 @@ const columns = [
 	{ dataIndex: 'review_status', title: '审批状态', options: reviewOptions },
 	{ dataIndex: 'data_status', title: '数据状态', options: dataOptions },
 	/**
-	 * 迁移不再各占三列（谁、什么时候、为什么），而是一条一条追加到 base_audit_transitions。
+	 * 审批不再各占三列（谁、什么时候、为什么），而是一条一条追加到 base_audit_approvals。
 	 *
 	 * 列表上只显示**最后一次发生了什么**——横着摆十几列的时候，一条记录最多经历两三种
-	 * 迁移，其余格子永远空着；而完整经过在详情页按时间线读，那才是一条审计记录该有的样子。
+	 * 审批，其余格子永远空着；而完整经过在详情页按时间线读，那才是一条审计记录该有的样子。
 	 */
-	{ dataIndex: 'last_transition', title: '最近迁移', tableDisplay: 'multiline' as const },
+	{ dataIndex: 'last_approval', title: '最近审批', tableDisplay: 'multiline' as const },
 ];
 
-/** 一次迁移读成一行人话：`2026-09-06 10:00:00 批准(approve)（#7）：同意`。 */
-const transitionLine = (transition: AuditTransitionRow) => {
-	const at = new Date(Number(transition.created_at)).toISOString().replace('T', ' ').slice(0, 19);
-	const who = transition.created_duid ? `（#${transition.created_duid}）` : '';
-	return `${at} ${kindLabel(transition.kind)}${who}${transition.reason ? `：${transition.reason}` : ''}`;
+/** 一次审批读成一行人话：`2026-09-06 10:00:00 批准(approve)（#7）：同意`。 */
+const approvalLine = (approval: AuditApprovalRow) => {
+	const at = new Date(Number(approval.created_at)).toISOString().replace('T', ' ').slice(0, 19);
+	const who = approval.created_duid ? `（#${approval.created_duid}）` : '';
+	return `${at} ${kindLabel(approval.kind)}${who}${approval.reason ? `：${approval.reason}` : ''}`;
 };
 
-const publicEntry = (row: AuditEntryRow, transitions: AuditTransitionRow[] = []) => ({
+const publicEntry = (row: AuditEntryRow, approvals: AuditApprovalRow[] = []) => ({
 	id: row.id,
 	created_at: row.created_at,
 	table_name: row.table_name,
@@ -164,7 +164,7 @@ const publicEntry = (row: AuditEntryRow, transitions: AuditTransitionRow[] = [])
 	scope: row.scope,
 	request_hostname: row.request_hostname,
 	request_path: row.request_path,
-	last_transition: transitions.length ? transitionLine(transitions[transitions.length - 1]) : '',
+	last_approval: approvals.length ? approvalLine(approvals[approvals.length - 1]) : '',
 });
 
 const readIds = async (c: Parameters<ApiHandler>[0], routeId?: string) => {
@@ -211,8 +211,8 @@ const handler: ApiHandler = async (c, next, params) => {
 		};
 		// 列表有条数上限，总数单独计一次——拿列表长度当总数会在超过上限时谎报。
 		const totalRecords = await countAuditEntries(database, filters, reason);
-		// 迁移经过在事件表里：一次 IN 查询取回来按记录分组，列表上只显示最后一条。
-		const transitions = await auditTransitionsFor(database, rows.map((row) => String(row.id)));
+		// 审批经过在事件表里：一次 IN 查询取回来按记录分组，列表上只显示最后一条。
+		const approvals = await auditApprovalsFor(database, rows.map((row) => String(row.id)));
 		return apiResponse(c, 200, { table: {
 			// 审计记录不可修改、不可删除，接口层因此没有新增、编辑与删除入口（§7.3）。
 			// 这一页的动作本身就是审批机制，不经过审批门：撤销、批准、驳回走的是
@@ -224,19 +224,19 @@ const handler: ApiHandler = async (c, next, params) => {
 				// 回滚与重新应用是互斥的两个动作，一行上只显示其中适用的那个。
 				toolbar: flipActions(isSuperUser(c)).map((action) => ({ key: action.key, label: `${action.label}选中记录`, confirm: action.confirm, selection: true })),
 				row: [
-					// 完整经过在弹窗里读：列表上只有「最近迁移」一行，而一条记录可能被驳回、
+					// 完整经过在弹窗里读：列表上只有「最近审批」一行，而一条记录可能被驳回、
 					// 恢复、批准、回滚、重新应用地翻好几轮。带上 audit_id，否则弹开的是全站事件。
-					{ key: 'transitions', label: '迁移记录', modalPath: '/panel/admin/base/audit-transitions', modalComponent: 'table' as const, modalQueryFields: { audit_id: 'id' }, visibleWhen: { field: TRANSITIONS_FIELD, values: ['many'] } },
+					{ key: 'approvals', label: '审批记录', modalPath: '/panel/admin/base/audit/approvals', modalComponent: 'table' as const, modalQueryFields: { audit_id: 'id' }, visibleWhen: { field: APPROVALS_FIELD, values: ['many'] } },
 					...flipActions(isSuperUser(c)).map((action) => ({ key: action.key, label: action.label, confirm: action.confirm, visibleWhen: { field: STAGE_FIELD, values: action.from } })),
 				],
 			} },
 			columns,
 			dataSource: rows.map((row) => {
-				const timeline = transitions.get(String(row.id)) ?? [];
+				const timeline = approvals.get(String(row.id)) ?? [];
 				return {
 					...publicEntry(row, timeline),
 					[STAGE_FIELD]: stageOf(row),
-					[TRANSITIONS_FIELD]: timeline.length > 1 ? 'many' : timeline.length ? 'one' : '',
+					[APPROVALS_FIELD]: timeline.length > 1 ? 'many' : timeline.length ? 'one' : '',
 				};
 			}),
 			totalRecords,
@@ -246,11 +246,11 @@ const handler: ApiHandler = async (c, next, params) => {
 		const row = await readAuditEntry(database, params.id);
 		if (!row) return apiMessage(c, 404, '审计记录不存在');
 		// 详情页给**完整时间线**：一条审计记录该读得出「先被谁驳回、又被谁放回队列、最后谁批的」。
-		const timeline = (await auditTransitionsFor(database, [String(row.id)])).get(String(row.id)) ?? [];
+		const timeline = (await auditApprovalsFor(database, [String(row.id)])).get(String(row.id)) ?? [];
 		return apiResponse(c, 200, {
 			...publicEntry(row, timeline),
 			changes: publicAuditChanges(parseAuditChanges(row)),
-			transitions: timeline.map((transition) => ({ kind: transition.kind, label: kindLabel(transition.kind), at: transition.created_at, duid: transition.created_duid ?? '', reason: transition.reason ?? '' })),
+			approvals: timeline.map((approval) => ({ kind: approval.kind, label: kindLabel(approval.kind), at: approval.created_at, duid: approval.created_duid ?? '', reason: approval.reason ?? '' })),
 		});
 	}
 	const flip = c.req.method === 'POST' ? flipActions(isSuperUser(c)).find((action) => action.key === c.req.query('action')) : undefined;
@@ -278,7 +278,7 @@ const handler: ApiHandler = async (c, next, params) => {
 				if (selfApproval) return apiMessage(c, 403, selfApproval);
 			}
 		}
-		const results = await transitionAuditEntries(database, ids, flip.key, readChangeReason(c));
+		const results = await applyAuditApprovals(database, ids, flip.key, readChangeReason(c));
 		const failed = results.filter((result) => !result.ok);
 		if (!failed.length) return apiMessage(c, 200, `已${flip.label} ${results.length} 条变更`);
 		// 逐条独立判定：某一条被拒绝时其余照常执行，最后逐条返回结果（§7.4）。

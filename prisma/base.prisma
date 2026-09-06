@@ -30,7 +30,7 @@ enum BaseAuditAction {
   purge
 }
 
-enum BaseAuditTransition {
+enum BaseAuditApproval {
   approve
   reject
   withdraw
@@ -408,7 +408,7 @@ model base_device_snapshots {
 /// **不记「提交」。** base_audits 那一行本身就是提交，`created_*` 已经写着谁在什么
 /// 时候提的。因此前台自助改一次数据只有主表一行、事件表零行——它压根没走过审批，
 /// 不必用一条事件去假装。
-model base_audit_transitions {
+model base_audit_approvals {
   id           BigInt @id @default(autoincrement())
   key          String @db.VarChar(36)
   created_at   BigInt
@@ -421,7 +421,7 @@ model base_audit_transitions {
   owner_bid    BigInt @default(1)
   owner_uid    BigInt?
   audit_id  BigInt
-  kind         BaseAuditTransition
+  kind         BaseAuditApproval
   /// 这一次的理由。撤销没有理由——那是申请人把自己提的东西收回去，不需要向谁交代。
   reason       String @default("")
   @@index([audit_id, id])
@@ -478,7 +478,7 @@ model base_audits {
   /// 想看「这次要新增什么」得先在噪音里把 after 挑出来。分开之后一眼就是一份值。
   ///
   /// 新建记录的 changes_before 是 `{}`——**空对象本身就说清了「这一行之前不存在」**，
-  /// 比一串 null 干净。批准/驳回也不读它（那一支自己处理，见 applyInsertTransition）。
+  /// 比一串 null 干净。批准/驳回也不读它（那一支自己处理，见 applyInsertApproval）。
   changes_before Json @default("{}")
   changes_after  Json @default("{}")
   /// 审批走到哪一步。没进过队列的写入是 none，不是 approved。

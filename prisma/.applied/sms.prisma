@@ -227,9 +227,14 @@ model sms_messages {
   sender       String @default("")
   received_at  BigInt @default(0)
   @@index([received_at])
-  /// 去重哈希。**必须把 received_at 算进去**：这条唯一索引不带 deleted_at，软删掉的短信
-  /// 仍占着它的哈希——只按正文与发送人算的话，用户删掉一条之后同样内容的下一条会被当成
-  /// 重复丢弃，而那明明是一条新短信。
+  /// 去重哈希，输入是 phone_id + message_id + 正文 + 发送人 + 收件人。
+  ///
+  /// **不能把 received_at 算进去**：服务端时间每次都不同，Shortcut 网络不稳重发时会算出
+  /// 两个哈希，同一条短信因此进两行——实测如此，而重试正是这条接口最常见的并发来源。
+  /// 稳定标识必须来自手机侧，也就是 message_id。
+  ///
+  /// 也不能只按正文与发送人算：这条唯一索引不带 deleted_at，软删掉的短信仍占着它的哈希，
+  /// 用户删掉一条之后同样内容的下一条会被当成重复丢弃，而那明明是一条新短信。
   payload_hash String @db.VarChar(64)
   @@unique([phone_id, payload_hash])
 }

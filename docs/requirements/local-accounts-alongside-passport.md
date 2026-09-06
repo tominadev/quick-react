@@ -57,7 +57,7 @@
 
 个人中心因此从「只读展示」改为「展示 + 一个表单」，同一个 `/api/panel/user/base/me` 接口既给身份信息也给表单配置，不新开页面。
 
-这三处写入走 `/api/panel/user/base/me`，不在 `/api/panel/admin/` 下，因此**照常留痕、不走审批、不问变更理由**（见[变更审计](change-audit-and-revert.md) §11.2）——用户处置自己的数据不该排队等人批。
+这三处写入走 `/api/panel/user/base/me`，不在 `/api/panel/admin/` 下，因此**照常留痕、不走审批、不问变更理由**（见[审计记录](change-audit-and-revert.md) §11.2）——用户处置自己的数据不该排队等人批。
 
 ## 5. 撞名时用密码绑定
 

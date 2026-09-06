@@ -2,7 +2,7 @@ import type { Context } from 'hono';
 import type { AppEnv } from './types.mjs';
 import type { DatabaseAdapter } from '@server/database/index.mjs';
 import { allSql, firstSql, sql } from '@server/database/sql.mjs';
-import { describeAuditChanges, parseAuditChanges, transitionAuditEntries } from './audit.mjs';
+import { describeAuditChanges, parseAuditChanges, applyAuditApprovals } from './audit.mjs';
 import { APPROVAL_SKIP_ROLES, readChangeReason } from './operation.mjs';
 import { assertNotSelfApproval, isSuperUser, submitterIdsOf, submitterNames } from './super-users.mjs';
 
@@ -263,7 +263,7 @@ export const handlePendingApprovalAction = async (c: Context<AppEnv>, table: str
 			: all.filter((entry) => !mineIds.has(String(entry.id)));
 	if (!entries.length) return { ok: false as const, message: action === WITHDRAW_ACTION ? '没有你自己提交的待审批申请' : action === REJECT_ACTION ? '没有别人提交的待审批申请，自己的申请请用撤销' : '没有待审批的修改' };
 	const target = action === APPROVE_ACTION ? 'approve' as const : action === REJECT_ACTION ? 'reject' as const : 'withdraw' as const;
-	const results = await transitionAuditEntries(database, entries.map((entry) => entry.id), target, readChangeReason(c));
+	const results = await applyAuditApprovals(database, entries.map((entry) => entry.id), target, readChangeReason(c));
 	const failed = results.filter((result) => !result.ok);
 	if (failed.length) return { ok: false as const, message: failed.map((result) => `#${result.id} ${result.message}`).join('；') };
 	const label = action === APPROVE_ACTION ? '已批准并生效' : action === REJECT_ACTION ? '已驳回' : '已撤销';

@@ -31,10 +31,10 @@ try {
 		if (response.status !== 202 || !options.cookie || options.keepPending) return response;
 		const auditHeaders = new Headers(headers);
 		auditHeaders.set('content-type', 'application/json');
-		const pending = await (await app.request('http://localhost/api/panel/admin/base/audits.php?include=data&review_status=pending', { headers: auditHeaders })).json();
+		const pending = await (await app.request('http://localhost/api/panel/admin/base/audit/records.php?include=data&review_status=pending', { headers: auditHeaders })).json();
 		const ids = (pending.table?.dataSource ?? []).map((row) => String(row.id));
 		if (ids.length) {
-			await app.request('http://localhost/api/panel/admin/base/audits.php?action=approve', { method: 'POST', headers: auditHeaders, body: JSON.stringify(ids) });
+			await app.request('http://localhost/api/panel/admin/base/audit/records.php?action=approve', { method: 'POST', headers: auditHeaders, body: JSON.stringify(ids) });
 		}
 		return new Response(await response.text(), { status: 200, headers: response.headers });
 	};
@@ -46,10 +46,10 @@ try {
 	 * 换了设备，会话当场作废——下一个请求就是 401。
 	 */
 	const approvePending = async () => {
-		const pending = await (await request('/api/panel/admin/base/audits.php?include=data&review_status=pending', { cookie })).json();
+		const pending = await (await request('/api/panel/admin/base/audit/records.php?include=data&review_status=pending', { cookie })).json();
 		const ids = (pending.table?.dataSource ?? []).map((row) => String(row.id));
 		if (!ids.length) return;
-		assert.equal((await request('/api/panel/admin/base/audits.php?action=approve', { method: 'POST', cookie, keepPending: true, body: ids })).status, 200);
+		assert.equal((await request('/api/panel/admin/base/audit/records.php?action=approve', { method: 'POST', cookie, keepPending: true, body: ids })).status, 200);
 	};
 
 	assert.equal((await request('/api/sign.php', { method: 'PUT', body: { user_name: 'recycleadmin', password: 'test-password-123' } })).status, 201);
@@ -116,7 +116,7 @@ try {
 	// 审批页自己也是 TableCRUD 路由：它不给删除按钮（审批记录不该在这一页被删），但必须有
 	// 回收站——「数据管理」能软删除任何表，包括这一张，删掉之后它就从审批页上消失，而审批页
 	// 恰恰是唯一会去看它的地方。没有回收站的话，谁把审批记录删了既看不见也找不回。
-	const auditApi = '/api/panel/admin/base/audits.php';
+	const auditApi = '/api/panel/admin/base/audit/records.php';
 	const auditPage = await (await request(`${auditApi}?include=schema,data&review_status=all`, { cookie })).json();
 	const auditToolbar = auditPage.table.option.actions.toolbar.map((action) => action.key);
 	assert.ok(auditToolbar.includes('recycle-bin'), '审批页要有回收站入口');

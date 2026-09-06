@@ -235,12 +235,12 @@ export type AuditRevertResult = { id: string; ok: boolean; message: string };
  */
 export type ReviewStatus = 'none' | 'pending' | 'approved' | 'rejected' | 'withdrawn';
 export type DataStatus = 'unwritten' | 'applied' | 'reverted';
-export type AuditTransition = 'approve' | 'reject' | 'withdraw' | 'revert' | 'redo' | 'requeue';
+export type AuditApproval = 'approve' | 'reject' | 'withdraw' | 'revert' | 'redo' | 'requeue';
 
-export const AUDIT_TRANSITION_TABLE = 'base_audit_transitions';
+export const AUDIT_APPROVAL_TABLE = 'base_audit_approvals';
 
-/** 一条审批记录上发生过的一次迁移。谁与什么时候由公共层的 created_duid / created_at 填。 */
-export type AuditTransitionRow = { id: string; audit_id: string; kind: AuditTransition; reason: string; created_at: number; created_duid: string | null };
+/** 一条审计记录上发生过的一次审批。谁与什么时候由公共层的 created_duid / created_at 填。 */
+export type AuditApprovalRow = { id: string; audit_id: string; kind: AuditApproval; reason: string; created_at: number; created_duid: string | null };
 
 const eventColumns = {
 	id: { column: 'id', cast: 'text' as const },
@@ -252,17 +252,17 @@ const eventColumns = {
 };
 
 /**
- * 这一批记录上发生过的迁移，按记录分组、每组按发生顺序。
+ * 这一批记录上发生过的审批，按记录分组、每组按发生顺序。
  *
  * 一次 IN 查询取回来再在内存里分组：列表本来就有 200 条上限，为此给 SQL 层加一个
  * 「按记录取最后一条」的形状不划算——那是相关子查询或窗口函数，四种方言各写一遍。
  */
-export const auditTransitionsFor = async (database: DatabaseAdapter, auditIds: readonly string[]) => {
-	const grouped = new Map<string, AuditTransitionRow[]>();
+export const auditApprovalsFor = async (database: DatabaseAdapter, auditIds: readonly string[]) => {
+	const grouped = new Map<string, AuditApprovalRow[]>();
 	if (!auditIds.length) return grouped;
 	const wanted = new Set(auditIds.map((id) => String(id)));
-	const rows = await allSql<AuditTransitionRow>(database, sql({ database, deletedScope: 'active' }).select({
-		table: AUDIT_TRANSITION_TABLE, columns: eventColumns, orderBy: [{ column: 'id' }],
+	const rows = await allSql<AuditApprovalRow>(database, sql({ database, deletedScope: 'active' }).select({
+		table: AUDIT_APPROVAL_TABLE, columns: eventColumns, orderBy: [{ column: 'id' }],
 	}));
 	for (const row of rows) {
 		const id = String(row.audit_id);
@@ -273,12 +273,12 @@ export const auditTransitionsFor = async (database: DatabaseAdapter, auditIds: r
 };
 
 /**
- * 允许的迁移，其余一概拒绝。
+ * 允许的审批动作，其余一概拒绝。
  *
  * 「撤销申请」与「回滚」按对象区分，不靠词义：前者收回的是还没生效的申请（只动审批状态，
  * 数据从未动过），后者回滚的是已经生效的变更（只动数据状态，是谁放行的不变）。
  */
-const TRANSITIONS: Record<AuditTransition, {
+const APPROVAL_KINDS: Record<AuditApproval, {
 	label: string;
 	/** 允许的起点。审批类动作看审批状态，数据类动作看数据状态。 */
 	fromReview?: readonly ReviewStatus[];
@@ -324,10 +324,10 @@ const TRANSITIONS: Record<AuditTransition, {
 	requeue: { label: '恢复', fromReview: ['rejected', 'withdrawn'], review: 'pending', write: 'none', insertOnly: true },
 };
 
-export const transitionLabel = (transition: AuditTransition) => TRANSITIONS[transition].label;
+export const approvalLabel = (approval: AuditApproval) => APPROVAL_KINDS[approval].label;
 
 /**
- * `批准(approve)`：中文取自 {@link TRANSITIONS} 的动作名，括号里是这一列的原文。
+ * `批准(approve)`：中文取自 {@link APPROVAL_KINDS} 的动作名，括号里是这一列的原文。
  *
  * **一个 kind 只有一个中文名。** 原先这里另有一套说法（`管理批准`、`执行回滚`、`撤销申请`），
  * 按「谁做的、动的是什么」加了前缀——读起来是舒服，可同一个 `redo` 在按钮上叫「重新应用」、
@@ -337,10 +337,10 @@ export const transitionLabel = (transition: AuditTransition) => TRANSITIONS[tran
  * 带上英文键：这一列的值本来就是 `approve`、`revert` 这些原文，查库、看日志、翻文档时
  * 对得上号，不必在脑子里做一次翻译。
  */
-export const kindLabel = (kind: AuditTransition) => `${TRANSITIONS[kind].label}(${kind})`;
+export const kindLabel = (kind: AuditApproval) => `${APPROVAL_KINDS[kind].label}(${kind})`;
 
 /**
- * 状态迁移：撤销、恢复、批准、驳回是同一段代码。
+ * 审批动作：撤销、恢复、批准、驳回是同一段代码。
  *
  * 一次变更**永远只有一条记录**：`changes` 里同时有前值和后值，`status` 说明当前停在哪一边。
  * 写哪一侧只看目标状态——落到 `applied` 就写 `after`、校验 `before`；落到 `reverted` 就反过来。
@@ -431,7 +431,7 @@ const insertContentMatches = async (database: DatabaseAdapter, entry: AuditEntry
 	return expected.every(([column, value]) => storedKey(row[column]) === storedKey(value));
 };
 
-const applyInsertTransition = async (database: DatabaseAdapter, entry: AuditEntryRow, to: AuditTransition) => {
+const applyInsertApproval = async (database: DatabaseAdapter, entry: AuditEntryRow, to: AuditApproval) => {
 	const where = [rowCondition(entry)];
 	const builder = sql({ database, subjectRoles: null });
 	/**
@@ -448,8 +448,8 @@ const applyInsertTransition = async (database: DatabaseAdapter, entry: AuditEntr
 	return Number(result.meta?.changes ?? 0) > 0;
 };
 
-const transitionOne = async (database: DatabaseAdapter, entry: AuditEntryRow, to: AuditTransition, reason: string): Promise<AuditRevertResult> => {
-	const allowed = TRANSITIONS[to];
+const applyApproval = async (database: DatabaseAdapter, entry: AuditEntryRow, to: AuditApproval, reason: string): Promise<AuditRevertResult> => {
+	const allowed = APPROVAL_KINDS[to];
 	if (allowed.fromReview && !allowed.fromReview.includes(entry.review_status)) {
 		return { id: entry.id, ok: false, message: `当前审批状态是「${REVIEW_LABELS[entry.review_status]}」，不能执行这个操作` };
 	}
@@ -501,7 +501,7 @@ const transitionOne = async (database: DatabaseAdapter, entry: AuditEntryRow, to
 		if ((to === 'approve' || to === 'redo' || to === 'revert') && !await insertContentMatches(database, entry)) {
 			return { id: entry.id, ok: false, message: `这一行的内容与申请里的不一致，无法${allowed.label}——它在这之后被改过，请刷新后重新确认` };
 		}
-		if (!await applyInsertTransition(database, entry, to)) {
+		if (!await applyInsertApproval(database, entry, to)) {
 			return { id: entry.id, ok: false, message: `原记录已不存在，无法${allowed.label}` };
 		}
 	}
@@ -555,7 +555,7 @@ const transitionOne = async (database: DatabaseAdapter, entry: AuditEntryRow, to
 			for (const column of partial) {
 				const value = asObject(current[column]);
 				if (!value) return { id: entry.id, ok: false, message: `该记录已被后续修改覆盖，无法${allowed.label}` };
-				// 这条记录提到的每个键，当前值都必须还停在迁移前那一侧；别的键随便别人怎么改。
+				// 这条记录提到的每个键，当前值都必须还停在这次审批前那一侧；别的键随便别人怎么改。
 				const from = asObject(expect(column)) ?? {};
 				for (const [key, expected] of Object.entries(from)) {
 					if (JSON.stringify(value[key] ?? null) !== JSON.stringify(expected ?? null)) {
@@ -574,7 +574,7 @@ const transitionOne = async (database: DatabaseAdapter, entry: AuditEntryRow, to
 				merged.set(column, { expect: current[column], write: target });
 			}
 		}
-		// 每一列都要求当前值仍等于迁移前那一侧，也就是这一列之后没有被人动过（§7.2）。
+		// 每一列都要求当前值仍等于这次审批前那一侧，也就是这一列之后没有被人动过（§7.2）。
 		// 期望值为 NULL 时必须写成 IS NULL：SQL 里 col = NULL 求值为 unknown，永远不匹配。
 		const where: SqlCondition[] = [
 			rowCondition(entry),
@@ -584,7 +584,7 @@ const transitionOne = async (database: DatabaseAdapter, entry: AuditEntryRow, to
 			}),
 		];
 		const values = Object.fromEntries(columns.map((column) => [column, (merged.has(column) ? merged.get(column)!.write : write(column)) ?? null]));
-		// 不走 runOperation：这次迁移的留痕就是原记录上的状态，不该再开一条，更不该再排一次队。
+		// 不走 runOperation：这次审批的留痕就是原记录上的状态，不该再开一条，更不该再排一次队。
 		const result = await runSystemSql(database, sql({ database }).revert(entry.table_name, values, where));
 		if (Number(result.meta?.changes ?? 0) === 0) {
 			return { id: entry.id, ok: false, message: `该记录已被后续修改覆盖，无法${allowed.label}` };
@@ -600,7 +600,7 @@ const transitionOne = async (database: DatabaseAdapter, entry: AuditEntryRow, to
 	 * 库里已经是新值，接口读到的还是旧的，等缓存自然过期才对上。改后缀那一页最容易撞到，
 	 * 因为它改的正是接口地址本身。
 	 *
-	 * 不区分是哪一种迁移：走到这里就说明这一行动过了，而配置变更本就罕见，多清一次
+	 * 不区分是哪一种审批动作：走到这里就说明这一行动过了，而配置变更本就罕见，多清一次
 	 * 只是让各租户各自重读一遍。
 	 */
 	if (entry.table_name === CONFIG_TABLE) invalidateConfigurationCache();
@@ -612,11 +612,11 @@ const transitionOne = async (database: DatabaseAdapter, entry: AuditEntryRow, to
 	 * 但没人知道是谁改的」，那才查不出来。
 	 *
 	 * 谁和什么时候不用写：`created_duid` / `created_at` 是每张表都有的系统列，公共层填。
-	 * 走 runSystemSql：这条事件本身就是这次迁移的留痕，再为它记一条审批记录是套娃。
+	 * 走 runSystemSql：这条事件本身就是这次审批的留痕，再为它记一条审批记录是套娃。
 	 */
-	await runSystemSql(database, sql({ database }).insert(AUDIT_TRANSITION_TABLE, { audit_id: entry.id, kind: to, reason }));
+	await runSystemSql(database, sql({ database }).insert(AUDIT_APPROVAL_TABLE, { audit_id: entry.id, kind: to, reason }));
 	/**
-	 * 带上原状态做条件：并发下只有一个请求能迁移成功。
+	 * 带上原状态做条件：并发下只有一个请求能改动成功。
 	 *
 	 * `settled_at` 跟着审批状态走，不跟数据状态走：批准、驳回、撤销都是**了结**，
 	 * 恢复（requeue）把它放回队列因此归零；回滚与重新应用只改数据状态，这条申请早就了结了，
@@ -634,7 +634,7 @@ const transitionOne = async (database: DatabaseAdapter, entry: AuditEntryRow, to
 		{ column: 'data_status', value: entry.data_status },
 	]));
 	/**
-	 * **条件更新的结果要看。** 带上原状态做条件本来就是为了并发下只有一个请求能迁移成功，
+	 * **条件更新的结果要看。** 带上原状态做条件本来就是为了并发下只有一个请求能改动成功，
 	 * 可原先没人检查它改没改到行——两个请求同时进来时，两个都回「已批准」「已驳回」，
 	 * 而实际只发生了一次。第二个人以为自己做成了。
 	 *
@@ -654,7 +654,7 @@ export const REVIEW_LABELS: Record<ReviewStatus, string> = { none: '无需审批
 export const DATA_LABELS: Record<DataStatus, string> = { unwritten: '未写入', applied: '已生效', reverted: '已回滚' };
 
 /**
- * 批量迁移是逐条执行的入口，**不是原子的级联回滚**——无事务环境下做不到。
+ * 批量审批是逐条执行的入口，**不是原子的级联回滚**——无事务环境下做不到。
  *
  * 执行顺序必须在实现里重排，不能沿用列表的显示顺序（§8）：同一列经历 A → B → C 后
  * 当前值是 C，只有先撤 B→C 才能接着撤 A→B。落到 applied 的方向正好相反，按时间升序走。
@@ -681,7 +681,7 @@ const withOperationSiblings = async (database: DatabaseAdapter, ids: readonly st
 	return [...new Set([...ids, ...siblings.map((entry) => String(entry.id))])];
 };
 
-export const transitionAuditEntries = async (database: DatabaseAdapter, requested: readonly string[], to: AuditTransition, reason = ''): Promise<AuditRevertResult[]> => {
+export const applyAuditApprovals = async (database: DatabaseAdapter, requested: readonly string[], to: AuditApproval, reason = ''): Promise<AuditRevertResult[]> => {
 	const ids = await withOperationSiblings(database, requested);
 	const entries: AuditEntryRow[] = [];
 	const results: AuditRevertResult[] = [];
@@ -703,7 +703,7 @@ export const transitionAuditEntries = async (database: DatabaseAdapter, requeste
 	// 恢复是把申请装回队列，与批准同向：最旧的在前（先有账号才有凭证）。
 	const dismantling = to === 'revert' || to === 'reject' || to === 'withdraw';
 	entries.sort(dismantling ? newestFirst : (left, right) => newestFirst(right, left));
-	for (const entry of entries) results.push(await transitionOne(database, entry, to, reason));
+	for (const entry of entries) results.push(await applyApproval(database, entry, to, reason));
 	return results;
 };
 
@@ -747,7 +747,7 @@ export const purgeExpiredAuditEntries = async (database: DatabaseAdapter, retent
 		if (!rows.length) break;
 		for (const row of rows) {
 			// 事件先删：留下指向不存在记录的事件，比留下一条没有经过的记录更难解释。
-			await runSql(database, sql({ database, subjectRoles: null }).delete(AUDIT_TRANSITION_TABLE, [{ column: 'audit_id', value: row.id }]));
+			await runSql(database, sql({ database, subjectRoles: null }).delete(AUDIT_APPROVAL_TABLE, [{ column: 'audit_id', value: row.id }]));
 			await runSql(database, sql({ database, subjectRoles: null }).delete(AUDIT_TABLE, [{ column: 'id', value: row.id }]));
 			removed += 1;
 		}
