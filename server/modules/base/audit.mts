@@ -384,13 +384,12 @@ const storedKey = (value: unknown) => value === null || value === undefined ? ''
  * 审批人看着「newguy / 普通用户」点了批准，生效的却是「hijacked / 平台管理员」，
  * 而记录上仍然写着他看过的那一份。**你批的必须就是你看到的。**
  *
- * 只核记录里写下的那几列：归属、时间戳这些本来就不进 changes（见 insertChanges），
- * 它们在待审批期间被公共层动过是正常的。`pended_at` 更要排除——它正是这一步要改的那一列。
+ * 只核记录里写下的那几列：归属、时间戳、`pended_at` 这些本来就不进 changes（见
+ * insertChanges），它们在待审批期间被公共层动过是正常的——`pended_at` 更是这一步要改的
+ * 那一列，核它等于自己跟自己过不去。
  */
 const insertContentMatches = async (database: DatabaseAdapter, entry: AuditEntryRow) => {
-	const expected = Object.entries(parseAuditChanges(entry))
-		.filter(([column]) => column !== 'pended_at')
-		.map(([column, change]) => [column, change.after] as const);
+	const expected = Object.entries(parseAuditChanges(entry)).map(([column, change]) => [column, change.after] as const);
 	if (!expected.length) return true;
 	const builder = sql({ database, subjectRoles: null });
 	// 一律 cast 成文本：BIGINT 是雪花号，按数字读会溢出；归一之后两边才比得起来。

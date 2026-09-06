@@ -278,16 +278,18 @@ const jsonKeyDiff = (before: unknown, after: unknown) => {
  * **隐藏列一个都不进来**：password、client_secret 这类抄进审批表就会在那里躺满保留期，
  * 而它们对「我在批什么」毫无帮助。这里是不写入，比在显示时脱敏更彻底——库里根本没有。
  *
- * 归属与时间戳也不写：它们每一行都有，写进来只会把真正要看的那几行挤下去。
- * `pended_at: 0` 是例外——批准落到数据上就是这一列，写上它，这份「批准之后的样子」才完整。
+ * 归属列、时间戳与 `key` 也不写：前两样每一行都有，`key` 已经是「记录标识」那一列。
+ *
+ * **`pended_at` 也不写。** 它曾经写在这里，理由是「批准落到数据上就是这一列」。当时
+ * `changes` 是一列，前值是提交时刻，读起来是 `pended_at: 1788636234201 → 0`，确实说明了
+ * 一件事。现在三条支撑全没了：前后值分开存之后新建的 before 是 `{}`，它显示成
+ * 「pended_at：空 → 0」，什么也没说；「恢复」改用此刻的时间戳，不再回读它；批准前的内容
+ * 校验又必须把它排除掉——它正是那一步要改的那一列。留着就是一行纯噪音。
  */
-const insertChanges = (values: Record<string, unknown>, pendedAt: number) => ({
-	...Object.fromEntries(Object.entries(values)
-		.filter(([name, value]) => value !== undefined && value !== null && value !== ''
-			&& !isHiddenValueColumn(name) && !isSystemField(name) && !name.startsWith('owner_'))
-		.map(([name, value]) => [name, value])),
-	...(pendedAt ? { pended_at: 0 } : {}),
-});
+const insertChanges = (values: Record<string, unknown>) => Object.fromEntries(Object.entries(values)
+	.filter(([name, value]) => value !== undefined && value !== null && value !== ''
+		&& !isHiddenValueColumn(name) && !isSystemField(name) && !name.startsWith('owner_'))
+	.map(([name, value]) => [name, value]));
 
 /**
  * 记一条「新建了这一行」。
@@ -310,7 +312,6 @@ const recordInsert = async (
 	origin: RequestOrigin,
 	scope: 'admin' | 'self',
 	immediate: boolean,
-	pendedAt: number,
 ) => {
 	const builder = sql({ database, subjectRoles: null, ownerTid: metadata.owner.tid, ownerBid: metadata.owner.bid, ownerUid: metadata.owner.uid, actorUid: metadata.owner.actor });
 	await runSystemSql(database, builder.insert(AUDIT_TABLE, {
@@ -325,7 +326,7 @@ const recordInsert = async (
 		row_key: metadata.rowKey,
 		action: 'insert',
 		changes_before: '{}',
-		changes_after: JSON.stringify(insertChanges(metadata.values, pendedAt)),
+		changes_after: JSON.stringify(insertChanges(metadata.values)),
 		review_status: immediate ? 'none' : 'pending',
 		data_status: immediate ? 'applied' : 'unwritten',
 	}));
@@ -505,12 +506,11 @@ export const runOperation = async (
 			} catch { return { hostname: '', path: '' }; }
 		})();
 		const scope = operationScope(c);
-		// 待审批的新行写进去时带的就是这个时刻。先算好再记录，两边同一个值——各调一次
-		// Date.now() 会差上几毫秒，记录里的 before 和行上的实际值就对不上了。
+		// 待审批的新行写进去时带的就是这个时刻。
 		pendedAt = immediate ? 0 : Date.now();
 		const asInsert = async (statement: SqlQuery & { insertAudit: SqlInsertAuditMetadata }) => {
 			inserts.push(statement);
-			recorded += await recordInsert(database, statement.insertAudit, operationId, reason, origin, scope, immediate, pendedAt);
+			recorded += await recordInsert(database, statement.insertAudit, operationId, reason, origin, scope, immediate);
 		};
 		for (const statement of managed) {
 			if (statement.audit) {
