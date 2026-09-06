@@ -119,8 +119,20 @@ const rawSiteNavigation = (): MenuNode[] => [
 		description: '当前登录账号自己的东西',
 		roles: ['user'],
 		children: [
-			// 只做当前登录身份的只读展示，账号资料由 Accounts 维护，不设子页面。
-			{ label: '个人中心', key: 'base/me', icon: 'appstore', component: 'personalCenter', title: '个人中心', description: '查看当前登录账号的身份信息' },
+			/**
+			 * 一段一页。三段原先堆在同一页上，要改密码得先滚过用户名和简介两个表单。
+			 *
+			 * 后端仍是同一个 `base/me` 处理器（按路径末段筛出那一段）。
+			 *
+			 * **这一层自己也是页面**（带 `component`），不是纯分组：`/panel/user/base/me`
+			 * 是个用了很久的地址，纯分组的话它就不再是任何一页，直接 404——而未登录访问
+			 * 时该给的是「请先登录」。点进来给的是完整三段。
+			 */
+			{ label: '个人中心', key: 'base/me', icon: 'appstore', component: 'personalCenter', title: '个人中心', description: '当前登录账号自己的资料与登录方式', children: [
+				{ label: '账号', key: 'account', icon: 'appstore', component: 'personalCenter', title: '账号', description: '登录用的用户名，本站内唯一' },
+				{ label: '简介', key: 'profile', icon: 'appstore', component: 'personalCenter', title: '简介', description: '昵称与联系方式，只用于本站显示' },
+				{ label: '密码', key: 'password', icon: 'appstore', component: 'personalCenter', title: '密码', description: '设置或修改本站登录密码' },
+			] },
 		],
 	},
 ];

@@ -61,7 +61,10 @@ try {
 	const me = (userPanel.children ?? []).find((item) => item.key === '/panel/user/base/me');
 	assert.ok(me, '「我」应该在用户面下');
 	assert.equal(me.label, '个人中心');
-	assert.deepEqual(me.children ?? [], [], '「我」不应该再有子页面');
+	// 一段一页：三段原先堆在同一页上，要改密码得先滚过用户名和简介两个表单。
+	assert.deepEqual((me.children ?? []).map((item) => item.label), ['账号', '简介', '密码'], '个人中心按段拆成子页');
+	// 这一层自己仍然是页面：/panel/user/base/me 是个用了很久的地址，纯分组的话它会 404。
+	assert.equal(me.component, 'personalCenter', '分组本身也要能打开');
 	// 原来的子页面路径不再存在。CDN 模式下文档一律 200（可缓存的壳），404 由上下文的 pageStatus 下发。
 	const removed = await readPageContext(app, 'localhost', '/panel/me/security.html', { cookie, headers: { 'x-device-key': deviceKey, 'x-device-fingerprint': fingerprintData } });
 	assert.equal(removed.context.pageStatus.status, 404);
@@ -89,15 +92,25 @@ try {
 	const meForm = async () => (await (await request(mePath, { cookie })).json()).formPage;
 	const before = await meForm();
 	assert.equal(before.sectionLayout, 'tabs');
-	assert.deepEqual(before.sections.map((section) => [section.key, section.title]), [['user_name', '用户名'], ['profile', '个人简介'], ['password', '修改密码']]);
+	assert.deepEqual(before.sections.map((section) => [section.key, section.title]), [['account', '用户名'], ['profile', '个人简介'], ['password', '修改密码']]);
+	/**
+	 * 子页只给自己那一段，并且不再套选项卡——一个 Tab 的标签栏是纯粹的噪音，左侧菜单
+	 * 已经承担了「在几段之间切换」这件事。认不出的末段回落到完整三段，`/base/me`
+	 * 这个老地址因此照常打开。
+	 */
+	const sectionForm = async (name) => (await (await request(`/api/panel/user/base/me/${name}.php`, { cookie })).json()).formPage;
+	const passwordOnly = await sectionForm('password');
+	assert.deepEqual(passwordOnly.sections.map((section) => section.key), ['password'], '子页只给自己那一段');
+	assert.equal(passwordOnly.sectionLayout, 'stacked', '只有一段就不套选项卡');
+	assert.deepEqual((await sectionForm('nonsense')).sections.map((section) => section.key), ['account', 'profile', 'password'], '认不出的末段回落到完整三段');
 	assert.deepEqual(before.sections.map((section) => section.fields.map((field) => field.name)),
 		[['user_name'], ['profile_nickname', 'profile_qq', 'profile_wechat', 'profile_email'], ['currentPassword', 'newPassword']]);
 	const save = (body) => request(mePath, { method: 'PUT', cookie, body });
 
 	// —— 用户名 ——
-	assert.equal((await save({ _section: 'user_name', user_name: 'Me_Admin' })).status, 400, '不合规的用户名要拦下');
-	assert.equal((await save({ _section: 'user_name', user_name: 'otheruser' })).status, 409, '撞上别的账号要明说');
-	const renamed = await save({ _section: 'user_name', user_name: 'meadmin2' });
+	assert.equal((await save({ _section: 'account', user_name: 'Me_Admin' })).status, 400, '不合规的用户名要拦下');
+	assert.equal((await save({ _section: 'account', user_name: 'otheruser' })).status, 409, '撞上别的账号要明说');
+	const renamed = await save({ _section: 'account', user_name: 'meadmin2' });
 	assert.equal(renamed.status, 200);
 	const renamedBody = await renamed.json();
 	// 保存响应带回身份（页面上半截用）和一份**局部**上下文补丁（右上角用）。
@@ -112,7 +125,7 @@ try {
 	assert.deepEqual(Object.keys(renamedBody.currentValues), ['user_name']);
 	assert.equal(renamedBody.formPage, undefined, '表单结构没变就不回 formPage');
 	assert.equal((await meForm()).initialValues.user_name, 'meadmin2');
-	assert.equal((await save({ _section: 'user_name', user_name: 'meadmin' })).status, 200, '改回来也是允许的（撞名检查要排除自己）');
+	assert.equal((await save({ _section: 'account', user_name: 'meadmin' })).status, 200, '改回来也是允许的（撞名检查要排除自己）');
 
 	// —— 个人简介 ——
 	const profileSave = (fields) => save({ _section: 'profile', profile_nickname: '', profile_qq: '', profile_wechat: '', profile_email: '', ...fields });
