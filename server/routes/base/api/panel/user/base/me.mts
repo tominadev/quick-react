@@ -50,7 +50,7 @@ const profileForm = (values: ProfileRow, hasPassword: boolean): FormPageConfig =
 	},
 	sections: [
 		{
-			key: 'account', title: '用户名', submitLabel: '保存用户名',
+			key: 'user_name', title: '用户名', submitLabel: '保存用户名',
 			description: '用户名是登录用的标识，本站内唯一。改掉之后要用新用户名登录。',
 			fields: [{ name: 'user_name', label: '用户名', maxLength: maxUserNameLength, extra: `以小写字母开头，只能包含小写字母和数字，最长 ${maxUserNameLength} 位。`, rules: [{ required: true, message: '请输入用户名' }] }],
 		},
@@ -119,25 +119,10 @@ const handler: ApiHandler = async (c, next) => {
 			}
 			: undefined;
 		const row = currentUser ? await loadProfile(c, currentUser.id) : undefined;
-		/**
-		 * **一段一页。** 三段（用户名、简介、密码）原先堆在同一页上，从上到下三个表单，
-		 * 要改密码得先滚过另外两段。拆成子页之后每一页只做一件事，左侧菜单直接跳。
-		 *
-		 * 后端仍是同一个处理器：三段共用一份 `initialValues` 与保存逻辑，按路径末段筛出
-		 * 要渲染的那一段就够了——为此复制三份处理器，改一处字段规则就要改三处。
-		 * 路径认不出来（或者没带）时给全部，`/panel/user/base/me` 这个老地址因此照常打开。
-		 */
-		const form = row ? profileForm(row, await hasCredential(database, currentUser!.id)) : undefined;
-		const wanted = (c.req.path.split('/').pop() ?? '').replace(/\.[^.]*$/, '');
-		// 子页只剩一段，就不再套选项卡：一个 Tab 的标签栏是纯粹的噪音，
-		// 而左侧菜单已经承担了「在几段之间切换」这件事。
-		const scoped = form?.sections?.some((item) => item.key === wanted)
-			? { ...form, sectionLayout: 'stacked' as const, sections: form.sections!.filter((item) => item.key === wanted) }
-			: form;
 		return apiResponse(c, 200, {
 			user: currentUser,
 			...(accounts ?? {}),
-			...(scoped ? { formPage: scoped } : {}),
+			...(row ? { formPage: profileForm(row, await hasCredential(database, currentUser!.id)) } : {}),
 		});
 	}
 	if (c.req.method !== 'PUT') return next();
@@ -181,7 +166,7 @@ const handler: ApiHandler = async (c, next) => {
 		}, { component: 'inline', showIcon: true, title: '保存结果' });
 	};
 
-	if (section === 'account') {
+	if (section === 'user_name') {
 		const userName = String(body.user_name ?? '').trim();
 		const error = userNameError(userName, c.get('siteSettings').userNameMinLength);
 		if (error) return apiMessage(c, 400, error);
@@ -224,5 +209,4 @@ const handler: ApiHandler = async (c, next) => {
 	return apiMessage(c, 400, '请选择要保存的一组设置');
 };
 
-export const acceptsTrailingParams = true;
 export default handler;

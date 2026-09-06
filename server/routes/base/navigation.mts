@@ -98,8 +98,11 @@ const rawSiteNavigation = (): MenuNode[] => [
 	 * 不再往下分等级——能不能动一行数据凭的是「这是我的行」而不是「我有什么角色」，越界由
 	 * 行级归属判定在 SQL 层挡住。
 	 *
-	 * 文案直译，不另造词：`user` 是「用户」，`me` 是「我」。「个人中心」「用户中心」这类
-	 * 说法与路径对不上号，读的人要在两套词之间来回换算。
+	 * **菜单文案用场所名，不用身份名**：并列的「管理后台」「代理中心」都在回答「点进去是
+	 * 什么地方」，所以这一层叫「控制台」、下面那一页叫「个人中心」，而不是照 `user` /`me`
+	 * 直译成「用户」「我」。路径仍然是 `panel/user/base/me`——**路径按结构走、文案按理解走**，
+	 * 两者本来就不必逐字对应；真要对应的话，`personalCenter` 这个组件名反倒早就是「个人
+	 * 中心」了。
 	 */
 	{
 		/**
@@ -119,20 +122,8 @@ const rawSiteNavigation = (): MenuNode[] => [
 		description: '当前登录账号自己的东西',
 		roles: ['user'],
 		children: [
-			/**
-			 * 一段一页。三段原先堆在同一页上，要改密码得先滚过用户名和简介两个表单。
-			 *
-			 * 后端仍是同一个 `base/me` 处理器（按路径末段筛出那一段）。
-			 *
-			 * **这一层自己也是页面**（带 `component`），不是纯分组：`/panel/user/base/me`
-			 * 是个用了很久的地址，纯分组的话它就不再是任何一页，直接 404——而未登录访问
-			 * 时该给的是「请先登录」。点进来给的是完整三段。
-			 */
-			{ label: '个人中心', key: 'base/me', icon: 'appstore', component: 'personalCenter', title: '个人中心', description: '当前登录账号自己的资料与登录方式', children: [
-				{ label: '账号', key: 'account', icon: 'appstore', component: 'personalCenter', title: '账号', description: '登录用的用户名，本站内唯一' },
-				{ label: '简介', key: 'profile', icon: 'appstore', component: 'personalCenter', title: '简介', description: '昵称与联系方式，只用于本站显示' },
-				{ label: '密码', key: 'password', icon: 'appstore', component: 'personalCenter', title: '密码', description: '设置或修改本站登录密码' },
-			] },
+			// 只做当前登录身份的只读展示，账号资料由 Accounts 维护，不设子页面。
+			{ label: '个人中心', key: 'base/me', icon: 'appstore', component: 'personalCenter', title: '个人中心', description: '查看当前登录账号的身份信息' },
 		],
 	},
 ];
