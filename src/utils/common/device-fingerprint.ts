@@ -1,7 +1,7 @@
+import { createDeviceKey, deviceKeyPattern, normalizeDeviceKey } from '@shared/device-key.mjs';
 let fingerprintPromise: Promise<string> | undefined;
 let networkInfoPromise: Promise<string> | undefined;
 let deviceKeyPromise: Promise<string> | undefined;
-const deviceKeyPattern = /^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/;
 
 /** Stable 53-bit hash used for browser feature evidence. It is not a device key. */
 const cyrb53 = (value: string, seed = 0) => {
@@ -114,7 +114,9 @@ export const getDeviceNetworkInfo = () => {
 
 const readStoredDeviceKey = () => {
 	try {
-		const value = window.localStorage.getItem('device_key')?.trim() ?? '';
+		// 归一之后再判：浏览器里存着的多半是老的带连字符写法，直接判无效会让老用户在下次
+		// 访问时重新生成一个标识——他那台设备在后台就成了两台。
+		const value = normalizeDeviceKey(window.localStorage.getItem('device_key') ?? '');
 		return deviceKeyPattern.test(value) ? value : '';
 	} catch {
 		return '';
@@ -126,11 +128,12 @@ const storeDeviceKey = (value: string) => {
 	catch { return false; }
 };
 
-/** Generate and persist the per-origin UUID device identifier exactly once. */
+/** Generate and persist the per-origin device identifier exactly once. */
 const computeDeviceKey = async () => {
 	const stored = readStoredDeviceKey();
-	if (stored) return stored;
-	const key = crypto.randomUUID();
+	// 读到的若是老写法，归一之后写回去：否则每次访问都要归一一遍，而两种形态也会一直并存。
+	if (stored) { storeDeviceKey(stored); return stored; }
+	const key = createDeviceKey();
 	return storeDeviceKey(key) ? key : '';
 };
 

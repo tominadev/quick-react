@@ -10,7 +10,7 @@ process.env.SKIP_SERVER_LISTEN = '1';
 
 try {
 	const { app } = await import(`../dist/server.mjs?page-status=${Date.now()}`);
-	const deviceKey = '00000000-0000-4000-8000-000000000001';
+	const deviceKey = '00000000000040008000000000000001';
 	const fingerprintData = JSON.stringify({ canvas_cyrb53: '4b5a6c7d8e9f', audio_cyrb53: '1a2b3c4d5e6f' });
 	const request = async (path, options = {}) => {
 		const headers = new Headers(options.headers);

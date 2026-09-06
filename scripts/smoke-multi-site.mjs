@@ -93,7 +93,7 @@ globalThis.fetch = async (input, init) => {
 try {
 	const { app } = await import(`../dist/server.mjs?smoke=${Date.now()}`);
 	internalApp = app;
-	const deviceKey = '00000000-0000-4000-8000-000000000001';
+	const deviceKey = '00000000000040008000000000000001';
 	const fingerprintData = JSON.stringify({ canvas_cyrb53: '4b5a6c7d8e9f', audio_cyrb53: '1a2b3c4d5e6f' });
 	const migratedDatabase = new DatabaseSync(process.env.DEFAULT_DATABASE_FILE, { readOnly: true });
 	assert.equal(migratedDatabase.prepare("SELECT migration_status FROM global_sites WHERE key = 'passport'").get()?.migration_status, 'ready');

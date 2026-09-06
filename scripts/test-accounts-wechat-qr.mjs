@@ -23,7 +23,7 @@ try {
 	const { app } = await import(`../dist/server.mjs?wechat-qr=${Date.now()}`);
 	const database = new DatabaseSync(process.env.DEFAULT_DATABASE_FILE);
 	const now = Date.now();
-	const deviceKey = '00000000-0000-4000-8000-000000000001';
+	const deviceKey = '00000000000040008000000000000001';
 const fingerprintData = JSON.stringify({ canvas_cyrb53: '4b5a6c7d8e9f', audio_cyrb53: '1a2b3c4d5e6f' });
 	database.prepare("INSERT INTO global_site_hosts (key, hostname, site_key, status, created_at) VALUES (lower(hex(randomblob(16))), 'accounts.test','passport','enabled',?)").run(now);
 	database.prepare("INSERT INTO passport_external_providers (key, provider,title,client_id,client_secret,status,created_at,updated_at,wechat_mode) VALUES (lower(hex(randomblob(16))), 'wechat','微信','wechat-app','secret','enabled',?,?,'official_account')").run(now, now);
@@ -55,7 +55,11 @@ const fingerprintData = JSON.stringify({ canvas_cyrb53: '4b5a6c7d8e9f', audio_cy
 
 	// 电脑轮询拿到会话；二维码页可能开在业务站点的登录弹窗里，去向必须由后端给出，不能自己跳首页。
 	// 该用户还没有设置密码，按规则先回登录页提示，补全后登录页才带 request_id 回授权端点。
-	const polled = await app.request(`https://accounts.test${qr.pollUrl}`, { headers: { cookie: 'accounts_oidc_request=qr-request; passport_session=desktop-session', 'x-device-key': deviceKey, 'x-device-fingerprint': fingerprintData } });
+	// 这一处特意用**老客户端的带连字符写法**发送设备标识：`crypto.randomUUID()` 的产物长这样，
+	// 而库里存的是归一后的 32 位十六进制。两者必须命中同一台设备，否则轮询会掉回 needs_email
+	// ——那正是每个老用户在客户端升级后会遇到的事，而它在浏览器里是静默的。
+	const dashedDeviceKey = deviceKey.replace(/^(.{8})(.{4})(.{4})(.{4})/, '$1-$2-$3-$4-');
+	const polled = await app.request(`https://accounts.test${qr.pollUrl}`, { headers: { cookie: 'accounts_oidc_request=qr-request; passport_session=desktop-session', 'x-device-key': dashedDeviceKey, 'x-device-fingerprint': fingerprintData } });
 	const polledResult = await polled.json();
 	assert.equal(polledResult.status, 'authenticated');
 	assert.equal(polledResult.redirectTo, '/panel/accounts/identities.html');

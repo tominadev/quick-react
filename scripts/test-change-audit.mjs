@@ -36,7 +36,7 @@ const auditRouteFilter = async () => {
 		seed.close();
 		const headers = {
 			'content-type': 'application/json',
-			'x-device-key': '00000000-0000-4000-8000-000000000001',
+			'x-device-key': '00000000000040008000000000000001',
 			'x-device-fingerprint': JSON.stringify({ canvas_cyrb53: 'a', audio_cyrb53: 'b' }),
 		};
 		const login = await app.request('http://localhost/api/sign.php', { method: 'POST', headers, body: JSON.stringify({ user_name: 'auditadmin', password: 'audit-password-1' }) });
@@ -565,7 +565,7 @@ const auditRouteFilter = async () => {
 			assert.equal((await app.request(lockApi, { method: 'POST', headers: { ...headers, cookie }, body: JSON.stringify({ user_name: 'locked', password: 'lock-password-2', roles: [], status: 'enabled' }) })).status, 202);
 			assert.equal((await decide('approve', await pendingIds())).status, 200);
 			// 乙用另一台设备登录：人际锁比到人，两个人就得是两台设备两份会话。
-			const otherHeaders = { ...headers, 'x-device-key': '00000000-0000-4000-8000-0000000000b0', 'x-device-fingerprint': JSON.stringify({ canvas_cyrb53: 'c', audio_cyrb53: 'd' }) };
+			const otherHeaders = { ...headers, 'x-device-key': '000000000000400080000000000000b0', 'x-device-fingerprint': JSON.stringify({ canvas_cyrb53: 'c', audio_cyrb53: 'd' }) };
 			const signInLocker = await app.request('http://localhost/api/sign.php', { method: 'POST', headers: otherHeaders, body: JSON.stringify({ user_name: 'locker', password: 'lock-password-1' }) });
 			const lockerCookie = signInLocker.headers.get('set-cookie')?.split(';')[0];
 			assert.ok(lockerCookie, '乙应该能登录');
@@ -685,7 +685,7 @@ const auditRouteFilter = async () => {
 		// 批准之后账号真的能用——凭证那一行也跟着回来了。
 		assert.equal((await decide('approve', await pendingIds())).status, 200);
 		assert.equal((await app.request('http://localhost/api/sign.php', {
-			method: 'POST', headers: { ...headers, 'x-device-key': '00000000-0000-4000-8000-0000000000ff' },
+			method: 'POST', headers: { ...headers, 'x-device-key': '000000000000400080000000000000ff' },
 			body: JSON.stringify({ user_name: 'rejectme', password: 'reject-password-1' }),
 		})).status, 200, '捞回来的账号能登录');
 

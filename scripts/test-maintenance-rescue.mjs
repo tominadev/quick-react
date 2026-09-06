@@ -11,7 +11,7 @@ try {
 	const { app, runMaintenanceAction } = await import(`../dist/server.mjs?maintenance=${Date.now()}`);
 	const headers = {
 		'content-type': 'application/json',
-		'x-device-key': '00000000-0000-4000-8000-000000000001',
+		'x-device-key': '00000000000040008000000000000001',
 		'x-device-fingerprint': JSON.stringify({ canvas_cyrb53: '4b5a6c7d8e9f', audio_cyrb53: '1a2b3c4d5e6f' }),
 	};
 	const signIn = (body) => app.request('http://localhost/api/sign.php', { method: 'POST', headers, body: JSON.stringify(body) });

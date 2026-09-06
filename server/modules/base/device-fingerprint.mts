@@ -1,19 +1,22 @@
-const deviceKeyPattern = /^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/;
+import { deviceKeyPattern, normalizeDeviceKey } from '@shared/device-key.mjs';
 
 /** 浏览器导航和 OAuth 回调使用的 HttpOnly 设备键 Cookie；它不是会话凭证。 */
 export const deviceKeyTransportCookieName = 'device_key';
-export const createDeviceKeyTransportCookie = (value: string, secure: boolean) => deviceKeyPattern.test(value)
-	? `${deviceKeyTransportCookieName}=${encodeURIComponent(value)}; Path=/; HttpOnly; SameSite=Lax${secure ? '; Secure' : ''}`
+export const createDeviceKeyTransportCookie = (value: string, secure: boolean) => deviceKeyPattern.test(normalizeDeviceKey(value))
+	? `${deviceKeyTransportCookieName}=${encodeURIComponent(normalizeDeviceKey(value))}; Path=/; HttpOnly; SameSite=Lax${secure ? '; Secure' : ''}`
 	: '';
 
 const cookieValue = (request: Request, name: string) => request.headers.get('cookie')?.split(';').map((part) => part.trim()).find((part) => part.startsWith(`${name}=`))?.slice(name.length + 1) ?? '';
 const decodeCookie = (value: string) => { try { return decodeURIComponent(value); } catch { return ''; } };
 
-/** 设备唯一键只接受客户端生成的 UUID v4（小写十六进制）。 */
+/** 设备唯一键由客户端生成，格式见 `@shared/device-key.mjs`。 */
 export const readOptionalDeviceKey = (request: Request) => {
 	const header = request.headers.get('x-device-key')?.trim() ?? '';
-	const value = header || decodeCookie(cookieValue(request, deviceKeyTransportCookieName));
-	if (!value) return undefined;
+	const raw = header || decodeCookie(cookieValue(request, deviceKeyTransportCookieName));
+	if (!raw) return undefined;
+	// 先归一再校验：UUID 与 32 位十六进制是同一个东西，只差连字符。老客户端发的带连字符
+	// 写法在这里收敛成同一个值，否则同一台设备会被记成两台。
+	const value = normalizeDeviceKey(raw);
 	if (!deviceKeyPattern.test(value)) throw new Error('设备标识无效，请刷新页面后重试');
 	return value;
 };

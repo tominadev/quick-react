@@ -42,7 +42,7 @@ try {
 	database.prepare(`INSERT INTO passport_telegram_accounts (key, id, user_key, bot_id, telegram_user_id, chat_id, nickname, created_at, updated_at)
 		VALUES (lower(hex(randomblob(16))), 201, ?, 1, 9001, 9001, 'PassportUser', ?, ?)`).run(userId, now, now);
 	database.close();
-const deviceKey = '00000000-0000-4000-8000-000000000001';
+const deviceKey = '00000000000040008000000000000001';
 const fingerprintData = JSON.stringify({ canvas_cyrb53: '4b5a6c7d8e9f', audio_cyrb53: '1a2b3c4d5e6f' });
 
 	const request = async (path, options = {}) => {

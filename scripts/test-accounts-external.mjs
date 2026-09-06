@@ -43,7 +43,7 @@ globalThis.fetch = async (input, init) => {
 };
 
 const cookie = (response, name) => response.headers.getSetCookie().map((value) => value.split(';')[0]).find((value) => value.startsWith(`${name}=`));
-const deviceKey = '00000000-0000-4000-8000-000000000001';
+const deviceKey = '00000000000040008000000000000001';
 const fingerprintData = JSON.stringify({ canvas_cyrb53: '4b5a6c7d8e9f', audio_cyrb53: '1a2b3c4d5e6f' });
 const withFingerprint = (headers = {}) => ({ 'x-device-key': deviceKey, 'x-device-fingerprint': fingerprintData, ...headers });
 const redirectTarget = async (response) => {

@@ -1,4 +1,5 @@
 import { signHmacSha1ToBase64 } from '@/utils/common/crypto.js';
+import { createDeviceKey } from '@shared/device-key.mjs';
 
 // 生成签名
 const generateSignature = async (params: Record<string, string>, accessKeySecret: string): Promise<string> => {
@@ -19,17 +20,10 @@ async function fetchInstanceDetails(url: string) {
 	}
 }
 
-const createSignatureNonce = () => {
-	if (typeof globalThis.crypto?.randomUUID === 'function') {
-		return globalThis.crypto.randomUUID();
-	}
-	if (typeof globalThis.crypto?.getRandomValues === 'function') {
-		const bytes = new Uint8Array(16);
-		globalThis.crypto.getRandomValues(bytes);
-		return Array.from(bytes, (byte) => byte.toString(16).padStart(2, '0')).join('');
-	}
-	return `${Date.now()}-${Math.random().toString(36).slice(2)}`;
-};
+// 用同一个 UUID 生成器：这里原先自己写了一版回退，产出的是 32 位十六进制而不是 UUID——
+// 对阿里云 nonce 够用，但同一个函数写两遍迟早会有一遍走偏（设备标识那一遍就走偏了：
+// 它压根没有回退，HTTP 下直接拿不到标识）。
+const createSignatureNonce = () => createDeviceKey();
 
 function getApiEndpoint(RegionId: string): string {
 	if (RegionId === 'cn-hangzhou') {
