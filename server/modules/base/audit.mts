@@ -78,15 +78,19 @@ export const serializeAuditChanges = (changes: AuditChanges) => ({
 
 /** 数组与对象按 JSON 显示：`String(['a','b'])` 得到 `a,b`，看不出它本来是个数组。 */
 /**
- * 值读成人话。**空串与 NULL 都念作「空」**：在「改了什么」这个问题上它们是同一件事——
- * 原来没有值。要分清是 NULL 还是空串，看的是数据管理那张原始表（那里 NULL 单独标出来），
- * 不是这里。
+ * 值读成人话。三种「没有值」要分清两件事：
  *
- * 不这么做的话空串会渲染成空白，摘要里读到的是 `微信号： → 1`，一个断掉的箭头。前端
- * 确认框（readableFieldValue）本来就把两者都念作「空」，两处必须读起来一样。
+ * - `null` 是**人选的**（点 ✕ 存 NULL），念「未填写」。审批人读到的必须是他实际会批准的
+ *   那一种，都念作「空」等于在最后一层把提交人刚做的选择抹掉。
+ * - `undefined` 是**这份值里根本没提这一列**（新建记录的 `changes_before` 就是空对象），
+ *   与空串一样什么也没说，念「空」。
+ *
+ * 空串也不能渲染成空白，否则摘要读起来是 `微信号： → 1`，一个断掉的箭头。前端确认框
+ * （readableFieldValue）用同一套说法，两处必须读起来一样。
  */
-const displayValue = (value: unknown) => value === null || value === undefined || value === '' ? '空'
-	: typeof value === 'object' ? JSON.stringify(value) : String(value);
+const displayValue = (value: unknown) => value === null ? '未填写'
+	: value === undefined || value === '' ? '空'
+		: typeof value === 'object' ? JSON.stringify(value) : String(value);
 
 const plainObject = (value: unknown): value is Record<string, unknown> =>
 	Boolean(value) && typeof value === 'object' && !Array.isArray(value);

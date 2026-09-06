@@ -4,7 +4,15 @@ import { isSystemField } from '@shared/system-fields.mjs';
 /** 值按人读的方式显示：开关说「开/关」，下拉说选项文案而不是它的值，空值说「空」。 */
 export const readableFieldValue = (field: FormPageField | undefined, value: unknown) => {
 	if (field?.type === 'switch' || typeof value === 'boolean') return value ? '开' : '关';
-	if (value === undefined || value === null || value === '') return '空';
+	/**
+	 * 三种「没有值」要分清两件事：
+	 *
+	 * - `null` 是**人选的**（点 ✕ 存 NULL），念「未填写」——都念作「空」就把他刚做的选择抹掉了。
+	 * - `undefined` 是**没提到这个字段**（对象里根本没这个键），与空串一样什么也没说，念「空」。
+	 *   混进「未填写」的话，「打了字又删掉」会被显示成一次改动。
+	 */
+	if (value === null) return '未填写';
+	if (value === undefined || value === '') return '空';
 	const option = field?.options?.find((item) => item.value === String(value));
 	if (option) return option.text;
 	return typeof value === 'object' ? JSON.stringify(value) : String(value);

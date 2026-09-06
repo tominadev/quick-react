@@ -7,6 +7,8 @@ export type FormPageField = {
 	extra?: string;
 	placeholder?: string;
 	maxLength?: number;
+	/** 这一列能不能存 NULL；为真时文本框换成能表达 NULL 的那一个。 */
+	nullable?: boolean;
 	checkedChildren?: string;
 	unCheckedChildren?: string;
 	options?: Array<{ value: string; text: string; fieldValues?: Record<string, unknown> }>;

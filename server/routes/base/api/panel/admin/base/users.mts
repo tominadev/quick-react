@@ -25,9 +25,9 @@ const columns = [
 	// 个人简介都存在 base_user_profiles：没有资料行就是没设过，昵称回落到用户名。
 	{ dataIndex: 'profile_nickname', title: '昵称', component: 'textbox' as const, placeholder: '默认与用户名相同', group: '个人简介' },
 	// 三列都可能没填。空格子看不出是「没填」还是「显示坏了」，写明白。
-	{ dataIndex: 'profile_qq', title: 'QQ', component: 'textbox' as const, emptyText: '未填写', group: '个人简介' },
-	{ dataIndex: 'profile_wechat', title: '微信号', component: 'textbox' as const, emptyText: '未填写', group: '个人简介' },
-	{ dataIndex: 'profile_email', title: '联系邮箱', component: 'textbox' as const, emptyText: '未填写', placeholder: '本站不做验证，仅作联系方式', group: '个人简介' }];
+	{ dataIndex: 'profile_qq', title: 'QQ', component: 'textbox' as const, nullable: true, emptyText: '未填写', group: '个人简介' },
+	{ dataIndex: 'profile_wechat', title: '微信号', component: 'textbox' as const, nullable: true, emptyText: '未填写', group: '个人简介' },
+	{ dataIndex: 'profile_email', title: '联系邮箱', component: 'textbox' as const, nullable: true, emptyText: '未填写', placeholder: '本站不做验证，仅作联系方式', group: '个人简介' }];
 
 export const tableCrud: TableCrudDefinition = { table: 'base_users', rowKey: 'id' };
 

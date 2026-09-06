@@ -1,5 +1,6 @@
 import React, { useEffect, useRef, useState } from 'react';
 import { Alert, Button, Card, Divider, Form, Input, message, Modal, Select, Space, Spin, Switch, Tabs, Typography } from 'antd';
+import { NullableInput } from '@/utils/antd/nullable-input.js';
 import { ClearOutlined, GoogleCircleFilled, RollbackOutlined, SendOutlined, UserOutlined, WechatFilled } from '@ant-design/icons';
 import type { ChangeControlValues, CommonApi } from '@/utils/common/api.js';
 import type { FormPageField, FormPageResponse, FormPageSection } from '@shared/types/form-page.mjs';
@@ -124,6 +125,11 @@ const isRecord = (value: unknown): value is Record<string, unknown> => (
 const fieldControl = (field: FormPageField, readOnly: boolean) => {
 	if (field.type === 'switch') return <Switch checkedChildren={field.checkedChildren} unCheckedChildren={field.unCheckedChildren} />;
 	if (field.type === 'select') return <Select options={field.options?.map((option) => ({ value: option.value, label: option.text }))} placeholder={field.placeholder} />;
+	// 可空的列换成能表达 NULL 的那个控件（见 NullableInput）。密码框不给：那里「留空」
+	// 的意思是「不修改」，与 NULL 不是一回事。
+	if (field.nullable && field.type !== 'password') {
+		return <NullableInput placeholder={field.placeholder} maxLength={field.maxLength} readOnly={readOnly} disabled={readOnly} />;
+	}
 	return <Input type={field.type === 'password' ? 'password' : 'text'} placeholder={field.placeholder} maxLength={field.maxLength} readOnly={readOnly} disabled={readOnly} />;
 };
 

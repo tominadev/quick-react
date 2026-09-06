@@ -65,7 +65,9 @@ export function useDrawer(commonApi: CommonApi): [drawerType, React.JSX.Element]
 						 * 显示成一个空标签，给下拉一个 `''` 会选中一个值为空串的选项，给开关一个
 						 * `''` 会被当成「有值」。一律 `?? ''` 是把三种错凑在一起。
 						 */
-						if (normalizedRow[column.dataIndex] === null || normalizedRow[column.dataIndex] === undefined) {
+						// 可空的列不归一：它的控件认得 NULL，抹掉就等于在最后一层把两种状态又压回一种。
+						if (column.nullable && normalizedRow[column.dataIndex] === undefined) normalizedRow[column.dataIndex] = null;
+						if (!column.nullable && (normalizedRow[column.dataIndex] === null || normalizedRow[column.dataIndex] === undefined)) {
 							normalizedRow[column.dataIndex] = column.component === 'switch' ? (column.uncheckedValue ?? false)
 								// 下拉与日期用 undefined 表示「没选」：给空串会选中一个空选项。
 								: column.component === 'select' ? (column.multiple ? [] : undefined)

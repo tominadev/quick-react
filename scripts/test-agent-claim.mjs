@@ -82,7 +82,7 @@ try {
 	assert.equal(entry.scope, 'self');
 	assert.equal(entry.review_status, 'none', '代理的操作没有审批人，不进队列');
 	assert.equal(entry.data_status, 'applied');
-	assert.match(String(entry.summary), /agent_uid：空 → /, '记的是这一列从无到有');
+	assert.match(String(entry.summary), /agent_uid：未填写 → /, '记的是这一列从无到有');
 	assert.equal(entry.request_path, '/api/panel/agent/subordinates', '记下这是从代理中心做的');
 
 	console.log('agent claim test passed');

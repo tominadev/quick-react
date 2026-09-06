@@ -12,8 +12,10 @@ const fields = [
 assert.equal(readableFieldValue(fields[1], true), '开');
 assert.equal(readableFieldValue(fields[1], false), '关');
 assert.equal(readableFieldValue(fields[2], 'api'), '仅输出页面壳', '下拉说选项文案，不说它的值');
-assert.equal(readableFieldValue(fields[3], ''), '空');
-assert.equal(readableFieldValue(fields[3], undefined), '空');
+assert.equal(readableFieldValue(fields[3], ''), '空', '空串念「空」');
+// NULL 与空串分开念：可空字段里人能有意选其中一种，都念作「空」就把那个选择抹掉了。
+assert.equal(readableFieldValue(fields[3], undefined), '空', '键不存在什么也没说');
+assert.equal(readableFieldValue(fields[3], null), '未填写', 'NULL 是人点 ✕ 选的');
 assert.equal(readableFieldValue(fields[0], 8088), '8088');
 assert.equal(readableFieldValue(undefined, { a: 1 }), '{"a":1}');
 

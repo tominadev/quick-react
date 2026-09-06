@@ -33,6 +33,8 @@ const tableColumn = (column: Awaited<ReturnType<typeof getColumns>>[number]): Ta
 	title: column.name,
 	component: 'textbox',
 	dataType: /INT/i.test(column.type) ? 'int' : /REAL|FLOA|DOUB|DECIMAL|NUMERIC/i.test(column.type) ? 'float' : 'string',
+	// 表自己说了能不能存 NULL，这一页照搬——它看的就是表长什么样。
+	...(column.notnull ? {} : { nullable: true }),
 	// key 新建时可以填（人给短串的表要填），建好之后不可改：它是别的表的引用目标。
 	...(column.name === 'key' ? { form: { edit: false as const } } : isSystemField(column.name) ? { form: { create: false as const, edit: false as const } } : {}),
 });

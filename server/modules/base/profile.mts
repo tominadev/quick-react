@@ -79,15 +79,13 @@ export const profileStatement = async (
 	// 对外字段带 profile_ 前缀，数据库列不带——两边的映射只在这一处。
 	const writable: Record<string, unknown> = Object.fromEntries(Object.entries(values).map(([key, value]) => [key.replace(/^profile_/, ''), value]));
 	/**
-	 * **清空一律写 NULL，不写空串。**
+	 * **昵称清空写 NULL**：唯一索引里空串互相相等，第二个不设昵称的账号就建不出来；
+	 * NULL 互不相等，正好是这里要的语义。所以昵称没有「填过又清掉」这种状态可言。
 	 *
-	 * 昵称是必须这么做：唯一索引里空串互相相等，第二个不设昵称的账号就建不出来；NULL
-	 * 互不相等，正好是这里要的语义。联系方式没有唯一索引，但同一条规矩照用——让「从来
-	 * 没填」和「填过又清掉」在库里长得一样，就再也分不出「这个人留没留过联系方式」。
+	 * 联系方式不折：它们的控件能表达 NULL（点 ✕ 存 NULL，删光字符只是空串），折了就等于
+	 * 在最后一层把人刚刚分开的两种状态又压回一种。
 	 */
-	for (const column of ['nickname', 'qq', 'wechat', 'email']) {
-		if (writable[column] === '') writable[column] = null;
-	}
+	if (writable.nickname === '') writable.nickname = null;
 	const builder = sql({ database });
 	return { statement: options.create
 		? builder.insert('base_user_profiles', { user_id: userId, ...writable })

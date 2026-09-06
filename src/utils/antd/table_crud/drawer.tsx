@@ -1,6 +1,7 @@
 import type { DataType, ResJsonTableColumn } from '@/utils/common/api.js';
 import type { CommonApi } from '@/utils/common/api.js';
 import type { UploadProps } from 'antd';
+import { NullableInput } from '@/utils/antd/nullable-input.js';
 import type { TableSelectOption } from '@shared/types/table.mjs';
 import { isFieldReadOnly } from '@shared/field-linkage.mjs';
 import type { ChangeControlValue } from '@shared/table-form.mjs';
@@ -36,6 +37,11 @@ function getFullFileExtension(filename: string): string {
 function getFormItemComponent(item: ResJsonTableColumn, row: DataType, parentValue?: unknown, remoteOptions?: TableSelectOption[], optionsLoading?: boolean, onOptionChange?: (value: unknown) => void, readOnly = false) {
 	switch (item.component) {
 		case ('textbox'):
+			// 可空的列换成能表达 NULL 的那个控件：点 ✕ 存 NULL，删光字符只是空串。
+			// 密码框不给这条路——那里「留空」的意思是「不修改」，与 NULL 不是一回事。
+			if (item.nullable && item.inputType !== 'password') {
+				return <NullableInput placeholder={item.placeholder} readOnly={readOnly} disabled={readOnly} />;
+			}
 			return (
 				item.inputType === 'password'
 					? <Input.Password placeholder={item.placeholder} readOnly={readOnly} disabled={readOnly} />

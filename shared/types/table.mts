@@ -5,6 +5,11 @@ export type TableColumnRule = { required: boolean; message: string };
 export type TableColumnRemoteOptions = { action: string; dependencies: string[]; clearFields?: string[] };
 export type TableColumnFormProperties = {
 	component?: TableColumnComponent;
+	/**
+	 * 这一列能不能存 NULL。为真时文本框换成能表达 NULL 的那一个（NullableInput）：
+	 * 点 ✕ 存 NULL，删光字符只是空串——两种状态在表单这一层就分开，不到最后被压成一个。
+	 */
+	nullable?: boolean;
 	inputType?: 'text' | 'password';
 	rules?: TableColumnRule[];
 	placeholder?: string;
