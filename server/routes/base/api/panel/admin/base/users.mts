@@ -19,7 +19,7 @@ const columns = [
 	{ dataIndex: 'created_at', title: '创建时间', dataType: 'js_timestamp' as const, dayjsFormat: 'YYYY-MM-DD HH:mm:ss', group: '基础设置' },
 	{ dataIndex: 'updated_at', title: '更新时间', dataType: 'js_timestamp' as const, dayjsFormat: 'YYYY-MM-DD HH:mm:ss', group: '基础设置' },
 	{ dataIndex: 'user_name', title: '用户名', component: 'textbox' as const, group: '基础设置' },
-	{ dataIndex: 'password', title: '新密码', component: 'textbox' as const, inputType: 'password' as const, placeholder: '留空表示不修改', form: { create: { title: '密码', placeholder: '至少 8 个字符', rules: [{ required: true, message: '请输入密码' }] } } },
+	{ dataIndex: 'password', title: '新密码', component: 'textbox' as const, inputType: 'password' as const, emptyText: '未设置', placeholder: '留空表示不修改', form: { create: { title: '密码', placeholder: '至少 8 个字符', rules: [{ required: true, message: '请输入密码' }] } } },
 	{ dataIndex: 'roles', title: '角色', component: 'select' as const, multiple: true, options: assignableRoleOptions, placeholder: '留空表示仅具备登录用户权限' },
 	{ dataIndex: 'status', title: '状态', component: 'switch' as const, checkedValue: statusValues.enabled, uncheckedValue: statusValues.disabled, options: enabledDisabledOptions },
 	// 个人简介都存在 base_user_profiles：没有资料行就是没设过，昵称回落到用户名。
@@ -55,10 +55,13 @@ const publicUser = (row: Record<string, unknown>) => ({
 	user_name: row.user_name,
 	// 没设过资料就回落到用户名。
 	profile_nickname: profileNicknameOf(String(row.user_name ?? ''), row.profile_nickname as string | null),
-	profile_qq: row.profile_qq ?? '',
-	profile_wechat: row.profile_wechat ?? '',
-	profile_email: row.profile_email ?? '',
-	password: readStoredPassword(row.password)?.pattern ?? '',
+	// 没值就发 null，不折成空串：接口说真话，「没填」怎么显示由列上的 emptyText 声明。
+	// 表单那一侧的归一在 drawer 里按控件做——受控输入吃不下 null，但那是它的事，不是这里的。
+	profile_qq: row.profile_qq ?? null,
+	profile_wechat: row.profile_wechat ?? null,
+	profile_email: row.profile_email ?? null,
+	// 没有凭证行就是没设过本站密码（只能用 Accounts 登录），与「设了一个空密码」不是一回事。
+	password: readStoredPassword(row.password)?.pattern ?? null,
 	roles: parseRoles(row.roles),
 	status: row.status,
 	created_at: row.created_at,

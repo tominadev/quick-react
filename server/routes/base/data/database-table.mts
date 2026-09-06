@@ -67,8 +67,16 @@ export const readTable = async (database: DatabaseAdapter, mode: 'columns' | 'ro
 	// `base_configs.key` 就是这么在列表上变成数字的。没有主键的表才合成一个保留字段。
 	const dataSource = rowKey ? rows : rows.map((row, index) => ({ ...row, [ROW_KEY_FIELD]: `readonly-${(pageNum - 1) * pageSize + index + 1}` }));
 	const dataColumns = info.map(tableColumn);
-	const idIndex = dataColumns.findIndex((column) => column.dataIndex === 'id');
-	if (idIndex > 0) dataColumns.unshift(dataColumns.splice(idIndex, 1)[0]);
+	/**
+	 * **列序原样照搬,不把 id 挪到最前。**
+	 *
+	 * 这一页看的是表本身长什么样,列序就是表的一部分——十一个固定字段的顺序在每张表里
+	 * 都一样(由 test:column-order 守着),对照 prisma 看的时候不用来回找。挪一列等于在
+	 * 展示层修改事实,而看的人无从知道它被挪过。
+	 *
+	 * `__rowid__` 是另一回事:没有主键的 SQLite 表只能靠它定位,那不是修饰,是补上一个
+	 * 表里没有、但这一页必须有的东西。
+	 */
 	if (sqliteRowId) dataColumns.unshift({ dataIndex: '__rowid__', title: 'ID', dataType: 'int' });
 	return { tables, editable: Boolean(rowKey), columns: dataColumns, dataSource, totalRecords: Number(total?.count ?? 0), option: { rowKey: rowKey || ROW_KEY_FIELD } };
 };

@@ -146,6 +146,16 @@ const auditRouteFilter = async () => {
 		const marked = await (await app.request(`${usersApi}?include=schema,data`, { headers: { ...headers, cookie } })).json();
 		assert.equal(marked.table.columns.some((column) => column.dataIndex === '_pending'), false, '不开「审批」列：标记是数据不是列，前端拿它给那一行换底色');
 		assert.equal(marked.table.dataSource.find((row) => row.user_name === 'pendingbob')._pending, 'update-mine');
+		// 传输层说真话：没值就是 null，不折成空串。「没填」怎么读由列上的 emptyText 声明，
+		// 而受控输入吃不下 null 那件事在表单那一层解决（drawer 按控件类型归一），不是靠每个
+		// 路由各写一遍 `?? ''`——那等于在传输层把「有没有值」这个信息抹掉，下游再也拿不回来。
+		{
+			const listed = await (await app.request('http://localhost/api/panel/admin/base/users.php?include=schema,data', { headers: { ...headers, cookie } })).json();
+			const contact = listed.table.columns.find((column) => column.dataIndex === 'profile_wechat');
+			assert.equal(contact.emptyText, '未填写', '列自己声明没值时读作什么');
+			assert.equal(listed.table.dataSource[0].profile_wechat, null, '没填就发 null，不发空串');
+		}
+
 		/**
 		 * 完整经过要点得到：列表上只有「最近处理」一行，而一条记录可能被驳回、恢复、批准、
 		 * 回滚、重新应用地翻好几轮。行上挂一个「处理经过」弹窗，带上 approval_id——不带的话

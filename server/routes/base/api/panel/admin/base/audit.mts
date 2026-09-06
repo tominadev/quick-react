@@ -112,8 +112,8 @@ const columns = [
 	// 由 test:change-audit 守着，加了新列忘了对齐会直接报错。
 	{ dataIndex: 'id', title: 'ID', dataType: 'int' as const },
 	{ dataIndex: 'created_at', title: '时间', dataType: 'js_timestamp' as const, dayjsFormat: 'YYYY-MM-DD HH:mm:ss' },
-	{ dataIndex: 'created_duid', title: '操作者' },
-	{ dataIndex: 'owner_uid', title: '作用账号' },
+	{ dataIndex: 'created_duid', title: '操作者', emptyText: '系统' },
+	{ dataIndex: 'owner_uid', title: '作用账号', emptyText: '无' },
 	// 审批是按**一次操作**走的：同一个操作号的记录批准/驳回时一起处理。
 	{ dataIndex: 'operation_id', title: '操作号' },
 	{ dataIndex: 'reason', title: '操作原因' },
@@ -155,9 +155,10 @@ const publicEntry = (row: AuditEntryRow, events: ApprovalEventRow[] = []) => ({
 	action: row.action,
 	summary: describeAuditChanges(parseAuditChanges(row)),
 	operation_id: row.operation_id,
-	reason: row.reason ?? '',
-	created_duid: row.created_duid ?? '',
-	owner_uid: row.owner_uid ?? '',
+	reason: row.reason,
+	// 没有 device-user 就是机器写的，与「有人操作但没留下 id」不是一回事，因此发 null。
+	created_duid: row.created_duid,
+	owner_uid: row.owner_uid,
 	review_status: row.review_status,
 	data_status: row.data_status,
 	scope: row.scope,

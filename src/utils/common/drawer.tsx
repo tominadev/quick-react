@@ -54,6 +54,25 @@ export function useDrawer(commonApi: CommonApi): [drawerType, React.JSX.Element]
 					// 外部调用设置新的row值时，刷新新值
 					const normalizedRow = { ..._row };
 					for (const column of editableColumns) {
+						/**
+						 * **NULL 到表单值的归一放在这里，不放在每个路由里。**
+						 *
+						 * 接口该说真话：一列没有值就是 `null`，与空串是两回事（唯一索引里 NULL
+						 * 互不相等，「从没填过」与「填过又清掉」也是两种事实）。但受控输入吃不下
+						 * null——antd 拿到它会退化成非受控，React 告警，回填与提交都不对。
+						 *
+						 * 所以归一在**用得着它的那一层**做，而且按控件分：给多选一个 `''` 会让它
+						 * 显示成一个空标签，给下拉一个 `''` 会选中一个值为空串的选项，给开关一个
+						 * `''` 会被当成「有值」。一律 `?? ''` 是把三种错凑在一起。
+						 */
+						if (normalizedRow[column.dataIndex] === null || normalizedRow[column.dataIndex] === undefined) {
+							normalizedRow[column.dataIndex] = column.component === 'switch' ? (column.uncheckedValue ?? false)
+								// 下拉与日期用 undefined 表示「没选」：给空串会选中一个空选项。
+								: column.component === 'select' ? (column.multiple ? [] : undefined)
+									: column.component === 'datepicker' || column.component === 'datepicker_rangepicker' || column.component === 'inputnumber' ? undefined
+										: '';
+							continue;
+						}
 						if (column.allowCustomValue && !column.multiple && normalizedRow[column.dataIndex] && !Array.isArray(normalizedRow[column.dataIndex])) {
 							normalizedRow[column.dataIndex] = [normalizedRow[column.dataIndex]];
 						}

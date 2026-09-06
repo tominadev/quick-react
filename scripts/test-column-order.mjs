@@ -90,6 +90,10 @@ for (const [route, source] of tableRoutes) {
 	}
 }
 assert.deepEqual(problems, [], `以下表格列的先后与 prisma 定义不一致：\n  ${problems.join('\n  ')}`);
+// 数据管理不重排列序：这一页看的是表本身长什么样，列序就是表的一部分。挪一列等于在展示层
+// 修改事实，而看的人无从知道它被挪过。
+const databaseTable = await readFile(resolve(projectDirectory, 'server/routes/base/data/database-table.mts'), 'utf8');
+assert.doesNotMatch(databaseTable, /dataColumns\.splice/, '数据管理的列序要原样照搬');
 // 设置类页面整表单提交，什么都没改也点了保存多半是误触；四个设置页要么都提示，
 // 要么都不提示，漏掉一个只会让人以为这页坏了。
 const settingsDirectory = resolve(projectDirectory, 'server/routes/base/api/panel/admin/base/settings');

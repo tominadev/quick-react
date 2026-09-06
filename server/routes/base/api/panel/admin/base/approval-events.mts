@@ -29,7 +29,7 @@ const kindOptions = (['withdraw', 'approve', 'reject', 'requeue', 'revert', 'red
 const columns = [
 	{ dataIndex: 'id', title: 'ID', dataType: 'int' as const },
 	{ dataIndex: 'created_at', title: '时间', dataType: 'js_timestamp' as const, dayjsFormat: 'YYYY-MM-DD HH:mm:ss' },
-	{ dataIndex: 'created_duid', title: '操作者' },
+	{ dataIndex: 'created_duid', title: '操作者', emptyText: '系统' },
 	{ dataIndex: 'approval_id', title: '审批记录', dataType: 'int' as const },
 	{ dataIndex: 'kind', title: '处理类型', options: kindOptions },
 	{ dataIndex: 'reason', title: '理由' }];
@@ -57,7 +57,8 @@ const handler: ApiHandler = async (c, next) => {
 		// 只读：没有新增、编辑、删除，也不给回收站。
 		option: { rowKey: 'id', queryFields, actions: { query: [{ key: 'search', label: '搜索' }] } },
 		columns,
-		dataSource: rows.map((row) => ({ ...row, created_duid: row.created_duid ?? '', reason: row.reason ?? '' })),
+		// 原样发下去：谁做的没有 duid 就是机器写的，理由为空是撤销那一类本来就不需要理由。
+		dataSource: rows,
 		totalRecords: rows.length,
 	} });
 };
