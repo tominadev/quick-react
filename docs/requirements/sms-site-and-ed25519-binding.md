@@ -51,7 +51,28 @@ SMS 站点集中查看多部手机收到的短信，不负责发送。手机侧�
 
 ## 4. 数据模型
 
-所有表遵循项目统一字段顺序：`id`、`created_at`、`updated_at`、`deleted_at`、`created_duid`、`updated_duid` 由公共层维护，业务 API 不提交；随后是 `owner_tid`、`owner_uid`，它们是行归属字段而非审计字段。业务唯一字段一律使用 `(字段…, deleted_at)` 形式的唯一约束。
+所有表遵循项目统一的**十一个系统字段**，顺序固定、由公共层维护、业务 API 一律不提交（见
+[列命名约定](column-naming.md)）：
+
+```
+id  key  created_at  updated_at  deleted_at  queued_at  created_duid  updated_duid
+owner_tid  owner_bid  owner_uid
+```
+
+其中 `key` 是机器写的稳定标识（雪花号或 UUID），跟 `id` 一样只用来指向这一行，**不装人给的值**；
+`queued_at` 非 0 表示这一行还在审批队列里等着生效，对正常查询不可见；`owner_*` 是行归属字段，
+不是审计字段。
+
+**唯一约束里只有 `name` 参与时才带 `deleted_at`。** 名字是人取的，软删一行之后同一个名字该能
+再用；哈希、令牌摘要、nonce、对象键这些要么是机器生成、要么是外部给定，永不重复，带上
+`deleted_at` 纯属多余——更要紧的是**不带反而更安全**：一个已消费的 nonce 即便记录被删掉也不该
+能重放，一个撤销过的令牌哈希不该能借尸还魂。
+
+`name` 的唯一索引形态固定为 `@@unique([owner_tid, name, deleted_at])`。
+
+**外键列一律建索引**（`@@index([<列>])`）：没有索引的外键意味着查询全表扫，而这套设计里
+`phone_id`、`token_id`、`integration_client_id`、`message_id`、`push_endpoint_id`、
+`generator_machine_id`、`owner_uid` 都在高频路径上。
 
 ### 4.1 `sms_integration_clients`
 
@@ -59,8 +80,8 @@ SMS 站点集中查看多部手机收到的短信，不负责发送。手机侧�
 
 | 字段 | 说明 |
 | --- | --- |
-| `key` | 接入方标识，`(key, deleted_at)` 唯一。票据 JSON 中的协议字段名为 `client_id`，取的就是这个值 |
-| `name` | 管理端名称 |
+| `name` | 接入方标识，`(owner_tid, name, deleted_at)` 唯一。票据 JSON 中的协议字段名为 `client_id`，取的就是这个值 |
+| `title` | 管理端显示名称 |
 | `binding_scope` | 允许的绑定能力，本期固定包含 `phone:bind` |
 | `status` | `enabled` / `disabled` |
 | `last_used_at` | 最近成功验证时间，可为空 |
@@ -74,7 +95,7 @@ SMS 站点集中查看多部手机收到的短信，不负责发送。手机侧�
 | 字段 | 说明 |
 | --- | --- |
 | `integration_client_id` | 指向 `sms_integration_clients.id` |
-| `kid` | 密钥标识，票据中携带；`(integration_client_id, kid, deleted_at)` 唯一 |
+| `kid` | 密钥标识，票据中携带；`(integration_client_id, kid)` 唯一 |
 | `public_key` | Ed25519 公钥，原始字节的 Base64URL 表示 |
 | `status` | `active` / `retired` |
 | `retired_at` | 停用时间，可为空 |
@@ -86,10 +107,20 @@ SMS 站点集中查看多部手机收到的短信，不负责发送。手机侧�
 | 字段 | 说明 |
 | --- | --- |
 | `owner_uid` | 归属账号，指向当前数据库的 `base_users.id` |
-| `phone_number` | 规范化后的 E.164 手机号。票据中的协议字段名为 `phone` |
-| `display_name` | 用户可修改的设备名称 |
+| `name` | 规范化后的 E.164 手机号，`(owner_tid, name, deleted_at)` 唯一。票据中的协议字段名为 `phone` |
+| `title` | 用户可修改的设备名称 |
 | `status` | `enabled` / `disabled` / `revoked` |
 | `bound_at`、`revoked_at` | 绑定与撤销时间，后者可为空 |
+
+**手机号落在 `name` 上，不叫 `phone_number`。** 它是人给的、租户内唯一、可以被改的标识，
+正是 `name` 这一列的定义（见 [列命名约定](column-naming.md)）；协议字段名仍是 `phone`，
+对外的票据格式不受影响。
+
+这个位置还决定了一件业务上必须成立的事：**唯一索引带着 `deleted_at`，因此解绑之后同一个号
+能重新绑回来。** 换成任何别的列名都不带 `deleted_at`（§4 的规则），那条被软删的记录会永久占住
+这个号——而下面的 `revoked` 语义明确要求「只能重新绑定」，两者会直接打架。
+
+`title` 而不是 `display_name`：显示名一律用 `title`，`display_name` 是被禁的词。
 
 `status` 三值语义：`enabled` 正常接收；`disabled` 用户临时停收，关系保留，可自行恢复；`revoked` 已解绑，关系终止，不可恢复，只能重新绑定。
 
@@ -97,7 +128,7 @@ SMS 站点集中查看多部手机收到的短信，不负责发送。手机侧�
 
 手机号本身不是认证凭证。解绑或撤销后原令牌立即失效，不能继续写入短信。
 
-同一归属账号与同一规范化手机号的绑定必须幂等：重复绑定直接返回成功，不创建重复的有效记录。手机号已属于其他账号时拒绝，不自动迁移。
+同一归属账号与同一规范化手机号的绑定必须幂等：重复绑定直接返回成功，不创建重复的有效记录——靠的就是 `(owner_tid, name, deleted_at)` 这条唯一索引加 `ignoreInsert`，不是先查后插（理由同 §4.6）。手机号已属于其他账号时拒绝，不自动迁移。
 
 ### 4.4 `sms_shortcut_tokens`
 
@@ -105,11 +136,11 @@ SMS 站点集中查看多部手机收到的短信，不负责发送。手机侧�
 
 | 字段 | 说明 |
 | --- | --- |
-| `token_sha256` | 原始令牌的 SHA-256，小写十六进制 64 字符，`(token_sha256, deleted_at)` 唯一 |
+| `token_sha256` | 原始令牌的 SHA-256，小写十六进制 64 字符，`(token_sha256)` 唯一 |
 | `owner_uid` | 令牌归属账号；公共池阶段为空，领取时写入 |
 | `phone_id` | 绑定的手机；`pending` 与 `available` 状态下均为空 |
 | `status` | `pending` / `available` / `bound` / `revoked` |
-| `idempotency_token` | 生成任务的幂等键，`(idempotency_token, deleted_at)` 唯一 |
+| `idempotency_token` | 生成任务的幂等键，`(idempotency_token)` 唯一 |
 | `last_used_at` | 最近一次成功提交短信的时间，可为空 |
 
 `status` 四值语义：`pending` 入库过程中的中间态，不可领取；`available` 在公共池中待领取；`bound` 已绑定手机；`revoked` 已作废。
@@ -125,7 +156,7 @@ Shortcut 文件本身存放在私有对象存储，数据库只保存元数据�
 | 字段 | 说明 |
 | --- | --- |
 | `token_id` | 指向 `sms_shortcut_tokens.id` |
-| `object_key` | 私有对象键，`(object_key, deleted_at)` 唯一 |
+| `object_key` | 私有对象键，`(object_key)` 唯一 |
 | `file_sha256` | 文件摘要，小写十六进制 64 字符，用于上传完成校验 |
 | `size_bytes` | 文件大小 |
 | `content_type` | 由服务端固定写入，生成器不提交 |
@@ -133,9 +164,9 @@ Shortcut 文件本身存放在私有对象存储，数据库只保存元数据�
 | `generator_machine_id` | 指向 `sms_generator_machines.id`，由服务端从凭证解析后写入 |
 | `status` | `ready` / `revoked` |
 
-唯一约束 `(token_id, version, deleted_at)`。换发新文件时递增 `version` 并把旧版本置为 `revoked`。
+唯一约束 `(token_id, version)`。换发新文件时递增 `version` 并把旧版本置为 `revoked`。
 
-`object_key` 形状为 `shortcuts/<机器 key>/<yyyymmdd>/<毫秒时间戳>-<随机后缀>.shortcut`，目录名取 `sms_generator_machines.key`。**随机后缀不可省略**：仅由时间戳构成时，并发的 `prepare-upload` 可能落在同一毫秒并生成相同键，后一次 PUT 会覆盖前一个对象，导致令牌记录指向装着另一个令牌的文件，领取者会拿到他人的令牌并读到他人短信。随机后缀至少 8 字节，取自密码学安全随机源。对象键不得包含手机号或 `token_sha256`。
+`object_key` 形状为 `shortcuts/<机器 name>/<yyyymmdd>/<毫秒时间戳>-<随机后缀>.shortcut`，目录名取 `sms_generator_machines.name`。**随机后缀不可省略**：仅由时间戳构成时，并发的 `prepare-upload` 可能落在同一毫秒并生成相同键，后一次 PUT 会覆盖前一个对象，导致令牌记录指向装着另一个令牌的文件，领取者会拿到他人的令牌并读到他人短信。随机后缀至少 8 字节，取自密码学安全随机源。对象键不得包含手机号或 `token_sha256`。
 
 只有 `status = 'ready'` 且对应令牌 `status = 'available'` 的记录才允许被领取。用户下载时由后端返回短期预签名 GET 地址，Bucket 禁止公共读。
 
@@ -149,9 +180,14 @@ Shortcut 文件本身存放在私有对象存储，数据库只保存元数据�
 | `recipients` | 收件人 |
 | `sender` | 发送人 |
 | `received_at` | 接收时间 |
-| `payload_hash` | 去重哈希，`(phone_id, payload_hash, deleted_at)` 唯一 |
+| `payload_hash` | 去重哈希，`(phone_id, payload_hash)` 唯一 |
 
 去重靠唯一约束加 `ignoreInsert` 完成，**不使用"先查后插"**——无事务环境下先查后插存在竞态，且违反 AGENTS.md 对业务唯一字段的约束。
+
+**`payload_hash` 必须把接收时间算进去。** 这条唯一索引不带 `deleted_at`（§4 的规则），因此
+软删掉的短信仍然占着它那个哈希：只按正文与发送人算的话，用户删掉一条短信之后，同样内容的
+下一条会被当成重复丢弃，而那明明是一条新短信。把 `received_at` 纳入哈希输入，同一条短信的
+重复投递（Shortcut 重试）哈希不变、照旧去重，不同时刻的两条则各算各的。
 
 短信由 Shortcut 用 Bearer 令牌写入，那一刻没有登录会话，公共层的归属上下文为空。**因此写入前必须显式绑定归属**，否则 `owner_uid` 会被填成 `NULL`，而 `NULL` 归属的行对普通账号一律不可见——**短信的主人自己也看不到自己的短信**：
 
@@ -182,7 +218,7 @@ await runSql(owned, sql({ database: owned }).ignoreInsert('sms_messages', ['phon
 | 字段 | 说明 |
 | --- | --- |
 | `integration_client_id` | 签发该票据的接入方 |
-| `nonce` | 票据中的随机数；`(integration_client_id, nonce, deleted_at)` 唯一 |
+| `nonce` | 票据中的随机数；`(integration_client_id, nonce)` 唯一 |
 | `expires_at` | 取票据的 `exp`，用于过期清理 |
 
 **消费方式是插入而不是更新**：用 `ignoreInsert` 写入，影响行数为 0 即表示该 nonce 已被使用，绑定失败。唯一约束在数据库层保证一次性，无需事务，见 §11。已过期的记录由清理任务按 `expires_at` 删除。
@@ -232,13 +268,13 @@ X-Sms-Signature: ed25519=<base64url>
 | --- | --- |
 | `message_id` | 来源短信 |
 | `push_endpoint_id` | 目标推送地址 |
-| `delivery_id` | 稳定标识，`(delivery_id, deleted_at)` 唯一；重试沿用同一值 |
+| `delivery_id` | 稳定标识，`(delivery_id)` 唯一；重试沿用同一值 |
 | `status` | `pending` / `sending` / `succeeded` / `failed` |
 | `attempts` | 已尝试次数 |
 | `next_attempt_at` | 下次尝试时间 |
 | `last_error` | 最近错误摘要，不含密钥与短信正文 |
 
-唯一约束 `(message_id, push_endpoint_id, deleted_at)`：同一条短信对同一目标只产生一条投递记录，避免重复排队。
+唯一约束 `(message_id, push_endpoint_id)`：同一条短信对同一目标只产生一条投递记录，避免重复排队。
 
 #### 4.9.4 投递与重试
 
@@ -264,7 +300,7 @@ WHERE id = ? AND status = 'pending' AND next_attempt_at <= ?
 
 | 字段 | 说明 |
 | --- | --- |
-| `key` | 机器标识，`(key, deleted_at)` 唯一，同时作为对象键中的目录名 |
+| `name` | 机器标识，`(owner_tid, name, deleted_at)` 唯一，同时作为对象键中的目录名 |
 | `name` | 管理端显示名称 |
 | `secret_hash` | 平台预配凭证的哈希，与 `sms_access_keys` 同规则，不保存明文 |
 | `secret_prefix` | 凭证前缀，仅用于在管理端辨认，不足以还原凭证 |
@@ -385,7 +421,7 @@ WHERE id = ? AND status = 'available'
 | `client_id` | 对应 `sms_integration_clients.key` |
 | `kid` | 对应 `sms_integration_client_keys.kid`，唯一确定验签公钥 |
 | `base_user_id` | 目标账号，必须存在于当前 SMS 数据库的 `base_users` |
-| `phone` | 规范化后的 E.164 手机号，对应 `sms_phones.phone_number` |
+| `phone` | 规范化后的 E.164 手机号，对应 `sms_phones.name` |
 | `iat`、`exp` | Unix 秒；有效期不超过 5 分钟，允许的时钟偏差不超过 60 秒 |
 | `nonce` | 接入方生成的高熵随机数，同一接入方不得重复 |
 
