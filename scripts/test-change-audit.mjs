@@ -814,6 +814,75 @@ const booleanColumnApproval = async () => {
 		await rm(directory, { recursive: true, force: true });
 	}
 };
+/**
+ * 指向不存在的行的新建申请，必须撤得掉、驳得回。
+ *
+ * 批准核内容，行不在就核不过；而撤销与驳回原先也要求行存在（软删影响 0 行即报「原记录
+ * 已不存在」）。三条路一起堵死，那条申请就永远卡在待审批列表里，还占着
+ * `(table_name, row_key, 0)` 那个位置，连带这一行以后都不能再提新申请。
+ *
+ * `bindings.mts` 编辑用途时先裸删旧行再插新行，真的制造过两条这样的申请。那个裸删已经
+ * 改成按差异写，但孤儿申请不能只靠上游不出错来避免——数据管理页、回收站的彻底删除、
+ * 外部脚本都能删到那一行。
+ */
+const orphanedInsertApproval = async () => {
+	const directory = await mkdtemp(join(tmpdir(), 'quick-react-audit-orphan-'));
+	const previousFile = process.env.DEFAULT_DATABASE_FILE;
+	process.env.DEFAULT_DATABASE_FILE = join(directory, 'default.sqlite');
+	process.env.SKIP_SERVER_LISTEN = '1';
+	try {
+		const { app, runMaintenanceAction } = await import(`../dist/server.mjs?audit-orphan=${Date.now()}`);
+		await runMaintenanceAction('restore-admin', { user_name: 'orphanadmin', password: 'audit-password-1' });
+		const { DatabaseSync } = await import('node:sqlite');
+		const headers = {
+			'content-type': 'application/json',
+			'x-device-key': '00000000000040008000000000000001',
+			'x-device-fingerprint': JSON.stringify({ canvas_cyrb53: 'a', audio_cyrb53: 'b' }),
+		};
+		// 先登录再 seed：撤销只认自己提交的申请，而「自己」是设备用户（`created_duid`），
+		// 登录之后那一行才存在。
+		const login = await app.request('http://localhost/api/sign.php', { method: 'POST', headers, body: JSON.stringify({ user_name: 'orphanadmin', password: 'audit-password-1' }) });
+		const cookie = login.headers.get('set-cookie')?.split(';')[0];
+		const seed = new DatabaseSync(process.env.DEFAULT_DATABASE_FILE);
+		const at = Date.now();
+		const duid = seed.prepare('SELECT du.id AS id FROM base_device_users du JOIN base_users u ON u.id = du.user_id WHERE u.name = ?').get('orphanadmin')?.id;
+		assert.ok(duid, '登录之后应当有设备用户行');
+		// 三条新建申请，指向的 base_users 行都不存在（90001 起，库里不会有）。
+		for (const [rowKey, rowId] of [['orphan-approve', '90001'], ['orphan-withdraw', '90002'], ['orphan-reject', '90003']]) {
+			seed.prepare('INSERT INTO base_audits (key, created_at,updated_at,created_duid,operation_id,reason,table_name,row_id,row_key,action,changes_before,changes_after,review_status,data_status,settled_at) VALUES (lower(hex(randomblob(16))), ?,?,?,?,?,?,?,?,?,?,?,?,?,0)')
+				.run(at, at, duid, `orphan-${rowKey}`, '孤儿用例', 'base_users', rowId, rowKey, 'insert', '{}', JSON.stringify({ name: 'ghost' }), 'pending', 'unwritten');
+		}
+		seed.close();
+		const h = { ...headers, cookie };
+		const listed = await (await app.request('http://localhost/api/panel/admin/base/audit/records.php?include=data&review_status=pending', { headers: h })).json();
+		const byRow = new Map(listed.table.dataSource.map((row) => [row.row_key, String(row.id)]));
+		const act = async (action, rowKey) => {
+			const response = await app.request(`http://localhost/api/panel/admin/base/audit/records.php?action=${action}`, { method: 'POST', headers: h, body: JSON.stringify([byRow.get(rowKey)]) });
+			return (await response.json()).feedback?.message ?? '';
+		};
+
+		// 批准不放宽：行不在就批不了，否则等于批准了一个空气。
+		const approved = await act('approve', 'orphan-approve');
+		assert.match(approved, /失败 1 条/, `行不存在时不能批准，实际：${approved}`);
+		// 但作废的两条路必须收得了场，否则这条申请谁也处理不掉。
+		const withdrawn = await act('withdraw', 'orphan-withdraw');
+		assert.match(withdrawn, /已撤销 1 条/, `行不存在时也要撤得掉，实际：${withdrawn}`);
+		const rejected = await act('reject', 'orphan-reject');
+		assert.match(rejected, /已驳回 1 条/, `行不存在时也要驳得回，实际：${rejected}`);
+
+		// 收场之后它们要真的离开队列——settled_at 非 0，那个位置腾出来。
+		const check = new DatabaseSync(process.env.DEFAULT_DATABASE_FILE, { readOnly: true });
+		for (const rowKey of ['orphan-withdraw', 'orphan-reject']) {
+			const row = check.prepare('SELECT review_status, settled_at FROM base_audits WHERE row_key = ?').get(rowKey);
+			assert.notEqual(String(row.settled_at), '0', `${rowKey} 收场后要腾出队列位置`);
+		}
+		check.close();
+	} finally {
+		if (previousFile === undefined) delete process.env.DEFAULT_DATABASE_FILE;
+		else process.env.DEFAULT_DATABASE_FILE = previousFile;
+		await rm(directory, { recursive: true, force: true });
+	}
+};
 const temporaryDirectory = await mkdtemp(join(tmpdir(), 'quick-react-change-audit-'));
 try {
 	const result = await build({
@@ -1313,6 +1382,7 @@ try {
 	assert.doesNotMatch(auditRoute, /\{ value: '', text: '全部' \}/);
 	await auditRouteFilter();
 	await booleanColumnApproval();
+	await orphanedInsertApproval();
 
 	// ---- 保留期（§10）----
 	const total = (await entries()).length;

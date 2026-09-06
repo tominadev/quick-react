@@ -46,8 +46,29 @@ const purposeState = (rows: BindingPurposeRow[]) => ({
 	purposes: rows.map((item) => item.purpose),
 	default_purposes: rows.filter((item) => Boolean(item.is_default)).map((item) => item.purpose),
 });
-const savePurposes = async (c: Context<AppEnv>, database: DatabaseAdapter, bindingId: number, siteKey: string, selected: string[], defaults: string[]) => {
-	for (const purpose of selected) await runOperationSql(c, database, sql({ database }).insert('global_cloud_object_storage_binding_purposes', { binding_id: bindingId, site_key: siteKey, purpose, is_default: false }));
+/**
+ * 用途按**差异**写，只动变化的那几行。
+ *
+ * **绝不能先全删再全插。** 那个删是物理删除（`(binding_id, purpose)` 上的唯一索引不带
+ * `deleted_at`，软删之后同一个用途再也加不回来，所以只能物理删），而后台的写入要走审批：
+ * 上一轮插进去的行还带着非 0 的 `queued_at` 在排队等批准，全删就把它一起删掉了，留下一条
+ * 指向空处的申请——批准核不过内容、撤销与驳回又找不到行，两头堵死。真发作过：连编三次
+ * 只留下最后一条能批，前两条永远卡在待审批列表里。
+ *
+ * 按差异写之后，反复编辑同一组用途不再产生任何申请，那条路也就走不到了。取消一个还在
+ * 排队的用途仍会让它那条申请落空，但那种申请现在撤得掉（见 audit.mts 的
+ * applyInsertApproval）。
+ */
+const savePurposes = async (c: Context<AppEnv>, database: DatabaseAdapter, bindingId: number, siteKey: string, selected: string[], defaults: string[], existing: BindingPurposeRow[] = []) => {
+	const existingPurposes = new Set(existing.map((item) => item.purpose));
+	for (const item of existing) {
+		if (selected.includes(item.purpose)) continue;
+		await runSql(database, sql({ database }).delete('global_cloud_object_storage_binding_purposes', { binding_id: bindingId, purpose: item.purpose }));
+	}
+	for (const purpose of selected) {
+		if (existingPurposes.has(purpose)) continue;
+		await runOperationSql(c, database, sql({ database }).insert('global_cloud_object_storage_binding_purposes', { binding_id: bindingId, site_key: siteKey, purpose, is_default: false }));
+	}
 	for (const purpose of defaults) {
 		await runOperationSql(c, database, sql({ database }).update('global_cloud_object_storage_binding_purposes', { is_default: false }, [{ column: 'site_key', value: siteKey }, { column: 'purpose', value: purpose }, { column: 'binding_id', operator: '!=', value: bindingId }]));
 		await runOperationSql(c, database, sql({ database }).update('global_cloud_object_storage_binding_purposes', { is_default: true }, { binding_id: bindingId, purpose }));
@@ -137,9 +158,8 @@ const handler: ApiHandler = async (c, next, params) => {
 		const duplicate = await firstSql(database, sql({ database }).select({ table: 'global_cloud_object_storage_bindings', columns: { id: 'id' }, where: [{ column: 'site_key', value: siteKey }, { column: 'bucket_id', value: bucketId }, { column: 'key_prefix', value: keyPrefix }, { column: 'id', operator: '!=', value: Number(params.id) }] }));
 		if (duplicate) return apiMessage(c, 409, '相同站点、Bucket 和对象前缀的绑定已存在');
 		try {
-			await runSql(database, sql({ database }).delete('global_cloud_object_storage_binding_purposes', { binding_id: Number(params.id) }));
 			await runOperationSql(c, database, sql({ database }).update('global_cloud_object_storage_bindings', { site_key: siteKey, bucket_id: bucketId, key_prefix: keyPrefix, status }, { id: Number(params.id) }));
-			await savePurposes(c, database, Number(params.id), siteKey, selected, status === statusValues.enabled ? defaults : []);
+			await savePurposes(c, database, Number(params.id), siteKey, selected, status === statusValues.enabled ? defaults : [], currentPurposes);
 		} catch (error) { if (error instanceof PendingApprovalError) throw error; return apiMessage(c, 400, error instanceof Error ? error.message : '保存绑定失败'); }
 		return apiMessage(c, 200, '保存成功');
 	}

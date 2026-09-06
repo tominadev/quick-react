@@ -472,7 +472,22 @@ const applyInsertApproval = async (database: DatabaseAdapter, entry: AuditEntryR
 			: to === 'requeue' ? builder.revert(entry.table_name, { deleted_at: 0, queued_at: Date.now() }, where)
 				: builder.revert(entry.table_name, { deleted_at: Date.now(), queued_at: 0 }, where);
 	const result = await runSystemSql(database, statement);
-	return Number(result.meta?.changes ?? 0) > 0;
+	if (Number(result.meta?.changes ?? 0) > 0) return true;
+	/**
+	 * **行已经不在了，对驳回与撤销来说目标就已经达成。**
+	 *
+	 * 这两个动作的意思是「这一行不要生效」。行都没了，结果正是要的那个，再报「原记录
+	 * 已不存在」只会把申请**永远卡在队列里**：批准核不过内容（行不在，核对必然失败），
+	 * 撤销与驳回又找不到行——一条谁也收不了场的申请，占着 `(table_name, row_key, 0)`
+	 * 那个位置，连带这一行以后都不能再提新申请。
+	 *
+	 * 这条路真的走到过：`bindings.mts` 编辑用途时先裸删旧行再插新行，把上一轮还在排队
+	 * 的那一行物理删掉了，留下两条指向空处的申请。那个裸删已经改掉，但**孤儿申请不能
+	 * 只靠上游不出错来避免**——数据管理页、回收站的彻底删除、外部脚本都能删到那一行。
+	 *
+	 * 批准那一支不放宽：行不在就批不了，否则等于批准了一个空气。
+	 */
+	return to === 'withdraw' || to === 'reject';
 };
 
 const applyApproval = async (database: DatabaseAdapter, entry: AuditEntryRow, to: AuditApproval, reason: string): Promise<AuditRevertResult> => {
