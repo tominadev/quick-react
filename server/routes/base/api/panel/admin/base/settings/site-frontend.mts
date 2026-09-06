@@ -18,7 +18,7 @@ const formPage = {
 	confirmOnUnchangedSubmit: '当前未修改，仍要提交吗？',
 	confirmChangedSubmit: '将保存以下修改，确认继续吗？',
 	submitLabel: '保存配置',
-	actions: [{ key: 'restore-defaults', label: '恢复默认', confirm: '确认恢复前台前端设置的默认值吗？恢复后需要点击“保存配置”才会生效。' }],
+	actions: [{ key: 'restore-defaults', label: '重置默认', confirm: '确认重置前台前端设置的默认值吗？重置后需要点击“保存配置”才会生效。' }],
 	initialValues: defaultSiteSettings,
 	defaultValues: defaultSiteSettings,
 	fields: [

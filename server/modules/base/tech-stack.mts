@@ -25,7 +25,7 @@ export const configureTechStack = (options: { store?: ConfigStore; defaults?: Pa
 	loadedAt = 0;
 };
 
-/** 返回当前运行环境配置的默认值，用于后台“恢复默认”。 */
+/** 返回当前运行环境配置的默认值，用于后台“重置默认”。 */
 export const getDefaultTechStackConfig = (): TechStackConfig => ({ ...defaultConfig });
 
 export const normalizeTechStackConfig = (value: unknown, defaults: TechStackConfig = defaultConfig): TechStackConfig => ({

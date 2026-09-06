@@ -49,7 +49,7 @@ try {
 	assert.match(await runMaintenanceAction('accounts-oidc-status', {}), /Accounts OIDC 登录：关闭/);
 	assert.match(await runMaintenanceAction('enable-accounts-oidc', {}), /已启用/);
 	assert.match(await runMaintenanceAction('accounts-oidc-status', {}), /Accounts OIDC 登录：启用/);
-	assert.match(await runMaintenanceAction('restore-accounts-oidc-defaults', {}), /已恢复默认值/);
+	assert.match(await runMaintenanceAction('restore-accounts-oidc-defaults', {}), /已重置为默认值/);
 	assert.match(await runMaintenanceAction('accounts-oidc-status', {}), /Accounts OIDC 登录：关闭/);
 	await assert.rejects(runMaintenanceAction('no-such-action', {}), /未知维护动作/);
 

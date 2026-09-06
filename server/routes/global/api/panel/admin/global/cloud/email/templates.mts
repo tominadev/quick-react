@@ -158,7 +158,7 @@ const handler: ApiHandler = async (c, next, params) => {
 			...scopeColumns,
 			{ dataIndex: 'template_type', title: '导入为模板类型', component: 'select', options: cloudEmailPurposeOptions, rules: [{ required: true, message: '请选择模板类型' }] },
 		];
-		return apiResponse(c, 200, { table: { option: { rowKey: 'id', actions: { query: [{ key: 'search', label: '搜索' }], toolbar: [{ key: 'create', label: '新增' }, { key: 'sync', label: '同步模板', form: { columns: syncColumns } }, { key: 'delete', label: '删除' }], row: [{ key: 'restore', label: '还原默认', confirm: '确认用后端默认模板覆盖当前名称、主题和正文吗？' }, { key: 'publish', label: '发布/更新', form: { columns: scopeColumns } }, { key: 'refresh', label: '刷新状态' }, { key: 'edit', label: '编辑' }, { key: 'delete', label: '删除' }] } }, columns, dataSource: rows, totalRecords: rows.length } });
+		return apiResponse(c, 200, { table: { option: { rowKey: 'id', actions: { query: [{ key: 'search', label: '搜索' }], toolbar: [{ key: 'create', label: '新增' }, { key: 'sync', label: '同步模板', form: { columns: syncColumns } }, { key: 'delete', label: '删除' }], row: [{ key: 'restore', label: '重置默认', confirm: '确认用后端默认模板覆盖当前名称、主题和正文吗？' }, { key: 'publish', label: '发布/更新', form: { columns: scopeColumns } }, { key: 'refresh', label: '刷新状态' }, { key: 'edit', label: '编辑' }, { key: 'delete', label: '删除' }] } }, columns, dataSource: rows, totalRecords: rows.length } });
 	}
 	if (!params.id && c.req.method === 'POST' && c.req.query('action') === 'sync') {
 		const body = await parseBody(c), credentialId = Number(body.cloud_credential_id), region = text(body.region), templateType = text(body.template_type);
@@ -230,7 +230,7 @@ const handler: ApiHandler = async (c, next, params) => {
 		const variableError = validateCloudEmailTemplateVariables(current.template_type, defaults);
 		if (variableError) return apiMessage(c, 500, `后端默认模板配置错误：${variableError}`);
 		await runOperationSql(c, database, sql({ database }).update('global_cloud_email_templates', { title: defaults.title, subject: defaults.subject, body_text: defaults.body_text, body_html: defaults.body_html }, { id: current.id }));
-		return apiMessage(c, 200, '模板已还原默认，请选择云凭据和 Region 发布更新');
+		return apiMessage(c, 200, '模板已重置为默认，请选择云凭据和 Region 发布更新');
 	}
 	if (params.id && c.req.method === 'PUT') {
 		const current = await loadTemplate(database, Number(params.id));

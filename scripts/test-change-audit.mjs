@@ -312,11 +312,23 @@ const auditRouteFilter = async () => {
 		// 待审批的新行」之后才走得到的：看不见就点不到编辑。
 		const draft = pendingList.table.dataSource.find((row) => row.user_name === 'rejectme');
 		const draftLabels = pendingList.table.option.actions.row.filter((action) => !action.visibleWhen || action.visibleWhen.values.includes(draft._pending)).map((action) => action.label);
-		assert.deepEqual(draftLabels, ['撤销新增', '批准新增'], '待审批的新行不给编辑和删除按钮');
+		assert.deepEqual(draftLabels, ['编辑', '撤销新增', '批准新增'], '草稿可以改，但不给删除按钮——删它是另一种动作');
+		/**
+		 * **改一份还没生效的新建，直接写进去，不另开申请。**
+		 *
+		 * 那一行带着 pended_at，谁也看不见，改它没有任何对外后果。再排一次队只会让审批人
+		 * 面对两条记录，还得自己合并出「批准之后是什么样」；合进去之后队列里始终一条，
+		 * 写的就是最终内容。
+		 */
 		const draftEdit = await app.request(`${usersApi}/${draft.id}`, { method: 'PUT', headers: { ...headers, cookie }, body: JSON.stringify({ status: 'disabled', __changedFields: ['status'] }) });
-		assert.equal(draftEdit.status, 409, '待审批的新行不接受修改申请');
-		assert.match((await draftEdit.json()).feedback?.message ?? '', /「新增」申请正在等待审批/);
-		assert.equal((await app.request(usersApi, { method: 'DELETE', headers: { ...headers, cookie }, body: JSON.stringify([String(draft.id)]) })).status, 409, '也不接受删除申请');
+		assert.equal(draftEdit.status, 200, '改草稿立即生效，不进队列');
+		const draftEntries = (await (await app.request(`http://localhost/api/panel/admin/base/audit.php?include=data&review_status=pending&table_name=base_users&row_id=${draft.id}`, { headers: { ...headers, cookie } })).json()).table.dataSource;
+		assert.deepEqual(draftEntries.map((row) => row.action), ['insert'], '还是一条新建，没多出一条修改');
+		assert.match(draftEntries[0].summary, /status：空 → disabled/, '新建记录里的内容跟着刷新');
+		// 再改回去，同样立即生效——后面的用例还要用这个账号登录。
+		assert.equal((await app.request(`${usersApi}/${draft.id}`, { method: 'PUT', headers: { ...headers, cookie }, body: JSON.stringify({ status: 'enabled', __changedFields: ['status'] }) })).status, 200);
+		// 但换一种动作仍然挡住：删它不是改草稿。
+		assert.equal((await app.request(usersApi, { method: 'DELETE', headers: { ...headers, cookie }, body: JSON.stringify([String(draft.id)]) })).status, 409, '删它是另一种动作，仍然挡住');
 		const queuedInsert = await (await app.request('http://localhost/api/panel/admin/base/audit.php?include=data&review_status=pending', { headers: { ...headers, cookie } })).json();
 		const queuedInserts = queuedInsert.table.dataSource.filter((row) => row.action === 'insert');
 		assert.equal(queuedInserts.length, 3, '建号写三行：账号、凭证、资料');

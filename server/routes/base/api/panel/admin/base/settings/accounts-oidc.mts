@@ -11,7 +11,7 @@ const createFormPage = (issuerOptions: Array<{ value: string; text: string; fiel
 	description: '业务站点通过 OIDC Authorization Code + PKCE 登录 Accounts。客户端密钥保存在本站数据库，不会写入全局站点库。',
 	confirmOnUnchangedSubmit: '当前未修改，仍要提交吗？',
 	confirmChangedSubmit: '将保存以下修改，确认继续吗？',
-	submitLabel: '保存配置', actions: [{ key: 'test', label: '测试配置' }, { key: 'restore-defaults', label: '恢复默认', confirm: '确认恢复 Accounts OIDC 设置的默认值吗？恢复后需要点击“保存配置”才会生效。' }], defaultValues: { ...defaultAccountsOidcConfig, issuerSource: '__custom__' }, initialValues: defaultAccountsOidcConfig,
+	submitLabel: '保存配置', actions: [{ key: 'test', label: '测试配置' }, { key: 'restore-defaults', label: '重置默认', confirm: '确认重置 Accounts OIDC 设置的默认值吗？重置后需要点击“保存配置”才会生效。' }], defaultValues: { ...defaultAccountsOidcConfig, issuerSource: '__custom__' }, initialValues: defaultAccountsOidcConfig,
 	fields: [
 		{ name: 'enabled', label: '启用 Accounts 登录', type: 'switch', defaultValue: false },
 		{ name: 'issuerSource', label: 'Passport 域名', type: 'select', options: issuerOptions, placeholder: '选择 Passport 域名，或选择自定义', rules: [{ required: true, message: '请选择 Passport 域名来源' }] },

@@ -223,9 +223,31 @@ const findConflictingPending = async (database: DatabaseAdapter, builder: Return
 		],
 		deleted: 'active',
 	}));
-	const blocking = rows.map((row) => String(row.action)).find((pending) => pending !== action);
+	/**
+	 * **改一份还没生效的新建不算叠加。** 那一行带着 pended_at，谁也看不见，改它没有任何
+	 * 对外后果——所以放行，而且照 §13.6 立即写进去、不另开一条申请（见 draftInsertEntry）。
+	 */
+	const blocking = rows.map((row) => String(row.action))
+		.find((pending) => pending !== action && !(pending === 'insert' && action === 'update'));
 	return blocking ? PENDING_ACTION_LABELS[blocking] ?? blocking : undefined;
 };
+
+/**
+ * 这一行有没有一条待审批的**新建**申请；有就返回它的 id 与已记下的内容。
+ *
+ * 有的话，随后的修改改的是一份还没生效的草稿：不新开申请，直接写进那一行，并把这条新建
+ * 记录的 `changes` 刷新成最新内容——审批人看到的必须是他将要批准的那一份。
+ */
+const draftInsertEntry = async (database: DatabaseAdapter, builder: ReturnType<typeof sql>, table: string, rowId: unknown) => firstSql<{ id: string; changes: string }>(database, builder.select({
+	table: AUDIT_TABLE, columns: { id: { column: 'id', cast: 'text' }, changes: 'changes' },
+	where: [
+		{ column: 'table_name', value: table },
+		{ column: 'row_id', value: rowId },
+		{ column: 'review_status', value: 'pending' },
+		{ column: 'action', value: 'insert' },
+	],
+	deleted: 'active', orderBy: [{ column: 'id', direction: 'DESC' }], limit: 1,
+}));
 
 type RequestOrigin = { hostname: string; path: string };
 
@@ -366,7 +388,7 @@ const recordStatement = async (database: DatabaseAdapter, metadata: SqlAuditMeta
 	const columns = Object.keys(metadata.values);
 	// deleted: 'all' 与 update 的行为对齐——恢复操作要能读到已删除的原行。
 	// 一律 cast 成文本：BIGINT 是雪花号，按数字读会溢出。
-	let recorded = 0;
+	let recorded = 0, drafted = false;
 	const rows = await allSql<Record<string, unknown>>(database, builder.select({
 		table: metadata.table,
 		// key 一起读出来：审批记录靠它定位那一行——row_id 在跨库搬迁后会变，key 不会。
@@ -417,12 +439,31 @@ const recordStatement = async (database: DatabaseAdapter, metadata: SqlAuditMeta
 			const blocking = await findConflictingPending(database, builder, metadata.table, row.id, values.action);
 			if (blocking) throw new PendingLockError(metadata.table, blocking);
 		}
+		/**
+		 * 改的是一份**还没生效的新建**：不另开申请，把内容并进那条新建记录，语句照常执行。
+		 *
+		 * 那一行带着 pended_at，谁也看不见，改它没有任何对外后果——再排一次队只会让审批人
+		 * 面对两条记录，还得自己在脑子里合并出「批准之后是什么样」。合进去之后队列里始终
+		 * 一条，写的就是最终内容。
+		 *
+		 * 「谁改过草稿」不单独留痕，落在那一行的 `updated_duid` / `updated_at` 上。
+		 */
+		if (!immediate && values.action === 'update') {
+			const draft = await draftInsertEntry(database, builder, metadata.table, row.id);
+			if (draft) {
+				const merged: Record<string, { before: unknown; after: unknown }> = (() => { try { const parsed = JSON.parse(draft.changes) as unknown; return parsed && typeof parsed === 'object' && !Array.isArray(parsed) ? parsed as Record<string, { before: unknown; after: unknown }> : {}; } catch { return {}; } })();
+				for (const [column, change] of Object.entries(changes)) merged[column] = { before: null, after: change.after };
+				await runSystemSql(database, builder.update(AUDIT_TABLE, { changes: JSON.stringify(merged) }, [{ column: 'id', value: draft.id }, { column: 'review_status', value: 'pending' }]));
+				drafted = true;
+				continue;
+			}
+		}
 		const existing = await findPendingEntry(database, builder, metadata.table, row.id, values.action);
 		if (existing) await runSystemSql(database, builder.update(AUDIT_TABLE, values, [{ column: 'id', value: existing.id }, { column: 'review_status', value: 'pending' }]));
 		else await runSystemSql(database, builder.insert(AUDIT_TABLE, values));
 		recorded += 1;
 	}
-	return { recorded, found: rows.length };
+	return { recorded, found: rows.length, drafted };
 };
 
 /**
@@ -442,6 +483,8 @@ export const runOperation = async (
 	// 新建单独一路：它没有前值可读，靠 row_key 定位，待审批时把行写成不可见的。
 	// upsert 两种元数据都带，落到哪一路要查过才知道，因此这个数组在记录时才填。
 	const inserts: (SqlQuery & { insertAudit: SqlInsertAuditMetadata })[] = [];
+	// 改的是还没生效的草稿：不进队列，但语句要执行（见 recordStatement 里的 draftInsertEntry）。
+	const drafts: SqlQuery[] = [];
 	const immediate = managed.length === 0 || skipsApproval(c, options);
 	let recorded = 0, operationId = '', pendedAt = 0;
 	if (managed.length) {
@@ -474,6 +517,8 @@ export const runOperation = async (
 		for (const statement of managed) {
 			if (statement.audit) {
 				const result = await recordStatement(database, statement.audit, operationId, reason, origin, scope, immediate);
+				// 改草稿的语句照常执行：它没有进队列，而排队分支只写新建那几行就抛异常了。
+				if (result.drafted) drafts.push(statement);
 				/**
 				 * 一行都没匹配到而这条语句又带着 insertAudit：那就是 upsert 走了 INSERT 那一支。
 				 *
@@ -525,6 +570,7 @@ export const runOperation = async (
 		}
 		// 除了抛异常，还在上下文里留个标记：万一某处 catch 把异常吞了，最外层中间件
 		// 仍会把响应改成 202。正确性不能依赖「每一处 catch 都记得重新抛出」。
+		for (const statement of drafts) await runSystemSql(database, statement);
 		const entries = (already?.operationId === operationId ? already.entries : 0) + recorded;
 		c.set('pendingApproval', { operationId, entries });
 		if (options.defer) return [];

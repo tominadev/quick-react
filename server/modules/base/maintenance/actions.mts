@@ -98,7 +98,7 @@ const setAccountsOidcEnabled = async (database: DatabaseAdapter, enabled: boolea
 
 const restoreAccountsOidcDefaults = async (database: DatabaseAdapter) => {
 	await createDatabaseConfigStore(database).put(accountsOidcConfigKey, defaultAccountsOidcConfig);
-	return 'Accounts OIDC 配置已恢复默认值：登录关闭，Issuer、客户端 ID 和客户端密钥已清空';
+	return 'Accounts OIDC 配置已重置为默认值：登录关闭，Issuer、客户端 ID 和客户端密钥已清空';
 };
 
 export const executeMaintenanceAction = async (database: DatabaseAdapter, action: string, input: MaintenanceInput = {}) => {

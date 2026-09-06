@@ -8,7 +8,7 @@ const createFormPage = (): FormPageConfig => {
 	return {
 		description: '配置会作用于后续 HTTP 响应，并保存到服务器配置文件。仅用于兼容性测试、演示或隐藏真实服务实现。',
 		submitLabel: '保存配置',
-		actions: [{ key: 'restore-defaults', label: '恢复默认', confirm: '确认恢复技术栈设置的默认值吗？恢复后需要点击“保存配置”才会生效。' }],
+		actions: [{ key: 'restore-defaults', label: '重置默认', confirm: '确认重置技术栈设置的默认值吗？重置后需要点击“保存配置”才会生效。' }],
 		confirmOnUnchangedSubmit: '当前未修改，仍要提交吗？',
 	confirmChangedSubmit: '将保存以下修改，确认继续吗？',
 		submitHint: '修改后立即生效',

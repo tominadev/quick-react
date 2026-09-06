@@ -36,7 +36,7 @@ export const configureSystemConfig = (options: { store?: ConfigStore; defaults?:
 	loadedAt = 0;
 };
 
-/** 返回当前运行环境配置的默认值，用于后台“恢复默认”。 */
+/** 返回当前运行环境配置的默认值，用于后台“重置默认”。 */
 export const getDefaultSystemConfig = (): SystemConfig => ({ ...defaultConfig });
 
 export const normalizeSystemConfig = (value: unknown, defaults: SystemConfig = defaultConfig): SystemConfig => {

@@ -98,14 +98,15 @@ export const pendingRowStates = async (c: Context<AppEnv>, database: DatabaseAda
  *
  * 规则与服务端那一条一致：**一行上同时只允许一种动作的申请**。
  *
- * - 编辑发的是「修改」，因此这一行没有待审批、或者挂着的正好也是修改时才出现——
- *   同一个动作重新提交是「重说一遍」，照旧覆盖上一条。
- * - 删除、恢复发的是另一种动作，只在这一行干干净净时出现。
+ * - 编辑在三种情况下出现：这一行干净、挂着的正好也是修改（重新提交等于重说一遍，覆盖
+ *   上一条）、以及**挂着一条还没生效的新建**——那一行谁也看不见，改它没有任何对外后果，
+ *   因此直接写进去、不另开一条申请（§13.6）。
+ * - 删除、还原发的是另一种动作，只在这一行干干净净时出现。
  *
  * 挡在这里不是为了省一次请求，而是因为按钮上写不下第二种动作：一行同时挂着「修改」和
  * 「删除」时，界面只显示得出一对撤销/批准按钮，点「撤销删除」却把那条修改也一起撤了。
  */
-export const EDIT_ACTION_VALUES = ['', 'update-mine', 'update-other'];
+export const EDIT_ACTION_VALUES = ['', 'update-mine', 'update-other', 'insert-mine', 'insert-other'];
 export const IDLE_ACTION_VALUES = [''];
 
 /** 行上那一列的取值：`insert-mine`、`soft_delete-other` 之类；没有待审批就是空串。 */
