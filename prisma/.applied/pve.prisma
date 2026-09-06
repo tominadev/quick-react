@@ -40,6 +40,8 @@ model pve_nodes {
   owner_uid     BigInt?
   region_id        BigInt
   name             String
+  /// 节点名在租户内唯一：人取的技术名，软删之后同名可以再建。
+  @@unique([owner_tid, name, deleted_at])
   host             String
   port             Int    @default(8006)
   cluster_name     String @default("")
@@ -91,6 +93,8 @@ model pve_vms {
   node_id            BigInt
   instance_flavor_id BigInt
   name               String @default("")
+  /// 虚拟机名在租户内唯一：同上。
+  @@unique([owner_tid, name, deleted_at])
   status             String @default("allocating")
   pve_status         String @default("")
   pve_config         Json   @default("{}")

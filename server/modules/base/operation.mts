@@ -1,7 +1,7 @@
 import type { Context } from 'hono';
 import type { AppEnv } from './types.mjs';
 import type { DatabaseAdapter, DatabaseRunResult } from '@server/database/index.mjs';
-import { allSql, AUDIT_TABLE, firstSql, runSystemSql, sql, type SqlAuditAction, type SqlAuditMetadata, type SqlCondition, type SqlInsertAuditMetadata, type SqlQuery } from '@server/database/sql.mjs';
+import { allSql, AUDIT_TABLE, firstSql, isUniqueViolation, runSystemSql, sql, type SqlAuditAction, type SqlAuditMetadata, type SqlCondition, type SqlInsertAuditMetadata, type SqlQuery } from '@server/database/sql.mjs';
 import { isDigestValueColumn, isHiddenValueColumn } from '@shared/audit-tables.mjs';
 import { serializeAuditChanges } from './audit.mjs';
 import { isSystemField } from '@shared/system-fields.mjs';
@@ -67,11 +67,13 @@ export type OperationOptions = {
  */
 export class PendingLockError extends Error {
 	constructor(readonly table: string, readonly action: string, readonly submitter?: string) {
-		// 别人提的和自己提的给的是两句话：自己的那条撤了就能接着改，别人的只能等审批人处理。
-		// 说出是谁，比一句「有人」有用得多——看的人知道该去找谁。
-		super(submitter
-			? `${submitter}提交的「${action}」申请正在等待审批，这条记录暂时不能动——要先由审批人批准或驳回`
-			: `这一行有一条「${action}」申请正在等待审批，请先撤销或等它审批完再操作`);
+		// 三句话，按知道多少说多少：知道是谁提的就说是谁（他只能等审批人处理），
+		// 只知道动作就说动作（自己的那条撤了就能接着改），什么都不知道就笼统说——
+		// 最后一种是数据库那条唯一索引兜底拦下的（见 base_approvals.settled_at），
+		// 那时应用层的判定已经放行了，拿不到队列里那条的任何信息。
+		super(submitter ? `${submitter}提交的「${action}」申请正在等待审批，这条记录暂时不能动——要先由审批人批准或驳回`
+			: action ? `这一行有一条「${action}」申请正在等待审批，请先撤销或等它审批完再操作`
+				: '这一行已经有一条申请在等待审批，一行上同时只能有一条——请先撤销或等它审批完再操作');
 		this.name = 'PendingLockError';
 	}
 }
@@ -248,6 +250,21 @@ const findPendingEntry = async (database: DatabaseAdapter, builder: ReturnType<t
  */
 const PENDING_ACTION_LABELS: Record<string, string> = { insert: '新增', update: '修改', soft_delete: '删除', restore: '恢复' };
 
+/**
+ * 写一条审批记录。撞上「一行同时只能有一条在队列里」那条唯一索引时翻译成人话。
+ *
+ * 应用层的行锁（{@link findConflictingPending}）先查再写，挡不住两个请求同时进来，也认不出
+ * 没有登录身份的模块级调用是谁；数据库那条约束不看这些，它兜的就是这两种情况。裸的
+ * `UNIQUE constraint failed` 对看的人没有意义，因此在这里换成和行锁一致的说法。
+ */
+const writeAuditRow = async (database: DatabaseAdapter, table: string, statement: SqlQuery) => {
+	try { await runSystemSql(database, statement); }
+	catch (error) {
+		if (!isUniqueViolation(error)) throw error;
+		throw new PendingLockError(table, '');
+	}
+};
+
 const findConflictingPending = async (database: DatabaseAdapter, builder: ReturnType<typeof sql>, table: string, rowId: unknown, action: SqlAuditAction, actorUserId: string) => {
 	const rows = await allSql<{ action: string; created_duid: string | null }>(database, builder.select({
 		table: AUDIT_TABLE, columns: { action: 'action', created_duid: { column: 'created_duid', cast: 'text' } },
@@ -381,7 +398,7 @@ const recordInsert = async (
 	immediate: boolean,
 ) => {
 	const builder = sql({ database, subjectRoles: null, ownerTid: metadata.owner.tid, ownerBid: metadata.owner.bid, ownerUid: metadata.owner.uid, actorUid: metadata.owner.actor });
-	await runSystemSql(database, builder.insert(AUDIT_TABLE, {
+	await writeAuditRow(database, metadata.table, builder.insert(AUDIT_TABLE, {
 		operation_id: operationId,
 		reason,
 		scope,
@@ -396,6 +413,8 @@ const recordInsert = async (
 		changes_after: JSON.stringify(insertChanges(metadata.values)),
 		review_status: immediate ? 'none' : 'pending',
 		data_status: immediate ? 'applied' : 'unwritten',
+		// 进队列的记 0，那是唯一索引里的哨兵位；从未进过队列的一诞生就是了结的（见 settled_at）。
+		settled_at: immediate ? Date.now() : 0,
 	}));
 	return 1;
 };
@@ -489,6 +508,7 @@ const recordStatement = async (database: DatabaseAdapter, metadata: SqlAuditMeta
 			// approved 只留给真的走完队列的那些。
 			review_status: immediate ? 'none' : 'pending',
 			data_status: immediate ? 'applied' : 'unwritten',
+			settled_at: immediate ? Date.now() : 0,
 		};
 		// 覆盖这个人自己挂在这一行上的待审批记录，不管新提交是继续排队还是立即生效。
 		//
@@ -539,7 +559,7 @@ const recordStatement = async (database: DatabaseAdapter, metadata: SqlAuditMeta
 		}
 		const existing = await findPendingEntry(database, builder, metadata.table, row.id, values.action);
 		if (existing) await runSystemSql(database, builder.update(AUDIT_TABLE, values, [{ column: 'id', value: existing.id }, { column: 'review_status', value: 'pending' }]));
-		else await runSystemSql(database, builder.insert(AUDIT_TABLE, values));
+		else await writeAuditRow(database, metadata.table, builder.insert(AUDIT_TABLE, values));
 		recorded += 1;
 	}
 	return { recorded, found: rows.length, drafted };

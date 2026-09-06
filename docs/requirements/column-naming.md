@@ -56,9 +56,22 @@
 （`@@unique([owner_tid, name, deleted_at])`）：不同租户可以各有一个 `main` 分站、各存一份
 `site_frontend` 配置。
 
+**`name` 的唯一索引形态固定**：`@@unique([owner_tid, name, deleted_at])`。`owner_tid` 让名字
+在租户内唯一（不同租户各有一个 `main` 分站），`deleted_at` 让软删之后同名可以再建。
+
+两张顶层表例外，用 `[name, deleted_at]`：`base_tenants` 的租户名必须全库唯一——加上
+`owner_tid` 反而会允许两个同名租户；`passport_users` 在独立的账号中心库里，登录名同样是
+全局的。
+
 **只有 `name` 参与的唯一索引带 `deleted_at`。** 名字是人取的，软删一行之后同一个名字该能
 再用；`key`、各种 hash、token、外部给的 provider/subject 都是机器生成或外部给定、永不重复的
 标识，带上 `deleted_at` 纯属多余。代价是这些值软删之后不能重建同一个。
+
+唯一的例外是 `base_approvals.settled_at`：它不是软删标记，是「一行同时只能有一条申请在
+队列里」那条约束的哨兵位（见 change-audit-and-revert.md §13.11）。
+
+以上四条都由 `test:naming` 守着——`key` 有没有被塞进复合索引、有 `key` 的表有没有自己那条
+单字段唯一索引、有 `name` 的表形态对不对、非 `name` 的索引有没有多带 `deleted_at`。
 
 **建后不改。** `key` 在 `SYSTEM_FIELD_NAMES` 里，更新路径一律挡掉——它能被别的表引用，
 正是因为不动；改一次就把所有引用指向了空处。新建路径显式放行（`global_sites` 的 key

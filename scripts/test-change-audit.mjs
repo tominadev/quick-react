@@ -26,9 +26,12 @@ const auditRouteFilter = async () => {
 		const seed = new DatabaseSync(process.env.DEFAULT_DATABASE_FILE);
 		const at = Date.now();
 		// 审批状态与数据状态是两列：待审批的数据从未写入，批准过的才是已生效。
+		// row_key 与 settled_at 都要给：`(table_name, row_key, settled_at)` 上有唯一索引，
+		// 「一行上同时只能有一条在队列里」是数据库约束。种子里这四条本来就是四个不同的行，
+		// 排队中的记 0，已了结的各带一个时间戳。
 		for (const [id, review, data] of [['1', 'pending', 'unwritten'], ['2', 'approved', 'applied'], ['3', 'rejected', 'unwritten'], ['4', 'pending', 'unwritten']]) {
-			seed.prepare('INSERT INTO base_approvals (key, created_at,updated_at,operation_id,reason,table_name,row_id,action,changes_before,changes_after,review_status,data_status) VALUES (lower(hex(randomblob(16))), ?,?,?,?,?,?,?,?,?,?,?)')
-				.run(at, at, id, `理由${id}`, 'base_users', id, 'update', '{}', '{}', review, data);
+			seed.prepare('INSERT INTO base_approvals (key, created_at,updated_at,operation_id,reason,table_name,row_id,row_key,action,changes_before,changes_after,review_status,data_status,settled_at) VALUES (lower(hex(randomblob(16))), ?,?,?,?,?,?,?,?,?,?,?,?,?)')
+				.run(at, at, id, `理由${id}`, 'base_users', id, `seed-row-${id}`, 'update', '{}', '{}', review, data, review === 'pending' ? 0 : at + Number(id));
 		}
 		seed.close();
 		const headers = {
@@ -65,8 +68,9 @@ const auditRouteFilter = async () => {
 		const overflow = new DatabaseSync(process.env.DEFAULT_DATABASE_FILE);
 		const now = Date.now();
 		for (let index = 0; index < 250; index += 1) {
-			overflow.prepare('INSERT INTO base_approvals (key, created_at,updated_at,operation_id,reason,table_name,row_id,action,changes_before,changes_after,review_status,data_status) VALUES (lower(hex(randomblob(16))), ?,?,?,?,?,?,?,?,?,?,?)')
-				.run(now, now, `bulk${index}`, '批量', 'base_users', String(index), 'update', '{}', '{}', 'pending', 'unwritten');
+			// 250 条排队中的记录必须是 250 个不同的行：同一行只放得下一条（唯一索引）。
+			overflow.prepare('INSERT INTO base_approvals (key, created_at,updated_at,operation_id,reason,table_name,row_id,row_key,action,changes_before,changes_after,review_status,data_status,settled_at) VALUES (lower(hex(randomblob(16))), ?,?,?,?,?,?,?,?,?,?,?,?,0)')
+				.run(now, now, `bulk${index}`, '批量', 'base_users', String(index), `bulk-row-${index}`, 'update', '{}', '{}', 'pending', 'unwritten');
 		}
 		overflow.close();
 		const capped = await totals('&review_status=pending');
@@ -1044,12 +1048,23 @@ try {
 	const resubmitted = await entryById(pendingEntry.id);
 	assert.equal(resubmitted.reason, '改主意了，换成分站管理员', '待审批记录被覆盖成最新一版');
 	assert.deepEqual(parseAuditChanges(resubmitted).roles, { before: [], after: ['branch_admin'] });
-	// 换个人提交同一行：那是另一件事，各排各的队。
+	/**
+	 * 换个人提交同一行：**一行上同时只能有一条申请在队列里**，第二条进不来。
+	 *
+	 * 拦住它的是数据库那条唯一索引 `(table_name, row_key, settled_at)`——排队中的记 0，
+	 * 了结的各带一个时间戳，于是同一行的第二条 pending 撞上前一条。应用层的行锁
+	 * （findConflictingPending）在这里认不出「我是谁」（模块级调用没有 currentUser），
+	 * 正好露出这道兜底。裸的 UNIQUE 错误换成了和行锁一致的说法。
+	 */
 	const otherActor = withDatabaseActors(counting, { subjectRoles: ['platform_admin'], humanOperation: true, base: '99' });
-	await assert.rejects(() => runOperationSql(context('另一个人的申请'), otherActor, sql({ database: otherActor }).update('base_users', { roles: '["tenant_admin"]' }, { id: alice.id })));
-	assert.equal((await entries()).length, beforeResubmit + 1, '不同操作者的申请各排各的队');
-	await transitionAuditEntries(acting, [(await latestEntry()).id], 'reject', '清理测试数据');
-	// 把这条改回原先的值，后面的断言接得上。
+	await assert.rejects(
+		() => runOperationSql(context('另一个人的申请'), otherActor, sql({ database: otherActor }).update('base_users', { roles: '["tenant_admin"]' }, { id: alice.id })),
+		(error) => /一行上同时只能有一条/.test(String(error?.message ?? '')),
+		'第二条申请该被数据库那条唯一索引拦下，并且给的是人话',
+	);
+	assert.equal((await entries()).length, beforeResubmit, '一行上同时只能有一条在队列里');
+	// 第二条压根没进来，因此没有多余的记录要清理——原先那条还在队列里排着。
+	// 把它改回原先的值，后面的断言接得上（同一个人同一动作，覆盖上一条）。
 	await assert.rejects(() => runOperationSql(context('申请调整角色'), acting, sql({ database: acting }).update('base_users', { roles: '["tenant_admin"]' }, { id: alice.id })));
 
 	// 先提交待审批、再直写同一行（路由内部的机器写入）：作废的申请被覆盖，不留孤儿记录。

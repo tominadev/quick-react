@@ -598,10 +598,19 @@ const transitionOne = async (database: DatabaseAdapter, entry: AuditEntryRow, to
 	 * 走 runSystemSql：这条事件本身就是这次迁移的留痕，再为它记一条审批记录是套娃。
 	 */
 	await runSystemSql(database, sql({ database }).insert(APPROVAL_EVENT_TABLE, { approval_id: entry.id, kind: to, reason }));
-	// 带上原状态做条件：并发下只有一个请求能迁移成功。
+	/**
+	 * 带上原状态做条件：并发下只有一个请求能迁移成功。
+	 *
+	 * `settled_at` 跟着审批状态走，不跟数据状态走：批准、驳回、撤销都是**了结**，
+	 * 恢复（requeue）把它放回队列因此归零；回滚与重新应用只改数据状态，这条申请早就了结了，
+	 * 归零会让它重新占住队列里那个位置，把别人挡在门外（见 base_approvals.settled_at）。
+	 */
+	const settled = allowed.review === undefined ? {}
+		: { settled_at: allowed.review === 'pending' ? 0 : Date.now() };
 	await runSystemSql(database, sql({ database }).update(AUDIT_TABLE, {
 		...(allowed.review ? { review_status: allowed.review } : {}),
 		...(allowed.data ? { data_status: allowed.data } : {}),
+		...settled,
 	}, [
 		{ column: 'id', value: entry.id },
 		{ column: 'review_status', value: entry.review_status },

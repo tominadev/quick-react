@@ -479,6 +479,27 @@ model base_approvals {
   /// 数据当前停在哪一边。applied ↔ reverted 可以来回翻：回滚不新开记录，
   /// 而是把这一条翻到另一面；审批状态不跟着变。
   data_status  BaseApprovalState @default(applied)
+  /// 这条申请**了结**了没有：`0` 是还在队列里等着，非 0 是已经了结。
+  ///
+  /// 批准、驳回、撤销都是了结；恢复（requeue）把它放回队列，归零。回滚与重新应用不动它
+  /// ——那两个改的是数据状态，申请本身早就了结了。从未进过队列的自助记录一诞生就是了结的。
+  ///
+  /// **它存在的理由是下面那条唯一索引**：`(table_name, row_key, settled_at)` 让
+  /// 「同一行同时只能有一条申请在队列里」成为数据库约束，而不是应用层「先查再写」的君子协定
+  /// ——先查再写挡不住两个请求同时进来。0 是哨兵：了结的那些各自带着不同的值，撞不上。
+  ///
+  /// 值是毫秒时间戳，与 `deleted_at` / `pended_at` 同构——0 表示还没发生，非 0 是发生的时刻。
+  ///
+  /// 试过用雪花号（天然唯一，同毫秒也不撞），但代价太大：雪花号超出 JS 的安全整数范围，
+  /// 任何 `includeAll` 的读取会当场抛 `Value is too large to be represented as a JavaScript
+  /// number`，每个读它的地方都得记着 cast 成文本。为一个几乎不可达的并发场景换来全局的
+  /// 读取负担，不划算。
+  ///
+  /// 那个场景是：同一行的两条记录在**同一毫秒**了结。队列里最多一条（行锁），所以撞不上；
+  /// 剩下自助记录那一路——它一诞生就了结，要撞得有两次内容不同的自助修改落在同一毫秒。
+  /// 真撞上了表现是那次写入报唯一索引冲突，可见、可重试，不是静默错误。
+  settled_at   BigInt @default(0)
+  @@unique([table_name, row_key, settled_at])
   @@index([owner_tid, created_at])
   @@index([owner_bid, created_at])
   @@index([owner_uid, created_at])
