@@ -1,5 +1,5 @@
 import type { DatabaseAdapter } from '@server/database/index.mjs';
-import { createCloudStorageAdapter, loadDefaultCloudStorageTarget } from '@server/modules/global/cloud/resolve.mjs';
+import { createCloudStorageAdapter, loadCloudStorageTargetByPurpose } from '@server/modules/global/cloud/resolve.mjs';
 
 /** 头像对象路径完全由 user_key 推导，不在数据库里保存路径；内容类型由对象存储保存。 */
 export const avatarObjectKey = (userId: string) => `avatars/${userId}`;
@@ -23,7 +23,7 @@ export const externalAvatarUrl = (provider: string, profile: unknown) => {
 };
 
 const storageAdapter = async (globalDatabase: DatabaseAdapter, siteKey: string) => {
-	const target = await loadDefaultCloudStorageTarget(globalDatabase, siteKey, 'avatars');
+	const target = await loadCloudStorageTargetByPurpose(globalDatabase, siteKey, 'avatars');
 	return target ? createCloudStorageAdapter(target) : undefined;
 };
 

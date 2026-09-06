@@ -21,7 +21,7 @@
 当前四份 Prisma 文件没有使用 `@@map` 或字段 `@map`：模型名就是物理表名，表名前缀也与代码站点一致。完整清单如下，后续重命名必须同时更新 Schema、迁移、路由和文档：
 
 - Base：`base_tenants`、`base_branches`、`base_hosts`、`base_users`、`base_sessions`、`base_configs`、`base_bootstraps`、`base_oidc_login_requests`、`base_oidc_users`、`base_oidc_sessions`、`base_devices`、`base_device_users`、`base_device_snapshots`、`base_audit_approvals`、`base_audits`、`base_user_credentials`、`base_user_profiles`。
-- Global：`global_sites`、`global_site_hosts`、`global_cloud_credentials`、`global_cloud_object_storage_buckets`、`global_cloud_object_storage_bindings`、`global_cloud_object_storage_binding_purposes`、`global_telegram_bots`、`global_cloud_email_channels`、`global_cloud_email_templates`、`global_cloud_email_bindings`、`global_cloud_email_template_publications`、`global_snowflake_states`。
+- Global：`global_sites`、`global_site_hosts`、`global_cloud_credentials`、`global_cloud_object_storage_buckets`、`global_cloud_object_storage_bindings`、`global_telegram_bots`、`global_cloud_email_channels`、`global_cloud_email_templates`、`global_cloud_email_bindings`、`global_cloud_email_template_publications`、`global_snowflake_states`。
 - Passport：`passport_users`、`passport_user_email_otps`、`passport_user_credentials`、`passport_sessions`、`passport_devices`、`passport_device_users`、`passport_telegram_accounts`、`passport_oauth_accounts`、`passport_emails`、`passport_user_emails`、`passport_telegram_email_otps`、`passport_telegram_menus`、`passport_telegram_updates`、`passport_telegram_identity_choices`、`passport_login_challenges`、`passport_sso_requests`、`passport_login_tickets`、`passport_site_sessions`、`passport_group_prompts`、`passport_external_email_otps`、`passport_external_identities`、`passport_external_login_states`、`passport_external_pending_identities`、`passport_external_pending_qr_states`、`passport_external_providers`、`passport_oidc_clients`、`passport_oidc_authorization_requests`、`passport_oidc_authorization_codes`、`passport_oidc_access_tokens`、`passport_oidc_signing_keys`、`passport_user_profiles`。
 - PVE：`pve_regions`、`pve_nodes`、`pve_instance_flavors`、`pve_vms`、`pve_vm_tasks`。
 
@@ -82,7 +82,7 @@ created_duid, updated_duid, owner_tid, owner_bid, owner_uid, ...
 
 发现以下模型仍给公共时间字段设置了 `@default(0)`：
 
-- `created_at @default(0)`：`global_sites`、`global_cloud_object_storage_binding_purposes`、`pve_regions`、`pve_nodes`、`pve_vms`、`pve_vm_tasks`；
+- `created_at @default(0)`：`global_sites`、`pve_regions`、`pve_nodes`、`pve_vms`、`pve_vm_tasks`；
 - `updated_at @default(0)`：上述 6 个模型以及 `global_site_hosts`。
 
 目标状态是所有表的 `created_at`、`updated_at` 都没有数据库默认值，由公共数据层统一生成真实时间。这样缺字段时数据库会立即拒绝，不会静默落入 `0`。公共层还必须拒绝业务 API 在 `insert` 或 `update` 中显式传入这两个字段；更新只自动改 `updated_at` 和 `updated_duid`，不得覆盖创建字段。
@@ -105,7 +105,7 @@ created_duid, updated_duid, owner_tid, owner_bid, owner_uid, ...
 | --- | --- |
 | Base | `base_audits.row_key`（审计目标的业务行键，是否保持字符串要与审计协议一起定稿） |
 | Global 站点 | `global_sites.base_site_key`、`global_site_hosts.site_key` |
-| Global 云绑定 | `global_cloud_object_storage_bindings.site_key`、`global_cloud_object_storage_binding_purposes.site_key`、`global_cloud_email_bindings.site_key` |
+| Global 云绑定 | `global_cloud_object_storage_bindings.site_key`、`global_cloud_email_bindings.site_key` |
 | Passport 用户关系 | `passport_user_email_otps.user_key`、`passport_user_credentials.user_key`、`passport_sessions.user_key`、`passport_device_users.user_key`、`passport_telegram_accounts.user_key`、`passport_oauth_accounts.user_key`、`passport_user_emails.user_key`、`passport_login_challenges.user_key`、`passport_login_tickets.user_key`、`passport_site_sessions.user_key`、`passport_external_identities.user_key`、`passport_oidc_authorization_codes.user_key`、`passport_oidc_access_tokens.user_key`、`passport_user_profiles.user_key` |
 | Passport 目标/路由 | `passport_telegram_identity_choices.target_user_key`、`passport_sso_requests.target_site_key`、`passport_login_tickets.target_site_key`、`passport_site_sessions.site_key`、`passport_external_login_states.qr_user_key` |
 
@@ -143,7 +143,6 @@ Passport 内部关系优先改为 `user_id`；跨域引用 Passport 账号时使
 - `global_cloud_object_storage_buckets [cloud_credential_id, endpoint, bucket]`
 - `global_cloud_object_storage_bindings [id, site_key]`
 - `global_cloud_object_storage_bindings [site_key, bucket_id, key_prefix]`
-- `global_cloud_object_storage_binding_purposes [binding_id, purpose]`
 - `global_cloud_email_channels [cloud_credential_id, region, account_name]`
 - `global_cloud_email_bindings [site_key, channel_id, template_id, purpose]`
 - `global_cloud_email_template_publications [template_id, cloud_credential_id, region]`

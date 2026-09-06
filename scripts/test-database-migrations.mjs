@@ -8,7 +8,6 @@ const groups = ['global', 'base', 'passport'];
 const dialects = ['mysql', 'postgresql'];
 const generatedColumns = {
 	global_sites: ['active_default'],
-	global_cloud_object_storage_binding_purposes: ['default_site_key', 'default_purpose'],
 	global_cloud_email_bindings: ['default_site_key', 'default_purpose'],
 };
 

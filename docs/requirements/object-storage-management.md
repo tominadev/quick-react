@@ -102,21 +102,26 @@ global_cloud_object_storage_bindings
   id
   site_key
   bucket_id
+  purposes        JSON 数组，例如 ["uploads","avatars"]
   key_prefix
   status
   created_at
   updated_at
-
-global_cloud_object_storage_binding_purposes
-  binding_id
-  site_key
-  purpose
-  is_default
 ```
 
-同一个站点 Bucket 绑定可以多选“用途”和“默认用途”，默认用途必须是用途的子集。用途通过 `global_cloud_object_storage_binding_purposes` 关联表保存，不在绑定表中存储 JSON 或逗号分隔字符串。`purpose` 一期支持 `uploads`、`avatars`、`attachments`、`backups`、`exports`；每个站点、每个用途最多有一个默认 Bucket。
+**用途是绑定行上的一个字段，不是关联表。** `purpose` 支持 `uploads`、`avatars`、`attachments`、`backups`、`exports`、`sms-shortcut`（SMS 生成器上传 `.shortcut` 文件用，见 [SMS 站点与 Ed25519 绑定](sms-site-and-ed25519-binding.md) §5）。
 
-用途表中的 `site_key` 是为 SQLite/D1 唯一约束保留的受控冗余字段，用于直接约束“每个站点、每个用途最多一个默认 Bucket”。它必须通过 `(binding_id, site_key)` 复合外键与绑定表保持一致，不能由客户端独立提交或修改。
+早先它是关联表（一个用途一行），本文也曾要求"不在绑定表中存储 JSON 或逗号分隔字符串"。放弃那个结构有三个理由，都在实际使用中发作过：
+
+- **勾四个用途会变成四条独立的审批申请，要批四次。** 而它在界面上就是一个多选框。
+- **用途没变时绑定行本身没有变化**，公共层的「待审批」标记挂不上去，提交完在列表上什么也看不出来——提交的人以为没保存成功。
+- 编辑时"先全删再全插"那一步是**物理删除**（`(binding_id, purpose)` 的唯一索引不带 `deleted_at`，软删之后同一个用途再也加不回来），它会把上一轮还在排队等审批的子表行一起删掉，留下指向空处的孤儿申请——批不了、撤不掉、也驳不回（见[变更审计](change-audit-and-revert.md) §7.2）。
+
+收回字段之后，改一次绑定就是一条 `update` 申请。
+
+**「默认用途」一并去掉。** 规则改成**同一站点的同一用途只能绑一个 Bucket**，由 `bindings.mts` 的写入口校验，并且**把还在排队等审批的绑定一起算**——不算它的话两条申请可以各自通过校验，批准之后就并存了两个答案。这条规则原先也不是数据库约束（`(site_key, purpose, is_default)` 上没有唯一索引，靠代码里两条 UPDATE 维持），所以收回字段没有损失掉任何既有的约束。
+
+按用途查绑定用 `LIKE '%"<用途>"%'`：**引号是边界**，少了它 `uploads` 会连 `uploads_v2` 一起匹配上，文件默默传到另一个 Bucket 里去。
 
 一个 `global_cloud_object_storage_buckets` 记录代表一个 Bucket 的接入配置。Provider 只存在于凭据表，通过 `cloud_credential_id` 推导；Bucket 表不重复保存 Provider、能力类型或人工名称，展示名称由凭据、产品和 Bucket 派生。Bucket 发现请求只在服务端使用 Secret，响应不返回签名和凭据。
 

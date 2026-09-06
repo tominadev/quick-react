@@ -57,9 +57,9 @@ try {
 		VALUES (lower(hex(randomblob(16))), 31,'avatar-store','other','key','secret','enabled',?,?)`).run(now, now);
 	database.prepare(`INSERT INTO global_cloud_object_storage_buckets (key, id,cloud_credential_id,bucket,endpoint,region,path_style,status,created_at,updated_at)
 		VALUES (lower(hex(randomblob(16))), 32,31,'media','https://storage.test','auto',1,'enabled',?,?)`).run(now, now);
-	database.prepare(`INSERT INTO global_cloud_object_storage_bindings (key, id,site_key,bucket_id,key_prefix,status,created_at,updated_at)
-		VALUES (lower(hex(randomblob(16))), 33,'passport',32,'','enabled',?,?)`).run(now, now);
-	database.prepare("INSERT INTO global_cloud_object_storage_binding_purposes (key, binding_id,site_key,purpose,is_default) VALUES (lower(hex(randomblob(16))), 33,'passport','avatars',1)").run();
+	// 用途是绑定行上的 JSON 数组，不再是子表。
+	database.prepare(`INSERT INTO global_cloud_object_storage_bindings (key, id,site_key,bucket_id,purposes,key_prefix,status,created_at,updated_at)
+		VALUES (lower(hex(randomblob(16))), 33,'passport',32,'["avatars"]','','enabled',?,?)`).run(now, now);
 	database.close();
 
 	// Google 登录：新用户直接建号，并触发头像同步。

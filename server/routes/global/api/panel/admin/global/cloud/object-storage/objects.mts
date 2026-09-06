@@ -17,14 +17,12 @@ const safeRelativePrefix = (value: unknown) => {
 	return !valueText.split('/').includes('..') ? valueText : '';
 };
 const bindingOptions = async (database: Parameters<typeof loadCloudStorageTarget>[0]) => {
-	const rows = await allSql<{ id: number; site_key: string; site_title: string; bucket: string; credential_title: string; provider: string; purpose: string }>(database, sql({ database }).select({ table: 'global_cloud_object_storage_bindings', alias: 'b', columns: { id: 'b.id', site_key: 'b.site_key', site_title: 's.title', bucket: 'bkt.bucket', credential_title: 'c.title', provider: 'c.provider', purpose: 'p.purpose' }, joins: [{ table: 'global_sites', alias: 's', left: 's.key', right: 'b.site_key' }, { table: 'global_cloud_object_storage_buckets', alias: 'bkt', left: 'bkt.id', right: 'b.bucket_id' }, { table: 'global_cloud_credentials', alias: 'c', left: 'c.id', right: 'bkt.cloud_credential_id' }, { table: 'global_cloud_object_storage_binding_purposes', alias: 'p', left: 'p.binding_id', right: 'b.id' }], where: [{ column: 'b.status', value: 'enabled' }, { column: 'bkt.status', value: 'enabled' }, { column: 'c.status', value: 'enabled' }], orderBy: [{ column: 's.key' }, { column: 'p.purpose' }, { column: 'b.id' }] }));
-	const bindings = new Map<number, { site_key: string; site_title: string; bucket: string; credential_title: string; provider: string; purposes: string[] }>();
-	for (const row of rows) {
-		const binding = bindings.get(row.id) ?? { site_key: row.site_key, site_title: row.site_title, bucket: row.bucket, credential_title: row.credential_title, provider: row.provider, purposes: [] };
-		binding.purposes.push(row.purpose);
-		bindings.set(row.id, binding);
-	}
-	return [...bindings].map(([id, row]) => ({ value: String(id), text: `${row.site_title} (${row.site_key}) / ${row.purposes.join('、')} / ${row.credential_title} / ${getCloudStorageProduct(row.provider)} / ${row.bucket}` }));
+	// 用途是绑定行上的 JSON 数组，一行就是一个绑定——不再按子表 JOIN 出多行再合并回来。
+	const rows = await allSql<{ id: number; site_key: string; site_title: string; bucket: string; credential_title: string; provider: string; purposes: unknown }>(database, sql({ database }).select({ table: 'global_cloud_object_storage_bindings', alias: 'b', columns: { id: 'b.id', site_key: 'b.site_key', site_title: 's.title', bucket: 'bkt.bucket', credential_title: 'c.title', provider: 'c.provider', purposes: 'b.purposes' }, joins: [{ table: 'global_sites', alias: 's', left: 's.key', right: 'b.site_key' }, { table: 'global_cloud_object_storage_buckets', alias: 'bkt', left: 'bkt.id', right: 'b.bucket_id' }, { table: 'global_cloud_credentials', alias: 'c', left: 'c.id', right: 'bkt.cloud_credential_id' }], where: [{ column: 'b.status', value: 'enabled' }, { column: 'bkt.status', value: 'enabled' }, { column: 'c.status', value: 'enabled' }], orderBy: [{ column: 's.key' }, { column: 'b.id' }] }));
+	return rows.map((row) => {
+		const list = (() => { try { const parsed: unknown = JSON.parse(String(row.purposes ?? '[]')); return Array.isArray(parsed) ? parsed.map((item) => String(item)) : []; } catch { return []; } })();
+		return { value: String(row.id), text: `${row.site_title} (${row.site_key}) / ${list.join('、')} / ${row.credential_title} / ${getCloudStorageProduct(row.provider)} / ${row.bucket}` };
+	});
 };
 
 const handler: ApiHandler = async (c, next) => {

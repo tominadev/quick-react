@@ -1,7 +1,7 @@
 import type { ApiHandler } from '@server/modules/base/api-router.mjs';
 import { apiMessage, apiMessageData } from '@server/modules/base/api-response.mjs';
 import { firstSql, runSql, sql } from '@server/database/sql.mjs';
-import { loadDefaultCloudStorageTarget, createCloudStorageAdapter } from '@server/modules/global/cloud/resolve.mjs';
+import { loadCloudStorageTargetByPurpose, createCloudStorageAdapter } from '@server/modules/global/cloud/resolve.mjs';
 
 /**
  * 生成器用的四个动作，全在一个文件里按 `?action=` 分派。
@@ -78,7 +78,7 @@ const handler: ApiHandler = async (c, next) => {
 	 * 服务端故障，调用方照着改也改不对。便宜且确定的检查排在前面。
 	 */
 	const storageAdapter = async () => {
-		const storage = await loadDefaultCloudStorageTarget(c.get('globalDatabase'), c.get('site').siteKey, STORAGE_PURPOSE);
+		const storage = await loadCloudStorageTargetByPurpose(c.get('globalDatabase'), c.get('site').siteKey, STORAGE_PURPOSE);
 		return storage ? createCloudStorageAdapter(storage) : undefined;
 	};
 	const missingStorage = () => apiMessage(c, 503, `没有为用途 ${STORAGE_PURPOSE} 配置默认对象存储绑定`);

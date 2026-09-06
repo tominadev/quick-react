@@ -12,7 +12,16 @@ const targetJoins = [
 
 export const loadCloudStorageTarget = async (database: DatabaseAdapter, bindingId: number) => firstSql<CloudStorageTarget>(database, sql({ database }).select({ table: 'global_cloud_object_storage_bindings', alias: 'b', columns: targetColumns, joins: [...targetJoins], where: [{ column: 'b.id', value: bindingId }, { column: 'b.status', value: 'enabled' }, { column: 'bkt.status', value: 'enabled' }, { column: 'c.status', value: 'enabled' }] }));
 
-export const loadDefaultCloudStorageTarget = async (database: DatabaseAdapter, siteKey: string, purpose: string) => firstSql<CloudStorageTarget>(database, sql({ database }).select({ table: 'global_cloud_object_storage_bindings', alias: 'b', columns: targetColumns, joins: [...targetJoins, { table: 'global_cloud_object_storage_binding_purposes', alias: 'p', left: 'p.binding_id', right: 'b.id' }], where: [{ column: 'b.site_key', value: siteKey }, { column: 'p.site_key', value: siteKey }, { column: 'p.purpose', value: purpose }, { column: 'p.is_default', value: true }, { column: 'b.status', value: 'enabled' }, { column: 'bkt.status', value: 'enabled' }, { column: 'c.status', value: 'enabled' }], limit: 1 }));
+/**
+ * 这个站点的这种用途，文件存哪。
+ *
+ * 用途是绑定行上的 JSON 数组，因此按 `"<用途>"` 匹配——**引号是边界**，少了它
+ * `uploads` 会连 `uploads_v2` 一起匹配上，文件默默传到另一个 Bucket 里去。
+ *
+ * 同一站点的同一用途只允许绑一个 Bucket，那道校验在 `bindings.mts` 的写入口上
+ * （连排队中的绑定一起算），所以这里 `limit: 1` 取到的就是唯一那条。
+ */
+export const loadCloudStorageTargetByPurpose = async (database: DatabaseAdapter, siteKey: string, purpose: string) => firstSql<CloudStorageTarget>(database, sql({ database }).select({ table: 'global_cloud_object_storage_bindings', alias: 'b', columns: targetColumns, joins: [...targetJoins], where: [{ column: 'b.site_key', value: siteKey }, { column: 'b.purposes', operator: 'LIKE', value: `%"${purpose}"%` }, { column: 'b.status', value: 'enabled' }, { column: 'bkt.status', value: 'enabled' }, { column: 'c.status', value: 'enabled' }], limit: 1 }));
 
 export const createCloudStorageAdapter = (target: CloudStorageTarget): CloudStorageAdapter => {
 	const adapter = getCloudStorageAdapter(target.provider);

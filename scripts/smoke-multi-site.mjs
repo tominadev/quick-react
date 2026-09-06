@@ -393,13 +393,12 @@ try {
 
 	const bindingsPath = '/api/panel/admin/global/cloud/object-storage/bindings.php';
 	assert.equal((await request('localhost', bindingsPath, {
-		method: 'POST', cookie, body: { site_key: 'site1', bucket_id: bucket.id, purposes: ['uploads', 'attachments'], default_purposes: ['uploads'] },
+		method: 'POST', cookie, body: { site_key: 'site1', bucket_id: bucket.id, purposes: ['uploads', 'attachments'] },
 	})).status, 201);
 	const bindingsResult = await (await request('localhost', bindingsPath, { cookie })).json();
 	assert.equal(bindingsResult.table.columns[0]?.dataIndex, 'id');
 	assert.equal(bindingsResult.table.dataSource.length, 1);
 	assert.deepEqual(bindingsResult.table.dataSource[0].purposes.sort(), ['attachments', 'uploads']);
-	assert.deepEqual(bindingsResult.table.dataSource[0].default_purposes, ['uploads']);
 	assert.equal((await request('localhost', '/api/panel/admin/global/cloud/object-storage/objects.php', { cookie })).status, 200);
 
 	assert.equal((await request('localhost', credentialsPath, {

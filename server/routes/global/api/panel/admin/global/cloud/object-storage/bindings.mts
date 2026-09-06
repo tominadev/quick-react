@@ -1,79 +1,84 @@
-import type { Context } from 'hono';
-import type { AppEnv } from '@server/modules/base/types.mjs';
 import type { ApiHandler } from '@server/modules/base/api-router.mjs';
 import { apiMessage, apiMessageData, apiResponse } from '@server/modules/base/api-response.mjs';
 import type { DatabaseAdapter } from '@server/database/index.mjs';
 import { getCloudStorageProduct } from '@server/modules/global/cloud/catalog.mjs';
 import { enabledDisabledOptions, statusValues } from '@shared/types/status.mjs';
 import type { TableCrudDefinition } from '@server/modules/base/table-crud.mjs';
-
-export const tableCrud: TableCrudDefinition = { table: 'global_cloud_object_storage_bindings', rowKey: 'id' };
 import { getChangedFields } from '@server/modules/base/changed-fields.mjs';
-import { allSql, firstSql, runSql, sql } from '@server/database/sql.mjs';
+import { allSql, firstSql, sql } from '@server/database/sql.mjs';
 import { PendingApprovalError, runOperationSql } from '@server/modules/base/operation.mjs';
 import { tableSort } from '@server/modules/base/query-options.mjs';
 
+export const tableCrud: TableCrudDefinition = { table: 'global_cloud_object_storage_bindings', rowKey: 'id' };
+
+/**
+ * 站点与 Bucket 的绑定：这个站点的这几种用途，文件存到哪个 Bucket。
+ *
+ * **用途是绑定行上的一个字段，不是子表。** 早先它是子表（一个用途一行），代价是勾四个
+ * 用途会变成四条独立的申请、要批四次；用途没变时绑定行本身没有变化，「待审批」标记挂不
+ * 上去，提交完在列表上什么也看不出来；而编辑时"先全删再全插"那一步会把上一轮还在排队的
+ * 子表行物理删掉，留下批不了也撤不掉的孤儿申请。收回字段之后，改一次就是一条 update。
+ */
 const purposes = [
 	{ value: 'uploads', text: '上传文件' },
 	{ value: 'avatars', text: '头像' },
 	{ value: 'attachments', text: '附件' },
 	{ value: 'backups', text: '备份' },
 	{ value: 'exports', text: '导出文件' },
+	// SMS 生成器把 .shortcut 文件传到这里，用户凭令牌来领（绑定文档 §5）。
+	{ value: 'sms-shortcut', text: 'SMS 快捷指令文件' },
 ];
 const allowedPurposes = new Set(purposes.map((item) => item.value));
+
 const columns = [
 	{ dataIndex: 'id', title: 'ID', dataType: 'int' as const },
 	{ dataIndex: 'site_key', title: '站点', component: 'select', rules: [{ required: true, message: '请选择站点' }] },
 	{ dataIndex: 'bucket_id', title: 'Bucket', component: 'select', rules: [{ required: true, message: '请选择 Bucket' }] },
 	{ dataIndex: 'purposes', title: '用途', component: 'select', multiple: true, options: purposes, rules: [{ required: true, message: '请至少选择一个用途' }] },
-	{ dataIndex: 'default_purposes', title: '默认用途', component: 'select', multiple: true, options: purposes, placeholder: '可选，必须包含在用途内' },
 	{ dataIndex: 'key_prefix', title: '对象前缀', component: 'textbox', placeholder: '例如 site1/uploads/' },
 	{ dataIndex: 'status', title: '状态', component: 'switch', checkedValue: statusValues.enabled, uncheckedValue: statusValues.disabled, options: enabledDisabledOptions },
 ];
 
-type BindingPurposeRow = { binding_id: number; purpose: string; is_default: number };
 const parseBody = async (c: Parameters<ApiHandler>[0]): Promise<Record<string, unknown>> => c.req.json<Record<string, unknown>>().catch(() => ({}));
 const text = (value: unknown) => typeof value === 'string' ? value.trim() : '';
 const prefix = (value: unknown) => {
 	const raw = text(value).replaceAll('\\', '/').replace(/^\/+|\/+$/g, '');
 	return raw ? `${raw}/` : '';
 };
+
+/** 收进来的用途：去重、只留白名单内的。存进库的就是这个数组（JSON），与 `roles` 同一套做法。 */
 const parsePurposes = (value: unknown) => {
-	const values = Array.isArray(value) ? value : typeof value === 'string' ? [value] : [];
+	const source = typeof value === 'string' && value.trim().startsWith('[')
+		? (() => { try { return JSON.parse(value) as unknown; } catch { return []; } })()
+		: value;
+	const values = Array.isArray(source) ? source : typeof source === 'string' && source ? [source] : [];
 	return [...new Set(values.map(text).filter((item) => allowedPurposes.has(item)))];
 };
-const purposeState = (rows: BindingPurposeRow[]) => ({
-	purposes: rows.map((item) => item.purpose),
-	default_purposes: rows.filter((item) => Boolean(item.is_default)).map((item) => item.purpose),
-});
+
 /**
- * 用途按**差异**写，只动变化的那几行。
+ * 同一站点的同一用途只能绑一个 Bucket——否则「这个站点的头像存哪」就有两个答案，
+ * 而 `loadCloudStorageTargetByPurpose` 只取第一条，取到哪个全看排序。
  *
- * **绝不能先全删再全插。** 那个删是物理删除（`(binding_id, purpose)` 上的唯一索引不带
- * `deleted_at`，软删之后同一个用途再也加不回来，所以只能物理删），而后台的写入要走审批：
- * 上一轮插进去的行还带着非 0 的 `queued_at` 在排队等批准，全删就把它一起删掉了，留下一条
- * 指向空处的申请——批准核不过内容、撤销与驳回又找不到行，两头堵死。真发作过：连编三次
- * 只留下最后一条能批，前两条永远卡在待审批列表里。
- *
- * 按差异写之后，反复编辑同一组用途不再产生任何申请，那条路也就走不到了。取消一个还在
- * 排队的用途仍会让它那条申请落空，但那种申请现在撤得掉（见 audit.mts 的
- * applyInsertApproval）。
+ * **`queued: 'all'`**：还在排队等审批的绑定也把用途占住了。不算它的话，两条申请可以
+ * 各自通过校验，批准之后就并存了两个答案——而那时已经没有哪一步会再检查。
  */
-const savePurposes = async (c: Context<AppEnv>, database: DatabaseAdapter, bindingId: number, siteKey: string, selected: string[], defaults: string[], existing: BindingPurposeRow[] = []) => {
-	const existingPurposes = new Set(existing.map((item) => item.purpose));
-	for (const item of existing) {
-		if (selected.includes(item.purpose)) continue;
-		await runSql(database, sql({ database }).delete('global_cloud_object_storage_binding_purposes', { binding_id: bindingId, purpose: item.purpose }));
+const conflictingPurposes = async (database: DatabaseAdapter, siteKey: string, selected: string[], excludeId?: number) => {
+	const rows = await allSql<{ id: string; purposes: unknown }>(database, sql({ database }).select({
+		table: 'global_cloud_object_storage_bindings',
+		columns: { id: { column: 'id', cast: 'text' }, purposes: 'purposes' },
+		where: [
+			{ column: 'site_key', value: siteKey },
+			...(excludeId === undefined ? [] : [{ column: 'id', operator: '!=' as const, value: excludeId }]),
+		],
+		queued: 'all',
+	}));
+	for (const row of rows) {
+		const taken = parsePurposes(row.purposes).filter((purpose) => selected.includes(purpose));
+		if (taken.length) return { id: String(row.id), purposes: taken };
 	}
-	for (const purpose of selected) {
-		if (existingPurposes.has(purpose)) continue;
-		await runOperationSql(c, database, sql({ database }).insert('global_cloud_object_storage_binding_purposes', { binding_id: bindingId, site_key: siteKey, purpose, is_default: false }));
-	}
-	for (const purpose of defaults) {
-		await runOperationSql(c, database, sql({ database }).update('global_cloud_object_storage_binding_purposes', { is_default: false }, [{ column: 'site_key', value: siteKey }, { column: 'purpose', value: purpose }, { column: 'binding_id', operator: '!=', value: bindingId }]));
-		await runOperationSql(c, database, sql({ database }).update('global_cloud_object_storage_binding_purposes', { is_default: true }, { binding_id: bindingId, purpose }));
-	}
+	return undefined;
 };
+
 const validateTarget = async (database: DatabaseAdapter, siteKey: string, bucketId: number) => {
 	const [site, bucket] = await Promise.all([
 		firstSql(database, sql({ database }).select({ table: 'global_sites', columns: { site_key: 'key' }, where: [{ column: 'key', value: siteKey }, { column: 'status', value: 'enabled' }, { column: 'migration_status', value: 'ready' }] })),
@@ -81,6 +86,8 @@ const validateTarget = async (database: DatabaseAdapter, siteKey: string, bucket
 	]);
 	return Boolean(site && bucket);
 };
+
+const purposeLabel = (value: string) => purposes.find((item) => item.value === value)?.text ?? value;
 
 const handler: ApiHandler = async (c, next, params) => {
 	const database = c.get('database');
@@ -94,75 +101,80 @@ const handler: ApiHandler = async (c, next, params) => {
 			buckets: buckets.map((item) => ({ value: String(item.id), text: `${item.credential_title} / ${getCloudStorageProduct(item.provider)} / ${item.bucket}` })),
 		};
 	};
+	const listColumns = {
+		id: 'b.id', site_key: 'b.site_key', site_title: 's.title', bucket_id: 'b.bucket_id', bucket: 'bkt.bucket',
+		credential_title: 'c.title', provider: 'c.provider', purposes: 'b.purposes', key_prefix: 'b.key_prefix',
+		status: 'b.status', created_at: 'b.created_at', updated_at: 'b.updated_at',
+	} as const;
+	const listJoins = [
+		{ table: 'global_sites', alias: 's', left: 's.key', right: 'b.site_key' },
+		{ table: 'global_cloud_object_storage_buckets', alias: 'bkt', left: 'bkt.id', right: 'b.bucket_id' },
+		{ table: 'global_cloud_credentials', alias: 'c', left: 'c.id', right: 'bkt.cloud_credential_id' },
+	];
+	const publicBinding = (row: Record<string, unknown>) => ({ ...row, product: getCloudStorageProduct(String(row.provider)), purposes: parsePurposes(row.purposes) });
+
 	if (!params.id && c.req.method === 'GET') {
-		const [rows, purposeRows, options] = await Promise.all([
-			allSql<Record<string, unknown>>(database, sql({ database }).select({ table: 'global_cloud_object_storage_bindings', alias: 'b', columns: { id: 'b.id', site_key: 'b.site_key', site_title: 's.title', bucket_id: 'b.bucket_id', bucket: 'bkt.bucket', credential_title: 'c.title', provider: 'c.provider', key_prefix: 'b.key_prefix', status: 'b.status', created_at: 'b.created_at', updated_at: 'b.updated_at' }, joins: [{ table: 'global_sites', alias: 's', left: 's.key', right: 'b.site_key' }, { table: 'global_cloud_object_storage_buckets', alias: 'bkt', left: 'bkt.id', right: 'b.bucket_id' }, { table: 'global_cloud_credentials', alias: 'c', left: 'c.id', right: 'bkt.cloud_credential_id' }], sort: tableSort(c), orderBy: [{ column: 'b.id', direction: 'DESC' }] })),
-			allSql<BindingPurposeRow>(database, sql({ database }).select({ table: 'global_cloud_object_storage_binding_purposes', columns: { binding_id: 'binding_id', purpose: 'purpose', is_default: 'is_default' }, orderBy: [{ column: 'purpose' }] })),
+		const [rows, options] = await Promise.all([
+			allSql<Record<string, unknown>>(database, sql({ database }).select({ table: 'global_cloud_object_storage_bindings', alias: 'b', columns: listColumns, joins: listJoins, sort: tableSort(c), orderBy: [{ column: 'b.id', direction: 'DESC' }] })),
 			listOptions(),
 		]);
-		const purposeMap = new Map<number, BindingPurposeRow[]>();
-		for (const row of purposeRows) purposeMap.set(row.binding_id, [...(purposeMap.get(row.binding_id) ?? []), row]);
-		const dataSource = rows.map((row) => ({ ...row, product: getCloudStorageProduct(String(row.provider)), ...purposeState(purposeMap.get(Number(row.id)) ?? []) }));
 		const tableColumns = columns.map((column) => column.dataIndex === 'site_key' ? { ...column, options: options.sites }
 			: column.dataIndex === 'bucket_id' ? { ...column, options: options.buckets } : column);
+		const dataSource = rows.map(publicBinding);
 		return apiResponse(c, 200, { table: { option: { rowKey: 'id', actions: { query: [{ key: 'search', label: '搜索' }], toolbar: [{ key: 'create', label: '新增' }, { key: 'delete', label: '删除' }], row: [{ key: 'edit', label: '编辑' }, { key: 'delete', label: '删除' }] } }, columns: tableColumns, dataSource, totalRecords: dataSource.length } });
 	}
+
+	if (params.id && c.req.method === 'GET') {
+		const row = await firstSql<Record<string, unknown>>(database, sql({ database }).select({ table: 'global_cloud_object_storage_bindings', alias: 'b', columns: listColumns, joins: listJoins, where: [{ column: 'b.id', value: Number(params.id) }] }));
+		return row ? apiResponse(c, 200, publicBinding(row)) : apiMessage(c, 404, 'Bucket 绑定不存在');
+	}
+
 	if (!params.id && c.req.method === 'POST') {
 		const body = await parseBody(c);
 		const siteKey = text(body.site_key), bucketId = Number(body.bucket_id), selected = parsePurposes(body.purposes);
-		const defaults = parsePurposes(body.default_purposes);
 		const keyPrefix = prefix(body.key_prefix), status = body.status === statusValues.disabled ? statusValues.disabled : statusValues.enabled;
 		if (!siteKey || !Number.isInteger(bucketId) || !selected.length || !await validateTarget(database, siteKey, bucketId)) return apiMessage(c, 400, '站点、Bucket 或用途不合法');
-		if (defaults.some((purpose) => !selected.includes(purpose))) return apiMessage(c, 400, '默认用途必须包含在已选用途中');
-		const createdAt = Date.now();
-		let createdBindingId: number | undefined;
+		const conflict = await conflictingPurposes(database, siteKey, selected);
+		if (conflict) return apiMessage(c, 409, `用途「${conflict.purposes.map(purposeLabel).join('、')}」在这个站点已经绑到 #${conflict.id}，同一用途只能绑一个 Bucket`);
 		try {
-			await runOperationSql(c, database, sql({ database }).insert('global_cloud_object_storage_bindings', { site_key: siteKey, bucket_id: bucketId, key_prefix: keyPrefix, status }));
-			const binding = await firstSql<{ id: number }>(database, sql({ database }).select({ table: 'global_cloud_object_storage_bindings', columns: { id: 'id' }, where: [{ column: 'site_key', value: siteKey }, { column: 'bucket_id', value: bucketId }, { column: 'key_prefix', value: keyPrefix }] }));
-			if (!binding) throw new Error('绑定创建后无法读取');
-			createdBindingId = binding.id;
-			await savePurposes(c, database, binding.id, siteKey, selected, status === statusValues.enabled ? defaults : []);
+			await runOperationSql(c, database, sql({ database }).insert('global_cloud_object_storage_bindings', { site_key: siteKey, bucket_id: bucketId, purposes: selected, key_prefix: keyPrefix, status }));
 		} catch (error) {
-			if (createdBindingId) await runSql(database, sql({ database }).delete('global_cloud_object_storage_bindings', { id: createdBindingId })).catch(() => undefined);
+			if (error instanceof PendingApprovalError) throw error;
 			return apiMessage(c, 400, error instanceof Error ? error.message : '创建绑定失败');
 		}
 		return apiMessageData(c, 201, 'Bucket 绑定创建成功', {});
 	}
+
 	if (!params.id && c.req.method === 'DELETE') {
 		const ids = await c.req.json<unknown>().catch(() => []);
 		for (const id of Array.isArray(ids) ? ids : []) await runOperationSql(c, database, sql({ database }).softDelete('global_cloud_object_storage_bindings', { id: Number(id) }));
 		return apiMessage(c, 200, '删除成功，可在回收站找回或彻底删除');
 	}
-	if (params.id && c.req.method === 'GET') {
-		const [row, purposeRows] = await Promise.all([
-			firstSql<Record<string, unknown>>(database, sql({ database }).select({ table: 'global_cloud_object_storage_bindings', where: [{ column: 'id', value: Number(params.id) }] })),
-			allSql<BindingPurposeRow>(database, sql({ database }).select({ table: 'global_cloud_object_storage_binding_purposes', columns: { binding_id: 'binding_id', purpose: 'purpose', is_default: 'is_default' }, where: [{ column: 'binding_id', value: Number(params.id) }], orderBy: [{ column: 'purpose' }] })),
-		]);
-		return row ? apiResponse(c, 200, { ...row, ...purposeState(purposeRows) }) : apiMessage(c, 404, 'Bucket 绑定不存在');
-	}
+
 	if (params.id && c.req.method === 'PUT') {
 		const current = await firstSql<Record<string, unknown>>(database, sql({ database }).select({ table: 'global_cloud_object_storage_bindings', where: [{ column: 'id', value: Number(params.id) }] }));
 		if (!current) return apiMessage(c, 404, 'Bucket 绑定不存在');
-		const currentPurposes = await allSql<BindingPurposeRow>(database, sql({ database }).select({ table: 'global_cloud_object_storage_binding_purposes', columns: { binding_id: 'binding_id', purpose: 'purpose', is_default: 'is_default' }, where: [{ column: 'binding_id', value: Number(params.id) }] }));
 		const body = await parseBody(c);
-		const changed = getChangedFields(body, ['site_key', 'bucket_id', 'purposes', 'default_purposes', 'key_prefix', 'status']);
+		const changed = getChangedFields(body, ['site_key', 'bucket_id', 'purposes', 'key_prefix', 'status']);
 		const siteKey = changed.has('site_key') ? text(body.site_key) : String(current.site_key);
 		const bucketId = changed.has('bucket_id') ? Number(body.bucket_id) : Number(current.bucket_id);
-		const selected = changed.has('purposes') ? parsePurposes(body.purposes) : currentPurposes.map((item) => item.purpose);
-		const previousDefaults = currentPurposes.filter((item) => Boolean(item.is_default)).map((item) => item.purpose);
-		const defaults = changed.has('default_purposes') ? parsePurposes(body.default_purposes) : previousDefaults.filter((purpose) => selected.includes(purpose));
+		const selected = changed.has('purposes') ? parsePurposes(body.purposes) : parsePurposes(current.purposes);
 		const keyPrefix = changed.has('key_prefix') ? prefix(body.key_prefix) : String(current.key_prefix);
 		const status = changed.has('status') && body.status === statusValues.disabled ? statusValues.disabled : changed.has('status') ? statusValues.enabled : String(current.status);
 		if (!siteKey || !Number.isInteger(bucketId) || !selected.length || !await validateTarget(database, siteKey, bucketId)) return apiMessage(c, 400, '站点、Bucket 或用途不合法');
-		if (defaults.some((purpose) => !selected.includes(purpose))) return apiMessage(c, 400, '默认用途必须包含在已选用途中');
 		const duplicate = await firstSql(database, sql({ database }).select({ table: 'global_cloud_object_storage_bindings', columns: { id: 'id' }, where: [{ column: 'site_key', value: siteKey }, { column: 'bucket_id', value: bucketId }, { column: 'key_prefix', value: keyPrefix }, { column: 'id', operator: '!=', value: Number(params.id) }] }));
 		if (duplicate) return apiMessage(c, 409, '相同站点、Bucket 和对象前缀的绑定已存在');
+		const conflict = await conflictingPurposes(database, siteKey, selected, Number(params.id));
+		if (conflict) return apiMessage(c, 409, `用途「${conflict.purposes.map(purposeLabel).join('、')}」在这个站点已经绑到 #${conflict.id}，同一用途只能绑一个 Bucket`);
 		try {
-			await runOperationSql(c, database, sql({ database }).update('global_cloud_object_storage_bindings', { site_key: siteKey, bucket_id: bucketId, key_prefix: keyPrefix, status }, { id: Number(params.id) }));
-			await savePurposes(c, database, Number(params.id), siteKey, selected, status === statusValues.enabled ? defaults : [], currentPurposes);
-		} catch (error) { if (error instanceof PendingApprovalError) throw error; return apiMessage(c, 400, error instanceof Error ? error.message : '保存绑定失败'); }
+			await runOperationSql(c, database, sql({ database }).update('global_cloud_object_storage_bindings', { site_key: siteKey, bucket_id: bucketId, purposes: selected, key_prefix: keyPrefix, status }, { id: Number(params.id) }));
+		} catch (error) {
+			if (error instanceof PendingApprovalError) throw error;
+			return apiMessage(c, 400, error instanceof Error ? error.message : '保存绑定失败');
+		}
 		return apiMessage(c, 200, '保存成功');
 	}
+
 	if (params.id && c.req.method === 'DELETE') {
 		await runOperationSql(c, database, sql({ database }).softDelete('global_cloud_object_storage_bindings', { id: Number(params.id) }));
 		return apiMessage(c, 200, '删除成功，可在回收站找回或彻底删除');

@@ -5,7 +5,7 @@ import { allSql, firstSql, runSql, sql, type SqlQuery } from './sql.mjs';
 export const portableTableGroups = {
 	global: [
 		'global_sites', 'global_site_hosts', 'global_cloud_credentials', 'global_cloud_object_storage_buckets',
-		'global_cloud_object_storage_bindings', 'global_cloud_object_storage_binding_purposes', 'global_telegram_bots',
+		'global_cloud_object_storage_bindings', 'global_telegram_bots',
 		'global_cloud_email_channels', 'global_cloud_email_templates', 'global_cloud_email_bindings',
 		'global_cloud_email_template_publications', 'global_snowflake_states',
 	],

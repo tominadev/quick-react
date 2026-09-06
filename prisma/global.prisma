@@ -131,34 +131,21 @@ model global_cloud_object_storage_bindings {
   owner_uid     BigInt?
   site_key   String
   bucket_id  BigInt
+  /// 这个绑定负责哪几种用途，JSON 数组，例如 ["uploads","avatars"]。
+  ///
+  /// **用途是绑定的一个字段，不是子表。** 它在界面上就是一个多选框，拆成子表的话勾四个
+  /// 用途会变成四条独立的审批申请、要批四次；而且用途没变时绑定行本身没有变化，
+  /// 「待审批」那个标记挂不上去，提交完在列表上什么也看不出来。
+  ///
+  /// 同一站点的同一用途只允许绑一个 Bucket，由接口层校验。这条规则原先也不是数据库约束
+  /// ——它靠代码里两条 UPDATE 维持——所以收回字段没有损失掉任何既有的约束。
+  purposes   String @default("[]")
   key_prefix String @default("")
   status     GlobalEnabledStatus @default(enabled)
 
   @@unique([id, site_key])
   @@unique([site_key, bucket_id, key_prefix])
   @@unique([key])
-}
-
-model global_cloud_object_storage_binding_purposes {
-  id         BigInt @id @default(autoincrement())
-  key          String @db.VarChar(36)
-  created_at BigInt @default(0)
-  updated_at BigInt @default(0)
-  deleted_at BigInt @default(0)
-  queued_at  BigInt @default(0)
-  created_duid BigInt?
-  updated_duid BigInt?
-  owner_tid     BigInt @default(1)
-  owner_bid     BigInt @default(1)
-  owner_uid     BigInt?
-  binding_id BigInt
-  site_key   String
-  purpose    String
-  is_default Boolean @default(false)
-
-  @@unique([binding_id, purpose])
-  @@unique([key])
-  @@index([site_key])
 }
 
 model global_telegram_bots {
