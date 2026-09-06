@@ -69,7 +69,13 @@ const handler: ApiHandler = async (c, next, params) => {
 			option: { rowKey: 'id', actions: {
 				query: [{ key: 'search', label: '搜索' }],
 				toolbar: [{ key: 'create', label: '新增' }, { key: 'delete', label: '删除' }],
-				row: [{ key: 'edit', label: '编辑' }, { key: 'delete', label: '删除' }],
+				row: [
+					// 公钥在另一张表上（轮换要新旧并存），带上 integration_client_id 打开，
+					// 不带的话弹开的是全站的公钥。
+					{ key: 'keys', label: '公钥', modalPath: '/panel/admin/sms/client-keys', modalComponent: 'table' as const, modalQueryFields: { integration_client_id: 'id' } },
+					{ key: 'edit', label: '编辑' },
+					{ key: 'delete', label: '删除' },
+				],
 			} },
 			columns, dataSource: rows.map(publicClient), totalRecords: rows.length,
 		} });
