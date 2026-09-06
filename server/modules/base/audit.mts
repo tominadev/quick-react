@@ -22,17 +22,6 @@ export type AuditEntryRow = {
 	review_status: ReviewStatus;
 	data_status: DataStatus;
 	scope: 'admin' | 'self';
-	reviewed_at: number | null;
-	reviewed_duid: string | null;
-	review_reason: string;
-	withdrawn_at: number | null;
-	withdrawn_duid: string | null;
-	reverted_at: number | null;
-	reapplied_at: number | null;
-	reapplied_duid: string | null;
-	reapply_reason: string;
-	reverted_duid: string | null;
-	revert_reason: string;
 	created_at: number;
 	created_duid: string | null;
 	owner_uid: string | null;
@@ -53,17 +42,6 @@ const entryColumns = {
 	review_status: 'review_status',
 	data_status: 'data_status',
 	scope: 'scope',
-	reviewed_at: 'reviewed_at',
-	reviewed_duid: { column: 'reviewed_duid', cast: 'text' as const },
-	review_reason: 'review_reason',
-	withdrawn_at: 'withdrawn_at',
-	withdrawn_duid: { column: 'withdrawn_duid', cast: 'text' as const },
-	reapplied_at: 'reapplied_at',
-	reapplied_duid: { column: 'reapplied_duid', cast: 'text' as const },
-	reapply_reason: 'reapply_reason',
-	reverted_at: 'reverted_at',
-	reverted_duid: { column: 'reverted_duid', cast: 'text' as const },
-	revert_reason: 'revert_reason',
 	created_at: 'created_at',
 	created_duid: { column: 'created_duid', cast: 'text' as const },
 	owner_uid: { column: 'owner_uid', cast: 'text' as const },
@@ -237,6 +215,41 @@ export type ReviewStatus = 'none' | 'pending' | 'approved' | 'rejected' | 'withd
 export type DataStatus = 'unwritten' | 'applied' | 'reverted';
 export type ApprovalTransition = 'approve' | 'reject' | 'withdraw' | 'revert' | 'redo' | 'requeue';
 
+export const APPROVAL_EVENT_TABLE = 'base_approval_events';
+
+/** 一条审批记录上发生过的一次迁移。谁与什么时候由公共层的 created_duid / created_at 填。 */
+export type ApprovalEventRow = { id: string; approval_id: string; kind: ApprovalTransition; reason: string; created_at: number; created_duid: string | null };
+
+const eventColumns = {
+	id: { column: 'id', cast: 'text' as const },
+	approval_id: { column: 'approval_id', cast: 'text' as const },
+	kind: 'kind',
+	reason: 'reason',
+	created_at: 'created_at',
+	created_duid: { column: 'created_duid', cast: 'text' as const },
+};
+
+/**
+ * 这一批记录上发生过的迁移，按记录分组、每组按发生顺序。
+ *
+ * 一次 IN 查询取回来再在内存里分组：列表本来就有 200 条上限，为此给 SQL 层加一个
+ * 「按记录取最后一条」的形状不划算——那是相关子查询或窗口函数，四种方言各写一遍。
+ */
+export const approvalEventsFor = async (database: DatabaseAdapter, approvalIds: readonly string[]) => {
+	const grouped = new Map<string, ApprovalEventRow[]>();
+	if (!approvalIds.length) return grouped;
+	const wanted = new Set(approvalIds.map((id) => String(id)));
+	const rows = await allSql<ApprovalEventRow>(database, sql({ database, deletedScope: 'active' }).select({
+		table: APPROVAL_EVENT_TABLE, columns: eventColumns, orderBy: [{ column: 'id' }],
+	}));
+	for (const row of rows) {
+		const id = String(row.approval_id);
+		if (!wanted.has(id)) continue;
+		grouped.set(id, [...(grouped.get(id) ?? []), row]);
+	}
+	return grouped;
+};
+
 /**
  * 允许的迁移，其余一概拒绝。
  *
@@ -357,15 +370,6 @@ const transitionOne = async (database: DatabaseAdapter, entry: AuditEntryRow, to
 	if (allowed.insertOnly && entry.action !== 'insert') {
 		return { id: entry.id, ok: false, message: '只有被否掉的新增可以恢复，其余重新提交一次就是了' };
 	}
-	// 四组字段各写各的：同一条记录可能先被批准、再被回滚、又被恢复，合用一组的话后发生的
-	// 会覆盖先发生的——恢复完之后「回滚人」就成了恢复的人。撤销也单独一组：它和审批都从
-	// pending 出发，但一个是审批人的决定、一个是申请人自己收回。
-	const now = Date.now(), actor = actorOf(database);
-	const statusFields = to === 'withdraw' ? { withdrawn_at: now, withdrawn_duid: actor }
-		: to === 'approve' || to === 'reject' ? { reviewed_at: now, reviewed_duid: actor, review_reason: reason }
-			: to === 'revert' ? { reverted_at: now, reverted_duid: actor, revert_reason: reason }
-				: to === 'requeue' ? { requeued_at: now, requeued_duid: actor, requeue_reason: reason }
-					: { reapplied_at: now, reapplied_duid: actor, reapply_reason: reason };
 	// 新建：行已经在库里，区别只在看不看得见（驳回与撤销则把它删掉）。
 	if (entry.action === 'insert') {
 		if (!await applyInsertTransition(database, entry, to)) {
@@ -434,13 +438,21 @@ const transitionOne = async (database: DatabaseAdapter, entry: AuditEntryRow, to
 		// 批准完页面还显示旧值，看起来像批准没生效。
 		if (entry.table_name === CONFIG_TABLE) invalidateConfigurationCache();
 	}
+	/**
+	 * **先追加事件，再更新那两个状态列。**
+	 *
+	 * 两个状态列是**缓存**：真相是事件序列。这个顺序在无事务环境下更安全——断在中间的
+	 * 表现是「事件在、状态没跟上」，读的时候以事件为准就能自愈；反过来则是「状态改了
+	 * 但没人知道是谁改的」，那才查不出来。
+	 *
+	 * 谁和什么时候不用写：`created_duid` / `created_at` 是每张表都有的系统列，公共层填。
+	 * 走 runSystemSql：这条事件本身就是这次迁移的留痕，再为它记一条审批记录是套娃。
+	 */
+	await runSystemSql(database, sql({ database }).insert(APPROVAL_EVENT_TABLE, { approval_id: entry.id, kind: to, reason }));
 	// 带上原状态做条件：并发下只有一个请求能迁移成功。
-	// 走 runSystemSql：这次迁移的留痕就是这几列本身，再记一条是重复；
-	// 递归也是被这条路径挡住的，审计表因此不需要被排除在受管范围之外。
 	await runSystemSql(database, sql({ database }).update(AUDIT_TABLE, {
 		...(allowed.review ? { review_status: allowed.review } : {}),
 		...(allowed.data ? { data_status: allowed.data } : {}),
-		...statusFields,
 	}, [
 		{ column: 'id', value: entry.id },
 		{ column: 'review_status', value: entry.review_status },
@@ -533,6 +545,8 @@ export const purgeExpiredAuditEntries = async (database: DatabaseAdapter, retent
 		}));
 		if (!rows.length) break;
 		for (const row of rows) {
+			// 事件先删：留下指向不存在记录的事件，比留下一条没有经过的记录更难解释。
+			await runSql(database, sql({ database, subjectRoles: null }).delete(APPROVAL_EVENT_TABLE, [{ column: 'approval_id', value: row.id }]));
 			await runSql(database, sql({ database, subjectRoles: null }).delete(AUDIT_TABLE, [{ column: 'id', value: row.id }]));
 			removed += 1;
 		}

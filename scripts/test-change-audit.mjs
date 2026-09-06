@@ -437,7 +437,7 @@ try {
 	});
 	const moduleFile = join(temporaryDirectory, 'audit.mjs');
 	await writeFile(moduleFile, result.outputFiles[0].contents);
-	const { useMemorySnowflake, allSql, createSqliteAdapter, firstSql, parseAuditChanges, publicAuditChanges, purgeAuditRetention, purgeExpiredAuditEntries, transitionAuditEntries, runOperationSql, runSql, sql, withDatabaseActors } = await import(pathToFileURL(moduleFile));
+	const { useMemorySnowflake, allSql, createSqliteAdapter, firstSql, approvalEventsFor, parseAuditChanges, publicAuditChanges, purgeAuditRetention, purgeExpiredAuditEntries, transitionAuditEntries, runOperationSql, runSql, sql, withDatabaseActors } = await import(pathToFileURL(moduleFile));
 	// 单元测试不连库，用内存号段：生产路径一律走 primeSnowflake，那里的原子预留才防得住重启和多进程。
 	useMemorySnowflake();
 
@@ -620,11 +620,13 @@ try {
 	assert.equal(await nameOf(alice.id), 'alice-3', '回滚后字段应恢复原值');
 	assert.equal(await statusOf(daveEntry.id), 'reverted');
 	assert.equal((await entries()).length, beforeRevert, '回滚不产生新的审计记录');
-	// 翻转的操作者、时间与理由另存三列：原记录的 created_* 属于原操作者，不能复用。
+	// 迁移的操作者、时间与理由**追加成一条事件**：原记录的 created_* 属于原操作者，不能复用。
 	const flipped = await entryById(daveEntry.id);
-	assert.equal(flipped.revert_reason, '回滚理由：改错了');
-	assert.ok(Number(flipped.reverted_at) > 0, '要记下什么时候撤的');
 	assert.equal(flipped.reason, daveEntry.reason, '原操作的理由不应被覆盖');
+	const flippedEvents = (await approvalEventsFor(acting, [daveEntry.id])).get(String(daveEntry.id)) ?? [];
+	assert.deepEqual(flippedEvents.map((event) => event.kind), ['revert']);
+	assert.equal(flippedEvents[0].reason, '回滚理由：改错了');
+	assert.ok(Number(flippedEvents[0].created_at) > 0, '要记下什么时候回滚的');
 
 	// 回滚错了就再翻回来，不会堆出一串互相指向的记录。
 	//
@@ -636,12 +638,15 @@ try {
 	assert.equal(await nameOf(alice.id), 'dave', '重新应用后应回到变更后的值');
 	assert.equal(await statusOf(daveEntry.id), 'applied');
 	assert.equal((await entries()).length, beforeRevert, '重新应用同样不产生新记录');
-	// 回滚与重新应用各写自己那一组：重新应用不能把「谁回滚的」覆盖掉。
-	const afterRestore = await entryById(daveEntry.id);
-	assert.equal(afterRestore.reapply_reason, '重新应用：回滚错了');
-	assert.ok(Number(afterRestore.reapplied_at) > 0, '要记下什么时候重新应用的');
-	assert.equal(afterRestore.revert_reason, '回滚理由：改错了', '重新应用不能覆盖回滚理由');
-	assert.ok(Number(afterRestore.reverted_at) > 0, '回滚时间要保留');
+	/**
+	 * 每一次迁移各追加一条事件，谁都覆盖不了谁。
+	 *
+	 * 旧模型把「谁、什么时候、为什么」压进列里，只记得住**最后一次**：一条记录回滚→
+	 * 重新应用→再回滚，第一次回滚的理由就没了。事件表下整条经过都在。
+	 */
+	const restoredEvents = (await approvalEventsFor(acting, [daveEntry.id])).get(String(daveEntry.id)) ?? [];
+	assert.deepEqual(restoredEvents.map((event) => event.kind), ['revert', 'redo']);
+	assert.deepEqual(restoredEvents.map((event) => event.reason), ['回滚理由：改错了', '重新应用：回滚错了'], '先发生的那条一个字没被覆盖');
 	// 再回滚一次，把数据放回后面用例期望的位置。
 	assert.equal((await revert([daveEntry.id]))[0].ok, true);
 	assert.equal(await nameOf(alice.id), 'alice-3');
@@ -811,7 +816,7 @@ try {
 	assert.equal(superseded.review_status, 'none', '直写不是审批');
 	assert.equal(superseded.data_status, 'applied');
 	assert.equal(superseded.reason, '这次直接生效');
-	assert.equal(superseded.reviewed_at, null, '直写不是审批，不该伪造审批时间');
+	assert.equal((await approvalEventsFor(acting, [pendingEntry.id])).get(String(pendingEntry.id)), undefined, '直写不是审批，不该冒出一条审批事件');
 	assert.equal(await rolesOf(), '["platform_support"]');
 	// 复位，后面的断言接得上。
 	await runOperationSql(context('复位'), acting, sql({ database: acting }).update('base_users', { roles: originalRoles }, { id: alice.id }), { immediate: true });
@@ -827,9 +832,9 @@ try {
 	const approved = await entryById(pendingEntry.id);
 	assert.equal(approved.review_status, 'approved', '走完队列的才叫已批准');
 	assert.equal(approved.data_status, 'applied');
-	assert.equal(approved.review_reason, '同意');
-	assert.ok(Number(approved.reviewed_at) > 0, '要记下什么时候批的');
-	assert.equal(approved.revert_reason, '', '审批与回滚各用一组字段，不能互相覆盖');
+	const approveEvents = (await approvalEventsFor(acting, [pendingEntry.id])).get(String(pendingEntry.id)) ?? [];
+	assert.deepEqual(approveEvents.map((event) => [event.kind, event.reason]), [['approve', '同意']]);
+	assert.ok(Number(approveEvents[0].created_at) > 0, '要记下什么时候批的');
 
 	// 批准过的可以再回滚，回滚信息不会覆盖掉「谁批准的」。
 	assert.equal((await revert([pendingEntry.id], '批错了'))[0].ok, true);
@@ -837,22 +842,25 @@ try {
 	// 两列正交：回滚只把数据翻回去，「是谁放行的」原样留着。合成一列时这条信息会被冲掉。
 	assert.equal(afterRevert.review_status, 'approved', '回滚不该改动审批状态');
 	assert.equal(afterRevert.data_status, 'reverted');
-	assert.equal(afterRevert.review_reason, '同意', '回滚不能覆盖审批意见');
-	assert.equal(afterRevert.revert_reason, '批错了');
-	assert.equal(afterRevert.reapply_reason, '', '每组字段互不干扰');
+	// 事件一条条追加：回滚这条盖不掉「谁批准的、批注写了什么」。
+	assert.deepEqual(
+		((await approvalEventsFor(acting, [pendingEntry.id])).get(String(pendingEntry.id)) ?? []).map((event) => [event.kind, event.reason]),
+		[['approve', '同意'], ['revert', '批错了']],
+	);
 	assert.equal(await rolesOf(), originalRoles);
 
-	// 撤销申请自己一组字段：它和审批都从 pending 出发，但一个是审批人的决定、
-	// 一个是申请人自己收回，混在一起就分不清那一格记的是谁。
+	// 撤销自己一条事件：它和审批都从 pending 出发，但一个是审批人的决定、
+	// 一个是申请人自己收回，混在一起就分不清那一条记的是谁。
 	await assert.rejects(() => runOperationSql(context('申请改名'), acting, sql({ database: acting }).update('base_users', { name: 'withdrawn-name' }, { id: alice.id })));
 	const withdrawEntry = await latestEntry();
 	assert.deepEqual(await transitionAuditEntries(acting, [withdrawEntry.id], 'withdraw', ''), [{ id: withdrawEntry.id, ok: true, message: '已撤销' }]);
 	const withdrawn = await entryById(withdrawEntry.id);
 	assert.equal(withdrawn.review_status, 'withdrawn');
 	assert.equal(withdrawn.data_status, 'unwritten', '撤销的申请从未写入');
-	assert.ok(Number(withdrawn.withdrawn_at) > 0, '要记下什么时候撤销的');
-	assert.equal(withdrawn.reviewed_at, null, '撤销不是审批，不该占审批那一格');
-	assert.equal(withdrawn.reverted_at, null, '撤销更不是回滚：数据从未动过');
+	const withdrawEvents = (await approvalEventsFor(acting, [withdrawEntry.id])).get(String(withdrawEntry.id)) ?? [];
+	assert.deepEqual(withdrawEvents.map((event) => event.kind), ['withdraw'], '只有一条撤销事件——它不是审批，也不是回滚');
+	assert.ok(Number(withdrawEvents[0].created_at) > 0, '要记下什么时候撤销的');
+	assert.equal(withdrawEvents[0].reason, '', '撤销没有理由：申请人收回自己提的东西，不需要向谁交代');
 	assert.equal(await nameOf(alice.id), 'frank', '撤销不该改动数据');
 	// 撤销是终态，和驳回一样不能再迁移。
 	assert.equal((await transitionAuditEntries(acting, [withdrawEntry.id], 'approve', ''))[0].ok, false);

@@ -30,6 +30,15 @@ enum BaseApprovalAction {
   purge
 }
 
+enum BaseApprovalEvent {
+  approve
+  reject
+  withdraw
+  requeue
+  revert
+  redo
+}
+
 /// 审批状态：这次修改有没有人放行、是谁放行的。
 ///
 /// 「没人批过」和「批过了」是两回事：前台自助与路由显式声明的机器写入根本没进过队列，
@@ -368,6 +377,37 @@ model base_device_snapshots {
 
 /// 变更留痕：受管表上每一次业务字段变更的前后值，同时用作操作日志与撤回依据。
 /// 只覆盖 update（软删除与恢复同为 UPDATE），不覆盖 insert 与物理 delete。
+/// 一条审批记录上发生过的每一次迁移，只追加不修改。
+///
+/// **不把它们压进 base_approvals 的列里。** 那样每加一种迁移就要加三列（谁、什么时候、
+/// 为什么），而且只记得住最后一次——一条记录可以回滚→重新应用→再回滚，第一次回滚的
+/// 时间和理由就没了。审计系统丢历史，比字段多更严重。
+///
+/// 业务列只有三个：谁和什么时候由公共层的 `created_duid` / `created_at` 顺带填上。
+///
+/// **不记「提交」。** base_approvals 那一行本身就是提交，`created_*` 已经写着谁在什么
+/// 时候提的。因此前台自助改一次数据只有主表一行、事件表零行——它压根没走过审批，
+/// 不必用一条事件去假装。
+model base_approval_events {
+  id           BigInt @id @default(autoincrement())
+  key          String @db.VarChar(36)
+  created_at   BigInt
+  updated_at   BigInt
+  deleted_at   BigInt @default(0)
+  pended_at    BigInt @default(0)
+  created_duid BigInt?
+  updated_duid BigInt?
+  owner_tid    BigInt @default(1)
+  owner_bid    BigInt @default(1)
+  owner_uid    BigInt?
+  approval_id  BigInt
+  kind         BaseApprovalEvent
+  /// 这一次的理由。撤销没有理由——那是申请人把自己提的东西收回去，不需要向谁交代。
+  reason       String @default("")
+  @@index([approval_id, id])
+  @@unique([key, deleted_at])
+}
+
 model base_approvals {
   id           BigInt @id @default(autoincrement())
   key          String @db.VarChar(36)
@@ -426,35 +466,6 @@ model base_approvals {
   /// 数据当前停在哪一边。applied ↔ reverted 可以来回翻：回滚不新开记录，
   /// 而是把这一条翻到另一面；审批状态不跟着变。
   data_status  BaseApprovalState @default(applied)
-  /// 审批的时间、审批人与意见。pending → applied/rejected 时写一次就定了。
-  reviewed_at   BigInt?
-  reviewed_duid BigInt?
-  review_reason String @default("")
-  /// 撤销申请的时间与操作者。没有理由列：撤销是申请人把自己提的东西收回去，
-  /// 不需要向谁交代，界面上也不问——留一列永远是空的比不留更容易让人以为漏填了。
-  withdrawn_at   BigInt?
-  withdrawn_duid BigInt?
-  /// 回滚的时间、操作者与理由。原记录的 created_* 属于原操作者，不能复用。
-  reverted_at   BigInt?
-  reverted_duid BigInt?
-  revert_reason String @default("")
-  /// 恢复的时间、操作者与理由。
-  ///
-  /// 四组字段一律分开：同一条记录可能先被批准、再被回滚、又被恢复，合用一组的话
-  /// 后发生的会把先发生的覆盖掉——恢复完之后「回滚人」显示的就成了恢复的人。
-  /// 撤销单独一组同理：它和审批都从 pending 出发，但一个是审批人的决定、
-  /// 一个是申请人自己收回，混在一起就分不清那一格记的是谁。
-  reapplied_at    BigInt?
-  reapplied_duid  BigInt?
-  reapply_reason  String @default("")
-  /// 恢复申请（把被驳回或撤销的申请放回队列）的时间、操作者与理由。
-  ///
-  /// 与上面那组「重做」分开：它们一个在审批轴上（rejected/withdrawn → pending），
-  /// 一个在数据轴上（reverted → applied）。同一条记录可以先被驳回、恢复后重新批准、
-  /// 再回滚、再重做——合用一组的话，后发生的会把先发生的覆盖掉。
-  requeued_at    BigInt?
-  requeued_duid  BigInt?
-  requeue_reason String @default("")
   @@index([owner_tid, created_at])
   @@index([owner_bid, created_at])
   @@index([owner_uid, created_at])

@@ -2,7 +2,7 @@ import type { ApiHandler } from '@server/modules/base/api-router.mjs';
 import { apiMessage, apiResponse } from '@server/modules/base/api-response.mjs';
 import { readChangeReason } from '@server/modules/base/operation.mjs';
 import { allSql, AUDIT_TABLE, sql, type SqlCondition } from '@server/database/sql.mjs';
-import { DATA_LABELS, REVIEW_LABELS, countAuditEntries, describeAuditChanges, listAuditEntries, parseAuditChanges, publicAuditChanges, readAuditEntry, transitionAuditEntries, type AuditEntryRow } from '@server/modules/base/audit.mjs';
+import { DATA_LABELS, REVIEW_LABELS, approvalEventsFor, countAuditEntries, describeAuditChanges, listAuditEntries, parseAuditChanges, publicAuditChanges, readAuditEntry, transitionAuditEntries, transitionLabel, type ApprovalEventRow, type AuditEntryRow } from '@server/modules/base/audit.mjs';
 import { tableSort } from '@server/modules/base/query-options.mjs';
 import { assertNotSelfApproval, isSuperUser, submitterIdsOf } from '@server/modules/base/super-users.mjs';
 import type { TableCrudDefinition } from '@server/modules/base/table-crud.mjs';
@@ -120,21 +120,23 @@ const columns = [
 	{ dataIndex: 'summary', title: '变更内容', tableDisplay: 'multiline' as const },
 	{ dataIndex: 'review_status', title: '审批状态', options: reviewOptions },
 	{ dataIndex: 'data_status', title: '数据状态', options: dataOptions },
-	{ dataIndex: 'reviewed_at', title: '审批时间', dataType: 'js_timestamp' as const, dayjsFormat: 'YYYY-MM-DD HH:mm:ss' },
-	{ dataIndex: 'reviewed_duid', title: '审批人' },
-	{ dataIndex: 'review_reason', title: '审批意见' },
-	// 撤销没有理由列：申请人收回自己提的东西，界面上也不问。
-	{ dataIndex: 'withdrawn_at', title: '撤销时间', dataType: 'js_timestamp' as const, dayjsFormat: 'YYYY-MM-DD HH:mm:ss' },
-	{ dataIndex: 'withdrawn_duid', title: '撤销人' },
-	{ dataIndex: 'reverted_at', title: '回滚时间', dataType: 'js_timestamp' as const, dayjsFormat: 'YYYY-MM-DD HH:mm:ss' },
-	{ dataIndex: 'reverted_duid', title: '回滚人' },
-	{ dataIndex: 'revert_reason', title: '回滚理由' },
-	{ dataIndex: 'reapplied_at', title: '重新应用时间', dataType: 'js_timestamp' as const, dayjsFormat: 'YYYY-MM-DD HH:mm:ss' },
-	{ dataIndex: 'reapplied_duid', title: '重新应用人' },
-	{ dataIndex: 'reapply_reason', title: '重新应用理由' },
+	/**
+	 * 迁移不再各占三列（谁、什么时候、为什么），而是一条一条追加到 base_approval_events。
+	 *
+	 * 列表上只显示**最后一次发生了什么**——横着摆十几列的时候，一条记录最多经历两三种
+	 * 迁移，其余格子永远空着；而完整经过在详情页按时间线读，那才是一条审计记录该有的样子。
+	 */
+	{ dataIndex: 'last_event', title: '最近处理', tableDisplay: 'multiline' as const },
 ];
 
-const publicEntry = (row: AuditEntryRow) => ({
+/** 一条事件读成一行人话：`2026-09-06 10:00:00 批准（#7）：同意`。 */
+const eventLine = (event: ApprovalEventRow) => {
+	const at = new Date(Number(event.created_at)).toISOString().replace('T', ' ').slice(0, 19);
+	const who = event.created_duid ? `（#${event.created_duid}）` : '';
+	return `${at} ${transitionLabel(event.kind)}${who}${event.reason ? `：${event.reason}` : ''}`;
+};
+
+const publicEntry = (row: AuditEntryRow, events: ApprovalEventRow[] = []) => ({
 	id: row.id,
 	created_at: row.created_at,
 	table_name: row.table_name,
@@ -152,17 +154,7 @@ const publicEntry = (row: AuditEntryRow) => ({
 	scope: row.scope,
 	request_hostname: row.request_hostname,
 	request_path: row.request_path,
-	reviewed_at: row.reviewed_at ?? '',
-	reviewed_duid: row.reviewed_duid ?? '',
-	review_reason: row.review_reason ?? '',
-	withdrawn_at: row.withdrawn_at ?? '',
-	withdrawn_duid: row.withdrawn_duid ?? '',
-	reverted_at: row.reverted_at ?? '',
-	reverted_duid: row.reverted_duid ?? '',
-	revert_reason: row.revert_reason ?? '',
-	reapplied_at: row.reapplied_at ?? '',
-	reapplied_duid: row.reapplied_duid ?? '',
-	reapply_reason: row.reapply_reason ?? '',
+	last_event: events.length ? eventLine(events[events.length - 1]) : '',
 });
 
 const readIds = async (c: Parameters<ApiHandler>[0], routeId?: string) => {
@@ -210,6 +202,8 @@ const handler: ApiHandler = async (c, next, params) => {
 		};
 		// 列表有条数上限，总数单独计一次——拿列表长度当总数会在超过上限时谎报。
 		const totalRecords = await countAuditEntries(database, filters, reason);
+		// 迁移经过在事件表里：一次 IN 查询取回来按记录分组，列表上只显示最后一条。
+		const events = await approvalEventsFor(database, rows.map((row) => String(row.id)));
 		return apiResponse(c, 200, { table: {
 			// 审计记录不可修改、不可删除，接口层因此没有新增、编辑与删除入口（§7.3）。
 			// 这一页的动作本身就是审批机制，不经过审批门：撤销、批准、驳回走的是
@@ -223,14 +217,20 @@ const handler: ApiHandler = async (c, next, params) => {
 				row: flipActions(isSuperUser(c)).map((action) => ({ key: action.key, label: action.label, confirm: action.confirm, visibleWhen: { field: STAGE_FIELD, values: action.from } })),
 			} },
 			columns,
-			dataSource: rows.map((row) => ({ ...publicEntry(row), [STAGE_FIELD]: stageOf(row) })),
+			dataSource: rows.map((row) => ({ ...publicEntry(row, events.get(String(row.id))), [STAGE_FIELD]: stageOf(row) })),
 			totalRecords,
 		} });
 	}
 	if (params.id && c.req.method === 'GET') {
 		const row = await readAuditEntry(database, params.id);
 		if (!row) return apiMessage(c, 404, '审计记录不存在');
-		return apiResponse(c, 200, { ...publicEntry(row), changes: publicAuditChanges(parseAuditChanges(row)) });
+		// 详情页给**完整时间线**：一条审计记录该读得出「先被谁驳回、又被谁放回队列、最后谁批的」。
+		const timeline = (await approvalEventsFor(database, [String(row.id)])).get(String(row.id)) ?? [];
+		return apiResponse(c, 200, {
+			...publicEntry(row, timeline),
+			changes: publicAuditChanges(parseAuditChanges(row)),
+			events: timeline.map((event) => ({ kind: event.kind, label: transitionLabel(event.kind), at: event.created_at, duid: event.created_duid ?? '', reason: event.reason ?? '' })),
+		});
 	}
 	const flip = c.req.method === 'POST' ? flipActions(isSuperUser(c)).find((action) => action.key === c.req.query('action')) : undefined;
 	if (flip) {

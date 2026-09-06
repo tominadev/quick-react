@@ -305,6 +305,28 @@ CREATE TABLE `base_device_snapshots` (
 ) DEFAULT CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci;
 
 -- CreateTable
+CREATE TABLE `base_approval_events` (
+    `id` BIGINT NOT NULL AUTO_INCREMENT,
+    `key` VARCHAR(36) NOT NULL,
+    `created_at` BIGINT NOT NULL,
+    `updated_at` BIGINT NOT NULL,
+    `deleted_at` BIGINT NOT NULL DEFAULT 0,
+    `pended_at` BIGINT NOT NULL DEFAULT 0,
+    `created_duid` BIGINT NULL,
+    `updated_duid` BIGINT NULL,
+    `owner_tid` BIGINT NOT NULL DEFAULT 1,
+    `owner_bid` BIGINT NOT NULL DEFAULT 1,
+    `owner_uid` BIGINT NULL,
+    `approval_id` BIGINT NOT NULL,
+    `kind` ENUM('approve', 'reject', 'withdraw', 'requeue', 'revert', 'redo') NOT NULL,
+    `reason` VARCHAR(191) NOT NULL DEFAULT '',
+
+    INDEX `base_approval_events_approval_id_id_idx`(`approval_id`, `id`),
+    UNIQUE INDEX `base_approval_events_key_deleted_at_key`(`key`, `deleted_at`),
+    PRIMARY KEY (`id`)
+) DEFAULT CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci;
+
+-- CreateTable
 CREATE TABLE `base_approvals` (
     `id` BIGINT NOT NULL AUTO_INCREMENT,
     `key` VARCHAR(36) NOT NULL,
@@ -330,20 +352,6 @@ CREATE TABLE `base_approvals` (
     `changes_after` JSON NOT NULL,
     `review_status` ENUM('none', 'pending', 'approved', 'rejected', 'withdrawn') NOT NULL DEFAULT 'none',
     `data_status` ENUM('unwritten', 'applied', 'reverted') NOT NULL DEFAULT 'applied',
-    `reviewed_at` BIGINT NULL,
-    `reviewed_duid` BIGINT NULL,
-    `review_reason` VARCHAR(191) NOT NULL DEFAULT '',
-    `withdrawn_at` BIGINT NULL,
-    `withdrawn_duid` BIGINT NULL,
-    `reverted_at` BIGINT NULL,
-    `reverted_duid` BIGINT NULL,
-    `revert_reason` VARCHAR(191) NOT NULL DEFAULT '',
-    `reapplied_at` BIGINT NULL,
-    `reapplied_duid` BIGINT NULL,
-    `reapply_reason` VARCHAR(191) NOT NULL DEFAULT '',
-    `requeued_at` BIGINT NULL,
-    `requeued_duid` BIGINT NULL,
-    `requeue_reason` VARCHAR(191) NOT NULL DEFAULT '',
 
     INDEX `base_approvals_owner_tid_created_at_idx`(`owner_tid`, `created_at`),
     INDEX `base_approvals_owner_bid_created_at_idx`(`owner_bid`, `created_at`),

@@ -96,7 +96,7 @@ await runOperation(c, database, [sql({ database }).update('base_users', values, 
 | `scope` | `admin` / `self`：后台操作还是用户自助。与「要不要走审批」是同一条判定（§11.2），由 `operationScope()` 一处算出、两处使用 |
 | `review_status` | 审批状态：`none` / `pending` / `approved` / `rejected` / `withdrawn`，见 §11.4 |
 | `data_status` | 数据状态：`unwritten` / `applied` / `reverted`，见 §11.4 |
-| `reverted_at`、`reverted_duid`、`revert_reason` | 最后一次回滚/重新应用的时间、操作者与理由 |
+| — | 迁移的时间、操作者与理由不占列：每一次追加一条 `base_approval_events`，见 §7.3 |
 
 加上统一的系统字段与归属字段。**操作者复用现成的机制**：`created_duid` 是真实操作者的 device-user，`owner_uid` 是作用账号——代用户操作时两者不同，正好还原出"客服 A 以用户 B 的身份改了这一行"。归属字段同时让审计记录自动落入正确的租户与分站，可见性因此免费获得（§8）。
 
@@ -251,15 +251,25 @@ WHERE id = ? AND name = ?          -- after
 
 **但只翻状态不够。** 原记录的 `created_duid`、`created_at`、`reason` 属于**原操作者**——"张三上午十点因为客诉改了价格"，不能拿来表示"李四下午三点把它撤了"。因此每一次状态迁移都另存自己的操作者、时间与理由。
 
-**每组字段一律分开，不能共用。** 同一条记录可能先被批准、再被回滚、又被重新应用；共用一组的话后发生的会把先发生的覆盖掉——重新应用完之后「回滚人」显示的就成了重新应用的人。
+**每一次迁移追加一条事件，不往列里塞。** `base_approval_events` 只追加不修改：
 
-| 迁移 | 写哪一组 | 会不会被覆盖 |
-| --- | --- | --- |
-| `pending → applied` / `pending → rejected` | `reviewed_at` / `reviewed_duid` / `review_reason` | 写一次就定了 |
-| `pending → withdrawn` | `withdrawn_at` / `withdrawn_duid` | 没有理由列，见 §13.4 |
-| `applied → reverted` | `reverted_at` / `reverted_duid` / `revert_reason` | 再回滚一次才覆盖 |
-| `reverted → applied` | `reapplied_at` / `reapplied_duid` / `reapply_reason` | 再重新应用一次才覆盖 |
-| `rejected`/`withdrawn` → `pending` | `requeued_at` / `requeued_duid` / `requeue_reason` | 再恢复一次才覆盖 |
+```
+base_approval_events
+  approval_id   指向 base_approvals
+  kind          approve / reject / withdraw / requeue / revert / redo
+  reason        这一次的理由（撤销没有理由，留空）
+```
+
+业务列只有三个——**谁和什么时候由公共层的 `created_duid` / `created_at` 顺带填上**，那是每张表都有的系统列。
+
+原先是每种迁移各占三列（`reviewed_*`、`withdrawn_*`、`reverted_*`、`reapplied_*`、`requeued_*`，共 14 列）。放弃它有两个理由：
+
+- **只记得住最后一次。** 一条记录可以回滚 → 重新应用 → 再回滚，第一次回滚的时间和理由就被覆盖了。审计系统丢历史，比字段多严重得多。
+- **每加一种迁移就要加三列。** 加「恢复」那次就加了 `requeued_*` 并压了一次迁移基线；事件表下只是多一个 `kind` 取值。
+
+**不记「提交」事件。** `base_approvals` 那一行本身就是提交，`created_*` 已经写着谁在什么时候提的。因此**前台自助改一次数据只有主表一行、事件表零行**——它压根没走过审批，不必用一条事件去假装。
+
+**`review_status` / `data_status` 保留，当物化缓存。** 筛选「待审批」是这一页最常用的查询，走索引等值最便宜；由事件推导要按记录分组取最后一条，那正是本文一直在避开的形状。真相仍然是事件序列，因此写入顺序是**先追加事件、再更新这两列**：无事务环境下断在中间的表现是「事件在、状态没跟上」，读的时候以事件为准就能自愈；反过来则是「状态改了但没人知道是谁改的」。
 
 回滚与重新应用是同一段代码，只有方向相反：
 
@@ -506,7 +516,7 @@ if (c.get('pendingApproval') && c.res.status !== 202) {
 
 ## 列的顺序
 
-管理后台列的先后与 `prisma/base.prisma` 里 `base_approvals` 的字段顺序**一致**：两处对照着看时不用来回找。不是每个字段都显示（`operation_id` 就不显示），因此比的是**相对次序**而不是完整相等；计算列排在它所依据的那一列的位置上（`summary` 之于 `changes_before` / `changes_after`）。
+管理后台列的先后与 `prisma/base.prisma` 里 `base_approvals` 的字段顺序**一致**：两处对照着看时不用来回找。不是每个字段都显示（`operation_id` 就不显示），因此比的是**相对次序**而不是完整相等；计算列排在它所依据的那一列的位置上（`summary` 之于 `changes_before` / `changes_after`）。迁移的经过不占列：列表上只显示**最近处理**一行（最后一条事件），完整时间线在详情页——横着摆十几列时，一条记录最多经历两三种迁移，其余格子永远空着。
 
 由 `test:change-audit` 守着——加了新列忘了对齐会直接报错。
 
@@ -524,18 +534,11 @@ if (c.get('pendingApproval') && c.res.status !== 202) {
 
 `rejected` 与 `withdrawn` 落在同一侧但不是同一件事，因此分开记——追查时「是被否掉的还是自己撤的」是两个不同的结论。
 
-**四组时间/操作者字段一律分开**，理由是同一条记录会被反复翻面，合用一组的话后发生的会覆盖先发生的：
+**每一次迁移追加一条 `base_approval_events`**，不往列里塞：同一条记录会被反复翻面，压进列里只记得住最后一次（§7.3）。
 
-| 组 | 字段 | 何时写 |
-| --- | --- | --- |
-| 审批 | `reviewed_at` / `reviewed_duid` / `review_reason` | 审批人批准或驳回 |
-| 撤销 | `withdrawn_at` / `withdrawn_duid` | 申请人自己收回 |
-| 回滚 | `reverted_at` / `reverted_duid` / `revert_reason` | 把已生效的改回去 |
-| 重新应用 | `reapplied_at` / `reapplied_duid` / `reapply_reason` | 把回滚过的再应用 |
+`withdraw` 那一条**没有理由**：撤销是申请人把自己提的东西收回去，不需要向谁交代，界面上也不问——留一格永远是空的，比不留更容易让人以为漏填了。
 
-撤销那一组**没有理由列**：撤销是申请人把自己提的东西收回去，不需要向谁交代，界面上也不问——留一列永远是空的，比不留更容易让人以为漏填了。
-
-撤销和审批都从 `pending` 出发，但一个是审批人的决定、一个是申请人自己收回，混在一起就分不清那一格记的是谁。
+撤销和审批都从 `pending` 出发，但一个是审批人的决定、一个是申请人自己收回，`kind` 分开记，读的时候一眼分得清那一条是谁做的。
 
 ## 「立即生效」已废除
 

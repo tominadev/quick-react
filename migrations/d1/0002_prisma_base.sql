@@ -256,6 +256,24 @@ CREATE TABLE "base_device_snapshots" (
 );
 
 -- CreateTable
+CREATE TABLE "base_approval_events" (
+    "id" INTEGER NOT NULL PRIMARY KEY AUTOINCREMENT,
+    "key" TEXT NOT NULL,
+    "created_at" BIGINT NOT NULL,
+    "updated_at" BIGINT NOT NULL,
+    "deleted_at" BIGINT NOT NULL DEFAULT 0,
+    "pended_at" BIGINT NOT NULL DEFAULT 0,
+    "created_duid" BIGINT,
+    "updated_duid" BIGINT,
+    "owner_tid" BIGINT NOT NULL DEFAULT 1,
+    "owner_bid" BIGINT NOT NULL DEFAULT 1,
+    "owner_uid" BIGINT,
+    "approval_id" BIGINT NOT NULL,
+    "kind" TEXT NOT NULL,
+    "reason" TEXT NOT NULL DEFAULT ''
+);
+
+-- CreateTable
 CREATE TABLE "base_approvals" (
     "id" INTEGER NOT NULL PRIMARY KEY AUTOINCREMENT,
     "key" TEXT NOT NULL,
@@ -280,21 +298,7 @@ CREATE TABLE "base_approvals" (
     "changes_before" TEXT NOT NULL DEFAULT '{}',
     "changes_after" TEXT NOT NULL DEFAULT '{}',
     "review_status" TEXT NOT NULL DEFAULT 'none',
-    "data_status" TEXT NOT NULL DEFAULT 'applied',
-    "reviewed_at" BIGINT,
-    "reviewed_duid" BIGINT,
-    "review_reason" TEXT NOT NULL DEFAULT '',
-    "withdrawn_at" BIGINT,
-    "withdrawn_duid" BIGINT,
-    "reverted_at" BIGINT,
-    "reverted_duid" BIGINT,
-    "revert_reason" TEXT NOT NULL DEFAULT '',
-    "reapplied_at" BIGINT,
-    "reapplied_duid" BIGINT,
-    "reapply_reason" TEXT NOT NULL DEFAULT '',
-    "requeued_at" BIGINT,
-    "requeued_duid" BIGINT,
-    "requeue_reason" TEXT NOT NULL DEFAULT ''
+    "data_status" TEXT NOT NULL DEFAULT 'applied'
 );
 
 -- CreateTable
@@ -402,6 +406,12 @@ CREATE UNIQUE INDEX "base_device_users_key_deleted_at_key" ON "base_device_users
 
 -- CreateIndex
 CREATE UNIQUE INDEX "base_device_snapshots_key_deleted_at_key" ON "base_device_snapshots"("key", "deleted_at");
+
+-- CreateIndex
+CREATE INDEX "base_approval_events_approval_id_id_idx" ON "base_approval_events"("approval_id", "id");
+
+-- CreateIndex
+CREATE UNIQUE INDEX "base_approval_events_key_deleted_at_key" ON "base_approval_events"("key", "deleted_at");
 
 -- CreateIndex
 CREATE INDEX "base_approvals_owner_tid_created_at_idx" ON "base_approvals"("owner_tid", "created_at");
