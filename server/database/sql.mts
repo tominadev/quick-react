@@ -619,6 +619,18 @@ export const isUniqueViolation = (error: unknown) => {
 	return /UNIQUE constraint failed|Duplicate entry|duplicate key value/i.test(String((error as { message?: unknown }).message ?? ''));
 };
 
+/**
+ * NOT NULL 被违反了吗——「这一列必须填」，与唯一索引冲突同属**用户输入的正常结果**，
+ * 不是服务端故障。三种方言各有各的说法，因此认代码为主、认话为辅。
+ */
+export const isNotNullViolation = (error: unknown) => {
+	if (!error || typeof error !== 'object') return false;
+	const code = String((error as { code?: unknown }).code ?? '');
+	if (code === 'ER_BAD_NULL_ERROR' || code === '23502') return true;
+	if (Number((error as { errcode?: unknown }).errcode ?? 0) === 1299) return true;
+	return /NOT NULL constraint failed|cannot be null|null value in column/i.test(String((error as { message?: unknown }).message ?? ''));
+};
+
 export const firstSql = <T,>(database: DatabaseAdapter, statement: SqlQuery) => database.prepare(statement.query).bind(...statement.values).first<T>();
 export const allSql = async <T,>(database: DatabaseAdapter, statement: SqlQuery) => (await database.prepare(statement.query).bind(...statement.values).all<T>()).results;
 export { compileSqlPlaceholders } from './placeholders.mjs';

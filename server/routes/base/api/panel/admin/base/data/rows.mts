@@ -1,6 +1,6 @@
 import type { ApiHandler } from '@server/modules/base/api-router.mjs';
 import { apiMessage, apiMessageData, apiResponse } from '@server/modules/base/api-response.mjs';
-import { firstSql, isUniqueViolation, runSql, sql } from '@server/database/sql.mjs';
+import { firstSql, isNotNullViolation, isUniqueViolation, runSql, sql } from '@server/database/sql.mjs';
 import { PendingApprovalError, runOperationSql } from '@server/modules/base/operation.mjs';
 import { assertTable, databaseQueryFields, databaseSelectColumns, databaseTableActions, getColumns, readTable, tableRowKey } from '@server/routes/base/data/database-table.mjs';
 import { getChangedFields } from '@server/modules/base/changed-fields.mjs';
@@ -19,6 +19,9 @@ const protectedFields = (values: Record<string, unknown>, allowKey = false) =>
  */
 const duplicateOr = (c: Parameters<ApiHandler>[0], error: unknown, message: string) => {
 	if (error instanceof PendingApprovalError) throw error;
+	// 「这一列必须填」和撞唯一索引一样是输入的正常结果，回 500 会让人以为是服务端坏了。
+	// 数据管理页直接对着原始表写，NOT NULL 是这里最容易撞上的约束。
+	if (isNotNullViolation(error)) return apiMessage(c, 400, '有必填的列没有给值：这一列不允许为空');
 	if (!isUniqueViolation(error)) throw error;
 	return apiMessage(c, 409, message);
 };

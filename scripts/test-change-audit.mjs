@@ -521,6 +521,31 @@ const auditRouteFilter = async () => {
 		}
 
 		/**
+		 * **点 ✕ 清成「未填写」要一路存成 NULL,别在收参数那一层被折成空串。**
+		 *
+		 * 后台改资料与个人中心走的是同一个 `profileStatement`,但各有各的收参数那一行,
+		 * 原先两处都写着 `String(body[name] ?? '')`——控件辛苦分出来的两种状态,在最靠近人的
+		 * 地方又被压回一种。这里守后台那一路。
+		 */
+		{
+			const nullApi = 'http://localhost/api/panel/admin/base/users.php';
+			assert.equal((await app.request(nullApi, { method: 'POST', headers: { ...headers, cookie }, body: JSON.stringify({ user_name: 'nullguy', password: 'null-password-1', roles: [], status: 'enabled', profile_qq: '999', profile_wechat: 'wx9' }) })).status, 202);
+			assert.equal((await decide('approve', await pendingIds())).status, 200);
+			const columns = () => {
+				const check = new DatabaseSync(process.env.DEFAULT_DATABASE_FILE);
+				const row = check.prepare("SELECT qq, wechat FROM base_user_profiles WHERE user_id = (SELECT id FROM base_users WHERE name = 'nullguy')").get();
+				check.close();
+				// node:sqlite 返回的是 null-prototype 对象，展开一层才比得了。
+				return { ...row };
+			};
+			assert.deepEqual(columns(), { qq: '999', wechat: 'wx9' }, '先都填上');
+			const target = (await (await app.request(`${nullApi}?include=schema,data`, { headers: { ...headers, cookie } })).json()).table.dataSource.find((row) => row.user_name === 'nullguy');
+			assert.equal((await app.request(`${nullApi}/${target.id}`, { method: 'PUT', headers: { ...headers, cookie }, body: JSON.stringify({ profile_qq: null, __changedFields: ['profile_qq'] }) })).status, 202);
+			assert.equal((await decide('approve', await pendingIds())).status, 200);
+			assert.deepEqual(columns(), { qq: null, wechat: 'wx9' }, '点 ✕ 存 NULL，且只动这一列');
+		}
+
+		/**
 		 * **别人提交的申请把这一行整个锁住：什么动作都不给做。**
 		 *
 		 * 比 §13.6 那条「只允许一种动作」更狠一层。那条挡的是「叠加」，同一个动作的重新提交
@@ -683,7 +708,11 @@ const auditRouteFilter = async () => {
 		// 记的是去掉后缀的逻辑路径：`.php` 是站点可配的接口后缀，记原样会让同一件事
 		// 在审计里长出好几种写法，按路径筛选也就筛不干净。
 		// 只看「改」：建号也会写一条资料行，那一条的来路是后台的建号接口，不是个人中心。
-		assert.deepEqual([...new Set(originRows.filter((row) => row.action === 'update').map((row) => row.request_path))], ['/api/panel/me']);
+		// 个人中心那几条记的是去掉后缀的逻辑路径。不断言「只有这一个」：后台改资料也会写
+	// base_user_profiles，那是另一条合法来路，多一条不说明这里出了问题。
+	const profilePaths = [...new Set(originRows.filter((row) => row.action === 'update').map((row) => String(row.request_path)))];
+	assert.ok(profilePaths.includes('/api/panel/me'), `个人中心那几条应记成 /api/panel/me：${profilePaths.join(' ')}`);
+	assert.ok(profilePaths.every((path) => !path.includes('.php')), `request_path 不该带接口后缀：${profilePaths.join(' ')}`);
 		assert.ok(originRows.some((row) => row.request_hostname === 'site-b.test'), '域名要如实记下来，而不是都记成同一个');
 		/**
 		 * **成员地址的后缀也要剥掉。**
