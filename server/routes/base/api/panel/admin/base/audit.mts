@@ -76,6 +76,15 @@ const queryFields = [
 const STAGE_FIELD = '_stage';
 
 /**
+ * 这一行的处理经过值不值得点开：`''` 没有、`one` 一条、`many` 两条以上。
+ *
+ * **只有两条以上才给按钮。** 一条的时候列表上那一列「最近处理」显示的就是它的全部
+ * （时间、处理类型、操作者、理由），点开只是把同一行字换个地方再看一遍；零条更不用说。
+ * 时间线要到「先被谁驳回、又被谁放回队列、最后谁批的」才开始有信息。
+ */
+const EVENTS_FIELD = '_events';
+
+/**
  * **撤销与驳回互斥**：自己提的叫撤销，别人提的叫驳回，同一条记录上不会同时出现两个。
  *
  * 原先三个按钮对每一条待审批记录都出现，而提交人往往自己就有审批权，于是「撤销申请」和
@@ -217,12 +226,19 @@ const handler: ApiHandler = async (c, next, params) => {
 				row: [
 					// 完整经过在弹窗里读：列表上只有「最近处理」一行，而一条记录可能被驳回、
 					// 恢复、批准、回滚、重新应用地翻好几轮。带上 approval_id，否则弹开的是全站事件。
-					{ key: 'events', label: '处理经过', modalPath: '/panel/admin/base/approval-events', modalComponent: 'table' as const, modalQueryFields: { approval_id: 'id' } },
+					{ key: 'events', label: '处理经过', modalPath: '/panel/admin/base/approval-events', modalComponent: 'table' as const, modalQueryFields: { approval_id: 'id' }, visibleWhen: { field: EVENTS_FIELD, values: ['many'] } },
 					...flipActions(isSuperUser(c)).map((action) => ({ key: action.key, label: action.label, confirm: action.confirm, visibleWhen: { field: STAGE_FIELD, values: action.from } })),
 				],
 			} },
 			columns,
-			dataSource: rows.map((row) => ({ ...publicEntry(row, events.get(String(row.id))), [STAGE_FIELD]: stageOf(row) })),
+			dataSource: rows.map((row) => {
+				const timeline = events.get(String(row.id)) ?? [];
+				return {
+					...publicEntry(row, timeline),
+					[STAGE_FIELD]: stageOf(row),
+					[EVENTS_FIELD]: timeline.length > 1 ? 'many' : timeline.length ? 'one' : '',
+				};
+			}),
 			totalRecords,
 		} });
 	}

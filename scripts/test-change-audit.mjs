@@ -156,6 +156,13 @@ const auditRouteFilter = async () => {
 		assert.equal(eventsAction?.label, '处理经过');
 		assert.equal(eventsAction.modalComponent, 'table');
 		assert.deepEqual(eventsAction.modalQueryFields, { approval_id: 'id' }, '带上本行的 id，否则弹开的是全站事件');
+		/**
+		 * **两条以上才给按钮。** 一条的时候列表上那一列「最近处理」显示的就是它的全部
+		 * （时间、处理类型、操作者、理由），点开只是把同一行字换个地方再看一遍。
+		 */
+		assert.deepEqual(eventsAction.visibleWhen, { field: '_events', values: ['many'] });
+		const eventCounts = new Set(auditTable.table.dataSource.map((row) => row._events));
+		assert.ok(eventCounts.has('one') || eventCounts.has(''), '只处理过一次或没处理过的行不给按钮');
 		const eventsPage = await (await app.request('http://localhost/api/panel/admin/base/approval-events.php?include=schema,data', { headers: { ...headers, cookie } })).json();
 		// 只读：事件只追加不修改，改一条已经发生的处理经过等于篡改证据。
 		assert.deepEqual(Object.keys(eventsPage.table.option.actions), ['query'], '没有新增、编辑、删除，也没有回收站');
