@@ -5,6 +5,7 @@ import { allSql, AUDIT_TABLE, firstSql, isUniqueViolation, runSystemSql, sql, ty
 import { isDigestValueColumn, isHiddenValueColumn } from '@shared/audit-tables.mjs';
 import { serializeAuditChanges } from './audit.mjs';
 import { isSystemField } from '@shared/system-fields.mjs';
+import { normalizeApiPath } from './request-origin.mjs';
 import { submitterIdsOf, submitterNames } from './super-users.mjs';
 
 /**
@@ -616,8 +617,11 @@ export const runOperation = async (
 				// 记去掉后缀的逻辑路径：`.php` 是站点可配的接口后缀，同一个接口在不同站点
 				// 可能是 /api/panel/me.php、/api/panel/me.json 或干脆没有后缀。记原样的话，
 				// 同一件事在审计里长出好几种写法，按路径筛选也就筛不干净。
-				const suffix = c.get('techStackConfig')?.apiSuffix ?? '';
-				const path = suffix && url.pathname.endsWith(suffix) ? url.pathname.slice(0, -suffix.length) : url.pathname;
+				//
+				// 用路由匹配那一侧的同一个函数（normalizeApiPath）：这里原先自己写了一版
+				// `endsWith`，对集合地址好使，对成员地址 `/…/users.php/2` 一个字都剥不掉——
+				// 后缀在中间。同一件事两套算法，走偏的那一套就是这么留下带 `.php` 的记录的。
+				const path = normalizeApiPath(url.pathname, c.get('techStackConfig')?.apiSuffix ?? '');
 				return { hostname: url.hostname, path };
 			} catch { return { hostname: '', path: '' }; }
 		})();

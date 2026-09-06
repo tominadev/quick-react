@@ -685,6 +685,23 @@ const auditRouteFilter = async () => {
 		// 只看「改」：建号也会写一条资料行，那一条的来路是后台的建号接口，不是个人中心。
 		assert.deepEqual([...new Set(originRows.filter((row) => row.action === 'update').map((row) => row.request_path))], ['/api/panel/me']);
 		assert.ok(originRows.some((row) => row.request_hostname === 'site-b.test'), '域名要如实记下来，而不是都记成同一个');
+		/**
+		 * **成员地址的后缀也要剥掉。**
+		 *
+		 * 后缀贴在「接口入口」那一段上，后面还可以跟成员 id：`/…/users.php/2`。原先这里
+		 * 自己写了一版 `endsWith` 判断，集合地址剥得干净，成员地址一个字都剥不掉——同一件事
+		 * 在审计里长出两种写法。现在与路由匹配共用 normalizeApiPath。
+		 */
+		const memberApi = 'http://localhost/api/panel/admin/base/users.php';
+		assert.equal((await app.request(memberApi, { method: 'POST', headers: { ...headers, cookie }, body: JSON.stringify({ user_name: 'pathguy', password: 'path-password-1', roles: [], status: 'enabled' }) })).status, 202);
+		assert.equal((await decide('approve', await pendingIds())).status, 200);
+		const pathTarget = (await (await app.request(`${memberApi}?include=schema,data`, { headers: { ...headers, cookie } })).json()).table.dataSource.find((row) => row.user_name === 'pathguy');
+		assert.equal((await app.request(`${memberApi}/${pathTarget.id}`, { method: 'PUT', headers: { ...headers, cookie }, body: JSON.stringify({ status: 'disabled', __changedFields: ['status'] }) })).status, 202);
+		const memberRows = (await (await app.request('http://localhost/api/panel/admin/base/audit.php?include=schema,data&table_name=base_users', { headers: { ...headers, cookie } })).json()).table.dataSource;
+		const memberPaths = [...new Set(memberRows.map((row) => String(row.request_path)))];
+		assert.ok(memberPaths.every((path) => !path.includes('.php')), `request_path 不该带接口后缀：${memberPaths.join(' ')}`);
+		assert.ok(memberPaths.includes(`/api/panel/admin/base/users/${pathTarget.id}`), `成员地址剥掉后缀后应是 /api/panel/admin/base/users/<id>：${memberPaths.join(' ')}`);
+		assert.equal((await decide('reject', await pendingIds())).status, 200);
 		// 域名与接口路径由服务端自己看到，不听客户端的：页面路径要靠 referer 推断，
 		// 那是客户端说什么就是什么，写进审计等于给伪造留了口子。
 		const operation = await readFile(resolve(projectDirectory, 'server/modules/base/operation.mts'), 'utf8');

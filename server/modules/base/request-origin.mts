@@ -1,6 +1,27 @@
 import type { Context } from 'hono';
 import type { AppEnv } from './types.mjs';
 
+/**
+ * 把接口地址上那层可配的后缀剥掉，还原成路由表里的逻辑路径。
+ *
+ * `.php` 是站点可配的技术栈伪装（`API_ROUTE_SUFFIX`，后台还能改成 `.json` 或留空），不是
+ * 路径的一部分——同一个接口在不同站点长得不一样，而它们说的是同一件事。
+ *
+ * **按段找，不按结尾找。** 后缀贴在「接口入口」那一段上，后面还可以跟成员 id：
+ * `/api/panel/admin/base/users.php/2`。用 `endsWith` 判的话这种地址一个字都剥不掉——
+ * 审计里的 request_path 就是这么带上 `.php` 的，而集合地址却剥得干净，同一件事两种写法。
+ *
+ * 路由匹配与审计留痕共用这一个函数：两边各写一套的结果就是上面那个 bug。
+ */
+export const normalizeApiPath = (path: string, apiSuffix: string) => {
+	if (!apiSuffix) return path;
+	const segments = path.split('/');
+	const suffixIndex = segments.findIndex((segment) => segment.endsWith(apiSuffix));
+	if (suffixIndex < 0) return path;
+	segments[suffixIndex] = segments[suffixIndex].slice(0, -apiSuffix.length);
+	return segments.join('/');
+};
+
 const isLocalHost = (hostname: string) => hostname === 'localhost' || hostname === '127.0.0.1' || hostname === '::1';
 
 export const requestOrigin = (c: Context<AppEnv>) => {

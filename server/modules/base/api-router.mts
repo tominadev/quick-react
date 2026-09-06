@@ -5,6 +5,7 @@ import { handleTableCrudAction, tableCrudDatabase, type TableCrudDefinition } fr
 import { withDatabaseDeletedScope, withDatabasePendedScope } from '@server/database/index.mjs';
 import { deletedScopeFromQuery } from './query-options.mjs';
 import { operationScope } from './operation.mjs';
+import { normalizeApiPath } from './request-origin.mjs';
 
 export type ApiNext = () => Promise<Response>;
 
@@ -20,15 +21,6 @@ export type SiteApiRoute = { site: string; path: string };
 type RouteMatcher = {
 	exact: Map<string, Set<string>>;
 	byLength: Map<number, SiteApiRoute[]>;
-};
-
-const normalizeApiPath = (path: string, apiSuffix: string) => {
-	if (!apiSuffix) return path;
-	const segments = path.split('/');
-	const suffixIndex = segments.findIndex((segment) => segment.endsWith(apiSuffix));
-	if (suffixIndex < 0) return path;
-	segments[suffixIndex] = segments[suffixIndex].slice(0, -apiSuffix.length);
-	return segments.join('/');
 };
 
 const createRouteMatcher = (routes: SiteApiRoute[]): RouteMatcher => {
