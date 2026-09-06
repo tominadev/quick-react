@@ -2,7 +2,7 @@ import type { Context } from 'hono';
 import type { AppEnv } from './types.mjs';
 import type { DatabaseAdapter, DatabaseRunResult } from '@server/database/index.mjs';
 import { allSql, AUDIT_TABLE, firstSql, runSystemSql, sql, type SqlAuditAction, type SqlAuditMetadata, type SqlCondition, type SqlInsertAuditMetadata, type SqlQuery } from '@server/database/sql.mjs';
-import { isHiddenValueColumn } from '@shared/audit-tables.mjs';
+import { isDigestValueColumn, isHiddenValueColumn } from '@shared/audit-tables.mjs';
 import { serializeAuditChanges } from './audit.mjs';
 import { isSystemField } from '@shared/system-fields.mjs';
 
@@ -275,8 +275,11 @@ const jsonKeyDiff = (before: unknown, after: unknown) => {
  *
  * `changes_before` 是 `{}`——空对象本身就说清了「这一行之前不存在」，比一串 null 干净。
  *
- * **隐藏列一个都不进来**：password、client_secret 这类抄进审批表就会在那里躺满保留期，
+ * **明文密钥一个都不进来**：client_secret、dsn 这类抄进审批表就会在那里躺满保留期，
  * 而它们对「我在批什么」毫无帮助。这里是不写入，比在显示时脱敏更彻底——库里根本没有。
+ *
+ * `password` 是例外：它存的本来就是摘要，抄的也是摘要（见 DIGEST_VALUE_COLUMNS）。换到
+ * 两件事——批准前核得出「这一行的凭证还是不是提交时那一份」，以及审批人看得到密码规律。
  *
  * 归属列、时间戳与 `key` 也不写：前两样每一行都有，`key` 已经是「记录标识」那一列。
  *
@@ -288,7 +291,7 @@ const jsonKeyDiff = (before: unknown, after: unknown) => {
  */
 const insertChanges = (values: Record<string, unknown>) => Object.fromEntries(Object.entries(values)
 	.filter(([name, value]) => value !== undefined && value !== null && value !== ''
-		&& !isHiddenValueColumn(name) && !isSystemField(name) && !name.startsWith('owner_'))
+		&& !(isHiddenValueColumn(name) && !isDigestValueColumn(name)) && !isSystemField(name) && !name.startsWith('owner_'))
 	.map(([name, value]) => [name, value]));
 
 /**

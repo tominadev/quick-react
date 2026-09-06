@@ -1,9 +1,10 @@
 import { withDatabaseActors, type DatabaseAdapter } from '@server/database/index.mjs';
 import { createDatabaseConfigStore } from './config-store.mjs';
 import { CONFIG_TABLE, invalidateConfigurationCache } from './configuration-cache.mjs';
+import { readStoredPassword } from './auth/index.mjs';
 import { normalizeSiteSettings } from './site-settings.mjs';
 import { allSql, AUDIT_TABLE, firstSql, runSql, runSystemSql, sql, type SqlAuditAction, type SqlCondition, type SqlSortOption } from '@server/database/sql.mjs';
-import { isHiddenValueColumn, isHiddenValueKey } from '@shared/audit-tables.mjs';
+import { isDigestValueColumn, isHiddenValueColumn, isHiddenValueKey } from '@shared/audit-tables.mjs';
 
 export type AuditChange = { before: unknown; after: unknown };
 export type AuditChanges = Record<string, AuditChange>;
@@ -119,6 +120,18 @@ const jsonDiff = (before: Record<string, unknown>, after: Record<string, unknown
  * 不该显示，脱敏规则只有一套。
  */
 const flattenChange = (column: string, change: { before?: unknown; after?: unknown }) => {
+	/**
+	 * 摘要列显示成**密码规律**：`空 → DDDDLLLL`（D 数字 / U 大写 / L 小写 / S 其他）。
+	 *
+	 * 「这个新账号的密码是 8 位纯数字」是一条审批人能据此驳回的理由，而规律本身既不是口令、
+	 * 也推不出口令——它就是用户管理页上那一列「密码特征」。整块 blob 仍然不露：salt 与 hash
+	 * 一个字都不显示。
+	 */
+	if (isDigestValueColumn(column)) {
+		const pattern = (value: unknown) => readStoredPassword(value)?.pattern;
+		const [before, after] = [pattern(change.before), pattern(change.after)];
+		if (before !== undefined || after !== undefined) return [{ path: `${column}（规律）`, before, after, hidden: false }];
+	}
 	// 整列隐藏的列**绝不展开**：password 也是 JSON 列，逐键拆开就等于把
 	// password.hash 明明白白写在页面上。隐藏与否先在最外层定死。
 	if (isHiddenValueColumn(column)) return [{ path: column, before: change.before, after: change.after, hidden: true }];
@@ -369,12 +382,33 @@ const rowCondition = (entry: AuditEntryRow): SqlCondition => (
  * 恢复出来的行仍然对业务查询不可见，却又出现在管理列表里(那里看得见待审批的行)，
  * 成了一个谁也说不清状态的幽灵。
  */
+/** 递归按键名排序：比较 JSON 值时键序不能算差异。 */
+const canonicalValue = (value: unknown): unknown => {
+	if (Array.isArray(value)) return value.map(canonicalValue);
+	if (!value || typeof value !== 'object') return value;
+	const source = value as Record<string, unknown>;
+	return Object.fromEntries(Object.keys(source).sort().map((key) => [key, canonicalValue(source[key])]));
+};
+
 /**
- * 比较用的归一形式：BIGINT 各驱动返回的类型不一（number / string / bigint），一律按字符串比；
- * 数组与对象按 JSON 比，`String(['a','b'])` 会得到 `a,b`，两个不同的数组可能撞上。
+ * 比较用的归一形式。三种情况都要拉平，否则「内容没变」会被判成「被人改过」：
+ *
+ * - **BIGINT** 各驱动返回的类型不一（number / string / bigint），一律按字符串比。
+ * - **数组与对象**按 JSON 比：`String(['a','b'])` 得到 `a,b`，两个不同的数组会撞上。
+ * - **键序**必须先排。行上读回来的是文本，而 JSON 列在 PostgreSQL 上落成 **JSONB**——
+ *   它按自己的规则重排键，回读到的字符串与写进去时的不是同一串。不排的话，凡是带 JSON
+ *   列的新建（`password` 就是一个）在 PostgreSQL 上每次批准都会被判成「内容与申请不一致」，
+ *   而在 SQLite 上一切正常，只有上线才发作。
  */
-const storedKey = (value: unknown) => value === null || value === undefined ? ''
-	: typeof value === 'object' ? JSON.stringify(value) : String(value);
+const storedKey = (value: unknown) => {
+	if (value === null || value === undefined) return '';
+	// 文本先试着当 JSON 解一次：行上的 JSON 列读回来是字符串，记录里存的是对象。
+	// 只认对象与数组——`'123'` 解出来是数字，那是普通业务文本，不能当 JSON 处理。
+	const parsed = typeof value === 'string'
+		? (() => { try { const result: unknown = JSON.parse(value); return result && typeof result === 'object' ? result : value; } catch { return value; } })()
+		: value;
+	return typeof parsed === 'object' ? JSON.stringify(canonicalValue(parsed)) : String(parsed);
+};
 
 /**
  * 批准之前核一遍：这一行的内容还是不是申请里写的那一份。

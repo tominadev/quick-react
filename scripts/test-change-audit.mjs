@@ -397,6 +397,29 @@ const auditRouteFilter = async () => {
 		afterReject.close();
 
 		/**
+		 * 凭证也进 changes_after，因此**换掉待审批那一行的密码也会被发现**。
+		 *
+		 * 它存的本来就是摘要，抄进记录里抄的也是摘要，不是口令。顺带审批人看得到**密码规律**
+		 * ——「这个新账号的密码是 8 位纯数字」是一条能据此驳回的理由，而规律既不是口令、
+		 * 也推不出口令，就是用户管理页上那一列「密码特征」。
+		 */
+		{
+			const pwdApi = 'http://localhost/api/panel/admin/base/users.php';
+			assert.equal((await app.request(pwdApi, { method: 'POST', headers: { ...headers, cookie }, body: JSON.stringify({ user_name: 'pwdguy', password: 'Abc12345', roles: [], status: 'enabled' }) })).status, 202);
+			const queued = await (await app.request('http://localhost/api/panel/admin/base/audit.php?include=data&review_status=pending&table_name=base_user_credentials', { headers: { ...headers, cookie } })).json();
+			const credential = queued.table.dataSource[0];
+			assert.match(credential.summary, /password（规律）：空 → ULLDDDDD/, '看得到规律，看不到口令');
+			assert.doesNotMatch(credential.summary, /salt|hash|Abc12345/, '整块 blob 一个字都不露');
+			// 把待审批那一行的凭证换掉，批准就该被挡住。
+			const swap = new DatabaseSync(process.env.DEFAULT_DATABASE_FILE);
+			swap.prepare("UPDATE base_user_credentials SET password = json('{\"salt\":\"x\",\"hash\":\"y\",\"pattern\":\"DDDD\"}') WHERE user_id = (SELECT id FROM base_users WHERE name = 'pwdguy')").run();
+			swap.close();
+			const decided = await decide('approve', await pendingIds());
+			assert.match((await decided.json()).feedback?.message ?? '', /内容与申请里的不一致/);
+			assert.equal((await decide('reject', await pendingIds())).status, 200);
+		}
+
+		/**
 		 * **批准之前核一遍内容：你批的必须就是你看到的。**
 		 *
 		 * 批准修改早就有这道校验（每一列的当前值必须还等于记录里的前值），批准新增却没有：

@@ -31,6 +31,20 @@ export const HIDDEN_VALUE_COLUMNS = [
 
 const hiddenValueColumns: ReadonlySet<string> = new Set(HIDDEN_VALUE_COLUMNS);
 
+/**
+ * 这些隐藏列**存的本来就是摘要**，抄进审批记录里抄的也是摘要，不是口令。
+ *
+ * 其余隐藏列（`client_secret`、`dsn`、`token`…）存的是明文密钥，抄一份进一张保留期一年的
+ * 表就是实打实的扩大暴露面，因此新建那一支照旧不抄它们。
+ *
+ * 抄进来换到两件事：批准之前能核对「这一行的凭证还是不是提交时那一份」（不抄的话待审批
+ * 期间有人把哈希换掉，批准时发现不了）；以及审批人看得到**密码规律**——「这个新账号的
+ * 密码是 8 位纯数字」是一条能据此驳回的理由。
+ */
+export const DIGEST_VALUE_COLUMNS = ['password'] as const;
+const digestValueColumns: ReadonlySet<string> = new Set(DIGEST_VALUE_COLUMNS);
+export const isDigestValueColumn = (column: string) => digestValueColumns.has(column);
+
 export const isHiddenValueColumn = (column: string) => hiddenValueColumns.has(column);
 
 /**
