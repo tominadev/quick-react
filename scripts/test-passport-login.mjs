@@ -65,7 +65,7 @@ const fingerprintData = JSON.stringify({ canvas_cyrb53: '4b5a6c7d8e9f', audio_cy
 	assert.deepEqual((await (await request('/api/sign.php')).json()).formPage.fields.map((field) => field.name), ['action']);
 	assert.deepEqual((await (await request('/api/sign.php', { host: 'global.test' })).json()).formPage.fields.map((field) => field.name), ['action']);
 	assert.deepEqual((await (await request('/api/sign.php', { host: 'business.test' })).json()).formPage.fields.map((field) => field.name), ['action']);
-	const staleLocalSubmit = await request('/api/sign.php', { method: 'POST', body: { user_name: 'old-form', password: 'password', remember: false } });
+	const staleLocalSubmit = await request('/api/sign.php', { method: 'POST', body: { user_name: 'old-form', password: 'password' } });
 	assert.equal(staleLocalSubmit.status, 409);
 	assert.match((await staleLocalSubmit.json()).feedback.message, /刷新页面/);
 
@@ -78,7 +78,7 @@ const fingerprintData = JSON.stringify({ canvas_cyrb53: '4b5a6c7d8e9f', audio_cy
 	writeAccountsLogin(false);
 	for (const host of ['passport.test', 'global.test', 'business.test']) {
 		const localForm = await (await request('/api/sign.php', { host })).json();
-		assert.deepEqual(localForm.formPage.fields.map((field) => field.name), ['user_name', 'password', 'remember']);
+		assert.deepEqual(localForm.formPage.fields.map((field) => field.name), ['user_name', 'password']);
 	}
 	const staleAccountsSubmit = await request('/api/sign.php', { host: 'business.test', method: 'POST', body: { step: 'email', email: 'user@example.com' } });
 	assert.equal(staleAccountsSubmit.status, 409);

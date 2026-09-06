@@ -24,7 +24,6 @@ const parseCredentials = async (c: Parameters<ApiHandler>[0]) => {
 	return {
 		user_name: String(body.user_name ?? '').trim().slice(0, 64),
 		password: String(body.password ?? ''),
-		remember: body.remember === true,
 	};
 };
 
@@ -40,13 +39,12 @@ const localSign: ApiHandler = async (c, next) => {
 	if (c.req.method === 'GET') {
 		const isSignUp = new URL(c.req.url).searchParams.get('mode') === 'sign-up';
 		const formPage: FormPageConfig = {
-			initialValues: { user_name: '', password: '', ...(isSignUp ? { password_confirm: '' } : {}), remember: false },
+			initialValues: { user_name: '', password: '', ...(isSignUp ? { password_confirm: '' } : {}) },
 			submitLabel: isSignUp ? '注册' : '登录',
 			fields: [
 				{ name: 'user_name', label: '用户名', maxLength: 64, rules: [{ required: true, message: '请输入用户名' }] },
 				{ name: 'password', label: '密码', type: 'password', rules: [{ required: true, message: '请输入密码' }] },
 				...(isSignUp ? [{ name: 'password_confirm', label: '确认密码', type: 'password' as const, rules: [{ required: true, message: '请确认密码' }] }] : []),
-				...(!isSignUp ? [{ name: 'remember', label: '记住我', type: 'switch' as const }] : []),
 			],
 		};
 		return apiResponse(c, 200, {
@@ -186,7 +184,9 @@ const handler: ApiHandler = async (c, next) => {
 	if (c.req.method === 'POST') {
 		try {
 			const body = await c.req.json<Record<string, unknown>>().catch(() => ({}));
-			if ('user_name' in body || 'remember' in body) return apiMessage(c, 409, '登录方式已切换为 Accounts 登录，请刷新页面后重试');
+			// 收到本站账号密码表单说明客户端拿的是旧页面：`user_name` 是那张表单的必有字段，
+			// 认它就够了。
+			if ('user_name' in body) return apiMessage(c, 409, '登录方式已切换为 Accounts 登录，请刷新页面后重试');
 			const discovery = await loadDiscovery(c, config.issuer), id = crypto.randomUUID(), state = randomToken(), nonce = randomToken(), verifier = randomToken(48), now = Date.now();
 			const database = c.get('database');
 			let returnPath = '/';

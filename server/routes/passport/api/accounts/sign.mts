@@ -290,7 +290,7 @@ const handler: ApiHandler = async (c, next) => {
 	}
 	if (c.req.method !== 'POST') return next();
 	const body = await parseBody(c), step = text(body.step) || 'email', action = c.req.query('action')?.trim();
-	if (!('step' in body) && ('user_name' in body || 'remember' in body)) return apiMessage(c, 409, '登录方式已切换为 Accounts 登录，请刷新页面后重试');
+	if (!('step' in body) && 'user_name' in body) return apiMessage(c, 409, '登录方式已切换为 Accounts 登录，请刷新页面后重试');
 
 	/** 登录页的第三方按钮：Telegram 走邮箱 + 消息批准，其余跳转到外部身份源。 */
 	if (action?.startsWith('provider:')) {

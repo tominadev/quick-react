@@ -45,7 +45,7 @@ const deviceKey = '00000000-0000-4000-8000-000000000001';
 	// 登录页是本站账号密码表单，不下发 Accounts 登录入口。
 	const signForm = await (await request('/api/sign.php')).json();
 	assert.equal(signForm.formPage.passportLogin, undefined);
-	assert.deepEqual(signForm.formPage.fields.map((field) => field.name), ['user_name', 'password', 'remember']);
+	assert.deepEqual(signForm.formPage.fields.map((field) => field.name), ['user_name', 'password']);
 
 	// 误触发的 SDK 登录请求要给出明确提示，不能落到本地密码登录报"用户名或密码错误"。
 	const sdkLogin = await request('/api/sign.php', { method: 'POST', body: { action: 'login' } });
