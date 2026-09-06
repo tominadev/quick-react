@@ -33,6 +33,11 @@ const routeTables = {
 	'passport/api/panel/admin/passport/external-providers.mts': 'passport_external_providers',
 	'passport/api/panel/admin/passport/oidc/clients.mts': 'passport_oidc_clients',
 	'passport/api/panel/admin/passport/users.mts': 'passport_users',
+	'sms/api/panel/admin/sms/integration-clients.mts': 'sms_integration_clients',
+	'sms/api/panel/admin/sms/machines.mts': 'sms_generator_machines',
+	'sms/api/panel/admin/sms/tokens.mts': 'sms_shortcut_tokens',
+	'sms/api/panel/user/sms/messages.mts': 'sms_messages',
+	'sms/api/panel/user/sms/phones.mts': 'sms_phones',
 };
 
 /**
@@ -59,8 +64,14 @@ const walk = async (directory) => {
 };
 
 const schemaColumns = new Map();
-for (const site of ['base', 'global', 'passport', 'pve']) {
-	const source = await readFile(resolve(projectDirectory, 'prisma', `${site}.prisma`), 'utf8');
+// 站点列表从 prisma 目录读，不写死：写死的那份漏掉了后来加的 sms，于是它那五张表
+// 的列顺序一条都没被比过——检查还在跑，只是不再检查任何东西。
+const schemaFiles = (await readdir(resolve(projectDirectory, 'prisma'), { withFileTypes: true }))
+	.filter((entry) => entry.isFile() && entry.name.endsWith('.prisma'))
+	.map((entry) => entry.name);
+assert.ok(schemaFiles.length >= 4, `prisma schema 太少，扫描逻辑可能失效：${schemaFiles.length}`);
+for (const file of schemaFiles) {
+	const source = await readFile(resolve(projectDirectory, 'prisma', file), 'utf8');
 	for (const model of source.matchAll(/model\s+(\w+)\s*\{([\s\S]*?)\n\}/g)) {
 		schemaColumns.set(model[1], [...model[2].matchAll(/^\s{2}([a-z_]+)\s+\S/gm)].map((match) => match[1]));
 	}

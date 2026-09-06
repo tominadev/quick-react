@@ -26,16 +26,16 @@ const STATUS_OPTIONS = [
 
 const columns = [
 	{ dataIndex: 'id', title: 'ID', dataType: 'int' as const },
+	{ dataIndex: 'created_at', title: '创建时间', dataType: 'js_timestamp' as const, dayjsFormat: 'YYYY-MM-DD HH:mm:ss', form: { create: false as const, edit: false as const } },
 	// 哈希摆前 12 位：够在几千条里认出是哪一条，又不必让 64 个字符把表格撑开。
 	// 原文服务端也没有——库里存的就是哈希。
 	{ dataIndex: 'token_digest', title: '令牌哈希', ellipsis: true, form: { create: false as const, edit: false as const } },
-	{ dataIndex: 'status', title: '状态', options: STATUS_OPTIONS, form: { create: false as const, edit: false as const } },
 	{ dataIndex: 'phone_id', title: '绑定手机', dataType: 'int' as const, emptyText: '未绑定', form: { create: false as const, edit: false as const } },
+	{ dataIndex: 'status', title: '状态', options: STATUS_OPTIONS, form: { create: false as const, edit: false as const } },
 	{ dataIndex: 'revoke', title: '撤销', component: 'switch' as const, checkedValue: true, uncheckedValue: false,
 		hideInTable: true, form: { create: false as const, edit: { title: '撤销这个令牌' } },
 		placeholder: '打开并保存后立即作废，绑着它的手机不再能提交短信' },
-	{ dataIndex: 'last_used_at', title: '最近提交', dataType: 'js_timestamp' as const, dayjsFormat: 'YYYY-MM-DD HH:mm:ss', emptyText: '从未', form: { create: false as const, edit: false as const } },
-	{ dataIndex: 'created_at', title: '创建时间', dataType: 'js_timestamp' as const, dayjsFormat: 'YYYY-MM-DD HH:mm:ss', form: { create: false as const, edit: false as const } }];
+	{ dataIndex: 'last_used_at', title: '最近提交', dataType: 'js_timestamp' as const, dayjsFormat: 'YYYY-MM-DD HH:mm:ss', emptyText: '从未', form: { create: false as const, edit: false as const } }];
 
 export const tableCrud: TableCrudDefinition = { table: 'sms_shortcut_tokens', rowKey: 'id' };
 

@@ -23,6 +23,7 @@ const SCOPE_OPTIONS = [{ value: 'phone:bind', text: '绑定手机', color: 'blue
 
 const columns = [
 	{ dataIndex: 'id', title: 'ID', dataType: 'int' as const },
+	{ dataIndex: 'created_at', title: '创建时间', dataType: 'js_timestamp' as const, dayjsFormat: 'YYYY-MM-DD HH:mm:ss', form: { create: false as const, edit: false as const } },
 	{ dataIndex: 'name', title: '接入方标识', component: 'textbox' as const, maxLength: 64,
 		placeholder: '票据里的 client_id',
 		rules: [{ required: true, message: '请输入接入方标识' }] },
@@ -30,8 +31,7 @@ const columns = [
 		rules: [{ required: true, message: '请输入名称' }] },
 	{ dataIndex: 'binding_scope', title: '允许的能力', component: 'select' as const, options: SCOPE_OPTIONS, multiple: true },
 	{ dataIndex: 'status', title: '状态', component: 'switch' as const, checkedValue: statusValues.enabled, uncheckedValue: statusValues.disabled, options: enabledDisabledOptions },
-	{ dataIndex: 'last_used_at', title: '最近验签', dataType: 'js_timestamp' as const, dayjsFormat: 'YYYY-MM-DD HH:mm:ss', emptyText: '从未', form: { create: false as const, edit: false as const } },
-	{ dataIndex: 'created_at', title: '创建时间', dataType: 'js_timestamp' as const, dayjsFormat: 'YYYY-MM-DD HH:mm:ss', form: { create: false as const, edit: false as const } }];
+	{ dataIndex: 'last_used_at', title: '最近验签', dataType: 'js_timestamp' as const, dayjsFormat: 'YYYY-MM-DD HH:mm:ss', emptyText: '从未', form: { create: false as const, edit: false as const } }];
 
 export const tableCrud: TableCrudDefinition = { table: 'sms_integration_clients', rowKey: 'id' };
 

@@ -19,10 +19,10 @@ import type { TableCrudDefinition } from '@server/modules/base/table-crud.mjs';
 const columns = [
 	{ dataIndex: 'id', title: 'ID', dataType: 'int' as const },
 	{ dataIndex: 'phone_number', title: '接收手机', emptyText: '手机已删除' },
-	{ dataIndex: 'sender', title: '发送人', emptyText: '未知' },
 	// 正文多行显示：验证码短信不长，但通知类的经常两三行，截断了就得逐条点开看。
 	{ dataIndex: 'content', title: '内容', tableDisplay: 'multiline' as const },
 	{ dataIndex: 'recipients', title: '收件人', emptyText: '未提供' },
+	{ dataIndex: 'sender', title: '发送人', emptyText: '未知' },
 	{ dataIndex: 'received_at', title: '接收时间', dataType: 'js_timestamp' as const, dayjsFormat: 'YYYY-MM-DD HH:mm:ss' }];
 
 export const tableCrud: TableCrudDefinition = { table: 'sms_messages', rowKey: 'id' };

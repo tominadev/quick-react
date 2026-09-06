@@ -26,6 +26,7 @@ const namePattern = /^[a-z0-9][a-z0-9-]{0,62}$/;
 
 const columns = [
 	{ dataIndex: 'id', title: 'ID', dataType: 'int' as const },
+	{ dataIndex: 'created_at', title: '创建时间', dataType: 'js_timestamp' as const, dayjsFormat: 'YYYY-MM-DD HH:mm:ss', form: { create: false as const, edit: false as const } },
 	{ dataIndex: 'name', title: '机器标识', component: 'textbox' as const, maxLength: 64,
 		placeholder: '如 mac-studio-01；小写字母、数字与连字符',
 		// 改不得：它是对象键里的目录名，改了之后这台机器已经上传的文件全都对不上号。
@@ -40,8 +41,7 @@ const columns = [
 		hideInTable: true, form: { create: false as const, edit: { title: '重置凭证' } },
 		placeholder: '打开并保存后换发新凭证，旧凭证立即失效' },
 	{ dataIndex: 'status', title: '状态', component: 'switch' as const, checkedValue: statusValues.enabled, uncheckedValue: statusValues.disabled, options: enabledDisabledOptions },
-	{ dataIndex: 'last_used_at', title: '最近调用', dataType: 'js_timestamp' as const, dayjsFormat: 'YYYY-MM-DD HH:mm:ss', emptyText: '从未', form: { create: false as const, edit: false as const } },
-	{ dataIndex: 'created_at', title: '创建时间', dataType: 'js_timestamp' as const, dayjsFormat: 'YYYY-MM-DD HH:mm:ss', form: { create: false as const, edit: false as const } }];
+	{ dataIndex: 'last_used_at', title: '最近调用', dataType: 'js_timestamp' as const, dayjsFormat: 'YYYY-MM-DD HH:mm:ss', emptyText: '从未', form: { create: false as const, edit: false as const } }];
 
 export const tableCrud: TableCrudDefinition = { table: 'sms_generator_machines', rowKey: 'id' };
 
