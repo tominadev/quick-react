@@ -71,8 +71,9 @@ const createSiteRecord = (row: SiteRow): SiteRecord => ({
 	databaseBinding: row.database_binding,
 	status: row.status,
 	migrationStatus: row.migration_status,
-	isDefault: row.is_default === 1,
-	isSystem: row.is_system === 1,
+	// 宽容判断：SQLite 把 Boolean 存成 0/1 读回来是数字，PostgreSQL 读回来是 true/false。
+	isDefault: Boolean(row.is_default),
+	isSystem: Boolean(row.is_system),
 });
 
 const buildSiteChain = (site: SiteRecord, sites: Map<string, SiteRecord>) => {

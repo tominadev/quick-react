@@ -187,7 +187,7 @@ export const verifyAccountEmailOtp = async (database: DatabaseAdapter, userId: s
 	const existing = await listAccountEmails(database, userId);
 		const emailId = nextSnowflake();
 	const statements: DatabaseBatchStatement[] = [
-		sql({ database }).insert('passport_emails', { id: emailId, email: otp.email, verified: 1 }),
+		sql({ database }).insert('passport_emails', { id: emailId, email: otp.email, verified: true }),
 		sql({ database }).insert('passport_user_emails', { user_key: userId, email_id: emailId, is_primary: existing.length ? 0 : 1 }),
 		sql({ database }).update('passport_user_email_otps', { status: 'used' }, { otp_id: otp.id }),
 	];
@@ -202,8 +202,8 @@ export const setPrimaryAccountEmail = async (c: Context<AppEnv>, database: Datab
 	if (!target) throw new Error('邮箱不存在或不属于当前账号');
 	if (!target.verified) throw new Error('邮箱尚未验证，不能设为主邮箱');
 	if (target.is_primary) return target.email;
-	await runOperationSql(c, database, sql({ database }).update('passport_user_emails', { is_primary: 0 }, { user_key: userId }));
-	await runOperationSql(c, database, sql({ database }).update('passport_user_emails', { is_primary: 1 }, { user_key: userId, email_id: emailId }));
+	await runOperationSql(c, database, sql({ database }).update('passport_user_emails', { is_primary: false }, { user_key: userId }));
+	await runOperationSql(c, database, sql({ database }).update('passport_user_emails', { is_primary: true }, { user_key: userId, email_id: emailId }));
 	return target.email;
 };
 

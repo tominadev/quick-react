@@ -5,7 +5,7 @@ import { apiMessage, apiMessageData, apiResponse } from '@server/modules/base/ap
 import { getCloudEmailProduct, getCloudEmailRegionLabel } from '@server/modules/global/cloud/catalog.mjs';
 import { cloudEmailPurposeOptions } from '@server/modules/global/cloud/email-purposes.mjs';
 import type { DatabaseAdapter } from '@server/database/index.mjs';
-import { getChangedFields } from '@server/modules/base/changed-fields.mjs';
+import { booleanValue, getChangedFields } from '@server/modules/base/changed-fields.mjs';
 import { enabledDisabledOptions, statusValues } from '@shared/types/status.mjs';
 import type { TableCrudDefinition } from '@server/modules/base/table-crud.mjs';
 
@@ -26,7 +26,6 @@ const columns = [
 
 const parseBody = async (c: Parameters<ApiHandler>[0]): Promise<Record<string, unknown>> => c.req.json<Record<string, unknown>>().catch(() => ({}));
 const text = (value: unknown) => typeof value === 'string' ? value.trim() : '';
-const booleanValue = (value: unknown) => value === true || value === 1 || value === '1';
 const listOptions = async (database: DatabaseAdapter) => {
 	const [sites, channels, templates] = await Promise.all([
 		allSql<{ site_key: string; title: string }>(database, sql({ database }).select({ table: 'global_sites', columns: { site_key: 'key', title: 'title' }, where: [{ column: 'status', value: 'enabled' }, { column: 'migration_status', value: 'ready' }], orderBy: [{ column: 'key' }] })),
@@ -60,7 +59,7 @@ const validateTarget = async (database: DatabaseAdapter, siteKey: string, channe
 	}
 	return { purpose: template.template_type };
 };
-const clearOtherDefaults = (c: Context<AppEnv>, database: DatabaseAdapter, id: number, siteKey: string, purpose: string) => runOperationSql(c, database, sql({ database }).update('global_cloud_email_bindings', { is_default: 0 }, [{ column: 'site_key', value: siteKey }, { column: 'purpose', value: purpose }, { column: 'id', operator: '!=', value: id }, { column: 'is_default', value: 1 }]));
+const clearOtherDefaults = (c: Context<AppEnv>, database: DatabaseAdapter, id: number, siteKey: string, purpose: string) => runOperationSql(c, database, sql({ database }).update('global_cloud_email_bindings', { is_default: false }, [{ column: 'site_key', value: siteKey }, { column: 'purpose', value: purpose }, { column: 'id', operator: '!=', value: id }, { column: 'is_default', value: true }]));
 const deleteBinding = async (c: Context<AppEnv>, database: DatabaseAdapter, id: number) => {
 	const row = await firstSql<{ id: number; status: string }>(database, sql({ database }).select({ table: 'global_cloud_email_bindings', columns: { id: 'id', status: 'status' }, where: [{ column: 'id', value: id }] }));
 	if (!row) return '邮件绑定不存在';
@@ -95,8 +94,8 @@ const handler: ApiHandler = async (c, next, params) => {
 			const insert = builder.insert('global_cloud_email_bindings', { site_key: siteKey, channel_id: channelId, template_id: templateId, purpose, is_default: isDefault && !database.batch ? isDefault : 0, status });
 			if (isDefault && database.batch) await database.batch([
 				insert,
-				builder.update('global_cloud_email_bindings', { is_default: 0 }, { site_key: siteKey, purpose, is_default: 1 }),
-				builder.update('global_cloud_email_bindings', { is_default: 1 }, { site_key: siteKey, channel_id: channelId, template_id: templateId, purpose }),
+				builder.update('global_cloud_email_bindings', { is_default: false }, { site_key: siteKey, purpose, is_default: true }),
+				builder.update('global_cloud_email_bindings', { is_default: true }, { site_key: siteKey, channel_id: channelId, template_id: templateId, purpose }),
 			]);
 			else await runSql(database, insert);
 			const created = await firstSql<{ id: number }>(database, builder.select({ table: 'global_cloud_email_bindings', columns: { id: 'id' }, where: [{ column: 'site_key', value: siteKey }, { column: 'channel_id', value: channelId }, { column: 'template_id', value: templateId }, { column: 'purpose', value: purpose }] }));
@@ -135,8 +134,8 @@ const handler: ApiHandler = async (c, next, params) => {
 			const update = builder.update('global_cloud_email_bindings', { site_key: siteKey, channel_id: channelId, template_id: templateId, purpose, is_default: isDefault && !database.batch ? isDefault : 0, status }, { id: Number(params.id) });
 			if (isDefault && database.batch) await database.batch([
 				update,
-				builder.update('global_cloud_email_bindings', { is_default: 0 }, [{ column: 'site_key', value: siteKey }, { column: 'purpose', value: purpose }, { column: 'id', operator: '!=', value: Number(params.id) }, { column: 'is_default', value: 1 }]),
-				builder.update('global_cloud_email_bindings', { is_default: 1 }, { id: Number(params.id) }),
+				builder.update('global_cloud_email_bindings', { is_default: false }, [{ column: 'site_key', value: siteKey }, { column: 'purpose', value: purpose }, { column: 'id', operator: '!=', value: Number(params.id) }, { column: 'is_default', value: true }]),
+				builder.update('global_cloud_email_bindings', { is_default: true }, { id: Number(params.id) }),
 			]);
 			else {
 				if (isDefault) await clearOtherDefaults(c, database, Number(params.id), siteKey, purpose);

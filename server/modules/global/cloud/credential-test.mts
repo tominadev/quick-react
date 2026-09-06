@@ -32,7 +32,7 @@ export const testCloudCredential = async (credential: CloudCredential): Promise<
 		endpoint,
 		region: defaults.regions[0] ?? '',
 		bucket: '',
-		path_style: 1,
+		path_style: true,
 		public_base_url: '',
 		extra_config: '{}',
 		access_key_id: credential.access_key_id,

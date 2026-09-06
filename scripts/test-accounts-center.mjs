@@ -35,7 +35,7 @@ try {
 	database.prepare("INSERT INTO global_site_hosts (key, hostname, site_key, status, created_at) VALUES (lower(hex(randomblob(16))), 'accounts.test', 'passport', 'enabled', ?)").run(now);
 	database.prepare(`INSERT INTO global_cloud_credentials (key, id, title, provider, access_key_id, access_key_secret, status, created_at, updated_at)
 		VALUES (lower(hex(randomblob(16))), 91, 'center-email', 'aliyun', 'mail-key', 'mail-secret', 'enabled', ?, ?)`).run(now, now);
-	database.prepare(`INSERT INTO global_cloud_email_channels (key, id, cloud_credential_id, region, account_name, from_alias, reply_to_address, status, created_at, updated_at)
+	database.prepare(`INSERT INTO global_cloud_email_channels (key, id, cloud_credential_id, region, account_name, from_alias, reply_to_enabled, status, created_at, updated_at)
 		VALUES (lower(hex(randomblob(16))), 92, 91, 'cn-hangzhou', 'noreply@example.com', 'Accounts', 0, 'enabled', ?, ?)`).run(now, now);
 	database.prepare(`INSERT INTO global_cloud_email_templates (id, key, type, title, subject, body_text, body_html, status, created_at, updated_at)
 		VALUES (93, 'email_verification_center', 'email_verification', '账户中心邮箱验证码', '验证码 {{code}}', '验证码：{{code}}', '<p>验证码：{{code}}</p>', 'enabled', ?, ?)`).run(now, now);

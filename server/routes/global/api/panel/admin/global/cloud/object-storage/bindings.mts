@@ -47,10 +47,10 @@ const purposeState = (rows: BindingPurposeRow[]) => ({
 	default_purposes: rows.filter((item) => Boolean(item.is_default)).map((item) => item.purpose),
 });
 const savePurposes = async (c: Context<AppEnv>, database: DatabaseAdapter, bindingId: number, siteKey: string, selected: string[], defaults: string[]) => {
-	for (const purpose of selected) await runOperationSql(c, database, sql({ database }).insert('global_cloud_object_storage_binding_purposes', { binding_id: bindingId, site_key: siteKey, purpose, is_default: 0 }));
+	for (const purpose of selected) await runOperationSql(c, database, sql({ database }).insert('global_cloud_object_storage_binding_purposes', { binding_id: bindingId, site_key: siteKey, purpose, is_default: false }));
 	for (const purpose of defaults) {
-		await runOperationSql(c, database, sql({ database }).update('global_cloud_object_storage_binding_purposes', { is_default: 0 }, [{ column: 'site_key', value: siteKey }, { column: 'purpose', value: purpose }, { column: 'binding_id', operator: '!=', value: bindingId }]));
-		await runOperationSql(c, database, sql({ database }).update('global_cloud_object_storage_binding_purposes', { is_default: 1 }, { binding_id: bindingId, purpose }));
+		await runOperationSql(c, database, sql({ database }).update('global_cloud_object_storage_binding_purposes', { is_default: false }, [{ column: 'site_key', value: siteKey }, { column: 'purpose', value: purpose }, { column: 'binding_id', operator: '!=', value: bindingId }]));
+		await runOperationSql(c, database, sql({ database }).update('global_cloud_object_storage_binding_purposes', { is_default: true }, { binding_id: bindingId, purpose }));
 	}
 };
 const validateTarget = async (database: DatabaseAdapter, siteKey: string, bucketId: number) => {

@@ -177,7 +177,9 @@ const auditRouteFilter = async () => {
 		assert.equal(byName.name.rules, undefined, '不可空不等于必填');
 		assert.equal(byName.agent_uid.component, 'textbox', 'BIGINT 不给数字框：雪花号进去会被精度改掉');
 		const flags = await (await app.request('http://localhost/api/panel/admin/base/data/rows.php?table=passport_oidc_clients&include=schema,data', { headers: { ...headers, cookie } })).json();
-		assert.equal(flags.table.columns.find((column) => column.dataIndex === 'require_pkce').component, 'inputnumber', 'INTEGER 给数字框');
+		// 控件照搬表结构：BOOLEAN 给开关。（数字框那一支由 numericComponent 覆盖，
+		// 这张表改成 Boolean 之后已经没有普通 Int 列可验了。）
+		assert.equal(flags.table.columns.find((column) => column.dataIndex === 'require_pkce').component, 'switch', 'BOOLEAN 给开关');
 
 		/**
 		 * 完整经过要点得到：列表上只有「最近迁移」一行，而一条记录可能被驳回、恢复、批准、

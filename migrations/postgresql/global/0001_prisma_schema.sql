@@ -33,9 +33,9 @@ CREATE TABLE "global_sites" (
     "database_binding" TEXT NOT NULL DEFAULT '',
     "status" "GlobalEnabledStatus" NOT NULL DEFAULT 'enabled',
     "migration_status" "GlobalMigrationStatus" NOT NULL DEFAULT 'ready',
-    "is_default" INTEGER NOT NULL DEFAULT 0,
-    "is_system" INTEGER NOT NULL DEFAULT 0,
-    "passport_sso_enabled" INTEGER NOT NULL DEFAULT 0,
+    "is_default" BOOLEAN NOT NULL DEFAULT false,
+    "is_system" BOOLEAN NOT NULL DEFAULT false,
+    "passport_sso_enabled" BOOLEAN NOT NULL DEFAULT false,
 
     CONSTRAINT "global_sites_pkey" PRIMARY KEY ("id")
 );
@@ -100,7 +100,7 @@ CREATE TABLE "global_cloud_object_storage_buckets" (
     "endpoint" TEXT NOT NULL,
     "region" TEXT NOT NULL DEFAULT '',
     "bucket" TEXT NOT NULL,
-    "path_style" INTEGER NOT NULL DEFAULT 0,
+    "path_style" BOOLEAN NOT NULL DEFAULT false,
     "public_base_url" TEXT NOT NULL DEFAULT '',
     "extra_config" TEXT NOT NULL DEFAULT '{}',
     "status" "GlobalEnabledStatus" NOT NULL DEFAULT 'enabled',
@@ -145,7 +145,7 @@ CREATE TABLE "global_cloud_object_storage_binding_purposes" (
     "binding_id" BIGINT NOT NULL,
     "site_key" TEXT NOT NULL,
     "purpose" TEXT NOT NULL,
-    "is_default" INTEGER NOT NULL DEFAULT 0,
+    "is_default" BOOLEAN NOT NULL DEFAULT false,
 
     CONSTRAINT "global_cloud_object_storage_binding_purposes_pkey" PRIMARY KEY ("id")
 );
@@ -190,7 +190,7 @@ CREATE TABLE "global_cloud_email_channels" (
     "region" TEXT NOT NULL,
     "account_name" TEXT NOT NULL,
     "from_alias" TEXT NOT NULL,
-    "reply_to_address" INTEGER NOT NULL DEFAULT 0,
+    "reply_to_enabled" BOOLEAN NOT NULL DEFAULT false,
     "status" "GlobalEnabledStatus" NOT NULL DEFAULT 'enabled',
 
     CONSTRAINT "global_cloud_email_channels_pkey" PRIMARY KEY ("id")
@@ -236,7 +236,7 @@ CREATE TABLE "global_cloud_email_bindings" (
     "channel_id" BIGINT NOT NULL,
     "template_id" BIGINT NOT NULL,
     "purpose" TEXT NOT NULL,
-    "is_default" INTEGER NOT NULL DEFAULT 0,
+    "is_default" BOOLEAN NOT NULL DEFAULT false,
     "status" "GlobalEnabledStatus" NOT NULL DEFAULT 'enabled',
 
     CONSTRAINT "global_cloud_email_bindings_pkey" PRIMARY KEY ("id")

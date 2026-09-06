@@ -220,7 +220,7 @@ CREATE TABLE "passport_emails" (
     "owner_bid" BIGINT NOT NULL DEFAULT 1,
     "owner_uid" BIGINT,
     "email" TEXT NOT NULL,
-    "verified" INTEGER NOT NULL DEFAULT 0,
+    "verified" BOOLEAN NOT NULL DEFAULT false,
 
     CONSTRAINT "passport_emails_pkey" PRIMARY KEY ("id")
 );
@@ -240,7 +240,7 @@ CREATE TABLE "passport_user_emails" (
     "owner_uid" BIGINT,
     "user_key" VARCHAR(36) NOT NULL,
     "email_id" BIGINT NOT NULL,
-    "is_primary" INTEGER NOT NULL DEFAULT 0,
+    "is_primary" BOOLEAN NOT NULL DEFAULT false,
 
     CONSTRAINT "passport_user_emails_pkey" PRIMARY KEY ("id")
 );
@@ -606,11 +606,11 @@ CREATE TABLE "passport_oidc_clients" (
     "secret_hash" TEXT NOT NULL,
     "redirect_uris" TEXT NOT NULL DEFAULT '[]',
     "allowed_scopes" TEXT NOT NULL DEFAULT 'openid profile email',
-    "require_pkce" INTEGER NOT NULL DEFAULT 1,
+    "require_pkce" BOOLEAN NOT NULL DEFAULT true,
     "status" "PassportAccountStatus" NOT NULL DEFAULT 'enabled',
     "backchannel_logout_uri" TEXT NOT NULL DEFAULT '',
-    "strict_redirect_uri" INTEGER NOT NULL DEFAULT 0,
-    "password_sync" INTEGER NOT NULL DEFAULT 0,
+    "strict_redirect_uri" BOOLEAN NOT NULL DEFAULT false,
+    "password_sync" BOOLEAN NOT NULL DEFAULT false,
 
     CONSTRAINT "passport_oidc_clients_pkey" PRIMARY KEY ("id")
 );

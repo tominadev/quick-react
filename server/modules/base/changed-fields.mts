@@ -2,6 +2,14 @@ import { changedFieldsKey } from '@shared/types/changed-fields.mjs';
 
 type ObjectRecord = Record<string, unknown>;
 
+/**
+ * 请求体里的布尔值。四个路由各写过一遍同一行，现在只此一处。
+ *
+ * 认 `1` 和 `'1'`：开关列曾经是 `Int`，老客户端和外部调用方仍可能发数字或字符串；
+ * 列改成 `Boolean` 之后写进库的一律是真布尔，这一层只负责把外面各种写法读成一种。
+ */
+export const booleanValue = (value: unknown) => value === true || value === 1 || value === '1';
+
 const readObject = (value: unknown): ObjectRecord => (
 	value && typeof value === 'object' && !Array.isArray(value)
 		? value as ObjectRecord

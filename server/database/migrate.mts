@@ -50,7 +50,7 @@ export const migrateDatabase = async (database: DatabaseAdapter, migrationsRoot:
  * 里原子预留一个号段才能发号——那张表正是这次迁移建出来的，此刻还没人 prime 过它。
  * （`KEYLESS_TABLES` 里的迁移记录表是同一个处境。）
  *
- * 这几个值是**引导数据**，不是人取的名字：跟 `is_system: 1` 一样属于系统内置行的一部分。
+ * 这几个值是**引导数据**，不是人取的名字：跟 `is_system: true` 一样属于系统内置行的一部分。
  * 人取的那一份（`default` / `main` / `initial_admin`）落在 `name` 上。
  */
 const SEED_KEYS = { bootstrap: 'seed-bootstrap', tenant: 'seed-tenant', branch: 'seed-branch', config: (name: string) => `seed-config-${name}` };
@@ -80,7 +80,7 @@ export const migrateDefaultDatabase = async (database: DatabaseAdapter, migratio
 	// runtime seed data so a freshly generated database remains usable.
 	await runSql(database, sql({ database }).ignoreInsert('global_sites', ['key'], {
 		key: 'global', title: '全局控制面', base_site_key: 'base', dsn: '', database_binding: '',
-		status: 'enabled', migration_status: 'ready', is_default: 1, is_system: 1,
+		status: 'enabled', migration_status: 'ready', is_default: true, is_system: true,
 	}));
 	await seedBaseDatabase(database);
 };
@@ -101,7 +101,7 @@ export const initializeCodeSites = async (
 		const title = siteNames[siteKey] || siteKey;
 		const existing = await firstSql<{ title: string }>(database, sql({ database }).select({ table: 'global_sites', columns: { title: 'title' }, where: [{ column: 'key', value: siteKey }] }));
 		if (!existing) {
-			await runSql(database, sql({ database }).insert('global_sites', { key: siteKey, title, base_site_key: 'base', dsn: '', database_binding: '', status: 'enabled', migration_status: 'ready', is_default: 0, is_system: 0 }));
+			await runSql(database, sql({ database }).insert('global_sites', { key: siteKey, title, base_site_key: 'base', dsn: '', database_binding: '', status: 'enabled', migration_status: 'ready', is_default: false, is_system: false }));
 			continue;
 		}
 		// 仅修正过去由首个导航项误填的默认名称，不覆盖主人手工设置的站点名称。

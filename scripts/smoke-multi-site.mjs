@@ -415,7 +415,7 @@ try {
 	assert.match(aliyunCredentialTestResult.feedback.message, /账号 ID 1688000000000000/);
 	const emailChannelsPath = '/api/panel/admin/global/cloud/email/channels.php';
 	const discoveredMailAddresses = await (await request('localhost', `${emailChannelsPath}?action=discover&field=account_name&cloud_credential_id=${emailCredential.id}&region=cn-hangzhou`, { cookie })).json();
-	assert.deepEqual(discoveredMailAddresses.options, [{ value: 'noreply@example.com', text: 'noreply@example.com', fieldValues: { reply_to_address: true } }]);
+	assert.deepEqual(discoveredMailAddresses.options, [{ value: 'noreply@example.com', text: 'noreply@example.com', fieldValues: { reply_to_enabled: true } }]);
 	assert.equal((await request('localhost', emailChannelsPath, {
 		method: 'POST', cookie, body: { cloud_credential_id: emailCredential.id, region: 'cn-hangzhou', account_name: 'noreply@example.com', from_alias: 'Smoke Passport' },
 	})).status, 201);
@@ -535,7 +535,7 @@ try {
 	assert.ok(tencentCredential?.id);
 	assert.equal((await request('localhost', `${credentialsPath}/${tencentCredential.id}?action=test`, { method: 'POST', cookie })).status, 200);
 	const tencentAddresses = await (await request('localhost', `${emailChannelsPath}?action=discover&field=account_name&cloud_credential_id=${tencentCredential.id}&region=ap-hongkong`, { cookie })).json();
-	assert.deepEqual(tencentAddresses.options, [{ value: 'notice@example.net', text: 'notice@example.net', fieldValues: { from_alias: 'Tencent Passport', reply_to_address: false } }]);
+	assert.deepEqual(tencentAddresses.options, [{ value: 'notice@example.net', text: 'notice@example.net', fieldValues: { from_alias: 'Tencent Passport', reply_to_enabled: false } }]);
 	assert.equal((await request('localhost', emailChannelsPath, {
 		method: 'POST', cookie, body: { cloud_credential_id: tencentCredential.id, region: 'ap-hongkong', account_name: 'notice@example.net', from_alias: 'Tencent Passport' },
 	})).status, 201);
@@ -600,7 +600,7 @@ try {
 	assert.equal(getAliyunDirectMailEndpoint('eu-central-1'), 'https://dm.eu-central-1.aliyuncs.com/');
 	const emailSendResult = await createAliyunDirectMailAdapter({
 		id: emailChannel.id, provider: 'aliyun', cloud_credential_id: emailCredential.id, region: 'cn-hangzhou',
-		account_name: 'noreply@example.com', from_alias: 'Smoke Passport', reply_to_address: 0,
+		account_name: 'noreply@example.com', from_alias: 'Smoke Passport', reply_to_enabled: false,
 		access_key_id: 'aliyun-key', access_key_secret: 'aliyun-secret',
 	}).send({
 		to: 'recipient@example.com', subject: '验证码 123456', text: '验证码：123456', html: '<p>验证码：123456</p>',

@@ -3,7 +3,7 @@ import type { AppEnv } from '@server/modules/base/types.mjs';
 import { loadAccountsOidcConfig } from '@server/modules/passport/accounts/client.mjs';
 import { allSql, sql } from '@server/database/sql.mjs';
 
-type RedirectClient = { id: string; redirect_uris: string; strict_redirect_uri: number };
+type RedirectClient = { id: string; redirect_uris: string; strict_redirect_uri: boolean };
 
 /**
  * 严格模式只接受客户端手工登记的地址。

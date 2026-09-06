@@ -6,7 +6,7 @@ import { createCloudStorageAdapter } from '@server/modules/global/cloud/resolve.
 import type { CloudCredential, CloudStorageTarget } from '@server/modules/global/cloud/index.mjs';
 import { listAliyunOssBuckets } from '@server/modules/global/cloud/providers/aliyun-oss.mjs';
 import { listTencentCosBuckets } from '@server/modules/global/cloud/providers/tencent-cos.mjs';
-import { getChangedFields } from '@server/modules/base/changed-fields.mjs';
+import { booleanValue, getChangedFields } from '@server/modules/base/changed-fields.mjs';
 import { enabledDisabledOptions, statusValues } from '@shared/types/status.mjs';
 import type { TableCrudDefinition } from '@server/modules/base/table-crud.mjs';
 
@@ -30,7 +30,6 @@ const baseColumns = [
 
 const parseBody = async (c: Parameters<ApiHandler>[0]): Promise<Record<string, unknown>> => c.req.json<Record<string, unknown>>().catch(() => ({}));
 const text = (value: unknown) => typeof value === 'string' ? value.trim() : '';
-const booleanValue = (value: unknown) => value === true || value === 1 || value === '1';
 const validEndpoint = (value: string) => {
 	try { return ['http:', 'https:'].includes(new URL(value).protocol); } catch { return false; }
 };
@@ -69,7 +68,7 @@ const handler: ApiHandler = async (c, next, params) => {
 					? await listAliyunOssBuckets(credential)
 				: validEndpoint(endpoint)
 					? await createCloudStorageAdapter({ id: 0, provider: credential.provider, cloud_credential_id: credential.id,
-						endpoint, region, bucket: '', path_style: 1, public_base_url: '', extra_config: '{}',
+						endpoint, region, bucket: '', path_style: true, public_base_url: '', extra_config: '{}',
 						access_key_id: credential.access_key_id, access_key_secret: credential.access_key_secret }).listBuckets()
 					: [];
 			return apiResponse(c, 200, { options: buckets.map((item) => ({
@@ -96,7 +95,7 @@ const handler: ApiHandler = async (c, next, params) => {
 		if (extra === null) return apiMessage(c, 400, '扩展配置必须是有效 JSON');
 		try {
 			const now = Date.now();
-			await runOperationSql(c, database, sql({ database }).insert('global_cloud_object_storage_buckets', { cloud_credential_id: credentialId, endpoint, region: text(body.region), bucket, path_style: booleanValue(body.path_style) ? 1 : 0, public_base_url: text(body.public_base_url), extra_config: extra, status: body.status === statusValues.disabled ? statusValues.disabled : statusValues.enabled }));
+			await runOperationSql(c, database, sql({ database }).insert('global_cloud_object_storage_buckets', { cloud_credential_id: credentialId, endpoint, region: text(body.region), bucket, path_style: booleanValue(body.path_style) ? true : false, public_base_url: text(body.public_base_url), extra_config: extra, status: body.status === statusValues.disabled ? statusValues.disabled : statusValues.enabled }));
 		} catch (error) { if (error instanceof PendingApprovalError) throw error; return apiMessage(c, 409, '该凭据、Endpoint 和 Bucket 已经存在'); }
 		return apiMessageData(c, 201, 'Bucket 创建成功', {});
 	}
@@ -132,7 +131,7 @@ const handler: ApiHandler = async (c, next, params) => {
 		const extra = changed.has('extra_config') ? parseExtra(body.extra_config) : String(current.extra_config);
 		if (extra === null) return apiMessage(c, 400, '扩展配置必须是有效 JSON');
 		try {
-			await runOperationSql(c, database, sql({ database }).update('global_cloud_object_storage_buckets', { cloud_credential_id: credentialId, endpoint, region: changed.has('region') ? text(body.region) : current.region, bucket, path_style: changed.has('path_style') ? (booleanValue(body.path_style) ? 1 : 0) : current.path_style, public_base_url: changed.has('public_base_url') ? text(body.public_base_url) : current.public_base_url, extra_config: extra, status: changed.has('status') && body.status === statusValues.disabled ? statusValues.disabled : changed.has('status') ? statusValues.enabled : current.status }, { id: Number(params.id) }));
+			await runOperationSql(c, database, sql({ database }).update('global_cloud_object_storage_buckets', { cloud_credential_id: credentialId, endpoint, region: changed.has('region') ? text(body.region) : current.region, bucket, path_style: changed.has('path_style') ? booleanValue(body.path_style) : current.path_style, public_base_url: changed.has('public_base_url') ? text(body.public_base_url) : current.public_base_url, extra_config: extra, status: changed.has('status') && body.status === statusValues.disabled ? statusValues.disabled : changed.has('status') ? statusValues.enabled : current.status }, { id: Number(params.id) }));
 		} catch { return apiMessage(c, 409, '该凭据、Endpoint 和 Bucket 已经存在'); }
 		return apiMessage(c, 200, '保存成功');
 	}

@@ -43,11 +43,20 @@ export type DatabaseTableResponse = TableResponse & { tables: TableSelectOption[
 const numericComponent = (type: string) => /BIGINT|INT8/i.test(type) ? undefined
 	: /INT|REAL|FLOA|DOUB|DECIMAL|NUMERIC/i.test(type) ? 'inputnumber' as const : undefined;
 
+/**
+ * BOOLEAN 列给开关。
+ *
+ * 三种方言各存各的（SQLite 是 INTEGER、MySQL 是 TINYINT(1)、PostgreSQL 是 BOOLEAN），因此
+ * 认 BOOL 这个词根——SQLite 的列类型字符串照样带着建表时写的 `BOOLEAN`。放在数字判断之前：
+ * MySQL 的 `TINYINT(1)` 同时匹配 INT，先判 BOOL 才不会被当成数字框。
+ */
+const booleanComponent = (type: string) => /BOOL|TINYINT\(1\)/i.test(type) ? 'switch' as const : undefined;
+
 const tableColumn = (column: Awaited<ReturnType<typeof getColumns>>[number]): TableColumn => ({
 	dataIndex: column.name,
 	title: column.name,
-	component: numericComponent(column.type) ?? 'textbox',
-	dataType: /INT/i.test(column.type) ? 'int' : /REAL|FLOA|DOUB|DECIMAL|NUMERIC/i.test(column.type) ? 'float' : 'string',
+	component: booleanComponent(column.type) ?? numericComponent(column.type) ?? 'textbox',
+	dataType: booleanComponent(column.type) ? 'string' : /INT/i.test(column.type) ? 'int' : /REAL|FLOA|DOUB|DECIMAL|NUMERIC/i.test(column.type) ? 'float' : 'string',
 	...(column.maxLength ? { maxLength: column.maxLength } : {}),
 	// 表自己说了能不能存 NULL，这一页照搬——它看的就是表长什么样。
 	...(column.notnull ? {} : { nullable: true }),

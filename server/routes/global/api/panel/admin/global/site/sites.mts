@@ -5,7 +5,7 @@ import { enabledDisabledOptions, statusValues } from '@shared/types/status.mjs';
 import type { TableCrudDefinition } from '@server/modules/base/table-crud.mjs';
 
 export const tableCrud: TableCrudDefinition = { table: 'global_sites', rowKey: 'key' };
-import { getChangedFields } from '@server/modules/base/changed-fields.mjs';
+import { booleanValue, getChangedFields } from '@server/modules/base/changed-fields.mjs';
 import { allSql, firstSql, runSql, sql } from '@server/database/sql.mjs';
 import { runOperationSql } from '@server/modules/base/operation.mjs';
 import { buildDatabaseTarget, DatabaseTargetError, parseDatabaseTarget, type DatabaseTargetForm } from '@server/database/dsn.mjs';
@@ -82,7 +82,6 @@ const parseBody = async (c: Parameters<ApiHandler>[0]): Promise<Record<string, u
 	try { return await c.req.json<Record<string, unknown>>(); }
 	catch { return {}; }
 };
-const booleanValue = (value: unknown) => value === true || value === 1 || value === '1';
 
 const list = async (c: Parameters<ApiHandler>[0]) => {
 	const database = c.get('database');
@@ -90,7 +89,7 @@ const list = async (c: Parameters<ApiHandler>[0]) => {
 	const parentOptions = [
 		{ value: 'base', text: '基础层 (base)' },
 		...rows
-			.filter((site) => site.is_system !== 1 && site.migration_status === 'ready')
+			.filter((site) => !site.is_system && site.migration_status === 'ready')
 			.map((site) => ({ value: String(site.site_key), text: `${String(site.title)} (${String(site.site_key)})` })),
 	];
 	const tableColumns = columns.map((column) => column.dataIndex === 'base_site_key' ? { ...column, options: parentOptions } : column);
@@ -141,7 +140,7 @@ const handler: ApiHandler = async (c, next, params) => {
 		try { ({ dsn, databaseBinding } = buildDatabaseTarget(body)); }
 		catch (error) { return apiMessage(c, 400, error instanceof DatabaseTargetError ? error.message : '数据库配置不合法'); }
 		if (!await validateParent(database, siteKey, baseSiteKey)) return apiMessage(c, 400, '父站点不存在、不可继承或会形成循环');
-		await runOperationSql(c, database, sql({ database }).insert('global_sites', { key: siteKey, title: String(body.title ?? siteKey).trim() || siteKey, base_site_key: baseSiteKey, dsn, database_binding: databaseBinding, status: 'disabled', migration_status: 'creating', is_default: 0, is_system: 0 }));
+		await runOperationSql(c, database, sql({ database }).insert('global_sites', { key: siteKey, title: String(body.title ?? siteKey).trim() || siteKey, base_site_key: baseSiteKey, dsn, database_binding: databaseBinding, status: 'disabled', migration_status: 'creating', is_default: false, is_system: false }));
 		let message = '站点已创建，请通过部署流程完成 migration';
 		if (c.env.MIGRATE_SITE) {
 			try {

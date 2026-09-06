@@ -89,6 +89,17 @@ try {
 	// 连接测试：跟随默认库无需测试；独立 SQLite 能连上并报告表数量。
 	assert.match(await message(await request(`${sitePath}/passport?action=test`, { method: 'POST', cookie })), /跟随默认库/);
 	assert.equal((await request(sitePath, { method: 'POST', cookie, body: { site_key: 'blog', name: '博客', db_kind: 'sqlite', db_file: join(temporaryDirectory, 'blog.sqlite') } })).status, 200);
+	/**
+	 * **建站是后台操作，因此进审批队列**（`operationScope` 认 `/api/panel/admin/` 前缀，
+	 * sites.mts 没有声明 immediate，跟随默认行为）。行照写进库，只是带着 `queued_at`，
+	 * 对正常查询不可见——而结构迁移读的正是那张表。
+	 *
+	 * 这里直接把 `queued_at` 归零放行，相当于批准。审批流程本身由 test:change-audit 覆盖，
+	 * 这一份测的是站点数据库的路由与迁移。
+	 */
+	const approveSites = new DatabaseSync(process.env.DEFAULT_DATABASE_FILE);
+	approveSites.prepare('UPDATE global_sites SET queued_at = 0 WHERE queued_at != 0').run();
+	approveSites.close();
 	const tested = await request(`${sitePath}/blog?action=test`, { method: 'POST', cookie });
 	assert.equal(tested.status, 200);
 	assert.match(await message(tested), /连接成功，目标库当前有 \d+ 张表/);
@@ -102,7 +113,9 @@ try {
 	assert.match(await message(sqliteTransfer), /数据迁移失败：.*MySQL 或 PostgreSQL/);
 
 	// 结构迁移按钮仍然可用。
-	assert.equal((await request(`${sitePath}/blog?action=migrate`, { method: 'POST', cookie })).status, 200);
+	const migrateResponse = await request(`${sitePath}/blog?action=migrate`, { method: 'POST', cookie });
+	if (migrateResponse.status !== 200) console.log('DEBUG migrate:', migrateResponse.status, await message(migrateResponse));
+	assert.equal(migrateResponse.status, 200);
 	const migrated = await (await request(`${sitePath}/blog`, { cookie })).json();
 	assert.equal(migrated.migration_status, 'ready');
 	assert.match(await message(await request(`${sitePath}/blog?action=test`, { method: 'POST', cookie })), /连接成功，目标库当前有 [1-9]\d* 张表/);

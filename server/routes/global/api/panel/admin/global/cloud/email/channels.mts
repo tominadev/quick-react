@@ -9,7 +9,7 @@ import { createCloudEmailAdapter, loadCloudEmailTarget, renderCloudEmailTemplate
 import { validateCloudEmailTemplateVariables } from '@server/modules/global/cloud/email-purposes.mjs';
 import type { CloudCredential, CloudEmailTemplate } from '@server/modules/global/cloud/index.mjs';
 import type { DatabaseAdapter } from '@server/database/index.mjs';
-import { getChangedFields } from '@server/modules/base/changed-fields.mjs';
+import { booleanValue, getChangedFields } from '@server/modules/base/changed-fields.mjs';
 import { enabledDisabledOptions, statusValues } from '@shared/types/status.mjs';
 import type { TableCrudDefinition } from '@server/modules/base/table-crud.mjs';
 
@@ -22,9 +22,9 @@ const columns = [
 	{ dataIndex: 'id', title: 'ID', dataType: 'int' as const },
 	{ dataIndex: 'cloud_credential_id', title: '云凭据', component: 'select', tableDisplay: 'reference', tableDisplayTextField: 'credential_title', rules: [{ required: true, message: '请选择云凭据' }] },
 	{ dataIndex: 'region', title: 'Region', component: 'select', dependsOn: 'cloud_credential_id', rules: [{ required: true, message: '请选择 Region' }] },
-	{ dataIndex: 'account_name', title: '发信地址', component: 'select', remoteOptions: { action: 'discover', dependencies: ['cloud_credential_id', 'region'], clearFields: ['reply_to_address'] }, rules: [{ required: true, message: '请选择发信地址' }] },
+	{ dataIndex: 'account_name', title: '发信地址', component: 'select', remoteOptions: { action: 'discover', dependencies: ['cloud_credential_id', 'region'], clearFields: ['reply_to_enabled'] }, rules: [{ required: true, message: '请选择发信地址' }] },
 	{ dataIndex: 'from_alias', title: '发信人名称', component: 'textbox', rules: [{ required: true, message: '请输入发信人名称' }] },
-	{ dataIndex: 'reply_to_address', title: '启用回信地址', component: 'switch' },
+	{ dataIndex: 'reply_to_enabled', title: '启用回信地址', component: 'switch' },
 	{ dataIndex: 'status', title: '状态', component: 'switch', checkedValue: statusValues.enabled, uncheckedValue: statusValues.disabled, options: enabledDisabledOptions },
 ];
 const testColumns = [
@@ -35,7 +35,6 @@ const testColumns = [
 
 const parseBody = async (c: Parameters<ApiHandler>[0]): Promise<Record<string, unknown>> => c.req.json<Record<string, unknown>>().catch(() => ({}));
 const text = (value: unknown) => typeof value === 'string' ? value.trim() : '';
-const booleanValue = (value: unknown) => value === true || value === 1 || value === '1';
 const emailPattern = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
 const credentialOptions = async (database: DatabaseAdapter) => {
 	const rows = await allSql<{ id: number; title: string; provider: string }>(database, sql({ database }).select({ table: 'global_cloud_credentials', columns: { id: 'id', title: 'title', provider: 'provider' }, where: [{ column: 'status', value: 'enabled' }], orderBy: [{ column: 'provider' }, { column: 'title' }] }));
@@ -78,13 +77,13 @@ const handler: ApiHandler = async (c, next, params) => {
 			return apiResponse(c, 200, { options: addresses.map((item) => ({
 				value: item.accountName,
 				text: item.accountName,
-				fieldValues: { ...(item.senderName ? { from_alias: item.senderName } : {}), reply_to_address: item.replyEnabled },
+				fieldValues: { ...(item.senderName ? { from_alias: item.senderName } : {}), reply_to_enabled: item.replyEnabled },
 			})) });
 		} catch (error) { return apiMessage(c, 502, error instanceof Error ? error.message : '云端发信地址读取失败'); }
 	}
 	if (!params.id && c.req.method === 'GET') {
 		const [rows, options] = await Promise.all([
-			allSql<Record<string, unknown>>(database, sql({ database }).select({ table: 'global_cloud_email_channels', alias: 'ch', columns: { id: 'ch.id', cloud_credential_id: 'ch.cloud_credential_id', credential_title: 'c.title', provider: 'c.provider', region: 'ch.region', account_name: 'ch.account_name', from_alias: 'ch.from_alias', reply_to_address: 'ch.reply_to_address', status: 'ch.status', created_at: 'ch.created_at', updated_at: 'ch.updated_at' }, joins: [{ table: 'global_cloud_credentials', alias: 'c', left: 'c.id', right: 'ch.cloud_credential_id' }], sort: tableSort(c), orderBy: [{ column: 'ch.id', direction: 'DESC' }] })),
+			allSql<Record<string, unknown>>(database, sql({ database }).select({ table: 'global_cloud_email_channels', alias: 'ch', columns: { id: 'ch.id', cloud_credential_id: 'ch.cloud_credential_id', credential_title: 'c.title', provider: 'c.provider', region: 'ch.region', account_name: 'ch.account_name', from_alias: 'ch.from_alias', reply_to_enabled: 'ch.reply_to_enabled', status: 'ch.status', created_at: 'ch.created_at', updated_at: 'ch.updated_at' }, joins: [{ table: 'global_cloud_credentials', alias: 'c', left: 'c.id', right: 'ch.cloud_credential_id' }], sort: tableSort(c), orderBy: [{ column: 'ch.id', direction: 'DESC' }] })),
 			credentialOptions(database),
 		]);
 		const tableColumns = columns.map((column) => column.dataIndex === 'cloud_credential_id' ? { ...column, options: options.credentials }
@@ -98,7 +97,7 @@ const handler: ApiHandler = async (c, next, params) => {
 		if (!Number.isInteger(credentialId) || !await validCredential(database, credentialId, region) || !emailPattern.test(accountName) || !fromAlias) return apiMessage(c, 400, '云凭据、Region 或发信身份不合法');
 		try {
 			const now = Date.now();
-			await runOperationSql(c, database, sql({ database }).insert('global_cloud_email_channels', { cloud_credential_id: credentialId, region, account_name: accountName, from_alias: fromAlias, reply_to_address: booleanValue(body.reply_to_address) ? 1 : 0, status: body.status === statusValues.disabled ? statusValues.disabled : statusValues.enabled }));
+			await runOperationSql(c, database, sql({ database }).insert('global_cloud_email_channels', { cloud_credential_id: credentialId, region, account_name: accountName, from_alias: fromAlias, reply_to_enabled: booleanValue(body.reply_to_enabled), status: body.status === statusValues.disabled ? statusValues.disabled : statusValues.enabled }));
 		} catch (error) { if (error instanceof PendingApprovalError) throw error; return apiMessage(c, 409, '该凭据、Region 和发信地址已经存在'); }
 		return apiMessageData(c, 201, '邮件通道创建成功', {});
 	}
@@ -153,7 +152,7 @@ const handler: ApiHandler = async (c, next, params) => {
 	if (params.id && c.req.method === 'PUT') {
 		const current = await firstSql<Record<string, unknown>>(database, sql({ database }).select({ table: 'global_cloud_email_channels', where: [{ column: 'id', value: Number(params.id) }] }));
 		if (!current) return apiMessage(c, 404, '邮件通道不存在');
-		const body = await parseBody(c), changed = getChangedFields(body, ['cloud_credential_id', 'region', 'account_name', 'from_alias', 'reply_to_address', 'status']);
+		const body = await parseBody(c), changed = getChangedFields(body, ['cloud_credential_id', 'region', 'account_name', 'from_alias', 'reply_to_enabled', 'status']);
 		const credentialId = changed.has('cloud_credential_id') ? Number(body.cloud_credential_id) : Number(current.cloud_credential_id);
 		const region = changed.has('region') ? text(body.region) : String(current.region);
 		const accountName = changed.has('account_name') ? text(body.account_name) : String(current.account_name);
@@ -165,7 +164,7 @@ const handler: ApiHandler = async (c, next, params) => {
 			if (binding) return apiMessage(c, 409, '邮件通道已有站点绑定，不能修改凭据、Region 或发信地址');
 		}
 		try {
-			await runOperationSql(c, database, sql({ database }).update('global_cloud_email_channels', { cloud_credential_id: credentialId, region, account_name: accountName, from_alias: fromAlias, reply_to_address: changed.has('reply_to_address') ? (booleanValue(body.reply_to_address) ? 1 : 0) : current.reply_to_address, status: changed.has('status') && body.status === statusValues.disabled ? statusValues.disabled : changed.has('status') ? statusValues.enabled : current.status }, { id: Number(params.id) }));
+			await runOperationSql(c, database, sql({ database }).update('global_cloud_email_channels', { cloud_credential_id: credentialId, region, account_name: accountName, from_alias: fromAlias, reply_to_enabled: changed.has('reply_to_enabled') ? booleanValue(body.reply_to_enabled) : current.reply_to_enabled, status: changed.has('status') && body.status === statusValues.disabled ? statusValues.disabled : changed.has('status') ? statusValues.enabled : current.status }, { id: Number(params.id) }));
 		} catch { return apiMessage(c, 409, '该凭据、Region 和发信地址已经存在'); }
 		return apiMessage(c, 200, '保存成功');
 	}

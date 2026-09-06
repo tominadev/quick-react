@@ -9,7 +9,7 @@ import { isSecureRequest } from '@server/modules/base/request-origin.mjs';
 import { registeredClientRedirectUris } from '@server/modules/passport/accounts/redirects.mjs';
 import { renderAuthorizeError } from '@server/templates/passport/api/oidc/authorize.mjs';
 
-type Client = { id: string; redirect_uris: string; allowed_scopes: string; require_pkce: number; strict_redirect_uri: number; status: string };
+type Client = { id: string; redirect_uris: string; allowed_scopes: string; require_pkce: number; strict_redirect_uri: boolean; status: string };
 type RequestRow = { client_id: string; redirect_uri: string; scope: string; state: string; nonce: string; code_challenge: string; code_challenge_method: string; expires_at: number };
 const browserError = (c: Parameters<ApiHandler>[0], status: 400 | 404 | 503, message: string) => {
 	if (!(c.req.header('accept') ?? '').includes('text/html')) return apiMessage(c, status, message);

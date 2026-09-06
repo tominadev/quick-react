@@ -21,9 +21,9 @@ CREATE TABLE `global_sites` (
     `database_binding` VARCHAR(191) NOT NULL DEFAULT '',
     `status` ENUM('enabled', 'disabled') NOT NULL DEFAULT 'enabled',
     `migration_status` ENUM('creating', 'migrating', 'ready', 'failed') NOT NULL DEFAULT 'ready',
-    `is_default` INTEGER NOT NULL DEFAULT 0,
-    `is_system` INTEGER NOT NULL DEFAULT 0,
-    `passport_sso_enabled` INTEGER NOT NULL DEFAULT 0,
+    `is_default` BOOLEAN NOT NULL DEFAULT false,
+    `is_system` BOOLEAN NOT NULL DEFAULT false,
+    `passport_sso_enabled` BOOLEAN NOT NULL DEFAULT false,
 
     INDEX `global_sites_base_site_key_idx`(`base_site_key`),
     UNIQUE INDEX `global_sites_key_key`(`key`),
@@ -97,7 +97,7 @@ CREATE TABLE `global_cloud_object_storage_buckets` (
     `endpoint` VARCHAR(191) NOT NULL,
     `region` VARCHAR(191) NOT NULL DEFAULT '',
     `bucket` VARCHAR(191) NOT NULL,
-    `path_style` INTEGER NOT NULL DEFAULT 0,
+    `path_style` BOOLEAN NOT NULL DEFAULT false,
     `public_base_url` VARCHAR(191) NOT NULL DEFAULT '',
     `extra_config` VARCHAR(191) NOT NULL DEFAULT '{}',
     `status` ENUM('enabled', 'disabled') NOT NULL DEFAULT 'enabled',
@@ -147,7 +147,7 @@ CREATE TABLE `global_cloud_object_storage_binding_purposes` (
     `binding_id` BIGINT NOT NULL,
     `site_key` VARCHAR(191) NOT NULL,
     `purpose` VARCHAR(191) NOT NULL,
-    `is_default` INTEGER NOT NULL DEFAULT 0,
+    `is_default` BOOLEAN NOT NULL DEFAULT false,
 
     INDEX `global_cloud_object_storage_binding_purposes_site_key_idx`(`site_key`),
     UNIQUE INDEX `global_cloud_object_storage_binding_purposes_binding_id_purp_key`(`binding_id`, `purpose`),
@@ -200,7 +200,7 @@ CREATE TABLE `global_cloud_email_channels` (
     `region` VARCHAR(191) NOT NULL,
     `account_name` VARCHAR(191) NOT NULL,
     `from_alias` VARCHAR(191) NOT NULL,
-    `reply_to_address` INTEGER NOT NULL DEFAULT 0,
+    `reply_to_enabled` BOOLEAN NOT NULL DEFAULT false,
     `status` ENUM('enabled', 'disabled') NOT NULL DEFAULT 'enabled',
 
     UNIQUE INDEX `global_cloud_email_channels_cloud_credential_id_region_accou_key`(`cloud_credential_id`, `region`, `account_name`),
@@ -249,7 +249,7 @@ CREATE TABLE `global_cloud_email_bindings` (
     `channel_id` BIGINT NOT NULL,
     `template_id` BIGINT NOT NULL,
     `purpose` VARCHAR(191) NOT NULL,
-    `is_default` INTEGER NOT NULL DEFAULT 0,
+    `is_default` BOOLEAN NOT NULL DEFAULT false,
     `status` ENUM('enabled', 'disabled') NOT NULL DEFAULT 'enabled',
 
     UNIQUE INDEX `global_cloud_email_bindings_site_key_channel_id_template_id__key`(`site_key`, `channel_id`, `template_id`, `purpose`),

@@ -271,12 +271,12 @@ export const importLegacyPassportData = async ({ parsed, databaseFile, globalDat
 				for (const item of parsed.emails) {
 					let existingEmail = await firstSql(target, sql({ database: target }).select({ table: 'passport_emails', columns: { id: { column: 'id', cast: 'text' }, verified: 'verified', updated_at: 'updated_at' }, where: [{ column: 'email', value: item.email }] }));
 					if (!existingEmail) {
-						const insertResult = await runSql(target, sql({ database: target }).insertExisting('passport_emails', { email: item.email, verified: 1, created_at: item.createdAt, updated_at: item.updatedAt }));
+						const insertResult = await runSql(target, sql({ database: target }).insertExisting('passport_emails', { email: item.email, verified: true, created_at: item.createdAt, updated_at: item.updatedAt }));
 						imported.emails += changes(insertResult);
-						existingEmail = { id: String(insertResult.meta?.lastRowId ?? ''), verified: 1, updated_at: item.updatedAt };
+						existingEmail = { id: String(insertResult.meta?.lastRowId ?? ''), verified: true, updated_at: item.updatedAt };
 						if (!existingEmail.id) fail(`email ${item.email} insert did not return an id`);
-					} else if (!Number(existingEmail.verified)) {
-						imported.emails += changes(await runSql(target, sql({ database: target }).update('passport_emails', { verified: 1 }, [{ column: 'id', value: BigInt(existingEmail.id) }, { column: 'verified', value: 0 }])));
+					} else if (!existingEmail.verified) {
+						imported.emails += changes(await runSql(target, sql({ database: target }).update('passport_emails', { verified: true }, [{ column: 'id', value: BigInt(existingEmail.id) }, { column: 'verified', value: false }])));
 					}
 					const owner = await firstSql(target, sql({ database: target }).select({ table: 'passport_user_emails', columns: { user_key: { column: 'user_key', cast: 'text' } }, where: [{ column: 'email_id', value: BigInt(existingEmail.id) }] }));
 					if (owner && owner.user_key !== item.userId) fail(`email ${item.email} is already owned by another user`);
@@ -297,7 +297,7 @@ export const importLegacyPassportData = async ({ parsed, databaseFile, globalDat
 				}
 				for (const item of parsed.emails) {
 					const owner = await firstSql(target, sql({ database: target }).select({ table: 'passport_emails', alias: 'e', columns: { user_key: { column: 'ue.user_key', cast: 'text' }, verified: 'e.verified' }, joins: [{ table: 'passport_user_emails', alias: 'ue', left: 'ue.email_id', right: 'e.id' }], where: [{ column: 'e.email', value: item.email }] }));
-					if (owner?.user_key !== item.userId || Number(owner.verified) !== 1) fail(`email ${item.email} failed verification`);
+					if (owner?.user_key !== item.userId || !owner.verified) fail(`email ${item.email} failed verification`);
 				}
 				for (const otp of parsed.otps) {
 					const found = await firstSql(target, sql({ database: target }).select({ table: 'passport_telegram_email_otps', columns: { found: 'id' }, where: [{ column: 'bot_id', value: BigInt(botId) }, { column: 'telegram_user_id', value: BigInt(otp.telegramUserId) }, { column: 'email', value: otp.email }, { column: 'created_at', value: otp.createdAt }, { column: 'status', value: otp.status }], limit: 1 }));

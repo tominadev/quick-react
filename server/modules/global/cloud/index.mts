@@ -15,7 +15,7 @@ export type CloudStorageTarget = {
 	endpoint: string;
 	region: string;
 	bucket: string;
-	path_style: number;
+	path_style: boolean;
 	public_base_url: string;
 	extra_config: string;
 	access_key_id: string;
@@ -40,7 +40,7 @@ export type CloudEmailTarget = CloudEmailScope & {
 	id: number;
 	account_name: string;
 	from_alias: string;
-	reply_to_address: number;
+	reply_to_enabled: boolean;
 };
 
 export type CloudEmailMessage = {

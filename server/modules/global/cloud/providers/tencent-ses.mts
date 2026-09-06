@@ -103,7 +103,7 @@ export const createTencentSesAdapter = (target: CloudEmailTarget): CloudEmailAda
 			FromEmailAddress: `${target.from_alias} <${target.account_name}>`,
 			Subject: message.subject,
 			Destination: [message.to],
-			...(target.reply_to_address ? { ReplyToAddresses: target.account_name } : {}),
+			...(target.reply_to_enabled ? { ReplyToAddresses: target.account_name } : {}),
 			Template: {
 				TemplateID: templateId(message.template.providerTemplateId),
 				TemplateData: JSON.stringify(message.template.variables),

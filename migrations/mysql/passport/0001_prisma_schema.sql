@@ -209,7 +209,7 @@ CREATE TABLE `passport_emails` (
     `owner_bid` BIGINT NOT NULL DEFAULT 1,
     `owner_uid` BIGINT NULL,
     `email` VARCHAR(191) NOT NULL,
-    `verified` INTEGER NOT NULL DEFAULT 0,
+    `verified` BOOLEAN NOT NULL DEFAULT false,
 
     UNIQUE INDEX `passport_emails_email_key`(`email`),
     UNIQUE INDEX `passport_emails_key_key`(`key`),
@@ -231,7 +231,7 @@ CREATE TABLE `passport_user_emails` (
     `owner_uid` BIGINT NULL,
     `user_key` VARCHAR(36) NOT NULL,
     `email_id` BIGINT NOT NULL,
-    `is_primary` INTEGER NOT NULL DEFAULT 0,
+    `is_primary` BOOLEAN NOT NULL DEFAULT false,
 
     UNIQUE INDEX `passport_user_emails_user_key_email_id_key`(`user_key`, `email_id`),
     UNIQUE INDEX `passport_user_emails_email_id_key`(`email_id`),
@@ -654,11 +654,11 @@ CREATE TABLE `passport_oidc_clients` (
     `secret_hash` VARCHAR(191) NOT NULL,
     `redirect_uris` VARCHAR(191) NOT NULL DEFAULT '[]',
     `allowed_scopes` VARCHAR(191) NOT NULL DEFAULT 'openid profile email',
-    `require_pkce` INTEGER NOT NULL DEFAULT 1,
+    `require_pkce` BOOLEAN NOT NULL DEFAULT true,
     `status` ENUM('enabled', 'disabled') NOT NULL DEFAULT 'enabled',
     `backchannel_logout_uri` VARCHAR(191) NOT NULL DEFAULT '',
-    `strict_redirect_uri` INTEGER NOT NULL DEFAULT 0,
-    `password_sync` INTEGER NOT NULL DEFAULT 0,
+    `strict_redirect_uri` BOOLEAN NOT NULL DEFAULT false,
+    `password_sync` BOOLEAN NOT NULL DEFAULT false,
 
     UNIQUE INDEX `passport_oidc_clients_client_id_key`(`client_id`),
     UNIQUE INDEX `passport_oidc_clients_key_key`(`key`),

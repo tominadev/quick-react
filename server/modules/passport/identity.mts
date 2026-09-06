@@ -150,7 +150,7 @@ export const verifyTelegramEmailOtp = async (
 		const emailId = nextSnowflake();
 		const hasUserEmail = Boolean(await firstSql(database, builder.select({ table: 'passport_user_emails', columns: { email_id: { column: 'email_id', cast: 'text' } }, where: [{ column: 'user_key', value: userId }], limit: 1 })));
 		statements.push(
-			builder.insert('passport_emails', { id: emailId, email: otp.email, verified: 1 }),
+			builder.insert('passport_emails', { id: emailId, email: otp.email, verified: true }),
 			builder.insert('passport_user_emails', { user_key: userId, email_id: emailId, is_primary: hasUserEmail ? 0 : 1 }),
 		);
 	}

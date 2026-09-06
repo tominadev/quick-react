@@ -12,7 +12,7 @@ type DefaultEmailConfiguration = CloudEmailTarget & CloudEmailTemplate & {
 	publication_status: string;
 };
 
-const targetColumns = { id: 'ch.id', provider: 'c.provider', cloud_credential_id: 'ch.cloud_credential_id', region: 'ch.region', account_name: 'ch.account_name', from_alias: 'ch.from_alias', reply_to_address: 'ch.reply_to_address', access_key_id: 'c.access_key_id', access_key_secret: 'c.access_key_secret' };
+const targetColumns = { id: 'ch.id', provider: 'c.provider', cloud_credential_id: 'ch.cloud_credential_id', region: 'ch.region', account_name: 'ch.account_name', from_alias: 'ch.from_alias', reply_to_enabled: 'ch.reply_to_enabled', access_key_id: 'c.access_key_id', access_key_secret: 'c.access_key_secret' };
 const targetJoins = [
 	{ table: 'global_cloud_email_channels', alias: 'ch', left: 'ch.id', right: 'b.channel_id' },
 	{ table: 'global_cloud_credentials', alias: 'c', left: 'c.id', right: 'ch.cloud_credential_id' },

@@ -3,7 +3,7 @@ import { allSql, firstSql, sql, type SqlSortOption } from '@server/database/sql.
 import { loadAccountUserName } from '@server/modules/passport/account.mjs';
 import { sha256 } from '@server/modules/passport/accounts/oidc.mjs';
 
-export type OidcClientRecord = { id: string; title: string; secret_hash: string; redirect_uris: string; backchannel_logout_uri: string; allowed_scopes: string; require_pkce: number; strict_redirect_uri: number; password_sync: number; status: string; created_at: number; updated_at: number };
+export type OidcClientRecord = { id: string; title: string; secret_hash: string; redirect_uris: string; backchannel_logout_uri: string; allowed_scopes: string; require_pkce: number; strict_redirect_uri: boolean; password_sync: boolean; status: string; created_at: number; updated_at: number };
 export type AuthorizationRequestRecord = { client_id: string; redirect_uri: string; scope: string; state: string; nonce: string; code_challenge: string; code_challenge_method: string; expires_at: number };
 export type AuthorizationCodeRecord = { client_id: string; user_key: string; redirect_uri: string; scope: string; nonce: string; code_challenge: string; code_challenge_method: string; expires_at: number; consumed_at: number | null; session_id: string };
 

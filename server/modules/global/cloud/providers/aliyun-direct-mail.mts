@@ -175,7 +175,7 @@ export const createAliyunDirectMailAdapter = (target: CloudEmailTarget): CloudEm
 			AddressType: '1',
 			FromAlias: target.from_alias,
 			RegionId: target.region,
-			ReplyToAddress: target.reply_to_address ? 'true' : 'false',
+			ReplyToAddress: target.reply_to_enabled ? 'true' : 'false',
 			Subject: message.subject,
 			ToAddress: message.to,
 		};

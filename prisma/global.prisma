@@ -42,9 +42,9 @@ model global_sites {
   database_binding String  @default("")
   status           GlobalEnabledStatus  @default(enabled)
   migration_status GlobalMigrationStatus @default(ready)
-  is_default       Int     @default(0)
-  is_system        Int     @default(0)
-  passport_sso_enabled Int  @default(0)
+  is_default       Boolean     @default(false)
+  is_system        Boolean     @default(false)
+  passport_sso_enabled Boolean  @default(false)
   @@index([base_site_key])
 }
 
@@ -108,7 +108,7 @@ model global_cloud_object_storage_buckets {
   endpoint            String
   region              String @default("")
   bucket              String
-  path_style          Int    @default(0)
+  path_style          Boolean    @default(false)
   public_base_url     String @default("")
   extra_config        String @default("{}")
   status              GlobalEnabledStatus @default(enabled)
@@ -154,7 +154,7 @@ model global_cloud_object_storage_binding_purposes {
   binding_id BigInt
   site_key   String
   purpose    String
-  is_default Int @default(0)
+  is_default Boolean @default(false)
 
   @@unique([binding_id, purpose])
   @@unique([key])
@@ -203,7 +203,8 @@ model global_cloud_email_channels {
   region              String
   account_name        String
   from_alias          String
-  reply_to_address    Int    @default(0)
+  /// 是否启用回信地址。存的是开关，不是地址——地址取自 account_name。
+  reply_to_enabled    Boolean    @default(false)
   status              GlobalEnabledStatus @default(enabled)
 
   @@unique([cloud_credential_id, region, account_name])
@@ -247,7 +248,7 @@ model global_cloud_email_bindings {
   channel_id BigInt
   template_id BigInt
   purpose    String
-  is_default Int    @default(0)
+  is_default Boolean    @default(false)
   status     GlobalEnabledStatus @default(enabled)
 
   @@unique([site_key, channel_id, template_id, purpose])

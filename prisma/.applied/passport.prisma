@@ -255,7 +255,7 @@ model passport_emails {
   owner_bid     BigInt @default(1)
   owner_uid     BigInt?
   email      String
-  verified   Int    @default(0)
+  verified   Boolean    @default(false)
 
   @@unique([email])
   @@unique([key])
@@ -275,7 +275,7 @@ model passport_user_emails {
   owner_uid     BigInt?
   user_key    String @db.VarChar(36)
   email_id   BigInt
-  is_primary Int    @default(0)
+  is_primary Boolean    @default(false)
 
   @@unique([user_key, email_id])
   @@unique([email_id])
@@ -663,15 +663,15 @@ model passport_oidc_clients {
   secret_hash            String
   redirect_uris          String @default("[]")
   allowed_scopes         String @default("openid profile email")
-  require_pkce           Int    @default(1)
+  require_pkce           Boolean    @default(true)
   status                 PassportAccountStatus @default(enabled)
   backchannel_logout_uri String @default("")
-  strict_redirect_uri    Int    @default(0)
+  strict_redirect_uri    Boolean    @default(false)
   /// 是否在 ID Token 里下发凭证 blob，让接入方的本地账号能用同一个密码登录。
   ///
   /// 默认关闭。开着等于把这个账号的口令哈希交给接入方——接入方脱库就等于拿到
   /// Accounts 的密码。两侧都要显式打开才会真的下发：这里是签发侧。
-  password_sync          Int    @default(0)
+  password_sync          Boolean    @default(false)
   @@unique([key])
 }
 
