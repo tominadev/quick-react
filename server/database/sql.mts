@@ -164,7 +164,21 @@ const renderCondition = (condition: SqlCondition, dialect: SqlDialect, nextPlace
 		? `${quoteIdentifier(condition.column, dialect)} ${operator}`
 		: `${quoteIdentifier(condition.column, dialect)} ${operator} ${nextPlaceholder()}`;
 };
-export type SqlJoin = { type?: 'INNER' | 'LEFT'; table: string; alias?: string; left: string; right: string };
+export type SqlJoin = {
+	type?: 'INNER' | 'LEFT';
+	table: string;
+	alias?: string;
+	left: string;
+	right: string;
+	/**
+	 * 关联表上的附加条件，写进 **ON** 而不是 WHERE。
+	 *
+	 * LEFT JOIN 的筛选条件放进 WHERE 会让它退化成 INNER JOIN：没有匹配行时关联表的列是 NULL，
+	 * 而 `NULL = '…'` 求值为 unknown，整行被过滤掉——「没有文件的令牌」会从列表里凭空消失，
+	 * 而那正是要显示出来的一种状态。理由与下面 deleted_at / queued_at 那两条完全相同。
+	 */
+	on?: SqlCondition[];
+};
 export type SqlColumn = string | { column: string; cast?: 'text' };
 /** Normal queries see active rows; recycle-bin code must explicitly request deleted/all rows. */
 export type SqlSelectOptions = { table: string; alias?: string; distinct?: boolean; columns?: Record<string, SqlColumn>; sort?: SqlSortOption; includeAll?: boolean; sqliteRowIdAlias?: string; joins?: SqlJoin[]; where?: SqlCondition[]; orderBy?: Array<{ column: string; direction?: 'ASC' | 'DESC' }>; limit?: number; offset?: number; deleted?: DeletedScope; queued?: QueuedScope };
@@ -248,13 +262,19 @@ export abstract class SqlBuilder {
 		// 关联表的删除状态写进 ON，不写进 WHERE。写进 WHERE 会让 LEFT JOIN 退化成 INNER JOIN：
 		// 没有匹配行时关联表的 deleted_at 是 NULL，而 NULL = 0 求值为 unknown，整行被过滤掉——
 		// 没有资料或没有凭证的账号会从列表里凭空消失。放进 ON 对 INNER JOIN 等价。
+		// ON 里的参数排在 WHERE 之前：SQL 文本里 JOIN 先出现，占位符的顺序必须跟着文本走，
+		// 否则参数会错位绑到别的条件上——在 SQLite 上表现为查不到，在 PostgreSQL 上直接类型报错。
+		let parameterIndex = 0;
+		const joinConditions: SqlCondition[] = [];
 		for (const join of options.joins ?? []) {
 			const joinScope = quoteIdentifier(`${join.alias ?? join.table}.deleted_at`, this.dialect);
 			const joinQueued = quoteIdentifier(`${join.alias ?? join.table}.queued_at`, this.dialect);
 			const activeOnly = deletedScope !== 'all' && deletedScope !== 'deleted';
 			const queuedOnly = activeOnly && queuedScope === 'active';
 			// 待审批的新行和已删除的行一样，都要写进 ON 而不是 WHERE，理由同上。
-			query += ` ${join.type ?? 'INNER'} JOIN ${quoteIdentifier(join.table, this.dialect)}${join.alias ? ` AS ${quoteIdentifier(join.alias, this.dialect)}` : ''} ON ${quoteIdentifier(join.left, this.dialect)} = ${quoteIdentifier(join.right, this.dialect)}${activeOnly ? ` AND ${joinScope} = 0` : ''}${queuedOnly ? ` AND ${joinQueued} = 0` : ''}`;
+			const extra = (join.on ?? []).map((condition) => ` AND ${renderCondition(condition, this.dialect, () => this.placeholder(++parameterIndex))}`).join('');
+			joinConditions.push(...(join.on ?? []));
+			query += ` ${join.type ?? 'INNER'} JOIN ${quoteIdentifier(join.table, this.dialect)}${join.alias ? ` AS ${quoteIdentifier(join.alias, this.dialect)}` : ''} ON ${quoteIdentifier(join.left, this.dialect)} = ${quoteIdentifier(join.right, this.dialect)}${activeOnly ? ` AND ${joinScope} = 0` : ''}${queuedOnly ? ` AND ${joinQueued} = 0` : ''}${extra}`;
 		}
 		const deletedConditions: SqlCondition[] = deletedScope === 'all' ? [] : [
 			{ column: `${options.alias ?? options.table}.deleted_at`, operator: deletedScope === 'deleted' ? '!=' as const : '=' as const, value: 0 },
@@ -264,8 +284,8 @@ export abstract class SqlBuilder {
 			// queued: 'all' 是显式的例外，见 QueuedScope。
 			...(deletedScope === 'active' && queuedScope === 'active' ? [{ column: `${options.alias ?? options.table}.queued_at`, value: 0 }] : []),
 		];
-		const conditions = [...deletedConditions, ...this.visibilityConditions(options.table, options.alias), ...(options.where ?? [])], boundConditions = conditions.filter(bindsValue);
-		let parameterIndex = 0;
+		const conditions = [...deletedConditions, ...this.visibilityConditions(options.table, options.alias), ...(options.where ?? [])];
+		const boundConditions = [...joinConditions, ...conditions].filter(bindsValue);
 		if (conditions.length) query += ` WHERE ${conditions.map((condition) => renderCondition(condition, this.dialect, () => this.placeholder(++parameterIndex))).join(' AND ')}`;
 		const selectable = Object.keys(options.columns ?? {});
 		options.sort?.expose?.(selectable);
