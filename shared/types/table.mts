@@ -83,6 +83,15 @@ export type TableQueryField = {
 export type TableColumn = TableColumnFormProperties & {
 	dataIndex: string;
 	title: string;
+	/**
+	 * 这一列没值时读作什么，例如「未填写」。灰字显示，与有值的格子区分得开。
+	 *
+	 * 由服务端声明：什么算「没填」、该怎么说，是业务的事——联系方式没填是「未填写」，
+	 * 账号没有本站密码是「未设置」，两者用同一个词就把意思弄丢了。不声明的话空格子
+	 * 照旧留空，而**数据管理**那种直接看原始表的地方另有一套：NULL 单独标成 `(NULL)`，
+	 * 因为那里要分的是存储形态，不是业务含义。
+	 */
+	emptyText?: string;
 	ellipsis?: boolean;
 	hideInTable?: boolean;
 	/** 这一列能不能排序；由服务端按它是否真的可排序下发，前端不自行推断。 */

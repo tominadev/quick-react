@@ -410,6 +410,10 @@ const TableCRUD = ({ commonApi, resourcePath, initialResponse, initialQueryValue
 								 * 排在时间列判断之前：可空的时间列 NULL 与 0 是两种状态，都显示成「(空)」
 								 * 就把它们抹平了。头像列不在此列——那里 NULL 显示成默认头像比一行灰字有用。
 								 */
+								// 列自己声明了「没填」怎么说的，按它来——业务页读的是含义，不是存储形态。
+								if (column.emptyText && (value === null || value === undefined || value === '')) {
+									return <Typography.Text type="secondary">{column.emptyText}</Typography.Text>;
+								}
 								if (value === null || value === undefined) return <Typography.Text type="secondary">(NULL)</Typography.Text>;
 								if (column.dayjsFormat) {
 									if (!value) {
