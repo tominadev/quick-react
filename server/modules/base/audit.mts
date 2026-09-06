@@ -251,8 +251,17 @@ const TRANSITIONS: Record<ApprovalTransition, {
 	/** 目标状态；不写这一列就不动它。 */
 	review?: ReviewStatus;
 	data?: DataStatus;
-	/** 往表上写哪一侧的值：批准与恢复写 after，回滚写 before，驳回与撤销不碰数据。 */
+	/** 往表上写哪一侧的值：批准与重新应用写 after，回滚写 before，驳回与撤销不碰数据。 */
 	write: 'after' | 'before' | 'none';
+	/**
+	 * 只对新建开放。
+	 *
+	 * 被否掉的**修改/删除/还原**不给「恢复」：重新提交一次就是了，两条路做同一件事，
+	 * 而多一条路就多一处状态要想。**新建不一样**——重来要把整张表单再填一遍，而那一行
+	 * 还带着内容躺在回收站里，捞回来比重填便宜得多；何况建号写三行，从回收站一张表一张表
+	 * 地捞会漏掉凭证，账号看着正常却登不进去。
+	 */
+	insertOnly?: true;
 }> = {
 	approve: { label: '批准', fromReview: ['pending'], review: 'approved', data: 'applied', write: 'after' },
 	reject: { label: '驳回', fromReview: ['pending'], review: 'rejected', write: 'none' },
@@ -277,7 +286,7 @@ const TRANSITIONS: Record<ApprovalTransition, {
 	 * 发生在同一条记录上**（驳回 → 恢复 → 批准 → 回滚 → 重做），所以时间/操作者各占一组列。
 	 */
 	redo: { label: '重新应用', fromData: ['reverted'], data: 'applied', write: 'after' },
-	requeue: { label: '恢复', fromReview: ['rejected', 'withdrawn'], review: 'pending', write: 'none' },
+	requeue: { label: '恢复', fromReview: ['rejected', 'withdrawn'], review: 'pending', write: 'none', insertOnly: true },
 };
 
 export const transitionLabel = (transition: ApprovalTransition) => TRANSITIONS[transition].label;
@@ -344,6 +353,9 @@ const transitionOne = async (database: DatabaseAdapter, entry: AuditEntryRow, to
 	}
 	if (allowed.fromData && !allowed.fromData.includes(entry.data_status)) {
 		return { id: entry.id, ok: false, message: `当前数据状态是「${DATA_LABELS[entry.data_status]}」，不能执行这个操作` };
+	}
+	if (allowed.insertOnly && entry.action !== 'insert') {
+		return { id: entry.id, ok: false, message: '只有被否掉的新增可以恢复，其余重新提交一次就是了' };
 	}
 	// 四组字段各写各的：同一条记录可能先被批准、再被回滚、又被恢复，合用一组的话后发生的
 	// 会覆盖先发生的——恢复完之后「回滚人」就成了恢复的人。撤销也单独一组：它和审批都从

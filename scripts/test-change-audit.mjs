@@ -356,6 +356,8 @@ const auditRouteFilter = async () => {
 		 * applied），两个名字分开：状态上互斥，但可以先后发生在同一条记录上。
 		 */
 		assert.equal((await app.request('http://localhost/api/panel/admin/base/audit.php?action=requeue', { method: 'POST', headers: { ...headers, cookie }, body: JSON.stringify([String(queuedInserts[0].id)]) })).status, 200);
+		// 只有被否掉的**新增**能恢复：修改/删除/还原重新提交一次就是了，两条路做同一件事，
+		// 而多一条路就多一处状态要想。新建不一样——重来要把整张表单再填一遍。
 		const requeued = new DatabaseSync(process.env.DEFAULT_DATABASE_FILE);
 		const backRow = requeued.prepare("SELECT deleted_at, pended_at FROM base_users WHERE name = 'rejectme'").get();
 		assert.equal(Number(backRow.deleted_at), 0, '从回收站捞出来');

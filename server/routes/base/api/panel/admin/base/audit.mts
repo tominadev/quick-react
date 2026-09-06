@@ -92,8 +92,9 @@ const flipActions = (superUser: boolean) => [
 	{ key: 'revert' as const, label: '回滚', from: ['applied'], confirm: '确认把这条已经生效的变更改回去吗？' },
 	// 两个「往回走」在不同的轴上，名字分开：重新应用动数据（回滚的逆），恢复动申请（驳回/撤销的逆）。
 	{ key: 'redo' as const, label: '重新应用', from: ['reverted'], confirm: '确认把这条回滚掉的变更再写回去吗？' },
+	// 只对被否掉的**新增**开放：其余重新提交一次就是了（见 TRANSITIONS.requeue 的 insertOnly）。
 	// 驳回是审批人的决定，可以由审批人收回；撤销是申请人自己收回的，只有他自己能再放回去。
-	{ key: 'requeue' as const, label: '恢复', from: ['rejected', 'withdrawn-mine'], confirm: '确认把这条申请放回队列吗？数据不会被改动，等批准了才生效。' },
+	{ key: 'requeue' as const, label: '恢复', from: ['rejected-insert', 'withdrawn-insert-mine'], confirm: '确认把这条新增放回队列吗？那一行会从回收站回到待审批，等批准了才生效。' },
 ];
 
 const columns = [
@@ -194,12 +195,19 @@ const handler: ApiHandler = async (c, next, params) => {
 		const submitters = await submitterIdsOf(database, rows.map((row) => String(row.created_duid ?? '')));
 		const me = String(c.get('currentUser')?.id ?? '');
 		const mineRow = (row: AuditEntryRow) => Boolean(me) && submitters.get(String(row.created_duid ?? '')) === me;
-		const stageOf = (row: AuditEntryRow) => row.review_status === 'pending' ? (mineRow(row) ? 'pending-mine' : 'pending-other')
-			// 撤销分「我的」和「别人的」：只有申请人自己能把它放回队列。驳回不分——那是
-			// 审批人的决定，由有审批权的人收回。
-			: row.review_status === 'withdrawn' ? (mineRow(row) ? 'withdrawn-mine' : 'withdrawn-other')
-				: row.review_status === 'rejected' ? 'rejected'
-					: row.data_status;
+		/**
+		 * 被否掉的申请只有**新增**还能恢复，因此把 action 也折进这一列——其余的落到
+		 * `closed`，一个按钮都不挂：它们重新提交一次就是了。
+		 *
+		 * 撤销分「我的」和「别人的」：只有申请人自己能把它放回队列。驳回不分——那是审批人
+		 * 的决定，由有审批权的人收回。
+		 */
+		const stageOf = (row: AuditEntryRow) => {
+			if (row.review_status === 'pending') return mineRow(row) ? 'pending-mine' : 'pending-other';
+			if (row.review_status === 'rejected') return row.action === 'insert' ? 'rejected-insert' : 'closed';
+			if (row.review_status === 'withdrawn') return row.action === 'insert' ? (mineRow(row) ? 'withdrawn-insert-mine' : 'withdrawn-insert-other') : 'closed';
+			return row.data_status;
+		};
 		// 列表有条数上限，总数单独计一次——拿列表长度当总数会在超过上限时谎报。
 		const totalRecords = await countAuditEntries(database, filters, reason);
 		return apiResponse(c, 200, { table: {

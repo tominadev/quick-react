@@ -107,6 +107,18 @@ try {
 	// 驳回只动别人提的那几条，因此不会撞上四眼原则整批失败。
 	assert.equal((await app.request(`${settings}?action=reject-pending`, { method: 'POST', headers: superHeaders, body: '{}' })).status, 200);
 
+	// 只有被否掉的新增能恢复。
+	assert.equal((await submit(reviewerHeaders, '页脚己')).status, 202);
+	const rejectedIds = await (async () => {
+		const list = await (await app.request('http://localhost/api/panel/admin/base/audit.php?include=data&review_status=pending', { headers: superHeaders })).json();
+		const ids = list.table.dataSource.map((row) => String(row.id));
+		assert.equal((await app.request('http://localhost/api/panel/admin/base/audit.php?action=reject', { method: 'POST', headers: superHeaders, body: JSON.stringify(ids) })).status, 200);
+		return ids;
+	})();
+	const requeued = await app.request('http://localhost/api/panel/admin/base/audit.php?action=requeue', { method: 'POST', headers: superHeaders, body: JSON.stringify(rejectedIds) });
+	assert.equal(requeued.status, 409, '被驳回的修改不给恢复——重新提交一次就是了');
+	assert.match((await requeued.json()).feedback?.message ?? '', /只有被否掉的新增可以恢复/);
+
 	console.log('super users test passed');
 } finally {
 	await rm(directory, { recursive: true, force: true });
