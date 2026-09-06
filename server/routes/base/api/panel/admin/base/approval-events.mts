@@ -1,7 +1,7 @@
 import type { ApiHandler } from '@server/modules/base/api-router.mjs';
 import { apiResponse } from '@server/modules/base/api-response.mjs';
 import { allSql, sql, type SqlCondition } from '@server/database/sql.mjs';
-import { APPROVAL_EVENT_TABLE, transitionLabel, type ApprovalTransition } from '@server/modules/base/audit.mjs';
+import { APPROVAL_EVENT_TABLE, eventLabel, type ApprovalTransition } from '@server/modules/base/audit.mjs';
 import { tableSort } from '@server/modules/base/query-options.mjs';
 
 /**
@@ -23,20 +23,20 @@ const KIND_COLORS: Record<ApprovalTransition, string> = {
 	requeue: 'gold', revert: 'volcano', redo: 'cyan',
 };
 
-const kindOptions = (['approve', 'reject', 'withdraw', 'requeue', 'revert', 'redo'] as const)
-	.map((kind) => ({ value: kind, text: transitionLabel(kind), color: KIND_COLORS[kind] }));
+const kindOptions = (['withdraw', 'approve', 'reject', 'requeue', 'revert', 'redo'] as const)
+	.map((kind) => ({ value: kind, text: eventLabel(kind), color: KIND_COLORS[kind] }));
 
 const columns = [
 	{ dataIndex: 'id', title: 'ID', dataType: 'int' as const },
 	{ dataIndex: 'created_at', title: '时间', dataType: 'js_timestamp' as const, dayjsFormat: 'YYYY-MM-DD HH:mm:ss' },
 	{ dataIndex: 'created_duid', title: '操作者' },
 	{ dataIndex: 'approval_id', title: '审批记录', dataType: 'int' as const },
-	{ dataIndex: 'kind', title: '处理', options: kindOptions },
+	{ dataIndex: 'kind', title: '处理类型', options: kindOptions },
 	{ dataIndex: 'reason', title: '理由' }];
 
 const queryFields = [
 	{ dataIndex: 'approval_id', label: '审批记录', component: 'textbox' as const, placeholder: '审批记录的 ID' },
-	{ dataIndex: 'kind', label: '处理', component: 'select' as const, defaultValue: '', options: [{ value: '', text: '全部' }, ...kindOptions] },
+	{ dataIndex: 'kind', label: '处理类型', component: 'select' as const, defaultValue: '', options: [{ value: '', text: '全部' }, ...kindOptions] },
 ];
 
 const handler: ApiHandler = async (c, next) => {

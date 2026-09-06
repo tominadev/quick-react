@@ -160,6 +160,15 @@ const auditRouteFilter = async () => {
 		// 只读：事件只追加不修改，改一条已经发生的处理经过等于篡改证据。
 		assert.deepEqual(Object.keys(eventsPage.table.option.actions), ['query'], '没有新增、编辑、删除，也没有回收站');
 		assert.deepEqual(eventsPage.table.columns.map((column) => column.dataIndex), ['id', 'created_at', 'created_duid', 'approval_id', 'kind', 'reason']);
+		/**
+		 * 处理类型的说法与按钮上的不同：按钮是祈使的、越短越好（一行上并排三四个），而记录
+		 * 里那一格是读的，前缀直接说清这一步是谁做的、动的是什么——管理X 是审批人的决定、
+		 * 执行X 动的是已生效的数据、撤销申请是唯一由申请人自己做的。括号里是这一列的原文。
+		 */
+		assert.deepEqual(
+			eventsPage.table.columns.find((column) => column.dataIndex === 'kind').options.map((option) => option.text),
+			['撤销申请(withdraw)', '管理批准(approve)', '管理驳回(reject)', '管理恢复(requeue)', '执行回滚(revert)', '执行重做(redo)'],
+		);
 
 		// 四种申请各挂一组按钮，由 visibleWhen 按行显隐：撤销只对自己提的出现，
 		// 驳回只对别人提的出现，批准自己那一份只给超级用户。

@@ -2,7 +2,7 @@ import type { ApiHandler } from '@server/modules/base/api-router.mjs';
 import { apiMessage, apiResponse } from '@server/modules/base/api-response.mjs';
 import { readChangeReason } from '@server/modules/base/operation.mjs';
 import { allSql, AUDIT_TABLE, sql, type SqlCondition } from '@server/database/sql.mjs';
-import { DATA_LABELS, REVIEW_LABELS, approvalEventsFor, countAuditEntries, describeAuditChanges, listAuditEntries, parseAuditChanges, publicAuditChanges, readAuditEntry, transitionAuditEntries, transitionLabel, type ApprovalEventRow, type AuditEntryRow } from '@server/modules/base/audit.mjs';
+import { DATA_LABELS, REVIEW_LABELS, approvalEventsFor, countAuditEntries, describeAuditChanges, eventLabel, listAuditEntries, parseAuditChanges, publicAuditChanges, readAuditEntry, transitionAuditEntries, type ApprovalEventRow, type AuditEntryRow } from '@server/modules/base/audit.mjs';
 import { tableSort } from '@server/modules/base/query-options.mjs';
 import { assertNotSelfApproval, isSuperUser, submitterIdsOf } from '@server/modules/base/super-users.mjs';
 import type { TableCrudDefinition } from '@server/modules/base/table-crud.mjs';
@@ -129,11 +129,11 @@ const columns = [
 	{ dataIndex: 'last_event', title: '最近处理', tableDisplay: 'multiline' as const },
 ];
 
-/** 一条事件读成一行人话：`2026-09-06 10:00:00 批准（#7）：同意`。 */
+/** 一条事件读成一行人话：`2026-09-06 10:00:00 管理审批(approve)（#7）：同意`。 */
 const eventLine = (event: ApprovalEventRow) => {
 	const at = new Date(Number(event.created_at)).toISOString().replace('T', ' ').slice(0, 19);
 	const who = event.created_duid ? `（#${event.created_duid}）` : '';
-	return `${at} ${transitionLabel(event.kind)}${who}${event.reason ? `：${event.reason}` : ''}`;
+	return `${at} ${eventLabel(event.kind)}${who}${event.reason ? `：${event.reason}` : ''}`;
 };
 
 const publicEntry = (row: AuditEntryRow, events: ApprovalEventRow[] = []) => ({
@@ -234,7 +234,7 @@ const handler: ApiHandler = async (c, next, params) => {
 		return apiResponse(c, 200, {
 			...publicEntry(row, timeline),
 			changes: publicAuditChanges(parseAuditChanges(row)),
-			events: timeline.map((event) => ({ kind: event.kind, label: transitionLabel(event.kind), at: event.created_at, duid: event.created_duid ?? '', reason: event.reason ?? '' })),
+			events: timeline.map((event) => ({ kind: event.kind, label: eventLabel(event.kind), at: event.created_at, duid: event.created_duid ?? '', reason: event.reason ?? '' })),
 		});
 	}
 	const flip = c.req.method === 'POST' ? flipActions(isSuperUser(c)).find((action) => action.key === c.req.query('action')) : undefined;

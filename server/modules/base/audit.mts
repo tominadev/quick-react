@@ -305,6 +305,33 @@ const TRANSITIONS: Record<ApprovalTransition, {
 export const transitionLabel = (transition: ApprovalTransition) => TRANSITIONS[transition].label;
 
 /**
+ * 处理经过里那一格的说法，与按钮上的不同。
+ *
+ * 按钮是祈使的、越短越好——一行上并排三四个，写「管理批准」只会占地方。而**记录里那一格
+ * 是读的**，前缀直接说清这一步是谁做的、动的是什么：
+ *
+ * - **管理X**：审批人对别人的申请做决定（批准、驳回、恢复）。
+ * - **执行X**：动的是已经生效的数据（回滚、重做）。
+ * - **撤销申请**：唯一由申请人自己做的，没有前缀正说明它不属于上面两类。
+ *
+ * 「管理批准」而不是「管理审批」：批准是动作，审批是整个流程，这一格记的是前者。
+ *
+ * 后面带上英文键：这一列的值本来就是 `approve`、`revert` 这些原文，查库、看日志、翻这份
+ * 文档时对得上号，不必在脑子里做一次翻译。
+ */
+export const EVENT_LABELS: Record<ApprovalTransition, string> = {
+	withdraw: '撤销申请',
+	approve: '管理批准',
+	reject: '管理驳回',
+	requeue: '管理恢复',
+	revert: '执行回滚',
+	redo: '执行重做',
+};
+
+/** `管理审批(approve)`：中文说清是谁做的哪一类，括号里是这一列的原文。 */
+export const eventLabel = (kind: ApprovalTransition) => `${EVENT_LABELS[kind]}(${kind})`;
+
+/**
  * 状态迁移：撤销、恢复、批准、驳回是同一段代码。
  *
  * 一次变更**永远只有一条记录**：`changes` 里同时有前值和后值，`status` 说明当前停在哪一边。
