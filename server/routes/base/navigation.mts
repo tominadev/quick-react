@@ -120,7 +120,7 @@ const rawSiteNavigation = (): MenuNode[] => [
 		roles: ['user'],
 		children: [
 			// 只做当前登录身份的只读展示，账号资料由 Accounts 维护，不设子页面。
-			{ label: '我', key: 'base/me', icon: 'appstore', component: 'personalCenter', title: '我', description: '查看当前登录账号的身份信息' },
+			{ label: '个人中心', key: 'base/me', icon: 'appstore', component: 'personalCenter', title: '个人中心', description: '查看当前登录账号的身份信息' },
 		],
 	},
 ];

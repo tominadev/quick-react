@@ -45,8 +45,10 @@ try {
 
 	/**
 	 * 用户面与管理后台对称：顶层是 `/panel/user`，页面挂在它下面并带站点名
-	 * （`/panel/user/base/me`）。`me` 直译成「我」；`user` 那一层叫「控制台」——并列的
-	 * 「管理后台」「代理中心」都是场所名，菜单项回答的是「点进去是什么地方」。
+	 * （`/panel/user/base/me`）。两级菜单都用场所名：`user` 那一层叫「控制台」，`me` 这一层
+	 * 叫「个人中心」——与并列的「管理后台」「代理中心」一致，菜单项回答的是「点进去是
+	 * 什么地方」，不是「我是谁」。路径仍是 `base/me`，`personalCenter` 这个组件名本来
+	 * 就与「个人中心」对得上。
 	 *
 	 * CDN 模式下导航不嵌在文档里，从上下文接口取。
 	 */
@@ -58,7 +60,7 @@ try {
 	assert.deepEqual(userPanel.roles, ['user'], '用户面要求登录');
 	const me = (userPanel.children ?? []).find((item) => item.key === '/panel/user/base/me');
 	assert.ok(me, '「我」应该在用户面下');
-	assert.equal(me.label, '我');
+	assert.equal(me.label, '个人中心');
 	assert.deepEqual(me.children ?? [], [], '「我」不应该再有子页面');
 	// 原来的子页面路径不再存在。CDN 模式下文档一律 200（可缓存的壳），404 由上下文的 pageStatus 下发。
 	const removed = await readPageContext(app, 'localhost', '/panel/me/security.html', { cookie, headers: { 'x-device-key': deviceKey, 'x-device-fingerprint': fingerprintData } });
