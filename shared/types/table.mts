@@ -58,8 +58,15 @@ export type TableAction = {
 	 * 审批那三个动作用它把「页面上看到的是哪几条申请」带回去。
 	 */
 	sendFields?: string[];
-	/** 在当前列表内打开后端驱动的表单弹窗。 */
+	/** 在当前列表内打开后端驱动的表单弹窗。工具栏与行上都支持。 */
 	modalPath?: string;
+	/**
+	 * 行上的弹窗要带哪几个查询条件：`{查询字段: 本行的哪一列}`。
+	 *
+	 * 由服务端声明，前端不按字段名去猜。审批页的「处理经过」用它把 `approval_id=本行 id`
+	 * 带进去——弹窗里那张表是全站的事件列表，不筛的话打开就是别人的记录。
+	 */
+	modalQueryFields?: Record<string, string>;
 	/** 弹窗内容类型；未指定时默认为表单。 */
 	modalComponent?: 'form' | 'table';
 };

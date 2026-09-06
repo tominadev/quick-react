@@ -107,7 +107,7 @@ const TableCRUD = ({ commonApi, resourcePath, initialResponse, initialQueryValue
 	// 代码分类：API数据加载
 	const [loading, setLoading] = useState(!initialResponse);
 	const [uploadState, setUploadState] = useState<UploadState>();
-	const [modalAction, setModalAction] = useState<{ path: string; title: string; component?: 'form' | 'table' }>();
+	const [modalAction, setModalAction] = useState<{ path: string; title: string; component?: 'form' | 'table'; query?: Record<string, string> }>();
 	const uploadAbortController = useRef<AbortController | undefined>(undefined);
 	const [pagination, setPagination] = useState<TablePaginationConfig>({
 		current: initialTableState.page,
@@ -439,7 +439,7 @@ const TableCRUD = ({ commonApi, resourcePath, initialResponse, initialQueryValue
 						width: 160,
 						render: (value: any, record: DataType, index: number) => <Space wrap size={[8, 4]}>
 							{(tableOptionRef.current.actions?.row ?? []).filter((action) => actionVisibleForRow(action, record)).map((action) => rowActionHandlers[action.key]?.(action, value, record, index)
-								?? <a key={action.key} aria-disabled={action.disabled} onClick={() => action.form ? onRowFormAction(action, record) : onSimpleRowAction(action, record)}>{action.label}</a>)}
+								?? <a key={action.key} aria-disabled={action.disabled} onClick={() => action.modalPath ? onRowModalAction(action, record) : action.form ? onRowFormAction(action, record) : onSimpleRowAction(action, record)}>{action.label}</a>)}
 						</Space>,
 					});
 					setTableColumns(tableColumns);
@@ -835,6 +835,22 @@ const TableCRUD = ({ commonApi, resourcePath, initialResponse, initialQueryValue
 		disabled={loading || action.disabled}
 		onClick={() => action.modalPath && setModalAction({ path: action.modalPath, title: action.label, component: action.modalComponent })}
 	>{action.label}</Button>;
+	/**
+	 * 行上的弹窗：带上这一行的查询条件打开另一张表。
+	 *
+	 * 要带哪几个字段由服务端声明（`modalQueryFields`），前端不按字段名去猜——猜的话每加
+	 * 一个这样的动作都要回来改前端。审批页的「处理经过」用它把 `approval_id=本行 id`
+	 * 带进去，否则弹开的是全站事件。
+	 */
+	const onRowModalAction = (action: TableAction, record: DataType) => {
+		if (!action.modalPath || action.disabled) return;
+		setModalAction({
+			path: action.modalPath,
+			title: action.label,
+			component: action.modalComponent,
+			query: Object.fromEntries(Object.entries(action.modalQueryFields ?? {}).map(([field, column]) => [field, String(record[column] ?? '')])),
+		});
+	};
 	const queryActionHandlers: Record<string, (action: TableAction) => React.ReactNode> = {
 		search: (action) => <Button key={action.key} onClick={applySearch} icon={<SearchOutlined />} disabled={loading || action.disabled}>{action.label}</Button>,
 	};
@@ -892,7 +908,8 @@ const TableCRUD = ({ commonApi, resourcePath, initialResponse, initialQueryValue
 				? <TableCRUD
 					commonApi={commonApi}
 					resourcePath={modalAction.path}
-					initialQueryValues={{ ...appliedQueryValues, include: 'deleted' }}
+					// 行上的弹窗自带条件（见 onRowModalAction）；工具栏那种沿用当前页的筛选并打开回收站。
+					initialQueryValues={modalAction.query ? modalAction.query : { ...appliedQueryValues, include: 'deleted' }}
 					showRecycleBin={false}
 					urlState={false}
 				/>

@@ -214,7 +214,12 @@ const handler: ApiHandler = async (c, next, params) => {
 				// 回滚不新开记录，而是把这一条翻到另一面；已回滚的再点一次就重新应用。
 				// 回滚与重新应用是互斥的两个动作，一行上只显示其中适用的那个。
 				toolbar: flipActions(isSuperUser(c)).map((action) => ({ key: action.key, label: `${action.label}选中记录`, confirm: action.confirm, selection: true })),
-				row: flipActions(isSuperUser(c)).map((action) => ({ key: action.key, label: action.label, confirm: action.confirm, visibleWhen: { field: STAGE_FIELD, values: action.from } })),
+				row: [
+					// 完整经过在弹窗里读：列表上只有「最近处理」一行，而一条记录可能被驳回、
+					// 恢复、批准、回滚、重新应用地翻好几轮。带上 approval_id，否则弹开的是全站事件。
+					{ key: 'events', label: '处理经过', modalPath: '/panel/admin/base/approval-events', modalComponent: 'table' as const, modalQueryFields: { approval_id: 'id' } },
+					...flipActions(isSuperUser(c)).map((action) => ({ key: action.key, label: action.label, confirm: action.confirm, visibleWhen: { field: STAGE_FIELD, values: action.from } })),
+				],
 			} },
 			columns,
 			dataSource: rows.map((row) => ({ ...publicEntry(row, events.get(String(row.id))), [STAGE_FIELD]: stageOf(row) })),

@@ -14,6 +14,7 @@ const projectDirectory = resolve(import.meta.dirname, '..');
  * 猜出来的那张未必是列表主表，猜错了这个测试就成了摆设。
  */
 const routeTables = {
+	'base/api/panel/admin/base/approval-events.mts': 'base_approval_events',
 	'base/api/panel/admin/base/audit.mts': 'base_approvals',
 	'base/api/panel/admin/base/users.mts': 'base_users',
 	'base/api/panel/agent/subordinates.mts': 'base_users',

@@ -146,6 +146,21 @@ const auditRouteFilter = async () => {
 		const marked = await (await app.request(`${usersApi}?include=schema,data`, { headers: { ...headers, cookie } })).json();
 		assert.equal(marked.table.columns.some((column) => column.dataIndex === '_pending'), false, '不开「审批」列：标记是数据不是列，前端拿它给那一行换底色');
 		assert.equal(marked.table.dataSource.find((row) => row.user_name === 'pendingbob')._pending, 'update-mine');
+		/**
+		 * 完整经过要点得到：列表上只有「最近处理」一行，而一条记录可能被驳回、恢复、批准、
+		 * 回滚、重新应用地翻好几轮。行上挂一个「处理经过」弹窗，带上 approval_id——不带的话
+		 * 弹开的是全站事件。
+		 */
+		const auditTable = await (await app.request('http://localhost/api/panel/admin/base/audit.php?include=schema,data&review_status=all', { headers: { ...headers, cookie } })).json();
+		const eventsAction = auditTable.table.option.actions.row.find((action) => action.key === 'events');
+		assert.equal(eventsAction?.label, '处理经过');
+		assert.equal(eventsAction.modalComponent, 'table');
+		assert.deepEqual(eventsAction.modalQueryFields, { approval_id: 'id' }, '带上本行的 id，否则弹开的是全站事件');
+		const eventsPage = await (await app.request('http://localhost/api/panel/admin/base/approval-events.php?include=schema,data', { headers: { ...headers, cookie } })).json();
+		// 只读：事件只追加不修改，改一条已经发生的处理经过等于篡改证据。
+		assert.deepEqual(Object.keys(eventsPage.table.option.actions), ['query'], '没有新增、编辑、删除，也没有回收站');
+		assert.deepEqual(eventsPage.table.columns.map((column) => column.dataIndex), ['id', 'created_at', 'created_duid', 'approval_id', 'kind', 'reason']);
+
 		// 四种申请各挂一组按钮，由 visibleWhen 按行显隐：撤销只对自己提的出现，
 		// 驳回只对别人提的出现，批准自己那一份只给超级用户。
 		const markedActions = marked.table.option.actions.row.filter((action) => action.visibleWhen?.field === '_pending');
