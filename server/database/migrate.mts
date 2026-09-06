@@ -14,7 +14,7 @@ const ensureMigrationTable = async (database: DatabaseAdapter) => {
 			: 'INTEGER NOT NULL PRIMARY KEY AUTOINCREMENT';
 	// Migration bookkeeping is infrastructure metadata rather than a site model,
 	// but it follows the same fixed audit-column contract as every data table.
-	await database.exec?.(`CREATE TABLE IF NOT EXISTS global_schema_migrations (id ${idDefinition}, created_at ${numberType} NOT NULL, updated_at ${numberType} NOT NULL, deleted_at ${numberType} NOT NULL DEFAULT 0, pended_at ${numberType} NOT NULL DEFAULT 0, created_duid ${numberType} NULL, updated_duid ${numberType} NULL, owner_tid ${numberType} NOT NULL DEFAULT 1, owner_bid ${numberType} NOT NULL DEFAULT 1, owner_uid ${numberType} NULL, migration_key ${keyType} NOT NULL, applied_at ${numberType} NOT NULL, UNIQUE (migration_key, deleted_at))`);
+	await database.exec?.(`CREATE TABLE IF NOT EXISTS global_schema_migrations (id ${idDefinition}, created_at ${numberType} NOT NULL, updated_at ${numberType} NOT NULL, deleted_at ${numberType} NOT NULL DEFAULT 0, queued_at ${numberType} NOT NULL DEFAULT 0, created_duid ${numberType} NULL, updated_duid ${numberType} NULL, owner_tid ${numberType} NOT NULL DEFAULT 1, owner_bid ${numberType} NOT NULL DEFAULT 1, owner_uid ${numberType} NULL, migration_key ${keyType} NOT NULL, applied_at ${numberType} NOT NULL, UNIQUE (migration_key, deleted_at))`);
 };
 
 export const migrateDatabase = async (database: DatabaseAdapter, migrationsRoot: string, migrationGroups: string[]) => {

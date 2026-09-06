@@ -155,7 +155,7 @@ export const PENDING_KINDS: ReadonlyArray<{ kind: PendingRowKind; label: string;
 /**
  * 配置项在 `base_configs` 里的行号；还没有这一行就没有待审批可言。
  *
- * `pended: 'all'`：**第一次保存**写下的那一行带着 `pended_at`，普通查询看不见它。不放开
+ * `queued: 'all'`：**第一次保存**写下的那一行带着 `queued_at`，普通查询看不见它。不放开
  * 的话，页面查不到行号，那条「有 N 项修改正在等待审批」的提示就整个消失——保存完看到的
  * 是默认值，而且没有任何地方告诉你它在排队。
  */
@@ -165,7 +165,7 @@ export const configRowId = async (c: Context<AppEnv>, key: string) => {
 	const row = await firstSql<{ id: string }>(database, sql({ database }).select({
 		table: 'base_configs', columns: { id: { column: 'id', cast: 'text' } },
 		where: [{ column: 'name', value: key }, tenantId === null ? { column: 'owner_tid', value: 1 } : { column: 'owner_tid', value: tenantId }],
-		pended: 'all', limit: 1,
+		queued: 'all', limit: 1,
 	}));
 	return row?.id;
 };

@@ -57,7 +57,7 @@ export const claimSubordinate = async (c: Context<AppEnv>, database: DatabaseAda
 	const builder = agentBuilder(database);
 	// 按名查找限本租户：用户名只在租户内唯一，跨租户查会拿到别人的同名账号。
 	// 默认的 active 范围同时挡住了两类行——回收站里的，以及**还在审批队列里的新账号**
-	// （pended_at 非 0）：那个账号还没被批准存在，先被人拉走就成了既成事实。
+	// （queued_at 非 0）：那个账号还没被批准存在，先被人拉走就成了既成事实。
 	const target = await firstSql<ClaimTarget>(database, builder.select({
 		table: 'base_users',
 		columns: { id: { column: 'id', cast: 'text' }, name: 'name', roles: 'roles', agent_uid: { column: 'agent_uid', cast: 'text' }, owner_bid: { column: 'owner_bid', cast: 'text' } },

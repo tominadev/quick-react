@@ -8,7 +8,7 @@ CREATE TABLE `pve_regions` (
     `created_at` BIGINT NOT NULL DEFAULT 0,
     `updated_at` BIGINT NOT NULL DEFAULT 0,
     `deleted_at` BIGINT NOT NULL DEFAULT 0,
-    `pended_at` BIGINT NOT NULL DEFAULT 0,
+    `queued_at` BIGINT NOT NULL DEFAULT 0,
     `created_duid` BIGINT NULL,
     `updated_duid` BIGINT NULL,
     `owner_tid` BIGINT NOT NULL DEFAULT 1,
@@ -18,7 +18,7 @@ CREATE TABLE `pve_regions` (
     `status` ENUM('enabled', 'disabled') NOT NULL DEFAULT 'enabled',
     `sort_order` INTEGER NOT NULL DEFAULT 0,
 
-    UNIQUE INDEX `pve_regions_key_deleted_at_key`(`key`, `deleted_at`),
+    UNIQUE INDEX `pve_regions_key_key`(`key`),
     PRIMARY KEY (`id`)
 ) DEFAULT CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci;
 
@@ -29,7 +29,7 @@ CREATE TABLE `pve_nodes` (
     `created_at` BIGINT NOT NULL DEFAULT 0,
     `updated_at` BIGINT NOT NULL DEFAULT 0,
     `deleted_at` BIGINT NOT NULL DEFAULT 0,
-    `pended_at` BIGINT NOT NULL DEFAULT 0,
+    `queued_at` BIGINT NOT NULL DEFAULT 0,
     `created_duid` BIGINT NULL,
     `updated_duid` BIGINT NULL,
     `owner_tid` BIGINT NOT NULL DEFAULT 1,
@@ -47,7 +47,8 @@ CREATE TABLE `pve_nodes` (
     `last_checked_at` INTEGER NULL,
     `last_error` VARCHAR(191) NOT NULL DEFAULT '',
 
-    UNIQUE INDEX `pve_nodes_key_deleted_at_key`(`key`, `deleted_at`),
+    UNIQUE INDEX `pve_nodes_owner_tid_name_deleted_at_key`(`owner_tid`, `name`, `deleted_at`),
+    UNIQUE INDEX `pve_nodes_key_key`(`key`),
     PRIMARY KEY (`id`)
 ) DEFAULT CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci;
 
@@ -58,7 +59,7 @@ CREATE TABLE `pve_instance_flavors` (
     `created_at` BIGINT NOT NULL,
     `updated_at` BIGINT NOT NULL,
     `deleted_at` BIGINT NOT NULL DEFAULT 0,
-    `pended_at` BIGINT NOT NULL DEFAULT 0,
+    `queued_at` BIGINT NOT NULL DEFAULT 0,
     `created_duid` BIGINT NULL,
     `updated_duid` BIGINT NULL,
     `owner_tid` BIGINT NOT NULL DEFAULT 1,
@@ -70,8 +71,8 @@ CREATE TABLE `pve_instance_flavors` (
     `status` ENUM('enabled', 'disabled') NOT NULL DEFAULT 'enabled',
     `sort_order` INTEGER NOT NULL DEFAULT 0,
 
-    UNIQUE INDEX `pve_instance_flavors_key_deleted_at_key`(`key`, `deleted_at`),
-    UNIQUE INDEX `pve_instance_flavors_cpu_cores_memory_gb_deleted_at_key`(`cpu_cores`, `memory_gb`, `deleted_at`),
+    UNIQUE INDEX `pve_instance_flavors_key_key`(`key`),
+    UNIQUE INDEX `pve_instance_flavors_cpu_cores_memory_gb_key`(`cpu_cores`, `memory_gb`),
     PRIMARY KEY (`id`)
 ) DEFAULT CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci;
 
@@ -82,7 +83,7 @@ CREATE TABLE `pve_vms` (
     `created_at` BIGINT NOT NULL DEFAULT 0,
     `updated_at` BIGINT NOT NULL DEFAULT 0,
     `deleted_at` BIGINT NOT NULL DEFAULT 0,
-    `pended_at` BIGINT NOT NULL DEFAULT 0,
+    `queued_at` BIGINT NOT NULL DEFAULT 0,
     `created_duid` BIGINT NULL,
     `updated_duid` BIGINT NULL,
     `owner_tid` BIGINT NOT NULL DEFAULT 1,
@@ -98,7 +99,8 @@ CREATE TABLE `pve_vms` (
     `pve_config` JSON NOT NULL,
     `error_message` VARCHAR(191) NOT NULL DEFAULT '',
 
-    UNIQUE INDEX `pve_vms_key_deleted_at_key`(`key`, `deleted_at`),
+    UNIQUE INDEX `pve_vms_owner_tid_name_deleted_at_key`(`owner_tid`, `name`, `deleted_at`),
+    UNIQUE INDEX `pve_vms_key_key`(`key`),
     PRIMARY KEY (`id`)
 ) DEFAULT CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci;
 
@@ -109,7 +111,7 @@ CREATE TABLE `pve_vm_tasks` (
     `created_at` BIGINT NOT NULL DEFAULT 0,
     `updated_at` BIGINT NOT NULL DEFAULT 0,
     `deleted_at` BIGINT NOT NULL DEFAULT 0,
-    `pended_at` BIGINT NOT NULL DEFAULT 0,
+    `queued_at` BIGINT NOT NULL DEFAULT 0,
     `created_duid` BIGINT NULL,
     `updated_duid` BIGINT NULL,
     `owner_tid` BIGINT NOT NULL DEFAULT 1,
@@ -124,7 +126,7 @@ CREATE TABLE `pve_vm_tasks` (
     `retry_count` INTEGER NOT NULL DEFAULT 0,
     `error_message` VARCHAR(191) NOT NULL DEFAULT '',
 
-    UNIQUE INDEX `pve_vm_tasks_idempotency_key_deleted_at_key`(`idempotency_key`, `deleted_at`),
-    UNIQUE INDEX `pve_vm_tasks_key_deleted_at_key`(`key`, `deleted_at`),
+    UNIQUE INDEX `pve_vm_tasks_idempotency_key_key`(`idempotency_key`),
+    UNIQUE INDEX `pve_vm_tasks_key_key`(`key`),
     PRIMARY KEY (`id`)
 ) DEFAULT CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci;

@@ -71,7 +71,7 @@ model passport_users {
   created_at  BigInt
   updated_at  BigInt
   deleted_at BigInt @default(0)
-  pended_at  BigInt @default(0)
+  queued_at  BigInt @default(0)
   created_duid BigInt?
   updated_duid BigInt?
   owner_tid     BigInt @default(1)
@@ -88,7 +88,7 @@ model passport_user_email_otps {
   created_at    BigInt
   updated_at    BigInt
   deleted_at BigInt @default(0)
-  pended_at  BigInt @default(0)
+  queued_at  BigInt @default(0)
   created_duid  BigInt?
   updated_duid  BigInt?
   owner_tid     BigInt @default(1)
@@ -113,7 +113,7 @@ model passport_user_credentials {
   created_at BigInt
   updated_at BigInt
   deleted_at BigInt @default(0)
-  pended_at  BigInt @default(0)
+  queued_at  BigInt @default(0)
   created_duid BigInt?
   updated_duid BigInt?
   owner_tid     BigInt @default(1)
@@ -133,7 +133,7 @@ model passport_sessions {
   created_at BigInt
   updated_at BigInt
   deleted_at BigInt @default(0)
-  pended_at  BigInt @default(0)
+  queued_at  BigInt @default(0)
   created_duid BigInt?
   updated_duid BigInt?
   owner_tid     BigInt @default(1)
@@ -156,7 +156,7 @@ model passport_devices {
   created_at   BigInt
   updated_at   BigInt
   deleted_at BigInt @default(0)
-  pended_at  BigInt @default(0)
+  queued_at  BigInt @default(0)
   created_duid BigInt?
   updated_duid BigInt?
   owner_tid     BigInt @default(1)
@@ -180,7 +180,7 @@ model passport_device_users {
   created_at   BigInt
   updated_at   BigInt
   deleted_at BigInt @default(0)
-  pended_at  BigInt @default(0)
+  queued_at  BigInt @default(0)
   created_duid BigInt?
   updated_duid BigInt?
   owner_tid     BigInt @default(1)
@@ -202,7 +202,7 @@ model passport_telegram_accounts {
   created_at       BigInt
   updated_at       BigInt
   deleted_at BigInt @default(0)
-  pended_at  BigInt @default(0)
+  queued_at  BigInt @default(0)
   created_duid     BigInt?
   updated_duid     BigInt?
   owner_tid     BigInt @default(1)
@@ -224,7 +224,7 @@ model passport_oauth_accounts {
   created_at       BigInt
   updated_at       BigInt
   deleted_at BigInt @default(0)
-  pended_at  BigInt @default(0)
+  queued_at  BigInt @default(0)
   created_duid     BigInt?
   updated_duid     BigInt?
   owner_tid     BigInt @default(1)
@@ -244,7 +244,7 @@ model passport_emails {
   created_at BigInt
   updated_at BigInt
   deleted_at BigInt @default(0)
-  pended_at  BigInt @default(0)
+  queued_at  BigInt @default(0)
   created_duid BigInt?
   updated_duid BigInt?
   owner_tid     BigInt @default(1)
@@ -263,7 +263,7 @@ model passport_user_emails {
   created_at BigInt
   updated_at BigInt
   deleted_at BigInt @default(0)
-  pended_at  BigInt @default(0)
+  queued_at  BigInt @default(0)
   created_duid BigInt?
   updated_duid BigInt?
   owner_tid     BigInt @default(1)
@@ -284,7 +284,7 @@ model passport_email_otp {
   created_at       BigInt
   updated_at       BigInt
   deleted_at BigInt @default(0)
-  pended_at  BigInt @default(0)
+  queued_at  BigInt @default(0)
   created_duid     BigInt?
   updated_duid     BigInt?
   owner_tid     BigInt @default(1)
@@ -310,7 +310,7 @@ model passport_telegram_menus {
   created_at        BigInt
   updated_at        BigInt
   deleted_at BigInt @default(0)
-  pended_at  BigInt @default(0)
+  queued_at  BigInt @default(0)
   created_duid      BigInt?
   updated_duid      BigInt?
   owner_tid     BigInt @default(1)
@@ -331,7 +331,7 @@ model passport_telegram_updates {
   created_at BigInt
   updated_at BigInt
   deleted_at BigInt @default(0)
-  pended_at  BigInt @default(0)
+  queued_at  BigInt @default(0)
   created_duid BigInt?
   updated_duid BigInt?
   owner_tid     BigInt @default(1)
@@ -351,7 +351,7 @@ model passport_telegram_identity_choices {
   created_at       BigInt
   updated_at       BigInt
   deleted_at BigInt @default(0)
-  pended_at  BigInt @default(0)
+  queued_at  BigInt @default(0)
   created_duid     BigInt?
   updated_duid     BigInt?
   owner_tid     BigInt @default(1)
@@ -375,7 +375,7 @@ model passport_login_challenges {
   created_at       BigInt
   updated_at       BigInt
   deleted_at BigInt @default(0)
-  pended_at  BigInt @default(0)
+  queued_at  BigInt @default(0)
   created_duid     BigInt?
   updated_duid     BigInt?
   owner_tid     BigInt @default(1)
@@ -402,7 +402,7 @@ model passport_sso_requests {
   created_at        BigInt
   updated_at        BigInt
   deleted_at BigInt @default(0)
-  pended_at  BigInt @default(0)
+  queued_at  BigInt @default(0)
   created_duid      BigInt?
   updated_duid      BigInt?
   owner_tid     BigInt @default(1)
@@ -425,7 +425,7 @@ model passport_login_tickets {
   created_at        BigInt
   updated_at        BigInt
   deleted_at BigInt @default(0)
-  pended_at  BigInt @default(0)
+  queued_at  BigInt @default(0)
   created_duid      BigInt?
   updated_duid      BigInt?
   owner_tid     BigInt @default(1)
@@ -449,7 +449,7 @@ model passport_site_sessions {
   created_at BigInt
   updated_at BigInt
   deleted_at BigInt @default(0)
-  pended_at  BigInt @default(0)
+  queued_at  BigInt @default(0)
   created_duid BigInt?
   updated_duid BigInt?
   owner_tid     BigInt @default(1)
@@ -473,7 +473,7 @@ model passport_group_prompts {
   created_at BigInt
   updated_at BigInt
   deleted_at BigInt @default(0)
-  pended_at  BigInt @default(0)
+  queued_at  BigInt @default(0)
   created_duid BigInt?
   updated_duid BigInt?
   owner_tid     BigInt @default(1)
@@ -494,7 +494,7 @@ model passport_external_email_otps {
   created_at            BigInt
   updated_at            BigInt
   deleted_at BigInt @default(0)
-  pended_at  BigInt @default(0)
+  queued_at  BigInt @default(0)
   created_duid          BigInt?
   updated_duid          BigInt?
   owner_tid     BigInt @default(1)
@@ -519,7 +519,7 @@ model passport_external_identities {
   created_at  BigInt
   updated_at  BigInt
   deleted_at BigInt @default(0)
-  pended_at  BigInt @default(0)
+  queued_at  BigInt @default(0)
   created_duid BigInt?
   updated_duid BigInt?
   owner_tid     BigInt @default(1)
@@ -541,7 +541,7 @@ model passport_external_login_states {
   created_at      BigInt
   updated_at      BigInt
   deleted_at BigInt @default(0)
-  pended_at  BigInt @default(0)
+  queued_at  BigInt @default(0)
   created_duid    BigInt?
   updated_duid    BigInt?
   owner_tid     BigInt @default(1)
@@ -569,7 +569,7 @@ model passport_external_pending_identities {
   created_at   BigInt
   updated_at   BigInt
   deleted_at BigInt @default(0)
-  pended_at  BigInt @default(0)
+  queued_at  BigInt @default(0)
   created_duid BigInt?
   updated_duid BigInt?
   owner_tid     BigInt @default(1)
@@ -592,7 +592,7 @@ model passport_external_pending_qr_states {
   created_at            BigInt
   updated_at            BigInt
   deleted_at BigInt @default(0)
-  pended_at  BigInt @default(0)
+  queued_at  BigInt @default(0)
   created_duid          BigInt?
   updated_duid          BigInt?
   owner_tid     BigInt @default(1)
@@ -611,7 +611,7 @@ model passport_external_providers {
   created_at              BigInt
   updated_at              BigInt
   deleted_at BigInt @default(0)
-  pended_at  BigInt @default(0)
+  queued_at  BigInt @default(0)
   created_duid            BigInt?
   updated_duid            BigInt?
   owner_tid     BigInt @default(1)
@@ -634,7 +634,7 @@ model passport_oidc_clients {
   created_at             BigInt
   updated_at             BigInt
   deleted_at BigInt @default(0)
-  pended_at  BigInt @default(0)
+  queued_at  BigInt @default(0)
   created_duid           BigInt?
   updated_duid           BigInt?
   owner_tid     BigInt @default(1)
@@ -664,7 +664,7 @@ model passport_oidc_authorization_requests {
   created_at            BigInt
   updated_at            BigInt
   deleted_at BigInt @default(0)
-  pended_at  BigInt @default(0)
+  queued_at  BigInt @default(0)
   created_duid          BigInt?
   updated_duid          BigInt?
   owner_tid     BigInt @default(1)
@@ -689,7 +689,7 @@ model passport_oidc_authorization_codes {
   created_at            BigInt
   updated_at            BigInt
   deleted_at BigInt @default(0)
-  pended_at  BigInt @default(0)
+  queued_at  BigInt @default(0)
   created_duid          BigInt?
   updated_duid          BigInt?
   owner_tid     BigInt @default(1)
@@ -718,7 +718,7 @@ model passport_oidc_access_tokens {
   created_at              BigInt
   updated_at              BigInt
   deleted_at BigInt @default(0)
-  pended_at  BigInt @default(0)
+  queued_at  BigInt @default(0)
   created_duid            BigInt?
   updated_duid            BigInt?
   owner_tid     BigInt @default(1)
@@ -745,7 +745,7 @@ model passport_oidc_signing_keys {
   created_at   BigInt
   updated_at   BigInt
   deleted_at BigInt @default(0)
-  pended_at  BigInt @default(0)
+  queued_at  BigInt @default(0)
   created_duid BigInt?
   updated_duid BigInt?
   owner_tid     BigInt @default(1)
@@ -773,7 +773,7 @@ model passport_user_profiles {
   created_at   BigInt
   updated_at   BigInt
   deleted_at   BigInt @default(0)
-  pended_at    BigInt @default(0)
+  queued_at    BigInt @default(0)
   created_duid BigInt?
   updated_duid BigInt?
   owner_tid    BigInt @default(1)

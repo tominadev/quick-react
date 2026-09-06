@@ -80,7 +80,7 @@ export class PendingLockError extends Error {
 }
 
 /**
- * 自助写入撞上了一行**还没生效**的记录（`pended_at` 非 0）。
+ * 自助写入撞上了一行**还没生效**的记录（`queued_at` 非 0）。
  *
  * 这一行是别人提交的、还没批准的新建，对写它的人根本不可见。让他写下去的话，三件事同时
  * 发生：他看不到结果（那一行仍然不可见），于是反复改；每改一次都留下一条 `data_status`
@@ -89,10 +89,10 @@ export class PendingLockError extends Error {
  *
  * 与审批那一侧的前置条件是同一句话的两面：修改只作用在已经生效的那一行上。
  */
-export class PendedRowError extends Error {
+export class QueuedRowError extends Error {
 	constructor(readonly table: string) {
 		super('这条记录正在等待审批、还没有生效，暂时不能修改——改了也不会生效');
-		this.name = 'PendedRowError';
+		this.name = 'QueuedRowError';
 	}
 }
 
@@ -220,7 +220,7 @@ const findPendingEntry = async (database: DatabaseAdapter, builder: ReturnType<t
 		 * 提交人以为两件都在队列里排着，实际只剩一件。
 		 *
 		 * 新建同理，而且后果更重：实测建号进队列后再改一次 status，那条 insert 被改写成
-		 * update，于是批准时没有人再去把 pended_at 归零——行永远隐身，账号登不进去（401），
+		 * update，于是批准时没有人再去把 queued_at 归零——行永远隐身，账号登不进去（401），
 		 * 而审批列表显示一切正常。
 		 */
 		{ column: 'action', value: action },
@@ -307,7 +307,7 @@ const findConflictingPending = async (database: DatabaseAdapter, builder: Return
 		return { action: label, submitter: names.length ? names.join('、') : '另一个人' };
 	}
 	/**
-	 * **改一份还没生效的新建不算叠加。** 那一行带着 pended_at，谁也看不见，改它没有任何
+	 * **改一份还没生效的新建不算叠加。** 那一行带着 queued_at，谁也看不见，改它没有任何
 	 * 对外后果——所以放行，而且照 §13.6 立即写进去、不另开一条申请（见 draftInsertEntry）。
 	 */
 	const blocking = rows.map((row) => String(row.action))
@@ -365,10 +365,10 @@ const jsonKeyDiff = (before: unknown, after: unknown) => {
  *
  * 归属列、时间戳与 `key` 也不写：前两样每一行都有，`key` 已经是「记录标识」那一列。
  *
- * **`pended_at` 也不写。** 它曾经写在这里，理由是「批准落到数据上就是这一列」。当时
- * `changes` 是一列，前值是提交时刻，读起来是 `pended_at: 1788636234201 → 0`，确实说明了
+ * **`queued_at` 也不写。** 它曾经写在这里，理由是「批准落到数据上就是这一列」。当时
+ * `changes` 是一列，前值是提交时刻，读起来是 `queued_at: 1788636234201 → 0`，确实说明了
  * 一件事。现在三条支撑全没了：前后值分开存之后新建的 before 是 `{}`，它显示成
- * 「pended_at：空 → 0」，什么也没说；「恢复」改用此刻的时间戳，不再回读它；批准前的内容
+ * 「queued_at：空 → 0」，什么也没说；「恢复」改用此刻的时间戳，不再回读它；批准前的内容
  * 校验又必须把它排除掉——它正是那一步要改的那一列。留着就是一行纯噪音。
  */
 const insertChanges = (values: Record<string, unknown>) => Object.fromEntries(Object.entries(values)
@@ -380,10 +380,10 @@ const insertChanges = (values: Record<string, unknown>) => Object.fromEntries(Ob
  * 记一条「新建了这一行」。
  *
  * `changes` 里写的是**将要新增的内容**（隐藏列除外，见 insertChanges）：审批人要能看见
- * 自己在批什么。行虽然已经写进库里，但它带着 pended_at，在任何正常列表里都不可见——
+ * 自己在批什么。行虽然已经写进库里，但它带着 queued_at，在任何正常列表里都不可见——
  * 让审批人「自己去看那一行」是行不通的。
  *
- * 这些值只用来显示：批准是把 pended_at 归零、驳回是把那一行删掉，两者都不读 changes，
+ * 这些值只用来显示：批准是把 queued_at 归零、驳回是把那一行删掉，两者都不读 changes，
  * 因此少记几列不影响任何一步的正确性。
  *
  * 定位靠 `row_key`：它在建语句时就生成好了，所以这条记录能在**写行之前**落地，
@@ -440,12 +440,12 @@ const backfillInsertRowId = async (
 	operationId: string,
 ) => {
 	if (!metadata.rowKey) return;
-	// deleted/pended 都放开：待审批的新行 pended_at 非零，普通查询正好看不见它。
+	// deleted/queued 都放开：待审批的新行 queued_at 非零，普通查询正好看不见它。
 	const row = await firstSql<{ id: string }>(database, builder.select({
 		table: metadata.table,
 		columns: { id: { column: 'id', cast: 'text' } },
 		where: [{ column: 'key', value: metadata.rowKey }],
-		deleted: 'all', pended: 'all', limit: 1,
+		deleted: 'all', queued: 'all', limit: 1,
 	}));
 	if (!row?.id) return;
 	await runSystemSql(database, builder.update(AUDIT_TABLE, { row_id: row.id }, [
@@ -472,8 +472,8 @@ const recordStatement = async (database: DatabaseAdapter, metadata: SqlAuditMeta
 	const rows = await allSql<Record<string, unknown>>(database, builder.select({
 		table: metadata.table,
 		// key 一起读出来：审批记录靠它定位那一行——row_id 在跨库搬迁后会变，key 不会。
-		// pended_at 一起读：这一行生没生效决定了自助写入该不该落下去（见 PendedRowError）。
-		columns: Object.fromEntries(['id', 'key', 'pended_at', ...columns].map((column) => [column, { column, cast: 'text' as const }])),
+		// queued_at 一起读：这一行生没生效决定了自助写入该不该落下去（见 QueuedRowError）。
+		columns: Object.fromEntries(['id', 'key', 'queued_at', ...columns].map((column) => [column, { column, cast: 'text' as const }])),
 		where: metadata.where,
 		deleted: 'all',
 	}));
@@ -532,16 +532,16 @@ const recordStatement = async (database: DatabaseAdapter, metadata: SqlAuditMeta
 		 * 上面那道锁只管走审批的路径——自助不排队，本来也不该被后台的待审批申请挡住。但
 		 * 「这一行还没生效」是另一回事：它对写的人根本不可见，写下去的结果他也看不见，
 		 * 于是反复改，每次留一条说假话的审计记录，顺带把那条待审批的新建改成死结
-		 * （见 PendedRowError）。
+		 * （见 QueuedRowError）。
 		 *
 		 * 只挡 `scope === 'self'`，不挡 `options.immediate` 那种路由内部的机器写入：
 		 * 建号收尾正是要往自己刚插进去的、还没生效的行上补 `user_id`，挡了它建号就断在半路。
 		 */
-		if (scope === 'self' && String(row.pended_at ?? '0') !== '0') throw new PendedRowError(metadata.table);
+		if (scope === 'self' && String(row.queued_at ?? '0') !== '0') throw new QueuedRowError(metadata.table);
 		/**
 		 * 改的是一份**还没生效的新建**：不另开申请，把内容并进那条新建记录，语句照常执行。
 		 *
-		 * 那一行带着 pended_at，谁也看不见，改它没有任何对外后果——再排一次队只会让审批人
+		 * 那一行带着 queued_at，谁也看不见，改它没有任何对外后果——再排一次队只会让审批人
 		 * 面对两条记录，还得自己在脑子里合并出「批准之后是什么样」。合进去之后队列里始终
 		 * 一条，写的就是最终内容。
 		 *
@@ -602,7 +602,7 @@ export const runOperation = async (
 			if (blocking) throw new PendingLockError(target.table, blocking.action, blocking.submitter);
 		}
 	}
-	let recorded = 0, operationId = '', pendedAt = 0;
+	let recorded = 0, operationId = '', queuedAt = 0;
 	if (managed.length) {
 		operationId = options.operationId ?? crypto.randomUUID();
 		const reason = options.reason?.trim().slice(0, MAX_REASON_LENGTH) ?? readChangeReason(c);
@@ -627,7 +627,7 @@ export const runOperation = async (
 		})();
 		const scope = operationScope(c);
 		// 待审批的新行写进去时带的就是这个时刻。
-		pendedAt = immediate ? 0 : Date.now();
+		queuedAt = immediate ? 0 : Date.now();
 		const asInsert = async (statement: SqlQuery & { insertAudit: SqlInsertAuditMetadata }) => {
 			inserts.push(statement);
 			recorded += await recordInsert(database, statement.insertAudit, operationId, reason, origin, scope, immediate);
@@ -660,14 +660,14 @@ export const runOperation = async (
 	if (!immediate && recorded > 0) {
 		// 已经排过队就把条数累加上去：一次业务操作分几次调用时，202 里报的是总条数。
 		const already = c.get('pendingApproval');
-		// 新建的行照写，只是带上 pended_at 让它不可见——批准就是把它归零。
+		// 新建的行照写，只是带上 queued_at 让它不可见——批准就是把它归零。
 		// 值因此不必抄进审批表，凭证也就不会在那里躺满保留期。
 		for (const statement of inserts) {
 			const builder = sql({ database, subjectRoles: null, ownerTid: statement.insertAudit.owner.tid, ownerBid: statement.insertAudit.owner.bid, ownerUid: statement.insertAudit.owner.uid, actorUid: statement.insertAudit.owner.actor });
 			try {
-				// 照原样重建那条 INSERT，只多一个 pended_at——不重新走 insert()，那会再发一个 key，
+				// 照原样重建那条 INSERT，只多一个 queued_at——不重新走 insert()，那会再发一个 key，
 				// 而审批记录里记的是原来那一个。
-				await runSystemSql(database, builder.insertExisting(statement.insertAudit.table, { ...statement.insertAudit.values, pended_at: pendedAt }));
+				await runSystemSql(database, builder.insertExisting(statement.insertAudit.table, { ...statement.insertAudit.values, queued_at: queuedAt }));
 				await backfillInsertRowId(database, builder, statement.insertAudit, operationId);
 			} catch (error) {
 				/**

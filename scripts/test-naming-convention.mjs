@@ -20,7 +20,7 @@ const keyless = new Set(['global_snowflake_state']);
  * 它们还必须**连成一片**——被业务列隔开的话，「哪些是脚手架、哪些是这张表自己的东西」
  * 就得逐个辨认。
  */
-const systemFields = ['id', 'key', 'created_at', 'updated_at', 'deleted_at', 'pended_at', 'created_duid', 'updated_duid', 'owner_tid', 'owner_bid', 'owner_uid'];
+const systemFields = ['id', 'key', 'created_at', 'updated_at', 'deleted_at', 'queued_at', 'created_duid', 'updated_duid', 'owner_tid', 'owner_bid', 'owner_uid'];
 const problems = [];
 
 for (const file of (await readdir(prismaDirectory)).filter((name) => name.endsWith('.prisma')).sort()) {

@@ -8,7 +8,7 @@ CREATE TABLE `passport_users` (
     `created_at` BIGINT NOT NULL,
     `updated_at` BIGINT NOT NULL,
     `deleted_at` BIGINT NOT NULL DEFAULT 0,
-    `pended_at` BIGINT NOT NULL DEFAULT 0,
+    `queued_at` BIGINT NOT NULL DEFAULT 0,
     `created_duid` BIGINT NULL,
     `updated_duid` BIGINT NULL,
     `owner_tid` BIGINT NOT NULL DEFAULT 1,
@@ -17,7 +17,7 @@ CREATE TABLE `passport_users` (
     `name` VARCHAR(191) NOT NULL,
     `status` ENUM('enabled', 'disabled') NOT NULL DEFAULT 'enabled',
 
-    UNIQUE INDEX `passport_users_key_deleted_at_key`(`key`, `deleted_at`),
+    UNIQUE INDEX `passport_users_key_key`(`key`),
     UNIQUE INDEX `passport_users_name_deleted_at_key`(`name`, `deleted_at`),
     PRIMARY KEY (`id`)
 ) DEFAULT CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci;
@@ -29,7 +29,7 @@ CREATE TABLE `passport_user_email_otps` (
     `created_at` BIGINT NOT NULL,
     `updated_at` BIGINT NOT NULL,
     `deleted_at` BIGINT NOT NULL DEFAULT 0,
-    `pended_at` BIGINT NOT NULL DEFAULT 0,
+    `queued_at` BIGINT NOT NULL DEFAULT 0,
     `created_duid` BIGINT NULL,
     `updated_duid` BIGINT NULL,
     `owner_tid` BIGINT NOT NULL DEFAULT 1,
@@ -44,8 +44,8 @@ CREATE TABLE `passport_user_email_otps` (
     `expires_at` BIGINT NOT NULL,
 
     INDEX `passport_user_email_otps_user_key_status_created_at_idx`(`user_key`, `status`, `created_at`),
-    UNIQUE INDEX `passport_user_email_otps_otp_id_deleted_at_key`(`otp_id`, `deleted_at`),
-    UNIQUE INDEX `passport_user_email_otps_key_deleted_at_key`(`key`, `deleted_at`),
+    UNIQUE INDEX `passport_user_email_otps_otp_id_key`(`otp_id`),
+    UNIQUE INDEX `passport_user_email_otps_key_key`(`key`),
     PRIMARY KEY (`id`)
 ) DEFAULT CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci;
 
@@ -56,7 +56,7 @@ CREATE TABLE `passport_user_credentials` (
     `created_at` BIGINT NOT NULL,
     `updated_at` BIGINT NOT NULL,
     `deleted_at` BIGINT NOT NULL DEFAULT 0,
-    `pended_at` BIGINT NOT NULL DEFAULT 0,
+    `queued_at` BIGINT NOT NULL DEFAULT 0,
     `created_duid` BIGINT NULL,
     `updated_duid` BIGINT NULL,
     `owner_tid` BIGINT NOT NULL DEFAULT 1,
@@ -66,7 +66,7 @@ CREATE TABLE `passport_user_credentials` (
     `password` JSON NOT NULL,
 
     INDEX `passport_user_credentials_user_key_created_at_id_idx`(`user_key`, `created_at`, `id`),
-    UNIQUE INDEX `passport_user_credentials_key_deleted_at_key`(`key`, `deleted_at`),
+    UNIQUE INDEX `passport_user_credentials_key_key`(`key`),
     PRIMARY KEY (`id`)
 ) DEFAULT CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci;
 
@@ -77,7 +77,7 @@ CREATE TABLE `passport_sessions` (
     `created_at` BIGINT NOT NULL,
     `updated_at` BIGINT NOT NULL,
     `deleted_at` BIGINT NOT NULL DEFAULT 0,
-    `pended_at` BIGINT NOT NULL DEFAULT 0,
+    `queued_at` BIGINT NOT NULL DEFAULT 0,
     `created_duid` BIGINT NULL,
     `updated_duid` BIGINT NULL,
     `owner_tid` BIGINT NOT NULL DEFAULT 1,
@@ -90,8 +90,8 @@ CREATE TABLE `passport_sessions` (
 
     INDEX `passport_sessions_user_key_idx`(`user_key`),
     INDEX `passport_sessions_expires_at_idx`(`expires_at`),
-    UNIQUE INDEX `passport_sessions_token_hash_deleted_at_key`(`token_hash`, `deleted_at`),
-    UNIQUE INDEX `passport_sessions_key_deleted_at_key`(`key`, `deleted_at`),
+    UNIQUE INDEX `passport_sessions_token_hash_key`(`token_hash`),
+    UNIQUE INDEX `passport_sessions_key_key`(`key`),
     PRIMARY KEY (`id`)
 ) DEFAULT CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci;
 
@@ -102,7 +102,7 @@ CREATE TABLE `passport_devices` (
     `created_at` BIGINT NOT NULL,
     `updated_at` BIGINT NOT NULL,
     `deleted_at` BIGINT NOT NULL DEFAULT 0,
-    `pended_at` BIGINT NOT NULL DEFAULT 0,
+    `queued_at` BIGINT NOT NULL DEFAULT 0,
     `created_duid` BIGINT NULL,
     `updated_duid` BIGINT NULL,
     `owner_tid` BIGINT NOT NULL DEFAULT 1,
@@ -117,7 +117,7 @@ CREATE TABLE `passport_devices` (
     `last_seen_at` BIGINT NOT NULL,
     `revoked_at` BIGINT NULL,
 
-    UNIQUE INDEX `passport_devices_key_deleted_at_key`(`key`, `deleted_at`),
+    UNIQUE INDEX `passport_devices_key_key`(`key`),
     PRIMARY KEY (`id`)
 ) DEFAULT CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci;
 
@@ -128,7 +128,7 @@ CREATE TABLE `passport_device_users` (
     `created_at` BIGINT NOT NULL,
     `updated_at` BIGINT NOT NULL,
     `deleted_at` BIGINT NOT NULL DEFAULT 0,
-    `pended_at` BIGINT NOT NULL DEFAULT 0,
+    `queued_at` BIGINT NOT NULL DEFAULT 0,
     `created_duid` BIGINT NULL,
     `updated_duid` BIGINT NULL,
     `owner_tid` BIGINT NOT NULL DEFAULT 1,
@@ -140,8 +140,8 @@ CREATE TABLE `passport_device_users` (
     `last_seen_at` BIGINT NOT NULL,
     `revoked_at` BIGINT NULL,
 
-    UNIQUE INDEX `passport_device_users_device_id_user_key_deleted_at_key`(`device_id`, `user_key`, `deleted_at`),
-    UNIQUE INDEX `passport_device_users_key_deleted_at_key`(`key`, `deleted_at`),
+    UNIQUE INDEX `passport_device_users_device_id_user_key_key`(`device_id`, `user_key`),
+    UNIQUE INDEX `passport_device_users_key_key`(`key`),
     PRIMARY KEY (`id`)
 ) DEFAULT CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci;
 
@@ -152,7 +152,7 @@ CREATE TABLE `passport_telegram_accounts` (
     `created_at` BIGINT NOT NULL,
     `updated_at` BIGINT NOT NULL,
     `deleted_at` BIGINT NOT NULL DEFAULT 0,
-    `pended_at` BIGINT NOT NULL DEFAULT 0,
+    `queued_at` BIGINT NOT NULL DEFAULT 0,
     `created_duid` BIGINT NULL,
     `updated_duid` BIGINT NULL,
     `owner_tid` BIGINT NOT NULL DEFAULT 1,
@@ -164,8 +164,8 @@ CREATE TABLE `passport_telegram_accounts` (
     `chat_id` BIGINT NOT NULL,
     `nickname` VARCHAR(191) NOT NULL,
 
-    UNIQUE INDEX `passport_telegram_accounts_bot_id_telegram_user_id_deleted_a_key`(`bot_id`, `telegram_user_id`, `deleted_at`),
-    UNIQUE INDEX `passport_telegram_accounts_key_deleted_at_key`(`key`, `deleted_at`),
+    UNIQUE INDEX `passport_telegram_accounts_bot_id_telegram_user_id_key`(`bot_id`, `telegram_user_id`),
+    UNIQUE INDEX `passport_telegram_accounts_key_key`(`key`),
     PRIMARY KEY (`id`)
 ) DEFAULT CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci;
 
@@ -176,7 +176,7 @@ CREATE TABLE `passport_oauth_accounts` (
     `created_at` BIGINT NOT NULL,
     `updated_at` BIGINT NOT NULL,
     `deleted_at` BIGINT NOT NULL DEFAULT 0,
-    `pended_at` BIGINT NOT NULL DEFAULT 0,
+    `queued_at` BIGINT NOT NULL DEFAULT 0,
     `created_duid` BIGINT NULL,
     `updated_duid` BIGINT NULL,
     `owner_tid` BIGINT NOT NULL DEFAULT 1,
@@ -186,8 +186,8 @@ CREATE TABLE `passport_oauth_accounts` (
     `provider` VARCHAR(191) NOT NULL,
     `provider_user_id` VARCHAR(191) NOT NULL,
 
-    UNIQUE INDEX `passport_oauth_accounts_provider_provider_user_id_deleted_at_key`(`provider`, `provider_user_id`, `deleted_at`),
-    UNIQUE INDEX `passport_oauth_accounts_key_deleted_at_key`(`key`, `deleted_at`),
+    UNIQUE INDEX `passport_oauth_accounts_provider_provider_user_id_key`(`provider`, `provider_user_id`),
+    UNIQUE INDEX `passport_oauth_accounts_key_key`(`key`),
     PRIMARY KEY (`id`)
 ) DEFAULT CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci;
 
@@ -198,7 +198,7 @@ CREATE TABLE `passport_emails` (
     `created_at` BIGINT NOT NULL,
     `updated_at` BIGINT NOT NULL,
     `deleted_at` BIGINT NOT NULL DEFAULT 0,
-    `pended_at` BIGINT NOT NULL DEFAULT 0,
+    `queued_at` BIGINT NOT NULL DEFAULT 0,
     `created_duid` BIGINT NULL,
     `updated_duid` BIGINT NULL,
     `owner_tid` BIGINT NOT NULL DEFAULT 1,
@@ -207,8 +207,8 @@ CREATE TABLE `passport_emails` (
     `email` VARCHAR(191) NOT NULL,
     `verified` INTEGER NOT NULL DEFAULT 0,
 
-    UNIQUE INDEX `passport_emails_email_deleted_at_key`(`email`, `deleted_at`),
-    UNIQUE INDEX `passport_emails_key_deleted_at_key`(`key`, `deleted_at`),
+    UNIQUE INDEX `passport_emails_email_key`(`email`),
+    UNIQUE INDEX `passport_emails_key_key`(`key`),
     PRIMARY KEY (`id`)
 ) DEFAULT CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci;
 
@@ -219,7 +219,7 @@ CREATE TABLE `passport_user_emails` (
     `created_at` BIGINT NOT NULL,
     `updated_at` BIGINT NOT NULL,
     `deleted_at` BIGINT NOT NULL DEFAULT 0,
-    `pended_at` BIGINT NOT NULL DEFAULT 0,
+    `queued_at` BIGINT NOT NULL DEFAULT 0,
     `created_duid` BIGINT NULL,
     `updated_duid` BIGINT NULL,
     `owner_tid` BIGINT NOT NULL DEFAULT 1,
@@ -229,9 +229,9 @@ CREATE TABLE `passport_user_emails` (
     `email_id` BIGINT NOT NULL,
     `is_primary` INTEGER NOT NULL DEFAULT 0,
 
-    UNIQUE INDEX `passport_user_emails_user_key_email_id_deleted_at_key`(`user_key`, `email_id`, `deleted_at`),
-    UNIQUE INDEX `passport_user_emails_email_id_deleted_at_key`(`email_id`, `deleted_at`),
-    UNIQUE INDEX `passport_user_emails_key_deleted_at_key`(`key`, `deleted_at`),
+    UNIQUE INDEX `passport_user_emails_user_key_email_id_key`(`user_key`, `email_id`),
+    UNIQUE INDEX `passport_user_emails_email_id_key`(`email_id`),
+    UNIQUE INDEX `passport_user_emails_key_key`(`key`),
     PRIMARY KEY (`id`)
 ) DEFAULT CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci;
 
@@ -242,7 +242,7 @@ CREATE TABLE `passport_email_otp` (
     `created_at` BIGINT NOT NULL,
     `updated_at` BIGINT NOT NULL,
     `deleted_at` BIGINT NOT NULL DEFAULT 0,
-    `pended_at` BIGINT NOT NULL DEFAULT 0,
+    `queued_at` BIGINT NOT NULL DEFAULT 0,
     `created_duid` BIGINT NULL,
     `updated_duid` BIGINT NULL,
     `owner_tid` BIGINT NOT NULL DEFAULT 1,
@@ -258,7 +258,7 @@ CREATE TABLE `passport_email_otp` (
     `expires_at` BIGINT NOT NULL,
 
     INDEX `passport_email_otp_bot_id_telegram_user_id_status_created_at_idx`(`bot_id`, `telegram_user_id`, `status`, `created_at`),
-    UNIQUE INDEX `passport_email_otp_key_deleted_at_key`(`key`, `deleted_at`),
+    UNIQUE INDEX `passport_email_otp_key_key`(`key`),
     PRIMARY KEY (`id`)
 ) DEFAULT CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci;
 
@@ -269,7 +269,7 @@ CREATE TABLE `passport_telegram_menus` (
     `created_at` BIGINT NOT NULL,
     `updated_at` BIGINT NOT NULL,
     `deleted_at` BIGINT NOT NULL DEFAULT 0,
-    `pended_at` BIGINT NOT NULL DEFAULT 0,
+    `queued_at` BIGINT NOT NULL DEFAULT 0,
     `created_duid` BIGINT NULL,
     `updated_duid` BIGINT NULL,
     `owner_tid` BIGINT NOT NULL DEFAULT 1,
@@ -281,8 +281,8 @@ CREATE TABLE `passport_telegram_menus` (
     `message_id` BIGINT NOT NULL,
     `mode` VARCHAR(191) NOT NULL,
 
-    UNIQUE INDEX `passport_telegram_menus_bot_id_telegram_user_id_deleted_at_key`(`bot_id`, `telegram_user_id`, `deleted_at`),
-    UNIQUE INDEX `passport_telegram_menus_key_deleted_at_key`(`key`, `deleted_at`),
+    UNIQUE INDEX `passport_telegram_menus_bot_id_telegram_user_id_key`(`bot_id`, `telegram_user_id`),
+    UNIQUE INDEX `passport_telegram_menus_key_key`(`key`),
     PRIMARY KEY (`id`)
 ) DEFAULT CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci;
 
@@ -293,7 +293,7 @@ CREATE TABLE `passport_telegram_updates` (
     `created_at` BIGINT NOT NULL,
     `updated_at` BIGINT NOT NULL,
     `deleted_at` BIGINT NOT NULL DEFAULT 0,
-    `pended_at` BIGINT NOT NULL DEFAULT 0,
+    `queued_at` BIGINT NOT NULL DEFAULT 0,
     `created_duid` BIGINT NULL,
     `updated_duid` BIGINT NULL,
     `owner_tid` BIGINT NOT NULL DEFAULT 1,
@@ -304,8 +304,8 @@ CREATE TABLE `passport_telegram_updates` (
     `status` ENUM('processing', 'completed', 'failed') NOT NULL,
 
     INDEX `passport_telegram_updates_status_updated_at_idx`(`status`, `updated_at`),
-    UNIQUE INDEX `passport_telegram_updates_bot_id_update_id_deleted_at_key`(`bot_id`, `update_id`, `deleted_at`),
-    UNIQUE INDEX `passport_telegram_updates_key_deleted_at_key`(`key`, `deleted_at`),
+    UNIQUE INDEX `passport_telegram_updates_bot_id_update_id_key`(`bot_id`, `update_id`),
+    UNIQUE INDEX `passport_telegram_updates_key_key`(`key`),
     PRIMARY KEY (`id`)
 ) DEFAULT CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci;
 
@@ -316,7 +316,7 @@ CREATE TABLE `passport_telegram_identity_choices` (
     `created_at` BIGINT NOT NULL,
     `updated_at` BIGINT NOT NULL,
     `deleted_at` BIGINT NOT NULL DEFAULT 0,
-    `pended_at` BIGINT NOT NULL DEFAULT 0,
+    `queued_at` BIGINT NOT NULL DEFAULT 0,
     `created_duid` BIGINT NULL,
     `updated_duid` BIGINT NULL,
     `owner_tid` BIGINT NOT NULL DEFAULT 1,
@@ -331,7 +331,7 @@ CREATE TABLE `passport_telegram_identity_choices` (
     `expires_at` BIGINT NOT NULL,
 
     INDEX `passport_telegram_identity_choices_bot_id_telegram_user_id_s_idx`(`bot_id`, `telegram_user_id`, `status`, `created_at`),
-    UNIQUE INDEX `passport_telegram_identity_choices_key_deleted_at_key`(`key`, `deleted_at`),
+    UNIQUE INDEX `passport_telegram_identity_choices_key_key`(`key`),
     PRIMARY KEY (`id`)
 ) DEFAULT CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci;
 
@@ -342,7 +342,7 @@ CREATE TABLE `passport_login_challenges` (
     `created_at` BIGINT NOT NULL,
     `updated_at` BIGINT NOT NULL,
     `deleted_at` BIGINT NOT NULL DEFAULT 0,
-    `pended_at` BIGINT NOT NULL DEFAULT 0,
+    `queued_at` BIGINT NOT NULL DEFAULT 0,
     `created_duid` BIGINT NULL,
     `updated_duid` BIGINT NULL,
     `owner_tid` BIGINT NOT NULL DEFAULT 1,
@@ -359,8 +359,8 @@ CREATE TABLE `passport_login_challenges` (
 
     INDEX `passport_login_challenges_bot_id_telegram_user_id_status_cre_idx`(`bot_id`, `telegram_user_id`, `status`, `created_at`),
     INDEX `passport_login_challenges_status_expires_at_idx`(`status`, `expires_at`),
-    UNIQUE INDEX `passport_login_challenges_challenge_id_deleted_at_key`(`challenge_id`, `deleted_at`),
-    UNIQUE INDEX `passport_login_challenges_key_deleted_at_key`(`key`, `deleted_at`),
+    UNIQUE INDEX `passport_login_challenges_challenge_id_key`(`challenge_id`),
+    UNIQUE INDEX `passport_login_challenges_key_key`(`key`),
     PRIMARY KEY (`id`)
 ) DEFAULT CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci;
 
@@ -371,7 +371,7 @@ CREATE TABLE `passport_sso_requests` (
     `created_at` BIGINT NOT NULL,
     `updated_at` BIGINT NOT NULL,
     `deleted_at` BIGINT NOT NULL DEFAULT 0,
-    `pended_at` BIGINT NOT NULL DEFAULT 0,
+    `queued_at` BIGINT NOT NULL DEFAULT 0,
     `created_duid` BIGINT NULL,
     `updated_duid` BIGINT NULL,
     `owner_tid` BIGINT NOT NULL DEFAULT 1,
@@ -384,8 +384,8 @@ CREATE TABLE `passport_sso_requests` (
     `expires_at` BIGINT NOT NULL,
 
     INDEX `passport_sso_requests_status_expires_at_idx`(`status`, `expires_at`),
-    UNIQUE INDEX `passport_sso_requests_request_id_deleted_at_key`(`request_id`, `deleted_at`),
-    UNIQUE INDEX `passport_sso_requests_key_deleted_at_key`(`key`, `deleted_at`),
+    UNIQUE INDEX `passport_sso_requests_request_id_key`(`request_id`),
+    UNIQUE INDEX `passport_sso_requests_key_key`(`key`),
     PRIMARY KEY (`id`)
 ) DEFAULT CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci;
 
@@ -396,7 +396,7 @@ CREATE TABLE `passport_login_tickets` (
     `created_at` BIGINT NOT NULL,
     `updated_at` BIGINT NOT NULL,
     `deleted_at` BIGINT NOT NULL DEFAULT 0,
-    `pended_at` BIGINT NOT NULL DEFAULT 0,
+    `queued_at` BIGINT NOT NULL DEFAULT 0,
     `created_duid` BIGINT NULL,
     `updated_duid` BIGINT NULL,
     `owner_tid` BIGINT NOT NULL DEFAULT 1,
@@ -410,8 +410,8 @@ CREATE TABLE `passport_login_tickets` (
     `expires_at` BIGINT NOT NULL,
 
     INDEX `passport_login_tickets_status_expires_at_idx`(`status`, `expires_at`),
-    UNIQUE INDEX `passport_login_tickets_token_hash_deleted_at_key`(`token_hash`, `deleted_at`),
-    UNIQUE INDEX `passport_login_tickets_key_deleted_at_key`(`key`, `deleted_at`),
+    UNIQUE INDEX `passport_login_tickets_token_hash_key`(`token_hash`),
+    UNIQUE INDEX `passport_login_tickets_key_key`(`key`),
     PRIMARY KEY (`id`)
 ) DEFAULT CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci;
 
@@ -422,7 +422,7 @@ CREATE TABLE `passport_site_sessions` (
     `created_at` BIGINT NOT NULL,
     `updated_at` BIGINT NOT NULL,
     `deleted_at` BIGINT NOT NULL DEFAULT 0,
-    `pended_at` BIGINT NOT NULL DEFAULT 0,
+    `queued_at` BIGINT NOT NULL DEFAULT 0,
     `created_duid` BIGINT NULL,
     `updated_duid` BIGINT NULL,
     `owner_tid` BIGINT NOT NULL DEFAULT 1,
@@ -436,8 +436,8 @@ CREATE TABLE `passport_site_sessions` (
 
     INDEX `passport_site_sessions_user_key_idx`(`user_key`),
     INDEX `passport_site_sessions_site_key_hostname_expires_at_idx`(`site_key`, `hostname`, `expires_at`),
-    UNIQUE INDEX `passport_site_sessions_session_id_deleted_at_key`(`session_id`, `deleted_at`),
-    UNIQUE INDEX `passport_site_sessions_key_deleted_at_key`(`key`, `deleted_at`),
+    UNIQUE INDEX `passport_site_sessions_session_id_key`(`session_id`),
+    UNIQUE INDEX `passport_site_sessions_key_key`(`key`),
     PRIMARY KEY (`id`)
 ) DEFAULT CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci;
 
@@ -448,7 +448,7 @@ CREATE TABLE `passport_group_prompts` (
     `created_at` BIGINT NOT NULL,
     `updated_at` BIGINT NOT NULL,
     `deleted_at` BIGINT NOT NULL DEFAULT 0,
-    `pended_at` BIGINT NOT NULL DEFAULT 0,
+    `queued_at` BIGINT NOT NULL DEFAULT 0,
     `created_duid` BIGINT NULL,
     `updated_duid` BIGINT NULL,
     `owner_tid` BIGINT NOT NULL DEFAULT 1,
@@ -460,7 +460,7 @@ CREATE TABLE `passport_group_prompts` (
     `expires_at` BIGINT NOT NULL,
 
     INDEX `passport_group_prompts_chat_id_actor_id_updated_at_idx`(`chat_id`, `actor_id`, `updated_at`),
-    UNIQUE INDEX `passport_group_prompts_key_deleted_at_key`(`key`, `deleted_at`),
+    UNIQUE INDEX `passport_group_prompts_key_key`(`key`),
     PRIMARY KEY (`id`)
 ) DEFAULT CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci;
 
@@ -471,7 +471,7 @@ CREATE TABLE `passport_external_email_otps` (
     `created_at` BIGINT NOT NULL,
     `updated_at` BIGINT NOT NULL,
     `deleted_at` BIGINT NOT NULL DEFAULT 0,
-    `pended_at` BIGINT NOT NULL DEFAULT 0,
+    `queued_at` BIGINT NOT NULL DEFAULT 0,
     `created_duid` BIGINT NULL,
     `updated_duid` BIGINT NULL,
     `owner_tid` BIGINT NOT NULL DEFAULT 1,
@@ -486,8 +486,8 @@ CREATE TABLE `passport_external_email_otps` (
     `expires_at` BIGINT NOT NULL,
 
     INDEX `passport_external_email_otps_pending_identity_hash_status_cr_idx`(`pending_identity_hash`, `status`, `created_at`),
-    UNIQUE INDEX `passport_external_email_otps_otp_id_deleted_at_key`(`otp_id`, `deleted_at`),
-    UNIQUE INDEX `passport_external_email_otps_key_deleted_at_key`(`key`, `deleted_at`),
+    UNIQUE INDEX `passport_external_email_otps_otp_id_key`(`otp_id`),
+    UNIQUE INDEX `passport_external_email_otps_key_key`(`key`),
     PRIMARY KEY (`id`)
 ) DEFAULT CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci;
 
@@ -498,7 +498,7 @@ CREATE TABLE `passport_external_identities` (
     `created_at` BIGINT NOT NULL,
     `updated_at` BIGINT NOT NULL,
     `deleted_at` BIGINT NOT NULL DEFAULT 0,
-    `pended_at` BIGINT NOT NULL DEFAULT 0,
+    `queued_at` BIGINT NOT NULL DEFAULT 0,
     `created_duid` BIGINT NULL,
     `updated_duid` BIGINT NULL,
     `owner_tid` BIGINT NOT NULL DEFAULT 1,
@@ -510,8 +510,8 @@ CREATE TABLE `passport_external_identities` (
     `profile` VARCHAR(191) NOT NULL DEFAULT '{}',
 
     INDEX `passport_external_identities_user_key_idx`(`user_key`),
-    UNIQUE INDEX `passport_external_identities_provider_subject_deleted_at_key`(`provider`, `subject`, `deleted_at`),
-    UNIQUE INDEX `passport_external_identities_key_deleted_at_key`(`key`, `deleted_at`),
+    UNIQUE INDEX `passport_external_identities_provider_subject_key`(`provider`, `subject`),
+    UNIQUE INDEX `passport_external_identities_key_key`(`key`),
     PRIMARY KEY (`id`)
 ) DEFAULT CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci;
 
@@ -522,7 +522,7 @@ CREATE TABLE `passport_external_login_states` (
     `created_at` BIGINT NOT NULL,
     `updated_at` BIGINT NOT NULL,
     `deleted_at` BIGINT NOT NULL DEFAULT 0,
-    `pended_at` BIGINT NOT NULL DEFAULT 0,
+    `queued_at` BIGINT NOT NULL DEFAULT 0,
     `created_duid` BIGINT NULL,
     `updated_duid` BIGINT NULL,
     `owner_tid` BIGINT NOT NULL DEFAULT 1,
@@ -540,8 +540,8 @@ CREATE TABLE `passport_external_login_states` (
     `oidc_request_id` VARCHAR(191) NULL,
 
     INDEX `passport_external_login_states_expires_at_consumed_at_idx`(`expires_at`, `consumed_at`),
-    UNIQUE INDEX `passport_external_login_states_id_hash_deleted_at_key`(`id_hash`, `deleted_at`),
-    UNIQUE INDEX `passport_external_login_states_key_deleted_at_key`(`key`, `deleted_at`),
+    UNIQUE INDEX `passport_external_login_states_id_hash_key`(`id_hash`),
+    UNIQUE INDEX `passport_external_login_states_key_key`(`key`),
     PRIMARY KEY (`id`)
 ) DEFAULT CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci;
 
@@ -552,7 +552,7 @@ CREATE TABLE `passport_external_pending_identities` (
     `created_at` BIGINT NOT NULL,
     `updated_at` BIGINT NOT NULL,
     `deleted_at` BIGINT NOT NULL DEFAULT 0,
-    `pended_at` BIGINT NOT NULL DEFAULT 0,
+    `queued_at` BIGINT NOT NULL DEFAULT 0,
     `created_duid` BIGINT NULL,
     `updated_duid` BIGINT NULL,
     `owner_tid` BIGINT NOT NULL DEFAULT 1,
@@ -566,8 +566,8 @@ CREATE TABLE `passport_external_pending_identities` (
     `status` ENUM('pending', 'expired', 'completed') NOT NULL DEFAULT 'pending',
     `expires_at` BIGINT NOT NULL,
 
-    UNIQUE INDEX `passport_external_pending_identities_id_hash_deleted_at_key`(`id_hash`, `deleted_at`),
-    UNIQUE INDEX `passport_external_pending_identities_key_deleted_at_key`(`key`, `deleted_at`),
+    UNIQUE INDEX `passport_external_pending_identities_id_hash_key`(`id_hash`),
+    UNIQUE INDEX `passport_external_pending_identities_key_key`(`key`),
     PRIMARY KEY (`id`)
 ) DEFAULT CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci;
 
@@ -578,7 +578,7 @@ CREATE TABLE `passport_external_pending_qr_states` (
     `created_at` BIGINT NOT NULL,
     `updated_at` BIGINT NOT NULL,
     `deleted_at` BIGINT NOT NULL DEFAULT 0,
-    `pended_at` BIGINT NOT NULL DEFAULT 0,
+    `queued_at` BIGINT NOT NULL DEFAULT 0,
     `created_duid` BIGINT NULL,
     `updated_duid` BIGINT NULL,
     `owner_tid` BIGINT NOT NULL DEFAULT 1,
@@ -587,9 +587,9 @@ CREATE TABLE `passport_external_pending_qr_states` (
     `pending_identity_hash` VARCHAR(191) NOT NULL,
     `qr_state_hash` VARCHAR(191) NOT NULL,
 
-    UNIQUE INDEX `passport_external_pending_qr_states_pending_identity_hash_de_key`(`pending_identity_hash`, `deleted_at`),
-    UNIQUE INDEX `passport_external_pending_qr_states_qr_state_hash_deleted_at_key`(`qr_state_hash`, `deleted_at`),
-    UNIQUE INDEX `passport_external_pending_qr_states_key_deleted_at_key`(`key`, `deleted_at`),
+    UNIQUE INDEX `passport_external_pending_qr_states_pending_identity_hash_key`(`pending_identity_hash`),
+    UNIQUE INDEX `passport_external_pending_qr_states_qr_state_hash_key`(`qr_state_hash`),
+    UNIQUE INDEX `passport_external_pending_qr_states_key_key`(`key`),
     PRIMARY KEY (`id`)
 ) DEFAULT CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci;
 
@@ -600,7 +600,7 @@ CREATE TABLE `passport_external_providers` (
     `created_at` BIGINT NOT NULL,
     `updated_at` BIGINT NOT NULL,
     `deleted_at` BIGINT NOT NULL DEFAULT 0,
-    `pended_at` BIGINT NOT NULL DEFAULT 0,
+    `queued_at` BIGINT NOT NULL DEFAULT 0,
     `created_duid` BIGINT NULL,
     `updated_duid` BIGINT NULL,
     `owner_tid` BIGINT NOT NULL DEFAULT 1,
@@ -614,8 +614,8 @@ CREATE TABLE `passport_external_providers` (
     `wechat_mode` VARCHAR(191) NOT NULL DEFAULT 'open_platform',
     `wechat_redirect_domain` VARCHAR(191) NOT NULL DEFAULT '',
 
-    UNIQUE INDEX `passport_external_providers_provider_deleted_at_key`(`provider`, `deleted_at`),
-    UNIQUE INDEX `passport_external_providers_key_deleted_at_key`(`key`, `deleted_at`),
+    UNIQUE INDEX `passport_external_providers_provider_key`(`provider`),
+    UNIQUE INDEX `passport_external_providers_key_key`(`key`),
     PRIMARY KEY (`id`)
 ) DEFAULT CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci;
 
@@ -626,7 +626,7 @@ CREATE TABLE `passport_oidc_clients` (
     `created_at` BIGINT NOT NULL,
     `updated_at` BIGINT NOT NULL,
     `deleted_at` BIGINT NOT NULL DEFAULT 0,
-    `pended_at` BIGINT NOT NULL DEFAULT 0,
+    `queued_at` BIGINT NOT NULL DEFAULT 0,
     `created_duid` BIGINT NULL,
     `updated_duid` BIGINT NULL,
     `owner_tid` BIGINT NOT NULL DEFAULT 1,
@@ -643,8 +643,8 @@ CREATE TABLE `passport_oidc_clients` (
     `strict_redirect_uri` INTEGER NOT NULL DEFAULT 0,
     `password_sync` INTEGER NOT NULL DEFAULT 0,
 
-    UNIQUE INDEX `passport_oidc_clients_client_id_deleted_at_key`(`client_id`, `deleted_at`),
-    UNIQUE INDEX `passport_oidc_clients_key_deleted_at_key`(`key`, `deleted_at`),
+    UNIQUE INDEX `passport_oidc_clients_client_id_key`(`client_id`),
+    UNIQUE INDEX `passport_oidc_clients_key_key`(`key`),
     PRIMARY KEY (`id`)
 ) DEFAULT CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci;
 
@@ -655,7 +655,7 @@ CREATE TABLE `passport_oidc_authorization_requests` (
     `created_at` BIGINT NOT NULL,
     `updated_at` BIGINT NOT NULL,
     `deleted_at` BIGINT NOT NULL DEFAULT 0,
-    `pended_at` BIGINT NOT NULL DEFAULT 0,
+    `queued_at` BIGINT NOT NULL DEFAULT 0,
     `created_duid` BIGINT NULL,
     `updated_duid` BIGINT NULL,
     `owner_tid` BIGINT NOT NULL DEFAULT 1,
@@ -671,8 +671,8 @@ CREATE TABLE `passport_oidc_authorization_requests` (
     `code_challenge_method` VARCHAR(191) NOT NULL DEFAULT '',
     `expires_at` BIGINT NOT NULL,
 
-    UNIQUE INDEX `passport_oidc_authorization_requests_request_id_deleted_at_key`(`request_id`, `deleted_at`),
-    UNIQUE INDEX `passport_oidc_authorization_requests_key_deleted_at_key`(`key`, `deleted_at`),
+    UNIQUE INDEX `passport_oidc_authorization_requests_request_id_key`(`request_id`),
+    UNIQUE INDEX `passport_oidc_authorization_requests_key_key`(`key`),
     PRIMARY KEY (`id`)
 ) DEFAULT CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci;
 
@@ -683,7 +683,7 @@ CREATE TABLE `passport_oidc_authorization_codes` (
     `created_at` BIGINT NOT NULL,
     `updated_at` BIGINT NOT NULL,
     `deleted_at` BIGINT NOT NULL DEFAULT 0,
-    `pended_at` BIGINT NOT NULL DEFAULT 0,
+    `queued_at` BIGINT NOT NULL DEFAULT 0,
     `created_duid` BIGINT NULL,
     `updated_duid` BIGINT NULL,
     `owner_tid` BIGINT NOT NULL DEFAULT 1,
@@ -702,8 +702,8 @@ CREATE TABLE `passport_oidc_authorization_codes` (
     `session_id` VARCHAR(191) NOT NULL DEFAULT '',
 
     INDEX `passport_oidc_authorization_codes_expires_at_consumed_at_idx`(`expires_at`, `consumed_at`),
-    UNIQUE INDEX `passport_oidc_authorization_codes_code_hash_deleted_at_key`(`code_hash`, `deleted_at`),
-    UNIQUE INDEX `passport_oidc_authorization_codes_key_deleted_at_key`(`key`, `deleted_at`),
+    UNIQUE INDEX `passport_oidc_authorization_codes_code_hash_key`(`code_hash`),
+    UNIQUE INDEX `passport_oidc_authorization_codes_key_key`(`key`),
     PRIMARY KEY (`id`)
 ) DEFAULT CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci;
 
@@ -714,7 +714,7 @@ CREATE TABLE `passport_oidc_access_tokens` (
     `created_at` BIGINT NOT NULL,
     `updated_at` BIGINT NOT NULL,
     `deleted_at` BIGINT NOT NULL DEFAULT 0,
-    `pended_at` BIGINT NOT NULL DEFAULT 0,
+    `queued_at` BIGINT NOT NULL DEFAULT 0,
     `created_duid` BIGINT NULL,
     `updated_duid` BIGINT NULL,
     `owner_tid` BIGINT NOT NULL DEFAULT 1,
@@ -730,9 +730,9 @@ CREATE TABLE `passport_oidc_access_tokens` (
     `authorization_code_hash` VARCHAR(191) NULL,
 
     INDEX `passport_oidc_access_tokens_expires_at_revoked_at_idx`(`expires_at`, `revoked_at`),
-    UNIQUE INDEX `passport_oidc_access_tokens_token_hash_deleted_at_key`(`token_hash`, `deleted_at`),
-    UNIQUE INDEX `passport_oidc_access_tokens_authorization_code_hash_deleted__key`(`authorization_code_hash`, `deleted_at`),
-    UNIQUE INDEX `passport_oidc_access_tokens_key_deleted_at_key`(`key`, `deleted_at`),
+    UNIQUE INDEX `passport_oidc_access_tokens_token_hash_key`(`token_hash`),
+    UNIQUE INDEX `passport_oidc_access_tokens_authorization_code_hash_key`(`authorization_code_hash`),
+    UNIQUE INDEX `passport_oidc_access_tokens_key_key`(`key`),
     PRIMARY KEY (`id`)
 ) DEFAULT CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci;
 
@@ -743,7 +743,7 @@ CREATE TABLE `passport_oidc_signing_keys` (
     `created_at` BIGINT NOT NULL,
     `updated_at` BIGINT NOT NULL,
     `deleted_at` BIGINT NOT NULL DEFAULT 0,
-    `pended_at` BIGINT NOT NULL DEFAULT 0,
+    `queued_at` BIGINT NOT NULL DEFAULT 0,
     `created_duid` BIGINT NULL,
     `updated_duid` BIGINT NULL,
     `owner_tid` BIGINT NOT NULL DEFAULT 1,
@@ -754,8 +754,8 @@ CREATE TABLE `passport_oidc_signing_keys` (
     `public_jwk` VARCHAR(191) NOT NULL,
     `status` ENUM('active', 'retired') NOT NULL DEFAULT 'active',
 
-    UNIQUE INDEX `passport_oidc_signing_keys_kid_deleted_at_key`(`kid`, `deleted_at`),
-    UNIQUE INDEX `passport_oidc_signing_keys_key_deleted_at_key`(`key`, `deleted_at`),
+    UNIQUE INDEX `passport_oidc_signing_keys_kid_key`(`kid`),
+    UNIQUE INDEX `passport_oidc_signing_keys_key_key`(`key`),
     PRIMARY KEY (`id`)
 ) DEFAULT CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci;
 
@@ -766,7 +766,7 @@ CREATE TABLE `passport_user_profiles` (
     `created_at` BIGINT NOT NULL,
     `updated_at` BIGINT NOT NULL,
     `deleted_at` BIGINT NOT NULL DEFAULT 0,
-    `pended_at` BIGINT NOT NULL DEFAULT 0,
+    `queued_at` BIGINT NOT NULL DEFAULT 0,
     `created_duid` BIGINT NULL,
     `updated_duid` BIGINT NULL,
     `owner_tid` BIGINT NOT NULL DEFAULT 1,
@@ -777,7 +777,7 @@ CREATE TABLE `passport_user_profiles` (
     `qq` VARCHAR(191) NOT NULL DEFAULT '',
     `wechat` VARCHAR(191) NOT NULL DEFAULT '',
 
-    UNIQUE INDEX `passport_user_profiles_user_key_deleted_at_key`(`user_key`, `deleted_at`),
-    UNIQUE INDEX `passport_user_profiles_key_deleted_at_key`(`key`, `deleted_at`),
+    UNIQUE INDEX `passport_user_profiles_user_key_key`(`user_key`),
+    UNIQUE INDEX `passport_user_profiles_key_key`(`key`),
     PRIMARY KEY (`id`)
 ) DEFAULT CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci;

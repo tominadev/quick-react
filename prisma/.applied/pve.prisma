@@ -15,7 +15,7 @@ model pve_regions {
   created_at   BigInt @default(0)
   updated_at   BigInt @default(0)
   deleted_at   BigInt @default(0)
-  pended_at    BigInt @default(0)
+  queued_at    BigInt @default(0)
   created_duid BigInt?
   updated_duid BigInt?
   owner_tid     BigInt @default(1)
@@ -32,7 +32,7 @@ model pve_nodes {
   created_at       BigInt @default(0)
   updated_at       BigInt @default(0)
   deleted_at       BigInt @default(0)
-  pended_at        BigInt @default(0)
+  queued_at        BigInt @default(0)
   created_duid     BigInt?
   updated_duid     BigInt?
   owner_tid     BigInt @default(1)
@@ -60,7 +60,7 @@ model pve_instance_flavors {
   created_at           BigInt
   updated_at           BigInt
   deleted_at BigInt @default(0)
-  pended_at  BigInt @default(0)
+  queued_at  BigInt @default(0)
   created_duid         BigInt?
   updated_duid         BigInt?
   owner_tid     BigInt @default(1)
@@ -82,7 +82,7 @@ model pve_vms {
   created_at         BigInt @default(0)
   updated_at         BigInt @default(0)
   deleted_at         BigInt @default(0)
-  pended_at          BigInt @default(0)
+  queued_at          BigInt @default(0)
   created_duid       BigInt?
   updated_duid       BigInt?
   owner_tid     BigInt @default(1)
@@ -108,7 +108,7 @@ model pve_vm_tasks {
   created_at       BigInt @default(0)
   updated_at       BigInt @default(0)
   deleted_at       BigInt @default(0)
-  pended_at        BigInt @default(0)
+  queued_at        BigInt @default(0)
   created_duid     BigInt?
   updated_duid     BigInt?
   owner_tid     BigInt @default(1)

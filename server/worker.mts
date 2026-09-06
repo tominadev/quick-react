@@ -16,7 +16,7 @@ import { primeSnowflake } from './modules/base/snowflake.mjs';
 import { SiteRouter } from './modules/base/site-router.mjs';
 import { baseSessionMaxAge, createSessionCookie, loadBaseDeviceUserId, loadCurrentUser, readSessionId, sessionUsesAccountsOidc } from './modules/base/auth/index.mjs';
 import { loadAccountsOidcConfig, resolveAccountsLoginMode } from './modules/passport/accounts/client.mjs';
-import { PendedRowError, PendingApprovalError, PendingLockError } from './modules/base/operation.mjs';
+import { QueuedRowError, PendingApprovalError, PendingLockError } from './modules/base/operation.mjs';
 import { clearPassportSessionCookie, loadPassportDeviceUserId, loadPassportSession, readPassportSessionId } from './modules/passport/session.mjs';
 import { loadSystemConfigFromStore } from './modules/base/system-config.mjs';
 import { applyTechStackHeaders, loadTechStackConfigFromStore } from './modules/base/tech-stack.mjs';
@@ -339,9 +339,9 @@ app.onError((error, c) => {
 	// 这一行的去留还没定下来，不接受别的申请（见 PendingLockError）。409：请求本身没错，
 	// 只是当下这一行的状态不允许——和撞唯一索引同一类。
 	if (error instanceof PendingLockError) return apiMessage(c, 409, error.message);
-	// 这一行还没生效，写它没有意义（见 PendedRowError）。同样是 409：请求本身没错，
+	// 这一行还没生效，写它没有意义（见 QueuedRowError）。同样是 409：请求本身没错，
 	// 是这一行眼下的状态不接受它。
-	if (error instanceof PendedRowError) return apiMessage(c, 409, error.message);
+	if (error instanceof QueuedRowError) return apiMessage(c, 409, error.message);
 	console.error(error);
 	return c.text('Internal Server Error', 500);
 });

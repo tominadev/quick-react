@@ -2,7 +2,7 @@ import type { Context, Next } from 'hono';
 import type { AppEnv } from './types.mjs';
 import { apiMessage } from './api-response.mjs';
 import { handleTableCrudAction, tableCrudDatabase, type TableCrudDefinition } from './table-crud.mjs';
-import { withDatabaseDeletedScope, withDatabasePendedScope } from '@server/database/index.mjs';
+import { withDatabaseDeletedScope, withDatabaseQueuedScope } from '@server/database/index.mjs';
 import { deletedScopeFromQuery } from './query-options.mjs';
 import { operationScope } from './operation.mjs';
 import { normalizeApiPath } from './request-origin.mjs';
@@ -112,13 +112,13 @@ export const createApiGateway = (
 			 * 就会出现「进了队列、却在任何列表里都找不到」的行。前台的自助操作立即生效，
 			 * 本来就没有待审批的行，因此那边一个字都不用改。
 			 */
-			const pendedScope = operationScope(c) === 'admin' ? 'all' as const : 'active' as const;
-			if (deletedScope !== 'active' || pendedScope !== 'active') {
+			const queuedScope = operationScope(c) === 'admin' ? 'all' as const : 'active' as const;
+			if (deletedScope !== 'active' || queuedScope !== 'active') {
 				const key = tableCrudEntry.module.tableCrud!.database ?? 'database';
 				let database = tableCrudDatabase(c, tableCrudEntry.module.tableCrud!);
 				if (database) {
 					if (deletedScope !== 'active') database = withDatabaseDeletedScope(database, deletedScope);
-					if (pendedScope !== 'active') database = withDatabasePendedScope(database, pendedScope);
+					if (queuedScope !== 'active') database = withDatabaseQueuedScope(database, queuedScope);
 					c.set(key, database);
 				}
 			}

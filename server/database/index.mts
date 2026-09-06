@@ -32,7 +32,7 @@ export type DatabaseAdapter = {
 	 * 与 deletedScope 分开：它们回答的是两个问题（删了没有 / 批了没有）。管理后台的
 	 * 表格页把它设成 'all'——待审批的新行要出现在列表里，管理员才能在那里直接撤销或批准。
 	 */
-	pendedScope?: 'active' | 'all';
+	queuedScope?: 'active' | 'all';
 	/** Request-scoped audit actor used by the SQL builder. */
 	actorUid?: DatabaseActorUid;
 	/** Optional table-aware actor, needed when Base and Passport share a DB. */
@@ -76,10 +76,10 @@ export const withDatabaseDeletedScope = (database: DatabaseAdapter, deletedScope
 };
 
 /** Bind an approval-queue visibility scope to the request-scoped adapter. */
-export const withDatabasePendedScope = (database: DatabaseAdapter, pendedScope: NonNullable<DatabaseAdapter['pendedScope']>): DatabaseAdapter => {
-	const scoped: DatabaseAdapter = { ...database, pendedScope };
+export const withDatabaseQueuedScope = (database: DatabaseAdapter, queuedScope: NonNullable<DatabaseAdapter['queuedScope']>): DatabaseAdapter => {
+	const scoped: DatabaseAdapter = { ...database, queuedScope };
 	if (database.transaction) {
-		scoped.transaction = (callback) => database.transaction!((transactionDatabase) => callback(withDatabasePendedScope(transactionDatabase, pendedScope)));
+		scoped.transaction = (callback) => database.transaction!((transactionDatabase) => callback(withDatabaseQueuedScope(transactionDatabase, queuedScope)));
 	}
 	return scoped;
 };
@@ -146,7 +146,7 @@ export const withDatabaseActors = (database: DatabaseAdapter, actors: DatabaseAc
 		bound.transaction = (callback) =>
 			database.transaction!((transactionDatabase) => {
 			const scopedTransaction = withDatabaseActors(transactionDatabase, actors);
-			return callback({ ...scopedTransaction, ...(database.deletedScope ? { deletedScope: database.deletedScope } : {}), ...(database.pendedScope ? { pendedScope: database.pendedScope } : {}) });
+			return callback({ ...scopedTransaction, ...(database.deletedScope ? { deletedScope: database.deletedScope } : {}), ...(database.queuedScope ? { queuedScope: database.queuedScope } : {}) });
 		});
 	}
 	return bound;

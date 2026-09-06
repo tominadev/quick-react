@@ -66,7 +66,7 @@ export const submitterNames = async (database: DatabaseAdapter, userIds: readonl
 		columns: { id: { column: 'u.id', cast: 'text' }, name: 'u.name', nickname: 'p.nickname' },
 		joins: [{ type: 'LEFT', table: 'base_user_profiles', alias: 'p', left: 'p.user_id', right: 'u.id' }],
 		// 待审批的账号也要认得出名字：提交人自己可能就是一条还没批准的新建。
-		deleted: 'all', pended: 'all',
+		deleted: 'all', queued: 'all',
 	}));
 	const byId = new Map(rows.map((row) => [String(row.id), String(row.nickname || row.name || '')]));
 	return unique.map((id) => byId.get(id) || `#${id}`);

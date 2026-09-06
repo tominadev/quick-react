@@ -374,20 +374,20 @@ const rowCondition = (entry: AuditEntryRow): SqlCondition => (
 /**
  * 新建那一条走另一套写法。
  *
- * 它的 `changes` 里既有「要新增的内容」(给审批人看)，也有 `pended_at: 提交时刻 → 0`
+ * 它的 `changes` 里既有「要新增的内容」(给审批人看)，也有 `queued_at: 提交时刻 → 0`
  * (批准落到数据上就是这一列)。不能直接交给通用的写回路径：那条路径会拿每一列的前值
  * 当并发条件，而内容列的前值记的是 null，行上却早就是真实值——第一步就判成「已被后续
- * 修改覆盖」。所以这里只处理 `pended_at` 那一列。
+ * 修改覆盖」。所以这里只处理 `queued_at` 那一列。
  *
- * - **批准 / 恢复**：`pended_at` 归零，这一行开始对人可见。
- * - **驳回 / 撤销**：**软删除**，并把 `pended_at` 一并归零。
+ * - **批准 / 恢复**：`queued_at` 归零，这一行开始对人可见。
+ * - **驳回 / 撤销**：**软删除**，并把 `queued_at` 一并归零。
  * - **回滚**：同上——它已经生效过，按普通删除处理。
  *
  * 驳回原先是物理删除，理由是「它从未生效过，留着只是一份没人认领的草稿」。改成软删除
  * 的理由更强：软删除本来就有保留期，被驳回的新建因此在回收站里待着，看得见、找得回，
  * 而不是凭空消失——审批人手一抖驳回了别人半天的录入，那份录入不该就此不存在。
  *
- * `pended_at` 一起归零，是为了让它成为一条**普通的已删除记录**：留着非零的话，从回收站
+ * `queued_at` 一起归零，是为了让它成为一条**普通的已删除记录**：留着非零的话，从回收站
  * 恢复出来的行仍然对业务查询不可见，却又出现在管理列表里(那里看得见待审批的行)，
  * 成了一个谁也说不清状态的幽灵。
  */
@@ -423,12 +423,12 @@ const storedKey = (value: unknown) => {
  * 让这一行生效之前核一遍：它的内容还是不是申请里写的那一份。
  *
  * **批准修改早就有这道校验**（每一列的当前值必须还等于记录里的前值），批准新增却没有——
- * `activate()` 只把 `pended_at` 归零，不看内容。于是待审批期间那一行被别处改过的话，
+ * `activate()` 只把 `queued_at` 归零，不看内容。于是待审批期间那一行被别处改过的话，
  * 审批人看着「newguy / 普通用户」点了批准，生效的却是「hijacked / 平台管理员」，
  * 而记录上仍然写着他看过的那一份。**你批的必须就是你看到的。**
  *
- * 只核记录里写下的那几列：归属、时间戳、`pended_at` 这些本来就不进 changes（见
- * insertChanges），它们在待审批期间被公共层动过是正常的——`pended_at` 更是这一步要改的
+ * 只核记录里写下的那几列：归属、时间戳、`queued_at` 这些本来就不进 changes（见
+ * insertChanges），它们在待审批期间被公共层动过是正常的——`queued_at` 更是这一步要改的
  * 那一列，核它等于自己跟自己过不去。
  */
 const insertContentMatches = async (database: DatabaseAdapter, entry: AuditEntryRow) => {
@@ -439,7 +439,7 @@ const insertContentMatches = async (database: DatabaseAdapter, entry: AuditEntry
 	const row = await firstSql<Record<string, unknown>>(database, builder.select({
 		table: entry.table_name,
 		columns: Object.fromEntries(expected.map(([column]) => [column, { column, cast: 'text' as const }])),
-		where: [rowCondition(entry)], deleted: 'all', pended: 'all', limit: 1,
+		where: [rowCondition(entry)], deleted: 'all', queued: 'all', limit: 1,
 	}));
 	if (!row) return false;
 	return expected.every(([column, value]) => storedKey(row[column]) === storedKey(value));
@@ -450,14 +450,14 @@ const applyInsertTransition = async (database: DatabaseAdapter, entry: AuditEntr
 	const builder = sql({ database, subjectRoles: null });
 	/**
 	 * 「恢复」是把申请放回队列，因此那一行也要回到**待审批**的样子：从回收站捞出来，
-	 * `pended_at` 重新写上**此刻**——它是「什么时候进的队列」，而这条申请正是现在才回到
+	 * `queued_at` 重新写上**此刻**——它是「什么时候进的队列」，而这条申请正是现在才回到
 	 * 队列里的。当初提交的时刻另有去处，记在这条记录的 `created_at` 上。
 	 */
 	const statement = to === 'approve' ? builder.activate(entry.table_name, where)
 		// 重新应用的对象是**被回滚过的**那一行，它当时是被软删除掉的，因此这里要动的是 deleted_at。
 		: to === 'redo' ? builder.restore(entry.table_name, where)
-			: to === 'requeue' ? builder.revert(entry.table_name, { deleted_at: 0, pended_at: Date.now() }, where)
-				: builder.revert(entry.table_name, { deleted_at: Date.now(), pended_at: 0 }, where);
+			: to === 'requeue' ? builder.revert(entry.table_name, { deleted_at: 0, queued_at: Date.now() }, where)
+				: builder.revert(entry.table_name, { deleted_at: Date.now(), queued_at: 0 }, where);
 	const result = await runSystemSql(database, statement);
 	return Number(result.meta?.changes ?? 0) > 0;
 };
@@ -502,7 +502,7 @@ const transitionOne = async (database: DatabaseAdapter, entry: AuditEntryRow, to
 	// 驳回与撤销申请都不碰数据：待审批的修改从未写入过。
 	if (entry.action !== 'insert' && allowed.write !== 'none') {
 		/**
-		 * **改与删只作用在已经生效的那一行上：`pended_at` 必须是 0。**
+		 * **改与删只作用在已经生效的那一行上：`queued_at` 必须是 0。**
 		 *
 		 * 把一份变更盖在还没生效、外面根本看不见的行上是说不通的：它将来一旦被批准，
 		 * 放出去的内容已经不是那条新增记录上写的那一份了；回滚同理——把旧值写回一个
@@ -518,13 +518,13 @@ const transitionOne = async (database: DatabaseAdapter, entry: AuditEntryRow, to
 		 * 查一次而不是塞进 WHERE：塞进去写入落空只会报「已被后续修改覆盖」，那不是实情，
 		 * 照着那句话去刷新页面也看不出任何被改过的痕迹。
 		 */
-		const state = await firstSql<{ pended_at: unknown }>(database, sql({ database }).select({
+		const state = await firstSql<{ queued_at: unknown }>(database, sql({ database }).select({
 			table: entry.table_name,
-			columns: { pended_at: { column: 'pended_at', cast: 'text' } },
-			where: [rowCondition(entry)], deleted: 'all', pended: 'all', limit: 1,
+			columns: { queued_at: { column: 'queued_at', cast: 'text' } },
+			where: [rowCondition(entry)], deleted: 'all', queued: 'all', limit: 1,
 		}));
 		if (!state) return { id: entry.id, ok: false, message: `原记录已不存在，无法${allowed.label}` };
-		if (String(state.pended_at ?? '0') !== '0') {
+		if (String(state.queued_at ?? '0') !== '0') {
 			return { id: entry.id, ok: false, message: `这一行还在审批队列里等着生效，无法${allowed.label}——请先处理建它的那条新增申请` };
 		}
 		const changes = parseAuditChanges(entry);

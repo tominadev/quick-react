@@ -19,8 +19,8 @@ enum BaseTenantStatus {
 }
 
 enum BaseApprovalAction {
-  /// 新建一行。待审批期间行**已经写进库**，但 `pended_at` 非零让它对所有正常查询不可见——
-  /// 批准就是把 pended_at 归零，驳回就是把那一行物理删掉（它从未生效过，历史留在这条记录上）。
+  /// 新建一行。待审批期间行**已经写进库**，但 `queued_at` 非零让它对所有正常查询不可见——
+  /// 批准就是把 queued_at 归零，驳回就是把那一行物理删掉（它从未生效过，历史留在这条记录上）。
   /// 这样待建行的值不必存进审批表：值就在行上，凭证也就不会在这张表里躺满保留期。
   insert
   update
@@ -86,7 +86,7 @@ model base_tenants {
   created_at   BigInt
   updated_at   BigInt
   deleted_at   BigInt @default(0)
-  pended_at    BigInt @default(0)
+  queued_at    BigInt @default(0)
   created_duid BigInt?
   updated_duid BigInt?
   owner_tid    BigInt @default(1)
@@ -108,7 +108,7 @@ model base_branches {
   created_at   BigInt
   updated_at   BigInt
   deleted_at   BigInt @default(0)
-  pended_at    BigInt @default(0)
+  queued_at    BigInt @default(0)
   created_duid BigInt?
   updated_duid BigInt?
   owner_tid    BigInt @default(1)
@@ -131,7 +131,7 @@ model base_hosts {
   created_at   BigInt
   updated_at   BigInt
   deleted_at   BigInt @default(0)
-  pended_at    BigInt @default(0)
+  queued_at    BigInt @default(0)
   created_duid BigInt?
   updated_duid BigInt?
   owner_tid    BigInt @default(1)
@@ -151,7 +151,7 @@ model base_users {
   created_at    BigInt
   updated_at    BigInt
   deleted_at BigInt @default(0)
-  pended_at  BigInt @default(0)
+  queued_at  BigInt @default(0)
   created_duid BigInt?
   updated_duid BigInt?
   owner_tid     BigInt @default(1)
@@ -182,7 +182,7 @@ model base_sessions {
   created_at BigInt
   updated_at BigInt
   deleted_at BigInt @default(0)
-  pended_at  BigInt @default(0)
+  queued_at  BigInt @default(0)
   created_duid BigInt?
   updated_duid BigInt?
   owner_tid     BigInt @default(1)
@@ -202,7 +202,7 @@ model base_configs {
   created_at BigInt
   updated_at BigInt
   deleted_at BigInt @default(0)
-  pended_at  BigInt @default(0)
+  queued_at  BigInt @default(0)
   created_duid BigInt?
   updated_duid BigInt?
   owner_tid     BigInt @default(1)
@@ -222,7 +222,7 @@ model base_bootstrap {
   created_at   BigInt
   updated_at   BigInt
   deleted_at BigInt @default(0)
-  pended_at  BigInt @default(0)
+  queued_at  BigInt @default(0)
   created_duid BigInt?
   updated_duid BigInt?
   owner_tid     BigInt @default(1)
@@ -242,7 +242,7 @@ model base_oidc_login_requests {
   created_at    BigInt
   updated_at    BigInt
   deleted_at BigInt @default(0)
-  pended_at  BigInt @default(0)
+  queued_at  BigInt @default(0)
   created_duid  BigInt?
   updated_duid  BigInt?
   owner_tid     BigInt @default(1)
@@ -280,7 +280,7 @@ model base_oidc_users {
   created_at    BigInt
   updated_at    BigInt
   deleted_at BigInt @default(0)
-  pended_at  BigInt @default(0)
+  queued_at  BigInt @default(0)
   created_duid  BigInt?
   updated_duid  BigInt?
   owner_tid     BigInt @default(1)
@@ -302,7 +302,7 @@ model base_oidc_sessions {
   created_at    BigInt
   updated_at    BigInt
   deleted_at BigInt @default(0)
-  pended_at  BigInt @default(0)
+  queued_at  BigInt @default(0)
   created_duid  BigInt?
   updated_duid  BigInt?
   owner_tid     BigInt @default(1)
@@ -323,7 +323,7 @@ model base_devices {
   created_at   BigInt
   updated_at   BigInt
   deleted_at BigInt @default(0)
-  pended_at  BigInt @default(0)
+  queued_at  BigInt @default(0)
   created_duid BigInt?
   updated_duid BigInt?
   owner_tid     BigInt @default(1)
@@ -348,7 +348,7 @@ model base_device_users {
   created_at   BigInt
   updated_at   BigInt
   deleted_at BigInt @default(0)
-  pended_at  BigInt @default(0)
+  queued_at  BigInt @default(0)
   created_duid BigInt?
   updated_duid BigInt?
   owner_tid     BigInt @default(1)
@@ -370,7 +370,7 @@ model base_device_snapshots {
   created_at    BigInt
   updated_at    BigInt
   deleted_at BigInt @default(0)
-  pended_at  BigInt @default(0)
+  queued_at  BigInt @default(0)
   created_duid  BigInt?
   updated_duid  BigInt?
   owner_tid     BigInt @default(1)
@@ -407,7 +407,7 @@ model base_approval_events {
   created_at   BigInt
   updated_at   BigInt
   deleted_at   BigInt @default(0)
-  pended_at    BigInt @default(0)
+  queued_at    BigInt @default(0)
   created_duid BigInt?
   updated_duid BigInt?
   owner_tid    BigInt @default(1)
@@ -427,7 +427,7 @@ model base_approvals {
   created_at   BigInt
   updated_at   BigInt
   deleted_at   BigInt @default(0)
-  pended_at    BigInt @default(0)
+  queued_at    BigInt @default(0)
   created_duid BigInt?
   updated_duid BigInt?
   owner_tid    BigInt @default(1)
@@ -488,7 +488,7 @@ model base_approvals {
   /// 「同一行同时只能有一条申请在队列里」成为数据库约束，而不是应用层「先查再写」的君子协定
   /// ——先查再写挡不住两个请求同时进来。0 是哨兵：了结的那些各自带着不同的值，撞不上。
   ///
-  /// 值是毫秒时间戳，与 `deleted_at` / `pended_at` 同构——0 表示还没发生，非 0 是发生的时刻。
+  /// 值是毫秒时间戳，与 `deleted_at` / `queued_at` 同构——0 表示还没发生，非 0 是发生的时刻。
   ///
   /// 试过用雪花号（天然唯一，同毫秒也不撞），但代价太大：雪花号超出 JS 的安全整数范围，
   /// 任何 `includeAll` 的读取会当场抛 `Value is too large to be represented as a JavaScript
@@ -522,7 +522,7 @@ model base_user_credentials {
   created_at   BigInt
   updated_at   BigInt
   deleted_at   BigInt @default(0)
-  pended_at    BigInt @default(0)
+  queued_at    BigInt @default(0)
   created_duid BigInt?
   updated_duid BigInt?
   owner_tid    BigInt @default(1)
@@ -547,7 +547,7 @@ model base_user_profiles {
   created_at   BigInt
   updated_at   BigInt
   deleted_at   BigInt @default(0)
-  pended_at    BigInt @default(0)
+  queued_at    BigInt @default(0)
   created_duid BigInt?
   updated_duid BigInt?
   owner_tid    BigInt @default(1)

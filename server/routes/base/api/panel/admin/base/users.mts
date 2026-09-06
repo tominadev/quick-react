@@ -100,7 +100,7 @@ const handler: ApiHandler = async (c, next, params) => {
 		 * 留下一条申请，而它指向的那一行从来没写成——批也批不动，界面上却像是有人在等审批。
 		 *
 		 * 条件要和唯一索引 `(owner_tid, name, deleted_at)` 一字不差：只看未删除的行（回收站里
-		 * 的同名账号不占名字），并且 `pended: 'all'` 把**还在审批队列里的新账号**算进来——
+		 * 的同名账号不占名字），并且 `queued: 'all'` 把**还在审批队列里的新账号**算进来——
 		 * 它已经把那个名字占住了。系统上下文是必须的：分站管理员的可见性是 owner_bid，
 		 * 查不到本租户里别的分站的同名账号，那道检查会漏，然后照样撞索引。
 		 */
@@ -108,7 +108,7 @@ const handler: ApiHandler = async (c, next, params) => {
 			table: 'base_users',
 			columns: { id: { column: 'id', cast: 'text' } },
 			where: [{ column: 'name', value: userName }, tenantScope()],
-			pended: 'all',
+			queued: 'all',
 			limit: 1,
 		}));
 		if (taken) return apiMessage(c, 409, '用户名已存在');
