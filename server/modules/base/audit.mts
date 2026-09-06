@@ -406,6 +406,33 @@ const storedKey = (value: unknown) => {
 };
 
 /**
+ * 布尔另算，因为**它在各方言里读回来长得不一样**，而上面那个查询一律 `CAST(… AS TEXT)`：
+ * SQLite、MySQL、D1 把布尔存成 0/1，转文本得 `'0'` / `'1'`；PostgreSQL 存 true/false，
+ * 转文本得 `'false'` / `'true'`。申请里存的则是 JSON 的 `true` / `false`。
+ *
+ * 不拉平的话 `String(0)` 是 `'0'`、`String(false)` 是 `'false'`，**凡是带布尔列的新建
+ * 一律批不动**：批准报「内容与申请不一致」，驳回与撤销倒是照常，于是那条申请成了个
+ * 死结——数据永远生效不了，而错误信息说的是「它在这之后被改过」，指向一个根本不存在的
+ * 篡改。`global_cloud_object_storage_buckets.path_style` 上真的发作过。
+ *
+ * **只在申请那一侧是布尔时才按布尔解读行值**，不无条件把 `'true'` 归一成 `'1'`：那样
+ * 一个存文本 `'true'` 的列和一个存 `'1'` 的列会被判成相等，而它们本来是两个不同的值。
+ * 申请里的类型是可信的——它来自 JSON，布尔就是布尔。
+ */
+const booleanKey = (value: unknown) => {
+	if (typeof value === 'boolean') return value ? '1' : '0';
+	const text = String(value).trim().toLowerCase();
+	if (text === 'true' || text === 't' || text === '1') return '1';
+	if (text === 'false' || text === 'f' || text === '0') return '0';
+	return text;
+};
+
+/** 行上读回来的值与申请里写的那个是不是同一个。 */
+const sameStored = (rowValue: unknown, wanted: unknown) => (typeof wanted === 'boolean'
+	? booleanKey(rowValue) === booleanKey(wanted)
+	: storedKey(rowValue) === storedKey(wanted));
+
+/**
  * 让这一行生效之前核一遍：它的内容还是不是申请里写的那一份。
  *
  * **批准修改早就有这道校验**（每一列的当前值必须还等于记录里的前值），批准新增却没有——
@@ -428,7 +455,7 @@ const insertContentMatches = async (database: DatabaseAdapter, entry: AuditEntry
 		where: [rowCondition(entry)], deleted: 'all', queued: 'all', limit: 1,
 	}));
 	if (!row) return false;
-	return expected.every(([column, value]) => storedKey(row[column]) === storedKey(value));
+	return expected.every(([column, value]) => sameStored(row[column], value));
 };
 
 const applyInsertApproval = async (database: DatabaseAdapter, entry: AuditEntryRow, to: AuditApproval) => {

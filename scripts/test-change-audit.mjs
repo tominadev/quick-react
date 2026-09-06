@@ -745,6 +745,75 @@ const auditRouteFilter = async () => {
 		await rm(directory, { recursive: true, force: true });
 	}
 };
+/**
+ * 带布尔列的新建必须批得动。
+ *
+ * 内容核对的查询一律 `CAST(… AS TEXT)`，而布尔在各方言里读回来长得不一样：SQLite、
+ * MySQL、D1 存 0/1，转文本得 `'0'`；PostgreSQL 存 true/false，转文本得 `'false'`。
+ * 申请里则是 JSON 的 `false`。不拉平就成死结——批准报「内容与申请不一致」，指向一个
+ * 根本不存在的篡改，驳回与撤销倒是照常，于是那条记录再也生效不了。
+ * `global_cloud_object_storage_buckets.path_style` 上真的发作过。
+ *
+ * 直接 seed 而不是走某个接口：要复现的是「申请里是 JSON 布尔、行上是 0/1」这一对，
+ * 经哪个接口造出来都一样，而 seed 能顺带把「行被改过」那个反例也摆出来。
+ */
+const booleanColumnApproval = async () => {
+	const directory = await mkdtemp(join(tmpdir(), 'quick-react-audit-boolean-'));
+	const previousFile = process.env.DEFAULT_DATABASE_FILE;
+	process.env.DEFAULT_DATABASE_FILE = join(directory, 'default.sqlite');
+	process.env.SKIP_SERVER_LISTEN = '1';
+	try {
+		const { app, runMaintenanceAction } = await import(`../dist/server.mjs?audit-boolean=${Date.now()}`);
+		await runMaintenanceAction('restore-admin', { user_name: 'booladmin', password: 'audit-password-1' });
+		const { DatabaseSync } = await import('node:sqlite');
+		const seed = new DatabaseSync(process.env.DEFAULT_DATABASE_FILE);
+		const at = Date.now();
+		// 两行都还没生效（queued_at 非 0），各挂一条待审批的新建申请。
+		const rows = [['bool-ok', '布尔站点', 0], ['bool-tampered', '被改过的站点', 1]];
+		for (const [key, title, sso] of rows) {
+			seed.prepare('INSERT INTO global_sites (key, created_at, updated_at, queued_at, title, base_site_key, dsn, database_binding, status, migration_status, is_default, is_system, passport_sso_enabled) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?)')
+				.run(key, at, at, at, title, 'base', '', '', 'enabled', 'ready', 0, 0, sso);
+			// 两条申请写的都是「passport_sso_enabled 为 false」。第二行上它已经是 1，
+			// 那才是真的被人动过，必须仍然拦下来。
+			seed.prepare('INSERT INTO base_audits (key, created_at,updated_at,operation_id,reason,table_name,row_id,row_key,action,changes_before,changes_after,review_status,data_status,settled_at) VALUES (lower(hex(randomblob(16))), ?,?,?,?,?,?,?,?,?,?,?,?,0)')
+				.run(at, at, `bool-${key}`, '布尔用例', 'global_sites', String(seed.prepare('SELECT id FROM global_sites WHERE key = ?').get(key).id), key, 'insert', '{}',
+					// changes_after 是扁平的 `{列: 值}`，新建那一支的 changes_before 是 `{}`。
+					JSON.stringify({ title, is_default: false, passport_sso_enabled: false }),
+					'pending', 'unwritten');
+		}
+		seed.close();
+		const headers = {
+			'content-type': 'application/json',
+			'x-device-key': '00000000000040008000000000000001',
+			'x-device-fingerprint': JSON.stringify({ canvas_cyrb53: 'a', audio_cyrb53: 'b' }),
+		};
+		const login = await app.request('http://localhost/api/sign.php', { method: 'POST', headers, body: JSON.stringify({ user_name: 'booladmin', password: 'audit-password-1' }) });
+		const cookie = login.headers.get('set-cookie')?.split(';')[0];
+		const listed = await (await app.request('http://localhost/api/panel/admin/base/audit/records.php?include=data&review_status=pending', { headers: { ...headers, cookie } })).json();
+		const byRow = new Map(listed.table.dataSource.map((row) => [row.row_key, String(row.id)]));
+		const approve = async (rowKey) => {
+			const response = await app.request('http://localhost/api/panel/admin/base/audit/records.php?action=approve', { method: 'POST', headers: { ...headers, cookie }, body: JSON.stringify([byRow.get(rowKey)]) });
+			return (await response.json()).feedback?.message ?? '';
+		};
+
+		// 全部成功与部分失败是两套文案，这里认前者：一条都不该失败。
+		const okMessage = await approve('bool-ok');
+		assert.match(okMessage, /已批准 1 条/, `带布尔列的新建要批得动，实际：${okMessage}`);
+		const check = new DatabaseSync(process.env.DEFAULT_DATABASE_FILE, { readOnly: true });
+		assert.equal(String(check.prepare("SELECT queued_at FROM global_sites WHERE key = 'bool-ok'").get().queued_at), '0', '批准之后那一行要真的生效');
+
+		// 反例：行上确实被改过的，仍然要拦下来——布尔归一不能变成无条件放行。
+		const tamperedMessage = await approve('bool-tampered');
+		assert.match(tamperedMessage, /失败 1 条/, `行上被改过的仍要拦下，实际：${tamperedMessage}`);
+		assert.match(tamperedMessage, /内容与申请里的不一致/);
+		assert.notEqual(String(check.prepare("SELECT queued_at FROM global_sites WHERE key = 'bool-tampered'").get().queued_at), '0', '被拦下的那一行不能生效');
+		check.close();
+	} finally {
+		if (previousFile === undefined) delete process.env.DEFAULT_DATABASE_FILE;
+		else process.env.DEFAULT_DATABASE_FILE = previousFile;
+		await rm(directory, { recursive: true, force: true });
+	}
+};
 const temporaryDirectory = await mkdtemp(join(tmpdir(), 'quick-react-change-audit-'));
 try {
 	const result = await build({
@@ -1243,6 +1312,7 @@ try {
 	assert.match(tableCrudSource, /allowClear=\{field\.defaultValue === undefined\}/);
 	assert.doesNotMatch(auditRoute, /\{ value: '', text: '全部' \}/);
 	await auditRouteFilter();
+	await booleanColumnApproval();
 
 	// ---- 保留期（§10）----
 	const total = (await entries()).length;
