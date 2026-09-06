@@ -100,12 +100,17 @@ export function useCommonApi(): [CommonApi, React.JSX.Element] {
 	 */
 	const modalConfirmWithReason = async (aContentLine: string[], props?: ModalFuncProps): Promise<ChangeControlValues | undefined> => {
 		const reasonRef = { current: '' };
+		// 回车即确定：单行框里那是本能动作。要等 Promise 建好才拿得到 resolve，因此先占个位。
+		const submitRef = { current: () => {} };
 		let modal: { update: (config: ModalFuncProps) => void; destroy: () => void } | undefined;
 		const content = (
 			<>
 				{getContentLine(aContentLine)}
-				<Input.TextArea
-					autoSize={{ minRows: 2, maxRows: 4 }}
+				{/*
+					单行，不是多行文本域：操作原因是一句话——「客诉要求改价」「上线前关掉注册」。
+					给两三行的框等于在暗示要写一段，而回车在单行框里正好是「确定」。
+				*/}
+				<Input
 					maxLength={500}
 					placeholder="操作原因（必填）"
 					style={{ marginTop: 12 }}
@@ -113,10 +118,12 @@ export function useCommonApi(): [CommonApi, React.JSX.Element] {
 						reasonRef.current = event.target.value;
 						modal?.update({ okButtonProps: { disabled: !event.target.value.trim() } });
 					}}
+					onPressEnter={() => { if (reasonRef.current.trim()) submitRef.current(); }}
 				/>
 			</>
 		);
 		const confirmed = await new Promise<boolean>((resolve) => {
+			submitRef.current = () => { modal?.destroy(); resolve(true); };
 			modal = modalApi.confirm({
 				title: '确认提示',
 				icon: <ExclamationCircleOutlined />,
