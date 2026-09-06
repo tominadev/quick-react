@@ -333,9 +333,9 @@ CREATE TABLE "base_user_profiles" (
     "owner_uid" BIGINT,
     "user_id" BIGINT NOT NULL,
     "nickname" TEXT,
-    "qq" TEXT NOT NULL DEFAULT '',
-    "wechat" TEXT NOT NULL DEFAULT '',
-    "email" TEXT NOT NULL DEFAULT ''
+    "qq" TEXT,
+    "wechat" TEXT,
+    "email" TEXT
 );
 
 -- CreateIndex

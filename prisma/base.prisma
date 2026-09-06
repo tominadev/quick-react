@@ -526,10 +526,14 @@ model base_user_profiles {
   /// 第二个不设昵称的账号就建不出来了；NULL 互不相等，正好是这里要的语义。
   nickname     String?
   /// 联系方式，都不唯一也不校验格式：它们是给人看的，不是登录凭据。
-  qq           String @default("")
-  wechat       String @default("")
+  ///
+  /// 三列都可空，与 nickname 一致：**没填过是 NULL，不是空串**。理由不是唯一索引（这三列
+  /// 没有），而是让「从来没填」和「填过又清掉」在库里长得不一样——只有一张表把两者都
+  /// 记成空串时，「这个人到底留没留过联系方式」就再也答不上来了。
+  qq           String?
+  wechat       String?
   /// 联系邮箱。本站没有邮箱验证流程，这里存的是人自己填的联系方式，不能当身份用。
-  email        String @default("")
+  email        String?
 
   /// 一个账号一份资料；user_id 本身全局唯一，不必再按租户划分。
   @@unique([user_id, deleted_at])
