@@ -35,6 +35,7 @@ const routeTables = {
 	'passport/api/panel/admin/passport/users.mts': 'passport_users',
 	'sms/api/panel/admin/sms/integration-clients.mts': 'sms_integration_clients',
 	'sms/api/panel/admin/sms/machines.mts': 'sms_generator_machines',
+	'sms/api/panel/admin/sms/messages.mts': 'sms_messages',
 	'sms/api/panel/admin/sms/tokens.mts': 'sms_shortcut_tokens',
 	'sms/api/panel/user/sms/messages.mts': 'sms_messages',
 	'sms/api/panel/user/sms/phones.mts': 'sms_phones',

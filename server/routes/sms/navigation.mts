@@ -34,6 +34,9 @@ const navigation: MenuNode[] = [
 				{ label: '生成器机器', key: 'machines', icon: 'appstore', component: 'table', title: '生成器机器', description: '登记允许运行 Shortcut 生成器的 Mac' },
 				{ label: 'Shortcut 令牌', key: 'tokens', icon: 'appstore', component: 'table', title: 'Shortcut 令牌', description: '查看令牌池，撤销、回收或重新分配' },
 				{ label: '接入方', key: 'integration-clients', icon: 'appstore', component: 'table', title: '接入方', description: '登记可以代表用户签发绑定票据的服务端' },
+				// 全站短信只读，管理员排查用——用户报「没收到验证码」时，这里是唯一能看出
+				// 短信到底进没进来的地方。代价是这一页看得到验证码，描述里说明白。
+				{ label: '短信', key: 'messages', icon: 'appstore', component: 'table', title: '短信', description: '全站收到的短信，用于排查「没收到」；能看到短信正文，包括验证码' },
 			],
 		}],
 	},
