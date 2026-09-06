@@ -274,6 +274,28 @@ X-Sms-Signature: ed25519=<base64url>
 
 签名为 Ed25519，输入是 `timestamp + "." + 原始请求体字节`，输出 Base64URL（去 `=`），与绑定票据的编码规则一致。接收方从 SMS 的公钥端点取公钥验签，应校验时间戳在合理窗口内（建议 5 分钟）以防重放，并按 `X-Sms-Delivery-Id` 去重。
 
+公钥端点是 `GET /api/push-key`，**公开、不需要任何凭证**——公开是它的用途：公钥本来就要发给所有接收方，把它藏在认证后面，接收方反而要先有一份凭证才能验签，而验签这一步存在的理由正是「不必先信任传输通道」。
+
+```json
+{
+  "algorithm": "Ed25519",
+  "kid": "f4e3a022ba40dfcf",
+  "public_key": "<32 字节公钥的 Base64URL，43 个字符>",
+  "encoding": { "public_key": "base64url", "signature": "base64url", "signed_input": "timestamp + \".\" + 原始请求体字节" }
+}
+```
+
+`kid` 由公钥自身算出（SHA-256 前 16 位十六进制），不另配变量：换了公钥 `kid` 自动跟着变，接收方据此判断缓存的那把是否还有效，运维也少一个会配错、会忘记同步的地方。
+
+配置用两个变量，**公钥也从环境读、不从私钥推导**：Ed25519 的 WebCrypto 在 Node 与 Workers 上支持有差异（见 §10），从私钥导公钥这一步两个运行时写法不同；而运维生成密钥对时本来就两个都拿得到，配两个变量没有额外负担。
+
+```dotenv
+SMS_PUSH_PUBLIC_KEY=<32 字节 Ed25519 公钥的 Base64URL>
+SMS_PUSH_SIGNING_KEY=<私钥，签名时用>
+```
+
+> 推送本身（`sms_push_endpoints`、`sms_push_deliveries` 与投递逻辑）尚未实现，公钥端点先把公钥公布出去。
+
 请求体包含短信正文、来源手机的掩码号码与接收时间；不包含原始令牌、`token_sha256` 或其他账号的信息。
 
 #### 4.9.3 `sms_push_deliveries`
