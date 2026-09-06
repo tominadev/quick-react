@@ -57,6 +57,17 @@ export type AppEnv = {
 		 * 签名票据一次性），叶子偶尔需要据此收窄。
 		 */
 		protocolSubject?: { kind: 'token' | 'ed25519'; ownerUid: string; deviceId?: string };
+		/**
+		 * 生成器凭证解析出来的机器。
+		 *
+		 * 与 `protocolSubject` 分开，因为它**不属于任何账号**：平台预配凭证不能提交短信、
+		 * 不能绑定手机，只能登记令牌与上传文件。合进 protocolSubject 会让叶子拿到一个
+		 * `ownerUid` 为空的「账号主体」，那正是最容易被误用的形状。
+		 *
+		 * `name` 是对象键里的目录名，由服务端从凭证解析——工具自称的标识不作数，伪造就意味着
+		 * 一台机器能把文件写进另一台的目录。
+		 */
+		generatorMachine?: { id: string; name: string };
 		clientIp?: string;
 		transportIp?: string;
 		accountsIdentity: boolean;

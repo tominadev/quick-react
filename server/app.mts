@@ -98,7 +98,7 @@ const codeSiteNames = Object.fromEntries(Object.entries(workerSiteNavigations).m
 const legacyCodeSiteNames = Object.fromEntries(Object.entries(workerSiteNavigations).map(([siteKey, navigation]) => [siteKey, navigation[0]?.label || siteKey]));
 if (!skipStartupChecks) {
 	await initializeCodeSites(defaultDatabase, workerCodeSites, codeSiteNames, legacyCodeSiteNames);
-	const codeSiteRows = await allSql<{ site_key: string; database_binding: string }>(defaultDatabase, sql({ database: defaultDatabase }).select({ table: 'global_sites', columns: { site_key: 'key', database_binding: 'database_binding' }, where: [{ column: 'is_system', value: 0 }] }));
+	const codeSiteRows = await allSql<{ site_key: string; database_binding: string }>(defaultDatabase, sql({ database: defaultDatabase }).select({ table: 'global_sites', columns: { site_key: 'key', database_binding: 'database_binding' }, where: [{ column: 'is_system', value: false }] }));
 	for (const site of codeSiteRows) {
 		if (!workerCodeSites.includes(site.site_key as typeof workerCodeSites[number]) || site.database_binding) continue;
 		await migrateSite(site.site_key);

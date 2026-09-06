@@ -33,7 +33,7 @@ export const accountUser = async (database: DatabaseAdapter, userId: string) => 
 	const user = { sub: row.sub, status: row.status, ...(profileNickname ? { name: profileNickname } : {}) };
 	// 用户名是可选能力，只有设置过才作为 preferred_username 下发。
 	const userName = await loadAccountUserName(database, userId);
-	const email = await firstSql<{ email: string }>(database, sql({ database }).select({ table: 'passport_user_emails', alias: 'ue', columns: { email: 'e.email' }, joins: [{ table: 'passport_emails', alias: 'e', left: 'e.id', right: 'ue.email_id' }], where: [{ column: 'ue.user_key', value: userId }, { column: 'ue.is_primary', value: 1 }, { column: 'e.verified', value: 1 }], limit: 1 }));
+	const email = await firstSql<{ email: string }>(database, sql({ database }).select({ table: 'passport_user_emails', alias: 'ue', columns: { email: 'e.email' }, joins: [{ table: 'passport_emails', alias: 'e', left: 'e.id', right: 'ue.email_id' }], where: [{ column: 'ue.user_key', value: userId }, { column: 'ue.is_primary', value: true }, { column: 'e.verified', value: true }], limit: 1 }));
 	return { ...user, ...(userName ? { preferred_username: userName } : {}), email: email?.email };
 };
 
