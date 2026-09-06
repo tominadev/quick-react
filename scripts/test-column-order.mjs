@@ -86,6 +86,25 @@ for (const file of (await walk(routesDirectory)).sort()) {
 }
 assert.ok(tableRoutes.length >= 20, `表格路由太少，扫描逻辑可能失效：${tableRoutes.length}`);
 
+/**
+ * 截出 `const columns = [ … ];` 那一段。按方括号配平找结尾，不用正则——列定义里嵌着对象、
+ * 数组和字符串，正则要么在第一个 `]` 上截断，要么一路吞到文件末尾。
+ */
+const columnsBlock = (source) => {
+	const start = source.search(/const\s+columns\b[^=]*=\s*\[/);
+	if (start < 0) return source;
+	const from = source.indexOf('[', start);
+	let depth = 0;
+	for (let index = from; index < source.length; index += 1) {
+		if (source[index] === '[') depth += 1;
+		else if (source[index] === ']') {
+			depth -= 1;
+			if (depth === 0) return source.slice(from, index + 1);
+		}
+	}
+	return source.slice(from);
+};
+
 const problems = [];
 for (const [route, source] of tableRoutes) {
 	if (exempt.has(route)) continue;
@@ -93,8 +112,12 @@ for (const [route, source] of tableRoutes) {
 	if (!table) { problems.push(`${route}：未登记对应的数据表（新增表格路由要在 routeTables 里登记，或说明为什么豁免）`); continue; }
 	const expected = schemaColumns.get(table);
 	if (!expected) { problems.push(`${route}：prisma 里找不到模型 ${table}`); continue; }
-	// 只看列定义数组里的 dataIndex，查询字段（带 label 的那些）不是表格列。
-	const shown = [...source.matchAll(/\{\s*dataIndex:\s*'([a-z_]+)'(?![^}]*\blabel:)/g)].map((match) => match[1]);
+	// 只看**表格列定义那一个数组**里的 dataIndex。
+	//
+	// 全文件扫描会把另外两种列一起抓进来：查询字段（带 label）与**动作表单里的列**
+	// （`form: { columns: [...] }`）。后者用的往往就是表里那几列，于是同一个 dataIndex
+	// 出现两次，顺序比对凭空多出一段——「我的手机」加了「绑定手机」表单之后正是这样挂的。
+	const shown = [...columnsBlock(source).matchAll(/\{\s*dataIndex:\s*'([a-z_]+)'(?![^}]*\blabel:)/g)].map((match) => match[1]);
 	const listed = shown.filter((column) => expected.includes(column));
 	const ordered = expected.filter((column) => listed.includes(column));
 	if (JSON.stringify(listed) !== JSON.stringify(ordered)) {
