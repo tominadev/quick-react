@@ -76,10 +76,10 @@ const queryFields = [
 const STAGE_FIELD = '_stage';
 
 /**
- * 这一行的处理经过值不值得点开：`''` 没有、`one` 一条、`many` 两条以上。
+ * 这一行的迁移记录值不值得点开：`''` 没有、`one` 一条、`many` 两条以上。
  *
- * **只有两条以上才给按钮。** 一条的时候列表上那一列「最近处理」显示的就是它的全部
- * （时间、处理类型、操作者、理由），点开只是把同一行字换个地方再看一遍；零条更不用说。
+ * **只有两条以上才给按钮。** 一条的时候列表上那一列「最近迁移」显示的就是它的全部
+ * （时间、迁移类型、操作者、理由），点开只是把同一行字换个地方再看一遍；零条更不用说。
  * 时间线要到「先被谁驳回、又被谁放回队列、最后谁批的」才开始有信息。
  */
 const TRANSITIONS_FIELD = '_transitions';
@@ -135,10 +135,10 @@ const columns = [
 	 * 列表上只显示**最后一次发生了什么**——横着摆十几列的时候，一条记录最多经历两三种
 	 * 迁移，其余格子永远空着；而完整经过在详情页按时间线读，那才是一条审计记录该有的样子。
 	 */
-	{ dataIndex: 'last_transition', title: '最近处理', tableDisplay: 'multiline' as const },
+	{ dataIndex: 'last_transition', title: '最近迁移', tableDisplay: 'multiline' as const },
 ];
 
-/** 一次迁移读成一行人话：`2026-09-06 10:00:00 管理批准(approve)（#7）：同意`。 */
+/** 一次迁移读成一行人话：`2026-09-06 10:00:00 批准(approve)（#7）：同意`。 */
 const transitionLine = (transition: AuditTransitionRow) => {
 	const at = new Date(Number(transition.created_at)).toISOString().replace('T', ' ').slice(0, 19);
 	const who = transition.created_duid ? `（#${transition.created_duid}）` : '';
@@ -224,9 +224,9 @@ const handler: ApiHandler = async (c, next, params) => {
 				// 回滚与重新应用是互斥的两个动作，一行上只显示其中适用的那个。
 				toolbar: flipActions(isSuperUser(c)).map((action) => ({ key: action.key, label: `${action.label}选中记录`, confirm: action.confirm, selection: true })),
 				row: [
-					// 完整经过在弹窗里读：列表上只有「最近处理」一行，而一条记录可能被驳回、
+					// 完整经过在弹窗里读：列表上只有「最近迁移」一行，而一条记录可能被驳回、
 					// 恢复、批准、回滚、重新应用地翻好几轮。带上 audit_id，否则弹开的是全站事件。
-					{ key: 'transitions', label: '处理经过', modalPath: '/panel/admin/base/audit-transitions', modalComponent: 'table' as const, modalQueryFields: { audit_id: 'id' }, visibleWhen: { field: TRANSITIONS_FIELD, values: ['many'] } },
+					{ key: 'transitions', label: '迁移记录', modalPath: '/panel/admin/base/audit-transitions', modalComponent: 'table' as const, modalQueryFields: { audit_id: 'id' }, visibleWhen: { field: TRANSITIONS_FIELD, values: ['many'] } },
 					...flipActions(isSuperUser(c)).map((action) => ({ key: action.key, label: action.label, confirm: action.confirm, visibleWhen: { field: STAGE_FIELD, values: action.from } })),
 				],
 			} },

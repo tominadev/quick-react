@@ -5,17 +5,17 @@ import { AUDIT_TRANSITION_TABLE, kindLabel, type AuditTransition } from '@server
 import { tableSort } from '@server/modules/base/query-options.mjs';
 
 /**
- * 处理经过：一条审批记录上发生过的每一次迁移。
+ * 迁移记录：一条审计记录上发生过的每一次状态迁移。
  *
- * **不叫「审批历史」**——这里六种事件只有两种是审批（批准、驳回），另外四种是撤销、恢复、
- * 回滚、重新应用；叫审批历史会让人以为回滚不在里面。审批页列表上那一列叫「最近处理」，
- * 点开就是「处理经过」，两处对得上。
+ * **不叫「审批历史」也不叫「迁移记录」**——这里六种事件只有两种是审批（批准、驳回），另外四种是撤销、恢复、
+ * 回滚、重新应用；叫审批历史会让人以为回滚不在里面。审批页列表上那一列叫「最近迁移」，
+ * 点开就是「迁移记录」，两处对得上。
  *
- * 这一页**只读**：事件只追加不修改，改一条已经发生的处理经过等于篡改证据。
+ * 这一页**只读**：事件只追加不修改，改一条已经发生的迁移记录等于篡改证据。
  *
  * 因此**不声明 `tableCrud`**——那个声明会让公共层自动挂上回收站入口、还原/彻底删除，
  * 以及整套撤销/批准/驳回的行按钮。一张只能读的表要那些没有意义，摆出来只会让人以为
- * 处理经过是可以改的。保留期清理连着主记录一起删（见 purgeExpiredAuditEntries）。
+ * 迁移记录是可以改的。保留期清理连着主记录一起删（见 purgeExpiredAuditEntries）。
  */
 /** 与审批页的动作颜色对齐：装回去的绿、拆下来的红、动数据的青/蓝。 */
 const KIND_COLORS: Record<AuditTransition, string> = {
@@ -31,13 +31,13 @@ const columns = [
 	{ dataIndex: 'created_at', title: '时间', dataType: 'js_timestamp' as const, dayjsFormat: 'YYYY-MM-DD HH:mm:ss' },
 	{ dataIndex: 'created_duid', title: '操作者', emptyText: '系统' },
 	{ dataIndex: 'audit_id', title: '审批记录', dataType: 'int' as const },
-	{ dataIndex: 'kind', title: '处理类型', options: kindOptions },
+	{ dataIndex: 'kind', title: '迁移类型', options: kindOptions },
 	{ dataIndex: 'reason', title: '理由' }];
 
 const queryFields = [
 	{ dataIndex: 'audit_id', label: '审批记录', component: 'textbox' as const, placeholder: '审批记录的 ID' },
 	// 不摆「全部」：空着就是不筛这一项（与审计页同一套说法）。
-	{ dataIndex: 'kind', label: '处理类型', component: 'select' as const, options: kindOptions },
+	{ dataIndex: 'kind', label: '迁移类型', component: 'select' as const, options: kindOptions },
 ];
 
 const handler: ApiHandler = async (c, next) => {

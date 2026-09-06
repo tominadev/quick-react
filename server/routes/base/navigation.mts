@@ -39,10 +39,10 @@ const rawSiteNavigation = (): MenuNode[] => [
 					] },
 					{ label: '用户管理', key: 'users', icon: 'appstore', component: 'table', title: '用户管理', description: '管理系统用户、角色和状态' },
 					// 回滚限管理员，与父级角色门一致；能看到的范围由公共层的归属判定收敛到本租户或本分站。
-					{ label: '审计审批', key: 'audits', icon: 'appstore', component: 'table', title: '审计审批', description: '审批待生效的修改，并查看已生效变更的记录与回滚' },
-					// 处理经过单独一页：审批页是按「一次变更」看的，这一页是按「一次处理」看的
+					{ label: '变更审计', key: 'audits', icon: 'appstore', component: 'table', title: '变更审计', description: '每一次数据变更的记录；后台的变更在这里排队等批准，已生效的可以回滚' },
+					// 迁移记录单独一页：变更审计是按「一次变更」看的，这一页是按「一次迁移」看的
 					// ——查「上周谁批了什么」「谁回滚过东西」在这里筛比在主表里翻方便。
-					{ label: '处理经过', key: 'audit-transitions', icon: 'appstore', component: 'table', title: '处理经过', description: '每一次批准、驳回、撤销、恢复、回滚与重新应用的操作者、时间与理由' },
+					{ label: '迁移记录', key: 'audit-transitions', icon: 'appstore', component: 'table', title: '迁移记录', description: '每一条审计记录经历过的状态迁移：批准、驳回、撤销、恢复、回滚、重新应用的操作者、时间与理由' },
 					{
 						label: '数据管理',
 						key: 'data',

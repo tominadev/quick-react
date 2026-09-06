@@ -327,35 +327,17 @@ const TRANSITIONS: Record<AuditTransition, {
 export const transitionLabel = (transition: AuditTransition) => TRANSITIONS[transition].label;
 
 /**
- * 处理经过里那一格的说法，与按钮上的不同。**这不是 TRANSITIONS[x].label 的重复**：
- * 那一个是按钮上写的动作名（「批准」），这一个是记录里读的处理类型（「管理批准」）。
- * 同一批六个值，两种用途、两套文案，名字也得分开——叫 KIND_LABELS 是因为它对应的正是
- * `base_audit_transitions.kind` 那一列。
+ * `批准(approve)`：中文取自 {@link TRANSITIONS} 的动作名，括号里是这一列的原文。
  *
+ * **一个 kind 只有一个中文名。** 原先这里另有一套说法（`管理批准`、`执行回滚`、`撤销申请`），
+ * 按「谁做的、动的是什么」加了前缀——读起来是舒服，可同一个 `redo` 在按钮上叫「重新应用」、
+ * 在记录里叫「执行重做」，两个词指同一件事，那正是命名歧义本身。谁做的由旁边的操作者列
+ * 回答，不必编进类型名里。
  *
- * 按钮是祈使的、越短越好——一行上并排三四个，写「管理批准」只会占地方。而**记录里那一格
- * 是读的**，前缀直接说清这一步是谁做的、动的是什么：
- *
- * - **管理X**：审批人对别人的申请做决定（批准、驳回、恢复）。
- * - **执行X**：动的是已经生效的数据（回滚、重做）。
- * - **撤销申请**：唯一由申请人自己做的，没有前缀正说明它不属于上面两类。
- *
- * 「管理批准」而不是「管理审批」：批准是动作，审批是整个流程，这一格记的是前者。
- *
- * 后面带上英文键：这一列的值本来就是 `approve`、`revert` 这些原文，查库、看日志、翻这份
- * 文档时对得上号，不必在脑子里做一次翻译。
+ * 带上英文键：这一列的值本来就是 `approve`、`revert` 这些原文，查库、看日志、翻文档时
+ * 对得上号，不必在脑子里做一次翻译。
  */
-export const KIND_LABELS: Record<AuditTransition, string> = {
-	withdraw: '撤销申请',
-	approve: '管理批准',
-	reject: '管理驳回',
-	requeue: '管理恢复',
-	revert: '执行回滚',
-	redo: '执行重做',
-};
-
-/** `管理审批(approve)`：中文说清是谁做的哪一类，括号里是这一列的原文。 */
-export const kindLabel = (kind: AuditTransition) => `${KIND_LABELS[kind]}(${kind})`;
+export const kindLabel = (kind: AuditTransition) => `${TRANSITIONS[kind].label}(${kind})`;
 
 /**
  * 状态迁移：撤销、恢复、批准、驳回是同一段代码。

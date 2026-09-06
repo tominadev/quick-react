@@ -180,34 +180,34 @@ const auditRouteFilter = async () => {
 		assert.equal(flags.table.columns.find((column) => column.dataIndex === 'require_pkce').component, 'inputnumber', 'INTEGER 给数字框');
 
 		/**
-		 * 完整经过要点得到：列表上只有「最近处理」一行，而一条记录可能被驳回、恢复、批准、
-		 * 回滚、重新应用地翻好几轮。行上挂一个「处理经过」弹窗，带上 audit_id——不带的话
+		 * 完整经过要点得到：列表上只有「最近迁移」一行，而一条记录可能被驳回、恢复、批准、
+		 * 回滚、重新应用地翻好几轮。行上挂一个「迁移记录」弹窗，带上 audit_id——不带的话
 		 * 弹开的是全站事件。
 		 */
 		const auditTable = await (await app.request('http://localhost/api/panel/admin/base/audits.php?include=schema,data&review_status=all', { headers: { ...headers, cookie } })).json();
 		const transitionsAction = auditTable.table.option.actions.row.find((action) => action.key === 'transitions');
-		assert.equal(transitionsAction?.label, '处理经过');
+		assert.equal(transitionsAction?.label, '迁移记录');
 		assert.equal(transitionsAction.modalComponent, 'table');
 		assert.deepEqual(transitionsAction.modalQueryFields, { audit_id: 'id' }, '带上本行的 id，否则弹开的是全站事件');
 		/**
-		 * **两条以上才给按钮。** 一条的时候列表上那一列「最近处理」显示的就是它的全部
-		 * （时间、处理类型、操作者、理由），点开只是把同一行字换个地方再看一遍。
+		 * **两条以上才给按钮。** 一条的时候列表上那一列「最近迁移」显示的就是它的全部
+		 * （时间、迁移类型、操作者、理由），点开只是把同一行字换个地方再看一遍。
 		 */
 		assert.deepEqual(transitionsAction.visibleWhen, { field: '_transitions', values: ['many'] });
 		const transitionCounts = new Set(auditTable.table.dataSource.map((row) => row._transitions));
 		assert.ok(transitionCounts.has('one') || transitionCounts.has(''), '只处理过一次或没处理过的行不给按钮');
 		const transitionsPage = await (await app.request('http://localhost/api/panel/admin/base/audit-transitions.php?include=schema,data', { headers: { ...headers, cookie } })).json();
-		// 只读：事件只追加不修改，改一条已经发生的处理经过等于篡改证据。
+		// 只读：事件只追加不修改，改一条已经发生的迁移记录等于篡改证据。
 		assert.deepEqual(Object.keys(transitionsPage.table.option.actions), ['query'], '没有新增、编辑、删除，也没有回收站');
 		assert.deepEqual(transitionsPage.table.columns.map((column) => column.dataIndex), ['id', 'created_at', 'created_duid', 'audit_id', 'kind', 'reason']);
 		/**
-		 * 处理类型的说法与按钮上的不同：按钮是祈使的、越短越好（一行上并排三四个），而记录
-		 * 里那一格是读的，前缀直接说清这一步是谁做的、动的是什么——管理X 是审批人的决定、
-		 * 执行X 动的是已生效的数据、撤销申请是唯一由申请人自己做的。括号里是这一列的原文。
+		 * **一个 kind 只有一个中文名。** 原先记录里另有一套说法（`管理批准`、`执行回滚`），
+		 * 于是同一个 redo 在按钮上叫「重新应用」、在记录里叫「执行重做」——两个词指同一件事。
+		 * 现在中文取自 TRANSITIONS 的动作名，谁做的由旁边的操作者列回答。
 		 */
 		assert.deepEqual(
 			transitionsPage.table.columns.find((column) => column.dataIndex === 'kind').options.map((option) => option.text),
-			['撤销申请(withdraw)', '管理批准(approve)', '管理驳回(reject)', '管理恢复(requeue)', '执行回滚(revert)', '执行重做(redo)'],
+			['撤销(withdraw)', '批准(approve)', '驳回(reject)', '恢复(requeue)', '回滚(revert)', '重新应用(redo)'],
 		);
 
 		// 四种申请各挂一组按钮，由 visibleWhen 按行显隐：撤销只对自己提的出现，
