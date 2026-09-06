@@ -154,6 +154,17 @@ export const PENDING_FIELD = '_pending';
  */
 export const PENDING_IDS_FIELD = '_pending_ids';
 
+/**
+ * 这一行为什么动不了——**别人**提交的申请正在排队时，这句话说清是谁、在申请什么。
+ *
+ * 按钮不藏起来，点进去看到这一句。藏按钮省事，但看的人只知道「不能改」，不知道该去找谁；
+ * 一句「张三提交的「修改」申请正在等待审批」他就能直接去问。空串表示这一行没有这种阻碍。
+ *
+ * 与服务端 PendingLockError 的话是同一句：提前说和真去点了之后说的必须一致，不然读起来
+ * 像两条不同的规则。
+ */
+export const PENDING_LOCK_FIELD = '_pending_lock';
+
 export type TableSelectOption = {
 	value: string;
 	text: string;

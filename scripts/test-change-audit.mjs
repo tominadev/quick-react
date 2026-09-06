@@ -513,6 +513,63 @@ const auditRouteFilter = async () => {
 		}
 
 		/**
+		 * **别人提交的申请把这一行整个锁住：什么动作都不给做。**
+		 *
+		 * 比 §13.6 那条「只允许一种动作」更狠一层。那条挡的是「叠加」，同一个动作的重新提交
+		 * 照旧放行（重说一遍，覆盖上一条）——可换成别人来重说就完全变味了：他覆盖掉的是另一个
+		 * 人写的内容，而记录上的提交人还是原来那位，审批人看到的申请署着甲的名、写着乙的字。
+		 *
+		 * 这一段必须走 HTTP：人际锁比到**人**，而模块级的 runOperationSql 用的假上下文里
+		 * 没有 currentUser，认不出「我是谁」就不判这一层（见 findConflictingPending）。
+		 */
+		{
+			const lockApi = 'http://localhost/api/panel/admin/base/users.php';
+			// 乙：有审批权的第二个管理员，与甲是两个不同的人。
+			assert.equal((await app.request(lockApi, { method: 'POST', headers: { ...headers, cookie }, body: JSON.stringify({ user_name: 'locker', password: 'lock-password-1', roles: ['platform_admin'], status: 'enabled', profile_nickname: '乙管理员' }) })).status, 202);
+			assert.equal((await decide('approve', await pendingIds())).status, 200);
+			assert.equal((await app.request(lockApi, { method: 'POST', headers: { ...headers, cookie }, body: JSON.stringify({ user_name: 'locked', password: 'lock-password-2', roles: [], status: 'enabled' }) })).status, 202);
+			assert.equal((await decide('approve', await pendingIds())).status, 200);
+			// 乙用另一台设备登录：人际锁比到人，两个人就得是两台设备两份会话。
+			const otherHeaders = { ...headers, 'x-device-key': '00000000-0000-4000-8000-0000000000b0', 'x-device-fingerprint': JSON.stringify({ canvas_cyrb53: 'c', audio_cyrb53: 'd' }) };
+			const signInLocker = await app.request('http://localhost/api/sign.php', { method: 'POST', headers: otherHeaders, body: JSON.stringify({ user_name: 'locker', password: 'lock-password-1' }) });
+			const lockerCookie = signInLocker.headers.get('set-cookie')?.split(';')[0];
+			assert.ok(lockerCookie, '乙应该能登录');
+			const lockerHeaders = { ...otherHeaders, cookie: lockerCookie, 'x-change-reason': encodeURIComponent('乙的申请') };
+			const listed = await (await app.request(`${lockApi}?include=schema,data`, { headers: { ...headers, cookie } })).json();
+			const victim = listed.table.dataSource.find((row) => row.user_name === 'locked');
+			assert.ok(victim, '找得到被操作的那一行');
+
+			// 乙先提一份修改，进队列。
+			assert.equal((await app.request(`${lockApi}/${victim.id}`, { method: 'PUT', headers: lockerHeaders, body: JSON.stringify({ status: 'disabled', __changedFields: ['status'] }) })).status, 202);
+			// 甲现在什么都动不了，而且话里说得出是谁。
+			const blockedEdit = await app.request(`${lockApi}/${victim.id}`, { method: 'PUT', headers: { ...headers, cookie }, body: JSON.stringify({ user_name: 'locked2', __changedFields: ['user_name'] }) });
+			assert.equal(blockedEdit.status, 409);
+			assert.match((await blockedEdit.json()).feedback?.message ?? '', /乙管理员提交的「修改」申请正在等待审批/);
+			// 只改资料表的那一列也拦得住：账号那一行是这条记录的身份（lockRows）。
+			// 不声明的话，从页面上看是同一条记录，锁却只锁住了其中一张表。
+			const blockedProfile = await app.request(`${lockApi}/${victim.id}`, { method: 'PUT', headers: { ...headers, cookie }, body: JSON.stringify({ profile_nickname: '甲改的', __changedFields: ['profile_nickname'] }) });
+			assert.equal(blockedProfile.status, 409, '跨表也要拦：改的是 base_user_profiles，锁挂在 base_users 上');
+			const blockedDelete = await app.request(`${lockApi}/${victim.id}`, { method: 'DELETE', headers: { ...headers, cookie }, body: '[]' });
+			assert.equal(blockedDelete.status, 409);
+			// 乙自己改主意照旧放行，而且覆盖同一条记录，不堆第二条。
+			assert.equal((await app.request(`${lockApi}/${victim.id}`, { method: 'PUT', headers: lockerHeaders, body: JSON.stringify({ status: 'locked', __changedFields: ['status'] }) })).status, 202);
+			const stillOne = new DatabaseSync(process.env.DEFAULT_DATABASE_FILE);
+			assert.equal(Number(stillOne.prepare("SELECT COUNT(*) AS n FROM base_approvals WHERE table_name='base_users' AND row_id=? AND review_status='pending'").get(String(victim.id)).n), 1, '一行上最多一条待审批');
+			stillOne.close();
+			// 行上那句话：按钮不藏，点进去看到是谁在申请什么。
+			const marked = await (await app.request(`${lockApi}?include=schema,data`, { headers: { ...headers, cookie } })).json();
+			const lockedRow = marked.table.dataSource.find((row) => String(row.id) === String(victim.id));
+			assert.equal(lockedRow._pending, 'update-other');
+			assert.match(lockedRow._pending_lock, /乙管理员提交的「修改」申请正在等待审批/);
+			const ownView = await (await app.request(`${lockApi}?include=schema,data`, { headers: lockerHeaders })).json();
+			const ownRow = ownView.table.dataSource.find((row) => String(row.id) === String(victim.id));
+			assert.equal(ownRow._pending, 'update-mine');
+			assert.equal(ownRow._pending_lock, '', '自己提的不算被锁住');
+			// 清场：驳回乙那条，后面的用例接得上。
+			assert.equal((await decide('reject', await pendingIds())).status, 200);
+		}
+
+		/**
 		 * **改与删只作用在已经生效的那一行上：`pended_at` 必须是 0。**
 		 *
 		 * 这是一道前置条件，不是在补一个正在漏的洞——眼下走不到，因为改一份还没生效的新建

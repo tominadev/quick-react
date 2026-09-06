@@ -11,7 +11,7 @@ import { maxNicknameWidth, maxUserNameLength, minNicknameWidth, userNameError } 
 import type { AccountCenterLink } from '@shared/types/user.mjs';
 import { SECTION_FIELD, type FormPageConfig } from '@shared/types/form-page.mjs';
 
-type ProfileRow = { user_name: string; profile_nickname: string | null; profile_qq: string | null; profile_wechat: string | null; profile_email: string | null };
+type ProfileRow = { user_name: string; profile_nickname: string | null; profile_qq: string | null; profile_wechat: string | null; profile_email: string | null; profile_pended: string | null };
 
 /**
  * 个人中心的三组设置。分成选项卡而不是一张长表单：它们互不相干，一次只改一组，
@@ -20,6 +20,23 @@ type ProfileRow = { user_name: string; profile_nickname: string | null; profile_
  */
 const profileForm = (values: ProfileRow, hasPassword: boolean): FormPageConfig => ({
 	description: '修改本站账号的资料。本站账号与 Accounts 账号各自独立，这里改的只是本站的。',
+	/**
+	 * 这份资料还没生效时把话说在前面。
+	 *
+	 * 管理员在后台给一个还没有资料行的用户设了昵称，那是一条**待审批的新建**：整行带着
+	 * `pended_at`，对用户不可见。此前这一页什么都不说，表单里三个联系方式全是空的、昵称是
+	 * 「未填写」，他改一次显示「已保存」、回头一看还是空——于是反复改。写入那一侧现在会
+	 * 拒（PendedRowError），但只拒不说，就只是把「保存成功但看不见」换成「保存不了也不知道
+	 * 为什么」。所以这里把那份还没生效的内容原样显示出来，并讲清它的状态。
+	 */
+	...(pendedProfile(values) ? { notice: {
+		type: 'warning' as const,
+		title: '这份资料正在等待管理员审批',
+		lines: [
+			'管理员设置了你的资料，审批通过之后才会生效——在那之前它只对管理员可见。',
+			'下面「个人简介」里显示的就是等着生效的那一份，这段时间不能修改：改了不会生效，只会让那条申请批不动。',
+		],
+	} } : {}),
 	sectionLayout: 'tabs',
 	initialValues: {
 		user_name: values.user_name,
@@ -39,6 +56,7 @@ const profileForm = (values: ProfileRow, hasPassword: boolean): FormPageConfig =
 		},
 		{
 			key: 'profile', title: '个人简介', submitLabel: '保存简介',
+			...(pendedProfile(values) ? { submitHint: '这份资料还在等审批，现在保存会被拒绝。' } : {}),
 			fields: [
 				{ name: 'profile_nickname', label: '昵称', maxLength: maxNicknameWidth, nullable: true, extra: `显示名，本站内唯一，可以用各国语言；宽度 ${minNicknameWidth} 到 ${maxNicknameWidth} 个半角字符（一个全角按两个半角计）。留作「未填写」就用用户名显示。` },
 				{ name: 'profile_qq', label: 'QQ', maxLength: 20, nullable: true },
@@ -57,11 +75,25 @@ const profileForm = (values: ProfileRow, hasPassword: boolean): FormPageConfig =
 	],
 });
 
+/** 这份资料还没生效吗——`pended_at` 非 0 就是还在队列里等着批。 */
+const pendedProfile = (values: ProfileRow) => Boolean(values.profile_pended) && String(values.profile_pended) !== '0';
+
+/**
+ * `pended: 'all'`：待审批的资料行照样读出来。
+ *
+ * 默认的 active 作用域会把它从 LEFT JOIN 的 ON 里滤掉，于是这一页显示的是「什么都没设」——
+ * 而库里明明有一行写着管理员填的昵称。这一页问的是「我的资料现在是什么状态」，把还没生效
+ * 的那一份藏起来，用户就只能靠反复保存去撞墙。生没生效连着一起发（profile_pended），
+ * 由这一层显式说明，不靠「读不到」来暗示。
+ *
+ * 右上角显示的身份不走这里（`currentUser`），因此还没生效的昵称不会漏到对外显示的地方。
+ */
 const loadProfile = (c: Parameters<ApiHandler>[0], userId: string | number) => firstSql<ProfileRow>(c.get('database'), sql({ database: c.get('database') }).select({
 	table: 'base_users', alias: 'u',
-	columns: { user_name: 'u.name', profile_nickname: 'p.nickname', profile_qq: 'p.qq', profile_wechat: 'p.wechat', profile_email: 'p.email' },
+	columns: { user_name: 'u.name', profile_nickname: 'p.nickname', profile_qq: 'p.qq', profile_wechat: 'p.wechat', profile_email: 'p.email', profile_pended: { column: 'p.pended_at', cast: 'text' } },
 	joins: [{ type: 'LEFT', table: 'base_user_profiles', alias: 'p', left: 'p.user_id', right: 'u.id' }],
 	where: [{ column: 'u.id', value: userId }],
+	pended: 'all',
 }));
 
 /**

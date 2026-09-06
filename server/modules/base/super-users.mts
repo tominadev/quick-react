@@ -52,6 +52,27 @@ export const submitterIdsOf = async (database: DatabaseAdapter, deviceUserIds: r
 };
 
 /**
+ * 这几个用户 id 分别叫什么（昵称优先，没有就用用户名）。
+ *
+ * 行锁与提示里要说出**是谁**在申请：一句「有人正在申请修改」看的人无从下手，说出名字
+ * 他就知道该去找谁。昵称优先是因为那是这套系统里对人的称呼（见 profileNicknameOf 的同一
+ * 条规则）；两样都没有就退回 `#id`，绝不返回空串——空着会让提示读成「 提交的申请」。
+ */
+export const submitterNames = async (database: DatabaseAdapter, userIds: readonly string[]) => {
+	const unique = [...new Set(userIds.filter(Boolean))];
+	if (!unique.length) return [] as string[];
+	const rows = await allSql<{ id: string; name: string; nickname: string | null }>(database, sql({ database }).select({
+		table: 'base_users', alias: 'u',
+		columns: { id: { column: 'u.id', cast: 'text' }, name: 'u.name', nickname: 'p.nickname' },
+		joins: [{ type: 'LEFT', table: 'base_user_profiles', alias: 'p', left: 'p.user_id', right: 'u.id' }],
+		// 待审批的账号也要认得出名字：提交人自己可能就是一条还没批准的新建。
+		deleted: 'all', pended: 'all',
+	}));
+	const byId = new Map(rows.map((row) => [String(row.id), String(row.nickname || row.name || '')]));
+	return unique.map((id) => byId.get(id) || `#${id}`);
+};
+
+/**
  * 挡住「自己批自己」。返回 undefined 表示放行，否则是给人看的理由。
  *
  * 撤销自己的申请不受这道判定管——那是把自己提的东西收回去，不是放行。

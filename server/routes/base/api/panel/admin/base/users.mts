@@ -185,7 +185,9 @@ const handler: ApiHandler = async (c, next, params) => {
 				...(changingPassword ? [await credentialStatement(database, params.id, password)] : []),
 				...(profileWrite ? [profileWrite] : []),
 			];
-			await runOperation(c, database, statements);
+			// 账号那一行是这条记录的身份：别人挂在它上面的申请要拦住这里的每一种修改，
+			// 哪怕这次只动了资料表（见 OperationOptions.lockRows）。
+			await runOperation(c, database, statements, { lockRows: [{ table: 'base_users', rowId: params.id }] });
 			return apiMessage(c, 200, '用户已保存');
 		} catch (error) { if (error instanceof PendingApprovalError) throw error; if (!isUniqueViolation(error)) throw error; return apiMessage(c, 409, '用户名或昵称已被占用'); }
 	}

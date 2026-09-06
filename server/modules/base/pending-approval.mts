@@ -4,9 +4,9 @@ import type { DatabaseAdapter } from '@server/database/index.mjs';
 import { allSql, firstSql, sql } from '@server/database/sql.mjs';
 import { describeAuditChanges, parseAuditChanges, transitionAuditEntries } from './audit.mjs';
 import { APPROVAL_SKIP_ROLES, readChangeReason } from './operation.mjs';
-import { assertNotSelfApproval, isSuperUser, submitterIdsOf } from './super-users.mjs';
+import { assertNotSelfApproval, isSuperUser, submitterIdsOf, submitterNames } from './super-users.mjs';
 
-export { PENDING_FIELD, PENDING_IDS_FIELD } from '@shared/types/table.mjs';
+export { PENDING_FIELD, PENDING_IDS_FIELD, PENDING_LOCK_FIELD } from '@shared/types/table.mjs';
 export const WITHDRAW_ACTION = 'withdraw-pending';
 export const APPROVE_ACTION = 'approve-pending';
 export const REJECT_ACTION = 'reject-pending';
@@ -58,7 +58,7 @@ export const pendingEntriesFor = async (database: DatabaseAdapter, table: string
  * 为此给 SQL 层加一个 IN 运算符不划算。
  */
 export type PendingRowKind = 'insert' | 'update' | 'soft_delete' | 'restore';
-export type PendingRowState = { kind: PendingRowKind; mine: boolean; ids: string[] };
+export type PendingRowState = { kind: PendingRowKind; mine: boolean; ids: string[]; others: string[] };
 const KNOWN_KINDS: readonly string[] = ['insert', 'update', 'soft_delete', 'restore'];
 
 export const pendingRowStates = async (c: Context<AppEnv>, database: DatabaseAdapter, table: string, rowIds: readonly string[]) => {
@@ -76,12 +76,24 @@ export const pendingRowStates = async (c: Context<AppEnv>, database: DatabaseAda
 	const relevant = rows.filter((row) => wanted.has(String(row.row_id)));
 	if (!relevant.length) return states;
 	const mine = await mineOf(c, database, relevant);
+	// 别人提的那几条要说出是谁（见 PENDING_LOCK_FIELD）。只在真有别人的申请时才去查名字：
+	// 待审批的行天然很少，而绝大多数列表一条都没有。
+	const otherEntries = relevant.filter((row) => !mine.has(String(row.id)));
+	const submitters = otherEntries.length ? await submitterIdsOf(database, otherEntries.map((row) => String(row.created_duid ?? ''))) : new Map<string, string>();
+	const nameByUser = new Map<string, string>();
+	if (otherEntries.length) {
+		const userIds = [...new Set(otherEntries.map((row) => submitters.get(String(row.created_duid ?? '')) ?? ''))].filter(Boolean);
+		const names = await submitterNames(database, userIds);
+		userIds.forEach((userId, index) => nameByUser.set(userId, names[index]));
+	}
 	for (const row of relevant) {
 		const id = String(row.row_id);
 		const previous = states.get(id);
 		const kind = KNOWN_KINDS.includes(row.action) ? row.action as PendingRowKind : 'update';
+		const submitter = mine.has(String(row.id)) ? undefined : (nameByUser.get(submitters.get(String(row.created_duid ?? '')) ?? '') ?? '另一个人');
 		states.set(id, {
 			ids: [...(previous?.ids ?? []), String(row.id)],
+			others: [...new Set([...(previous?.others ?? []), ...(submitter ? [submitter] : [])])],
 			// 新增压过其余：一行同时挂着新建与随后的改草稿时，「这一行还不存在」是更要紧的事。
 			// 其余按记录顺序取最后一条——那是这一行上最新的一次申请。
 			kind: previous?.kind === 'insert' ? 'insert' : kind,
@@ -111,6 +123,17 @@ export const IDLE_ACTION_VALUES = [''];
 
 /** 行上那一列的取值：`insert-mine`、`soft_delete-other` 之类；没有待审批就是空串。 */
 export const pendingRowToken = (state: PendingRowState | undefined) => state ? `${state.kind}-${state.mine ? 'mine' : 'other'}` : '';
+
+/**
+ * 这一行被别人的申请锁住时该说的那句话；没有别人的申请就是空串。
+ *
+ * 与 PendingLockError 的措辞一致：点进去先看到这一句，真去保存也是同一句话。
+ */
+export const pendingRowLock = (state: PendingRowState | undefined) => {
+	if (!state?.others.length) return '';
+	const label = PENDING_KINDS.find((item) => item.kind === state.kind)?.label ?? '修改';
+	return `${state.others.join('、')}提交的「${label}」申请正在等待审批，这条记录暂时不能动——要先由审批人批准或驳回。`;
+};
 
 /**
  * 四种申请各自的说法。

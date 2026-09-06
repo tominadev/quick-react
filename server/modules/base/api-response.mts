@@ -6,7 +6,7 @@ import { createDeviceKeyTransportCookie } from './device-fingerprint.mjs';
 import { isSecureRequest } from './request-origin.mjs';
 import { deletedScopeFromQuery, queryIncludes } from './query-options.mjs';
 import { APPROVAL_SKIP_ROLES, operationScope } from './operation.mjs';
-import { APPROVE_ACTION, EDIT_ACTION_VALUES, IDLE_ACTION_VALUES, PENDING_FIELD, PENDING_IDS_FIELD, PENDING_KINDS, REJECT_ACTION, WITHDRAW_ACTION, pendingRowStates, pendingRowToken } from './pending-approval.mjs';
+import { APPROVE_ACTION, EDIT_ACTION_VALUES, IDLE_ACTION_VALUES, PENDING_FIELD, PENDING_IDS_FIELD, PENDING_KINDS, PENDING_LOCK_FIELD, REJECT_ACTION, WITHDRAW_ACTION, pendingRowLock, pendingRowStates, pendingRowToken } from './pending-approval.mjs';
 import { isSuperUser } from './super-users.mjs';
 import { tableCrudDatabase } from './table-crud.mjs';
 export type { ApiFeedback, ApiFeedbackOptions, ApiSuccessData } from '@shared/types/api-response.mjs';
@@ -80,7 +80,8 @@ const withPendingApproval = async (c: Context<AppEnv>, payload: Record<string, u
 	const marked = rows.map((row) => {
 		const state = states.get(String((row as Record<string, unknown>)[rowKey] ?? ''));
 		// 待审批记录的 id 跟着行一起发下去：撤销/批准/驳回原样带回来，动的就是这里看到的那几条。
-		return { ...(row as Record<string, unknown>), [PENDING_FIELD]: pendingRowToken(state), [PENDING_IDS_FIELD]: state?.ids.join(',') ?? '' };
+		// 被别人的申请锁住时，那句「谁在申请什么」也跟着行走：按钮留在原处，点进去看到它。
+		return { ...(row as Record<string, unknown>), [PENDING_FIELD]: pendingRowToken(state), [PENDING_IDS_FIELD]: state?.ids.join(',') ?? '', [PENDING_LOCK_FIELD]: pendingRowLock(state) };
 	});
 	// 只给要走审批的页面挂：问 operationScope，与「这一页看不看得见待审批的行」同一个答案。
 	const withActions = option && typeof option === 'object' && !Array.isArray(option) && operationScope(c) === 'admin';

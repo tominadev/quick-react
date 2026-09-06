@@ -17,7 +17,7 @@ import { useDrawer } from '@/utils/common/drawer.js';
 import dayjs from 'dayjs';
 import { mergeQueryValues, mergeSort, queryRequestValues, queryUrlValues, readTableUrlState, sortOrderFor, writeTableUrlState, type TableQueryValues } from './url-state.js';
 import { describeFormAdditions, describeFormChanges } from '@/components/panel/form-changes.js';
-import { PENDING_FIELD } from '@shared/types/table.mjs';
+import { PENDING_FIELD, PENDING_LOCK_FIELD } from '@shared/types/table.mjs';
 import { NullableInput } from '../nullable-input.js';
 
 // 定义TableCRUD的传参
@@ -255,6 +255,9 @@ const TableCRUD = ({ commonApi, resourcePath, initialResponse, initialQueryValue
 		const editColumns = resolveTableFormColumns(cacheResJsonTable.current.columns, 'edit');
 		const drawerForm1 = drawer.drawerForm({
 			title: action.label,
+			// 被别人的申请锁住时进来先看到那一句：是谁、在申请什么。按钮留在原处，
+			// 真去保存也会被服务端拒，两处是同一句话。
+			notice: String(record[PENDING_LOCK_FIELD] ?? ''),
 			// 变更说明不再当成表单里的一列：它不是这条记录的字段，混在中间既容易被当成
 			// 要填的内容，也让「改了什么」的比对多出一项噪音。改到提交前的确认框里问。
 			columns: editColumns,

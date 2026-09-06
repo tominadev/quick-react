@@ -5,6 +5,7 @@ import { allSql, AUDIT_TABLE, firstSql, runSystemSql, sql, type SqlAuditAction, 
 import { isDigestValueColumn, isHiddenValueColumn } from '@shared/audit-tables.mjs';
 import { serializeAuditChanges } from './audit.mjs';
 import { isSystemField } from '@shared/system-fields.mjs';
+import { submitterIdsOf, submitterNames } from './super-users.mjs';
 
 /**
  * 一次人工操作。
@@ -27,6 +28,18 @@ export type OperationOptions = {
 	 * 批一半就是「账号能登录但没有密码」。
 	 */
 	operationId?: string;
+	/**
+	 * 这次操作还要看住哪几行——**「这套记录」的身份行**。
+	 *
+	 * 行锁按 `(表名, 行号)` 判，可一个业务对象常常横跨几张表：用户是 `base_users` +
+	 * `base_user_credentials` + `base_user_profiles` 三行。管理页上编辑「一个用户」，只改
+	 * 昵称时压根不生成 `base_users` 的语句，于是别人挂在账号那一行上的申请拦不住这次修改——
+	 * 从页面上看是同一条记录，锁却只锁住了其中一张表。
+	 *
+	 * 由路由声明，框架不猜：「哪几行算同一套」是业务知识。靠 `operation_id` 反查也能连起来，
+	 * 但那连的是「曾经在同一次操作里被一起写过」，批量操作会把毫不相干的行也串上。
+	 */
+	lockRows?: ReadonlyArray<{ table: string; rowId: string | number | bigint }>;
 	/**
 	 * 进了队列也不抛异常，由调用方决定什么时候抛。
 	 *
@@ -53,9 +66,30 @@ export type OperationOptions = {
  * 引诱人去点。要改就先撤销。
  */
 export class PendingLockError extends Error {
-	constructor(readonly table: string, readonly action: string) {
-		super(`这一行有一条「${action}」申请正在等待审批，请先撤销或等它审批完再操作`);
+	constructor(readonly table: string, readonly action: string, readonly submitter?: string) {
+		// 别人提的和自己提的给的是两句话：自己的那条撤了就能接着改，别人的只能等审批人处理。
+		// 说出是谁，比一句「有人」有用得多——看的人知道该去找谁。
+		super(submitter
+			? `${submitter}提交的「${action}」申请正在等待审批，这条记录暂时不能动——要先由审批人批准或驳回`
+			: `这一行有一条「${action}」申请正在等待审批，请先撤销或等它审批完再操作`);
 		this.name = 'PendingLockError';
+	}
+}
+
+/**
+ * 自助写入撞上了一行**还没生效**的记录（`pended_at` 非 0）。
+ *
+ * 这一行是别人提交的、还没批准的新建，对写它的人根本不可见。让他写下去的话，三件事同时
+ * 发生：他看不到结果（那一行仍然不可见），于是反复改；每改一次都留下一条 `data_status`
+ * 写着「已生效」的审计记录，而外面一个字都看不到——**审计表在说假话**；同时那条待审批的
+ * 新建被他改掉了内容，审批人再去批准就撞上「内容与申请里的不一致」，那条申请成了死结。
+ *
+ * 与审批那一侧的前置条件是同一句话的两面：修改只作用在已经生效的那一行上。
+ */
+export class PendedRowError extends Error {
+	constructor(readonly table: string) {
+		super('这条记录正在等待审批、还没有生效，暂时不能修改——改了也不会生效');
+		this.name = 'PendedRowError';
 	}
 }
 
@@ -214,9 +248,9 @@ const findPendingEntry = async (database: DatabaseAdapter, builder: ReturnType<t
  */
 const PENDING_ACTION_LABELS: Record<string, string> = { insert: '新增', update: '修改', soft_delete: '删除', restore: '恢复' };
 
-const findConflictingPending = async (database: DatabaseAdapter, builder: ReturnType<typeof sql>, table: string, rowId: unknown, action: SqlAuditAction) => {
-	const rows = await allSql<{ action: string }>(database, builder.select({
-		table: AUDIT_TABLE, columns: { action: 'action' },
+const findConflictingPending = async (database: DatabaseAdapter, builder: ReturnType<typeof sql>, table: string, rowId: unknown, action: SqlAuditAction, actorUserId: string) => {
+	const rows = await allSql<{ action: string; created_duid: string | null }>(database, builder.select({
+		table: AUDIT_TABLE, columns: { action: 'action', created_duid: { column: 'created_duid', cast: 'text' } },
 		where: [
 			{ column: 'table_name', value: table },
 			{ column: 'row_id', value: rowId },
@@ -224,13 +258,43 @@ const findConflictingPending = async (database: DatabaseAdapter, builder: Return
 		],
 		deleted: 'active',
 	}));
+	if (!rows.length) return undefined;
+	/**
+	 * **别人提的申请把这一行整个锁住：什么动作都不给做。**
+	 *
+	 * 这比 §13.6 那条「只允许一种动作」更狠一层，而且狠得有道理——那条规则挡的是「叠加」，
+	 * 同一个动作的重新提交照旧放行（那是「重说一遍」，覆盖上一条）。可换成**别人**来重说
+	 * 就完全变味了：他覆盖掉的是另一个人写的内容，而记录上的提交人还是原来那位，审批人
+	 * 看到的申请署着甲的名、写着乙的字。改一份别人提交的、还没生效的新建（§13.7 的例外）
+	 * 同理——那份草稿是别人的。
+	 *
+	 * 自己提的照旧：撤了就能接着改，那是同一个人对同一件事改主意。
+	 *
+	 * 比到人，不比到设备：`created_duid` 是设备用户，直接拿它比的话，同一个人换台设备就
+	 * 成了「两个人」，自己反倒被自己锁住。与四眼原则（§13.5）用的是同一把尺子。
+	 */
+	const submitters = await submitterIdsOf(database, rows.map((row) => String(row.created_duid ?? '')));
+	/**
+	 * **认不出「我是谁」就不判这一层**，退回按动作判（下面那一段）。
+	 *
+	 * 没有登录身份的只有内部路径——迁移、种子、模块级调用。把它们一律当成「别人」的话，
+	 * 一条待审批记录会把这一行对系统自己也锁死，连「同一个调用方重新提交」都做不成。
+	 * 人际锁管的是人与人，没有人的地方它无话可说。真实的后台请求必然有 currentUser，
+	 * 走不到这一支。
+	 */
+	const byOthers = actorUserId ? rows.filter((row) => submitters.get(String(row.created_duid ?? '')) !== actorUserId) : [];
+	if (byOthers.length) {
+		const label = PENDING_ACTION_LABELS[String(byOthers[0].action)] ?? String(byOthers[0].action);
+		const names = await submitterNames(database, [...new Set(byOthers.map((row) => submitters.get(String(row.created_duid ?? '')) ?? ''))]);
+		return { action: label, submitter: names.length ? names.join('、') : '另一个人' };
+	}
 	/**
 	 * **改一份还没生效的新建不算叠加。** 那一行带着 pended_at，谁也看不见，改它没有任何
 	 * 对外后果——所以放行，而且照 §13.6 立即写进去、不另开一条申请（见 draftInsertEntry）。
 	 */
 	const blocking = rows.map((row) => String(row.action))
 		.find((pending) => pending !== action && !(pending === 'insert' && action === 'update'));
-	return blocking ? PENDING_ACTION_LABELS[blocking] ?? blocking : undefined;
+	return blocking ? { action: PENDING_ACTION_LABELS[blocking] ?? blocking, submitter: undefined } : undefined;
 };
 
 /**
@@ -378,7 +442,7 @@ const backfillInsertRowId = async (
  * - `found` 是**匹配到几行**。两者必须分开：upsert 靠 `found === 0` 判断这次走的是 INSERT
  *   那一支，而「行在、只是一个字都没改」同样 recorded 为 0，混作一谈会把它记成新增。
  */
-const recordStatement = async (database: DatabaseAdapter, metadata: SqlAuditMetadata, operationId: string, reason: string, origin: RequestOrigin, scope: 'admin' | 'self', immediate: boolean) => {
+const recordStatement = async (database: DatabaseAdapter, metadata: SqlAuditMetadata, operationId: string, reason: string, origin: RequestOrigin, scope: 'admin' | 'self', immediate: boolean, actorUserId: string) => {
 	// 归属与可见性条件都在生成语句时定死了：调用方可能用显式上下文覆盖适配器。
 	const builder = sql({ database, subjectRoles: null, ownerTid: metadata.owner.tid, ownerBid: metadata.owner.bid, ownerUid: metadata.owner.uid, actorUid: metadata.owner.actor });
 	const columns = Object.keys(metadata.values);
@@ -388,7 +452,8 @@ const recordStatement = async (database: DatabaseAdapter, metadata: SqlAuditMeta
 	const rows = await allSql<Record<string, unknown>>(database, builder.select({
 		table: metadata.table,
 		// key 一起读出来：审批记录靠它定位那一行——row_id 在跨库搬迁后会变，key 不会。
-		columns: Object.fromEntries(['id', 'key', ...columns].map((column) => [column, { column, cast: 'text' as const }])),
+		// pended_at 一起读：这一行生没生效决定了自助写入该不该落下去（见 PendedRowError）。
+		columns: Object.fromEntries(['id', 'key', 'pended_at', ...columns].map((column) => [column, { column, cast: 'text' as const }])),
 		where: metadata.where,
 		deleted: 'all',
 	}));
@@ -437,9 +502,21 @@ const recordStatement = async (database: DatabaseAdapter, metadata: SqlAuditMeta
 		 * 只在走审批的路径上判：立即生效的自助操作不排队，也不该被后台的待审批申请挡住。
 		 */
 		if (!immediate) {
-			const blocking = await findConflictingPending(database, builder, metadata.table, row.id, values.action);
-			if (blocking) throw new PendingLockError(metadata.table, blocking);
+			const blocking = await findConflictingPending(database, builder, metadata.table, row.id, values.action, actorUserId);
+			if (blocking) throw new PendingLockError(metadata.table, blocking.action, blocking.submitter);
 		}
+		/**
+		 * **自助写入也只作用在已经生效的那一行上。**
+		 *
+		 * 上面那道锁只管走审批的路径——自助不排队，本来也不该被后台的待审批申请挡住。但
+		 * 「这一行还没生效」是另一回事：它对写的人根本不可见，写下去的结果他也看不见，
+		 * 于是反复改，每次留一条说假话的审计记录，顺带把那条待审批的新建改成死结
+		 * （见 PendedRowError）。
+		 *
+		 * 只挡 `scope === 'self'`，不挡 `options.immediate` 那种路由内部的机器写入：
+		 * 建号收尾正是要往自己刚插进去的、还没生效的行上补 `user_id`，挡了它建号就断在半路。
+		 */
+		if (scope === 'self' && String(row.pended_at ?? '0') !== '0') throw new PendedRowError(metadata.table);
 		/**
 		 * 改的是一份**还没生效的新建**：不另开申请，把内容并进那条新建记录，语句照常执行。
 		 *
@@ -488,6 +565,22 @@ export const runOperation = async (
 	// 改的是还没生效的草稿：不进队列，但语句要执行（见 recordStatement 里的 draftInsertEntry）。
 	const drafts: SqlQuery[] = [];
 	const immediate = managed.length === 0 || skipsApproval(c, options);
+	// 「谁在操作」只在这一处取：行锁要比到人（见 findConflictingPending）。
+	const actorUserId = String(c.get('currentUser')?.id ?? '');
+	/**
+	 * 身份行的锁先判：这次操作一个字都还没写，撞上就整次拒掉。
+	 *
+	 * 放在这里而不是 recordStatement 里，是因为那一层按语句走——只改昵称时根本没有
+	 * `base_users` 的语句可走，也就没有地方去看那一行上的锁。而且新建走的是另一条路
+	 * （recordInsert），在这里判两条路都覆盖得到。
+	 */
+	if (!immediate && options.lockRows?.length) {
+		const lockBuilder = sql({ database });
+		for (const target of options.lockRows) {
+			const blocking = await findConflictingPending(database, lockBuilder, target.table, String(target.rowId), 'update', actorUserId);
+			if (blocking) throw new PendingLockError(target.table, blocking.action, blocking.submitter);
+		}
+	}
 	let recorded = 0, operationId = '', pendedAt = 0;
 	if (managed.length) {
 		operationId = options.operationId ?? crypto.randomUUID();
@@ -517,7 +610,7 @@ export const runOperation = async (
 		};
 		for (const statement of managed) {
 			if (statement.audit) {
-				const result = await recordStatement(database, statement.audit, operationId, reason, origin, scope, immediate);
+				const result = await recordStatement(database, statement.audit, operationId, reason, origin, scope, immediate, actorUserId);
 				// 改草稿的语句照常执行：它没有进队列，而排队分支只写新建那几行就抛异常了。
 				if (result.drafted) drafts.push(statement);
 				/**

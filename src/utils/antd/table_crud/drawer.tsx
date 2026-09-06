@@ -8,7 +8,7 @@ import type { ChangeControlValue } from '@shared/table-form.mjs';
 import { changedFieldsKey, type ChangedFieldsPayload } from '@shared/types/changed-fields.mjs';
 
 import { ClearOutlined, InboxOutlined, RollbackOutlined } from '@ant-design/icons';
-import { Button, Checkbox, Col, DatePicker, Drawer, Form, Input, Row, Select, Space, Switch, Tabs } from 'antd';
+import { Alert, Button, Checkbox, Col, DatePicker, Drawer, Form, Input, Row, Select, Space, Switch, Tabs } from 'antd';
 import { Upload } from 'antd';
 import { InputNumber } from 'antd';
 import { useEffect, useRef, useState } from 'react';
@@ -16,6 +16,8 @@ import { useEffect, useRef, useState } from 'react';
 // 定义TableCRUD的传参
 type TableCrudType = {
 	title: string;
+	/** 抽屉顶部的一条警告，例如「张三提交的「修改」申请正在等待审批」。空串就不显示。 */
+	notice?: string;
 	columns: ResJsonTableColumn[];
 	optionsPath?: string;
 	row: DataType;
@@ -163,6 +165,7 @@ function getFormItemComponent(item: ResJsonTableColumn, row: DataType, parentVal
 export default ({
 	commonApi,
 	title,
+	notice,
 	columns,
 	optionsPath,
 	row,
@@ -293,6 +296,11 @@ export default ({
 			}
 			loading={loading}
 		>
+			{/*
+			  * 这一行为什么动不了，进来就说清楚——按钮不藏，藏了只剩「不能改」，说了才知道
+			  * 该去找谁。措辞与服务端拒绝时的那句一致（PendingLockError）。
+			  */}
+			{notice ? <Alert type="warning" showIcon message={notice} style={{ marginBottom: 16 }} /> : null}
 			<Form
 				layout="vertical"
 				form={form}

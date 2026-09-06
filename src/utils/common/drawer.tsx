@@ -19,6 +19,8 @@ export interface drawerType {
 
 export interface DrawerFuncProps {
 	title: string,
+	/** 抽屉顶部的一条警告；由服务端算好整句话发下来，这一层不做解释。 */
+	notice?: string,
 	columns: ResJsonTableColumn[],
 	optionsPath?: string,
 }
@@ -28,6 +30,7 @@ export function useDrawer(commonApi: CommonApi): [drawerType, React.JSX.Element]
 	const [columns, setColumns] = useState<ResJsonTableColumn[]>([]);
 	const [row, setRow] = useState<DataType>({});
 	const [title, setTitle] = useState<string>('');
+	const [notice, setNotice] = useState<string>('');
 	const [optionsPath, setOptionsPath] = useState<string>();
 	const resolveRef = useRef<((value?: DataType) => void) | undefined>(undefined); // 使用 useRef 持久化 resolve
 	const [loading, setLoading] = useState<boolean>(false);
@@ -40,6 +43,7 @@ export function useDrawer(commonApi: CommonApi): [drawerType, React.JSX.Element]
 		drawerForm: (props: DrawerFuncProps, callback?: (value?: DataType) => void): testType => {
 			const editableColumns = props.columns.filter((column) => !isSystemField(column.dataIndex));
 			setTitle(props.title);
+			setNotice(props.notice ?? '');
 			setColumns(editableColumns);
 			setOptionsPath(props.optionsPath);
 			setRow(Object.fromEntries(editableColumns
@@ -117,6 +121,7 @@ export function useDrawer(commonApi: CommonApi): [drawerType, React.JSX.Element]
 		<DrawerForm
 			commonApi={commonApi}
 			title={title}
+			notice={notice}
 			columns={columns}
 			optionsPath={optionsPath}
 			row={row}
