@@ -1,5 +1,5 @@
 import assert from 'node:assert/strict';
-import { readTableUrlState, writeTableUrlState, sortOrderFor, parseSort, formatSort, mergeSort, mergeQueryValues, queryUrlValues, tableRequestParams, defaultTableUrlState } from '@/utils/antd/table_crud/url-state.js';
+import { readTableUrlState, writeTableUrlState, sortOrderFor, parseSort, formatSort, mergeSort, mergeQueryValues, queryRequestValues, queryUrlValues, tableRequestParams, defaultTableUrlState } from '@/utils/antd/table_crud/url-state.js';
 
 // —— 读 ——
 assert.deepEqual(readTableUrlState(''), { ...defaultTableUrlState, query: {} });
@@ -25,8 +25,13 @@ assert.match(writeTableUrlState('?tab=profile&page=2', { page: 4 }), /tab=profil
 // 搜索条件整体替换：上一次的条件不能残留下来。
 assert.equal(writeTableUrlState('?q.old=1', { query: { user_name: 'adm' } }), 'q.user_name=adm');
 assert.equal(writeTableUrlState('?q.old=1', { query: {} }), '');
-// 空串等于没填，不进地址。
-assert.equal(writeTableUrlState('', { query: { user_name: '', status: 'enabled' } }), 'q.status=enabled');
+// 搜索值是三态的：null 是「未填写」，不进地址；空串是「填了，找空的」，照写成 `q.user_name=`。
+// 两者压成一个的话就没法搜空值了——想找出哪几行的名字是空的，把框清掉就等于取消筛选。
+assert.equal(writeTableUrlState('', { query: { user_name: null, status: 'enabled' } }), 'q.status=enabled');
+assert.equal(writeTableUrlState('', { query: { user_name: '', status: 'enabled' } }), 'q.user_name=&q.status=enabled');
+// 地址栏天生分得开这两件事：写出去是 `q.user_name=`，读回来还是空串。
+assert.deepEqual(readTableUrlState('?q.user_name=&q.status=enabled').query, { user_name: '', status: 'enabled' });
+assert.deepEqual(readTableUrlState('?q.status=enabled').query, { status: 'enabled' }, '未填写的字段整个不在地址里');
 
 // —— 读写往返 ——
 const roundTrip = { page: 4, size: 20, sort: 'status:desc', query: { user_name: 'adm' } };
@@ -69,41 +74,52 @@ assert.equal(mergeSort('', [{ field: ['a', 'b'], order: 'ascend' }]), 'a.b:asc')
 
 // —— 查询条件的三个来源 ——
 const auditFields = [{ dataIndex: 'review_status', defaultValue: 'pending' }, { dataIndex: 'reason' }];
-// 什么都没给：用后端下发的默认值。
-assert.deepEqual(mergeQueryValues(auditFields, {}, {}), { review_status: 'pending' });
-// 地址栏压过默认值——审计页默认「待审批」，用户改成「全部」再刷新，挑的不能白挑。
-assert.deepEqual(mergeQueryValues(auditFields, {}, { review_status: 'all' }), { review_status: 'all' });
-assert.deepEqual(mergeQueryValues(auditFields, {}, { review_status: '' }), { review_status: '' }, '空串也是明确的选择，不能回落到默认值');
+// 什么都没给：有默认值的用默认值，没有的就是 null（未填写）。
+// 每个字段都占一条，缺席和「未填写」在这一层是同一件事的两种写法——先有这一条，
+// 后面「用户把它清成未填写」才有得可写。
+assert.deepEqual(mergeQueryValues(auditFields, {}, {}), { review_status: 'pending', reason: null });
+// 地址栏压过默认值——审计页默认「待审批」，用户改成别的再刷新，挑的不能白挑。
+assert.deepEqual(mergeQueryValues(auditFields, {}, { review_status: 'approved' }), { review_status: 'approved', reason: null });
+assert.deepEqual(mergeQueryValues(auditFields, {}, { review_status: '' }), { review_status: '', reason: null }, '空串也是明确的选择，不能回落到默认值');
+assert.deepEqual(mergeQueryValues(auditFields, {}, { review_status: null }), { review_status: null, reason: null }, '清成未填写同样不能回落到默认值');
 // 页面初始值压过字段默认值，地址栏又压过它。
-assert.deepEqual(mergeQueryValues(auditFields, { review_status: 'approved' }, {}), { review_status: 'approved' });
-assert.deepEqual(mergeQueryValues(auditFields, { review_status: 'approved' }, { review_status: 'all' }), { review_status: 'all' });
+assert.deepEqual(mergeQueryValues(auditFields, { review_status: 'approved' }, {}), { review_status: 'approved', reason: null });
+assert.deepEqual(mergeQueryValues(auditFields, { review_status: 'approved' }, { review_status: 'rejected' }), { review_status: 'rejected', reason: null });
 // 地址栏里的额外条件照样带上。
 assert.deepEqual(mergeQueryValues(auditFields, {}, { reason: '改密码' }), { review_status: 'pending', reason: '改密码' });
-// 没有默认值也没人给的字段不会凭空出现。
-assert.deepEqual(mergeQueryValues([{ dataIndex: 'reason' }], {}, {}), {});
 
 // —— 写进地址栏的只有「与默认值不同」的那几个 ——
 // 都写的话，什么都没挑就跳成 ?q.review_status=all&q.data_status=all&q.scope=all，
 // 三个参数说的都是「不筛选」。
-const auditFilters = [{ dataIndex: 'review_status', defaultValue: 'all' }, { dataIndex: 'data_status', defaultValue: 'all' }, { dataIndex: 'reason' }];
-assert.deepEqual(queryUrlValues(auditFilters, { review_status: 'all', data_status: 'all' }), {});
-assert.deepEqual(queryUrlValues(auditFilters, { review_status: 'pending', data_status: 'all' }), { review_status: 'pending' });
-// 没有默认值的字段：填了就写。
+const auditFilters = [{ dataIndex: 'review_status', defaultValue: 'pending' }, { dataIndex: 'data_status' }, { dataIndex: 'reason' }];
+assert.deepEqual(queryUrlValues(auditFilters, { review_status: 'pending', data_status: null }), {});
+assert.deepEqual(queryUrlValues(auditFilters, { review_status: 'approved', data_status: null }), { review_status: 'approved' });
+// 没有默认值的字段：未填写不写，填了就写——**空串也是填了**，它说的是「找空的」。
 assert.deepEqual(queryUrlValues(auditFilters, { reason: '改密码' }), { reason: '改密码' });
-assert.deepEqual(queryUrlValues(auditFilters, { reason: '' }), {});
-// 认不出来的字段按「默认为空」处理，填了就写。
+assert.deepEqual(queryUrlValues(auditFilters, { reason: null }), {});
+assert.deepEqual(queryUrlValues(auditFilters, { reason: '' }), { reason: '' });
+// 认不出来的字段按「默认未填写」处理，填了就写。
 assert.deepEqual(queryUrlValues(auditFilters, { table_name: 'base_users' }), { table_name: 'base_users' });
+
+// —— 三态值 → 接口参数 ——
+// 未填写的整个不发；填了空的发一个空值，服务端据此去找空的。
+assert.deepEqual(queryRequestValues({ reason: null, table_name: 'base_users' }), { table_name: 'base_users' });
+assert.deepEqual(queryRequestValues({ reason: '', table_name: 'base_users' }), { reason: '', table_name: 'base_users' });
+assert.equal(new URLSearchParams(queryRequestValues({ reason: '', row_id: null })).toString(), 'reason=');
 
 // —— 地址栏 → 接口参数 ——
 // 地址上什么都没写就不带任何参数，接口照常用它自己的默认值。
 assert.deepEqual(tableRequestParams(''), {});
 assert.deepEqual(tableRequestParams('?tab=profile'), {}, '页面自身的参数不往接口带');
 // 这就是 /panel/admin/base/audit.html?q.review_status=all 首屏该发出的参数。
-assert.deepEqual(tableRequestParams('?q.review_status=all'), { review_status: 'all' });
+assert.deepEqual(tableRequestParams('?q.review_status=pending'), { review_status: 'pending' });
+// 空串照样带给接口：那是「找空的」这个条件本身。服务端因此也是三态——
+// 参数不在是不筛，参数在而为空是找空的。
+assert.deepEqual(tableRequestParams('?q.reason='), { reason: '' });
 assert.deepEqual(tableRequestParams('?page=3&size=50'), { pageNum: '3', pageSize: '50' }, '地址用 page/size，接口用 pageNum/pageSize');
 assert.deepEqual(tableRequestParams('?sort=status:asc,user_name:desc'), { sort: 'status:asc,user_name:desc' });
-assert.deepEqual(tableRequestParams('?page=2&size=20&sort=id:desc&q.review_status=all&q.reason=改密码'), {
-	pageNum: '2', pageSize: '20', sort: 'id:desc', review_status: 'all', reason: '改密码',
+assert.deepEqual(tableRequestParams('?page=2&size=20&sort=id:desc&q.review_status=pending&q.reason=改密码'), {
+	pageNum: '2', pageSize: '20', sort: 'id:desc', review_status: 'pending', reason: '改密码',
 });
 // 坏值不往接口带脏数据：读取时已经回落到合法值。
 assert.deepEqual(tableRequestParams('?page=abc'), { pageNum: '1' });

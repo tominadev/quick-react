@@ -36,19 +36,20 @@ const columns = [
 
 const queryFields = [
 	{ dataIndex: 'approval_id', label: '审批记录', component: 'textbox' as const, placeholder: '审批记录的 ID' },
-	{ dataIndex: 'kind', label: '处理类型', component: 'select' as const, defaultValue: '', options: [{ value: '', text: '全部' }, ...kindOptions] },
+	// 不摆「全部」：空着就是不筛这一项（与审计页同一套说法）。
+	{ dataIndex: 'kind', label: '处理类型', component: 'select' as const, options: kindOptions },
 ];
 
 const handler: ApiHandler = async (c, next) => {
 	if (c.req.method !== 'GET') return next();
 	const database = c.get('database');
-	const approvalId = c.req.query('approval_id')?.trim();
+	const builder = sql({ database });
 	const kind = c.req.query('kind')?.trim();
 	const where: SqlCondition[] = [
-		...(approvalId ? [{ column: 'approval_id', value: approvalId }] : []),
+		...builder.search('approval_id', c.req.query('approval_id')?.trim()),
 		...(kind && kindOptions.some((option) => option.value === kind) ? [{ column: 'kind', value: kind }] : []),
 	];
-	const rows = await allSql<Record<string, unknown>>(database, sql({ database }).select({
+	const rows = await allSql<Record<string, unknown>>(database, builder.select({
 		table: APPROVAL_EVENT_TABLE,
 		columns: { id: { column: 'id', cast: 'text' }, created_at: 'created_at', created_duid: { column: 'created_duid', cast: 'text' }, approval_id: { column: 'approval_id', cast: 'text' }, kind: 'kind', reason: 'reason' },
 		where, sort: tableSort(c), orderBy: [{ column: 'id', direction: 'DESC' }], limit: 200,

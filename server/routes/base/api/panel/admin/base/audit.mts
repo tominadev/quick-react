@@ -50,12 +50,12 @@ const scopeOptions = [
  */
 // 「全部」用显式哨兵值而不是空串：空串在 antd 的 Select 里等于「没有选中」，
 // 选完会显示成空白。顺带让 URL 自解释——review_status=all 比 review_status= 一眼看得懂。
-const ALL_STATUS = 'all';
-const allOption = { value: ALL_STATUS, text: '全部' };
+// 三个下拉框都不摆「全部」：空着就是不加这个条件，占位文字写着「未填写」。
+// 「全部」是同一件事的第二种拼法，两种摆在一个控件里，看的人先得琢磨它们差在哪。
 const queryFields = [
-	{ dataIndex: 'review_status', label: '审批状态', component: 'select' as const, defaultValue: ALL_STATUS, options: [allOption, ...reviewOptions] },
-	{ dataIndex: 'data_status', label: '数据状态', component: 'select' as const, defaultValue: ALL_STATUS, options: [allOption, ...dataOptions] },
-	{ dataIndex: 'scope', label: '来源', component: 'select' as const, defaultValue: ALL_STATUS, options: [allOption, ...scopeOptions] },
+	{ dataIndex: 'review_status', label: '审批状态', component: 'select' as const, options: reviewOptions },
+	{ dataIndex: 'data_status', label: '数据状态', component: 'select' as const, options: dataOptions },
+	{ dataIndex: 'scope', label: '来源', component: 'select' as const, options: scopeOptions },
 	{ dataIndex: 'table_name', label: '数据表', component: 'textbox' as const, placeholder: '例如 base_users' },
 	{ dataIndex: 'row_id', label: '记录 ID', component: 'textbox' as const },
 	{ dataIndex: 'reason', label: '操作原因', component: 'textbox' as const, placeholder: '模糊匹配，% 与 _ 是通配符' },
@@ -177,19 +177,18 @@ const handler: ApiHandler = async (c, next, params) => {
 	const database = c.get('database');
 	if (c.req.method === 'GET' && !params.id) {
 		const filters: SqlCondition[] = [];
-		// 参数缺失用默认值；选了「全部」或传空串都表示不过滤。
-		// 客户端首次请求发出时还没带上查询默认值——它拿到 schema 之后才填，而那一步
-		// 刻意跳过了重新请求（避免首屏两次请求）。默认值因此要由服务端认。
-		const review = (c.req.query('review_status') ?? ALL_STATUS).trim();
-		if (review !== ALL_STATUS && reviewOptions.some((option) => option.value === review)) filters.push({ column: 'review_status', value: review });
-		const dataStatus = (c.req.query('data_status') ?? ALL_STATUS).trim();
-		if (dataStatus !== ALL_STATUS && dataOptions.some((option) => option.value === dataStatus)) filters.push({ column: 'data_status', value: dataStatus });
-		const scope = (c.req.query('scope') ?? ALL_STATUS).trim();
-		if (scope !== ALL_STATUS && scopeOptions.some((option) => option.value === scope)) filters.push({ column: 'scope', value: scope });
-		const tableFilter = c.req.query('table_name')?.trim();
-		if (tableFilter) filters.push({ column: 'table_name', value: tableFilter });
-		const rowFilter = c.req.query('row_id')?.trim();
-		if (rowFilter) filters.push({ column: 'row_id', value: rowFilter });
+		// 下拉框没选就没这个参数，那就是不过滤。认不出来的值一律当没选——那多半是
+		// 换了选项之后浏览器还留着旧地址。
+		const picked = (name: string, options: ReadonlyArray<{ value: string }>) => {
+			const value = c.req.query(name)?.trim();
+			return value && options.some((option) => option.value === value) ? [{ column: name, value }] : [];
+		};
+		filters.push(...picked('review_status', reviewOptions), ...picked('data_status', dataOptions), ...picked('scope', scopeOptions));
+		// 三个文本框都是三态：没这个参数不筛，空串找空的（`row_id` 在批准之前本来就是空的，
+		// 「哪几条申请还没落到行上」正是靠它筛出来），有值按值筛。
+		const builder = sql({ database });
+		filters.push(...builder.search('table_name', c.req.query('table_name')?.trim()));
+		filters.push(...builder.search('row_id', c.req.query('row_id')?.trim()));
 		const reason = c.req.query('reason')?.trim();
 		const rows = await listAuditEntries(database, filters, reason, undefined, tableSort(c));
 		// 待审批的那几条要分出「我提的」和「别人提的」——比到人不比到设备，同一个人换台

@@ -473,6 +473,82 @@ const auditRouteFilter = async () => {
 		}
 
 		/**
+		 * **回滚与重新应用也核内容——这一行还要继续存在的每一次翻面都核。**
+		 *
+		 * 原先只核了批准。可回滚过的行躺在回收站里照样收得下修改申请，改一笔再点「重新应用」，
+		 * 记录上写着 enabled、捞回主表的却是 disabled；回滚同理，看着 A 下线的却是 B，
+		 * 别人对这一行的合法修改就这么被一起埋了。
+		 *
+		 * 驳回与撤销**不**核，那是有意留的退路：它们把这一行彻底作废，这里也跟着核的话，
+		 * 一条内容被动过手脚的待审批新增就成了死结——批不了，也否不掉。
+		 */
+		{
+			const flipApi = 'http://localhost/api/panel/admin/base/users.php';
+			assert.equal((await app.request(flipApi, { method: 'POST', headers: { ...headers, cookie }, body: JSON.stringify({ user_name: 'flipguy', password: 'flip-password-1', roles: [], status: 'enabled' }) })).status, 202);
+			const insertIds = await pendingIds();
+			assert.equal((await decide('approve', insertIds)).status, 200);
+			const entryId = insertIds[insertIds.length - 1];
+			const flip = async (action) => {
+				const response = await decide(action, [entryId]);
+				return (await response.json()).feedback?.message ?? '';
+			};
+			// 内容没动过，回滚照常。
+			assert.match(await flip('revert'), /已回滚/);
+			// 趁它在回收站里把内容换掉，重新应用就该被挡住。
+			const tamper = new DatabaseSync(process.env.DEFAULT_DATABASE_FILE);
+			tamper.prepare("UPDATE base_users SET status='disabled' WHERE name='flipguy'").run();
+			assert.match(await flip('redo'), /内容与申请里的不一致.*无法重新应用/);
+			assert.equal(Number(tamper.prepare("SELECT deleted_at FROM base_users WHERE name='flipguy'").get().deleted_at) === 0, false, '核不上就不捞回主表');
+			// 换回来就捞得回来。这里只看库里的结果，不看那句话：一次迁移作用在**整个操作号**上
+			// （建一个账号同时写了 base_users 和 base_user_credentials 两条记录），上一步核不上的
+			// 只有带 status 的那一条，另一条已经先应用了，于是这一次的回执是「成功 1 条，失败 1 条」。
+			tamper.prepare("UPDATE base_users SET status='enabled' WHERE name='flipguy'").run();
+			await flip('redo');
+			assert.equal(Number(tamper.prepare("SELECT deleted_at FROM base_users WHERE name='flipguy'").get().deleted_at), 0, '核得上就捞回主表');
+			// 再改一次，连回滚也挡住——两个方向用同一把尺子。
+			tamper.prepare("UPDATE base_users SET status='disabled' WHERE name='flipguy'").run();
+			assert.match(await flip('revert'), /内容与申请里的不一致.*无法回滚/);
+			assert.equal(Number(tamper.prepare("SELECT deleted_at FROM base_users WHERE name='flipguy'").get().deleted_at), 0, '核不上就不下线');
+			tamper.close();
+		}
+
+		/**
+		 * **改与删只作用在已经生效的那一行上：`pended_at` 必须是 0。**
+		 *
+		 * 这是一道前置条件，不是在补一个正在漏的洞——眼下走不到，因为改一份还没生效的新建
+		 * 根本不会另开申请，而是直接写进去（§13.6 的例外，下面顺带守着）。这里直接把一条
+		 * 修改申请指向的行按回队列，验的是那一段 SQL 不会安静地写进一个还不存在的东西里。
+		 */
+		{
+			const pendApi = 'http://localhost/api/panel/admin/base/users.php';
+			assert.equal((await app.request(pendApi, { method: 'POST', headers: { ...headers, cookie }, body: JSON.stringify({ user_name: 'pendguy', password: 'pend-password-1', roles: [], status: 'enabled' }) })).status, 202);
+			assert.equal((await decide('approve', await pendingIds())).status, 200);
+			// 待审批的新建直接改，不另开申请：改的是一份还没生效的东西，没有可批的内容。
+			const beforeEdit = new DatabaseSync(process.env.DEFAULT_DATABASE_FILE);
+			const queuedRows = Number(beforeEdit.prepare("SELECT COUNT(*) AS n FROM base_approvals WHERE review_status='pending'").get().n);
+			beforeEdit.close();
+			assert.equal(queuedRows, 0, '批完队列是空的');
+
+			const target = new DatabaseSync(process.env.DEFAULT_DATABASE_FILE);
+			const userId = target.prepare("SELECT id FROM base_users WHERE name='pendguy'").get().id;
+			target.close();
+			const rowsApi = `http://localhost/api/panel/admin/base/data/rows.php/${userId}?table=base_users&include=data`;
+			assert.equal((await app.request(rowsApi, { method: 'PUT', headers: { ...headers, cookie }, body: JSON.stringify({ status: 'disabled', __changedFields: ['status'] }) })).status, 202);
+			const updateIds = await pendingIds();
+			// 把这一行按回队列（未生效），再去批那条修改。
+			const queue = new DatabaseSync(process.env.DEFAULT_DATABASE_FILE);
+			queue.prepare("UPDATE base_users SET pended_at = 1 WHERE name='pendguy'").run();
+			const blocked = await decide('approve', updateIds);
+			assert.match((await blocked.json()).feedback?.message ?? '', /还在审批队列里等着生效/);
+			assert.equal(queue.prepare("SELECT status FROM base_users WHERE name='pendguy'").get().status, 'enabled', '拦住了就一个字都没写进去');
+			// 恢复成已生效，同一条申请立刻批得动——挡住的是那个状态，不是这条申请本身。
+			queue.prepare("UPDATE base_users SET pended_at = 0 WHERE name='pendguy'").run();
+			assert.equal((await decide('approve', updateIds)).status, 200);
+			assert.equal(queue.prepare("SELECT status FROM base_users WHERE name='pendguy'").get().status, 'disabled');
+			queue.close();
+		}
+
+		/**
 		 * 被驳回的申请可以**恢复**：整个操作一起放回队列，行也回到待审批的样子。
 		 *
 		 * 没有这一条的话，驳回错了只能去每张表的回收站里一行一行捞——建号写三行（账号、
@@ -1003,9 +1079,21 @@ try {
 	const byReason = await listAuditEntries(acting, [], '批量调整');
 	assert.ok(byReason.length && byReason.every((entry) => entry.reason.includes('批量调整')), '按原因模糊匹配');
 	assert.deepEqual(await listAuditEntries(acting, [], '这段文字不存在'), []);
-	// 「全部」用显式哨兵值：空串在 antd 的 Select 里等于「没有选中」，选完会显示成空白。
+	// 搜索框是**三态**的：没这个参数是不筛，空串是「填了，找空的」，有字才按字筛。
+	// 压成两态的话根本没办法搜空值——想找出哪几条申请没写操作原因，把框清掉就等于取消筛选。
+	const emptyReason = await listAuditEntries(acting, [], '');
+	assert.ok(emptyReason.every((entry) => !entry.reason), '空串筛出来的每一条都是没写操作原因的');
+	const noReasonFilter = await listAuditEntries(acting, []);
+	assert.notEqual(noReasonFilter.length, emptyReason.length, '空串不等于不筛：原先这两者是同一个东西，于是空值搜不出来');
+	// 下拉框不摆「全部」：空着就是不加这个条件，占位文字写着「未填写」，与文本框同一套说法。
+	// 「全部」是「不筛选」的第二种拼法，两种摆在一个控件里，看的人先得琢磨它们差在哪。
 	const auditRoute = await readFile(resolve(projectDirectory, 'server/routes/base/api/panel/admin/base/audit.mts'), 'utf8');
-	assert.match(auditRoute, /ALL_STATUS = 'all'/);
+	assert.doesNotMatch(auditRoute, /text: '全部'/, '审批页的下拉框不该再摆「全部」这一项');
+	const tableCrudSource = await readFile(resolve(projectDirectory, 'src/utils/antd/table_crud/index.tsx'), 'utf8');
+	assert.match(tableCrudSource, /placeholder=\{field\.placeholder \?\? '未填写'\}/, '下拉框空着的时候要讲清楚那是「未填写」');
+	// 有默认值的下拉框是这一页运转所必需的（数据管理的「数据表」、对象存储的「Bucket 绑定」），
+	// 清空了页面就没东西可显示，那不是一种筛选状态；没有默认值的才给清。
+	assert.match(tableCrudSource, /allowClear=\{field\.defaultValue === undefined\}/);
 	assert.doesNotMatch(auditRoute, /\{ value: '', text: '全部' \}/);
 	await auditRouteFilter();
 

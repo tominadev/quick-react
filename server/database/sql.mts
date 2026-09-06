@@ -270,7 +270,38 @@ export abstract class SqlBuilder {
 		return { query, values: [...boundConditions.map((condition) => condition.value as SqlValue), ...(options.limit !== undefined ? [options.limit, ...(options.offset !== undefined ? [options.offset] : [])] : [])] };
 	}
 
-	count(table: string, where: SqlCondition[] = [], deleted: DeletedScope = 'active', pended: PendedScope = this.defaultPendedScope): SqlQuery {
+	/**
+	 * 与 {@link select} 同一组条件下的行数。
+	 *
+	 * 两个默认值都跟适配器走：翻回收站时 select 读的是已删除的那些行，count 却写死了
+	 * `'active'`，于是回收站页脚报的是**主表**的总数——列表七条、底下写着「共 231 条」。
+	 * 一层只把上游的作用域原样传下去，不自己另立一个。
+	 */
+	/**
+	 * 搜索框的三态换成 WHERE 条件：**没这个参数**是不筛选，**空串**是找空的，有值才按值筛。
+	 *
+	 * 原先空串和缺席在传输上就是同一个东西，于是根本没有办法搜空值——想找出哪几条记录
+	 * 没写操作原因，把框清掉就等于取消筛选。前端的搜索框现在分得开「未填写」和「填了空」
+	 * （见 TableQueryValues），这一头照着它的三态接。
+	 *
+	 * 空串匹配 `IS NULL OR = ''` 两种：文本框只有「未填写」和「空」两个可表达的状态，
+	 * 而「未填写」已经占去了「不筛选」，于是「空」只能是这两种存储形态的合集。这是**问法**
+	 * 上的合并，不是把两者混成一滩——列表里 NULL 和空串照旧分得开（`(NULL)` 与空格子），
+	 * 搜出来之后一眼可辨。真要分开筛的页面，把两种情况写成下拉框的两个选项，
+	 * 别指望一个文本框能表达三件事。
+	 */
+	search(column: string, value: string | undefined, match: 'equals' | 'like' = 'equals'): SqlCondition[] {
+		if (value === undefined) return [];
+		if (value === '') {
+			const quoted = quoteIdentifier(column, this.dialect);
+			return [{ raw: `(${quoted} IS NULL OR ${quoted} = '')` }];
+		}
+		// 关键字直接当模式片段用：`%` 与 `_` 在这里就是通配符。转义需要 ESCAPE 子句，
+		// 三种方言的默认转义字符并不一致，为一个搜索框引入那套规则不划算。
+		return [match === 'like' ? { column, operator: 'LIKE' as const, value: `%${value}%` } : { column, value }];
+	}
+
+	count(table: string, where: SqlCondition[] = [], deleted: DeletedScope = this.defaultDeletedScope, pended: PendedScope = this.defaultPendedScope): SqlQuery {
 		let query = `SELECT COUNT(*) AS ${quoteIdentifier('count', this.dialect)} FROM ${quoteIdentifier(table, this.dialect)}`;
 		let parameterIndex = 0;
 		const conditions: SqlCondition[] = [

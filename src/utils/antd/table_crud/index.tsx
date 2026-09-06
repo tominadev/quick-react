@@ -15,9 +15,10 @@ import { useNavigate } from 'react-router-dom';
 import { PlusOutlined, DeleteOutlined, SearchOutlined, UploadOutlined, DownloadOutlined } from '@ant-design/icons';
 import { useDrawer } from '@/utils/common/drawer.js';
 import dayjs from 'dayjs';
-import { mergeQueryValues, mergeSort, queryUrlValues, readTableUrlState, sortOrderFor, writeTableUrlState } from './url-state.js';
+import { mergeQueryValues, mergeSort, queryRequestValues, queryUrlValues, readTableUrlState, sortOrderFor, writeTableUrlState, type TableQueryValues } from './url-state.js';
 import { describeFormAdditions, describeFormChanges } from '@/components/panel/form-changes.js';
 import { PENDING_FIELD } from '@shared/types/table.mjs';
+import { NullableInput } from '../nullable-input.js';
 
 // 定义TableCRUD的传参
 type TableCrudType = {
@@ -29,7 +30,7 @@ type TableCrudType = {
 
 type TableCrudProps = TableCrudType & {
 	/** 打开嵌套表格时由父表传入的初始查询条件。 */
-	initialQueryValues?: Record<string, string>;
+	initialQueryValues?: TableQueryValues;
 	/** 回收站 TableCRUD 不再显示自身的回收站入口，避免无限嵌套。 */
 	showRecycleBin?: boolean;
 	/**
@@ -137,8 +138,8 @@ const TableCRUD = ({ commonApi, resourcePath, initialResponse, initialQueryValue
 	 * 输入框里显示的值。初值同样取自地址栏——只让请求用地址栏的值、框里却显示默认值的话，
 	 * 用户看到的条件和实际生效的条件对不上。
 	 */
-	const [queryValues, setQueryValues] = useState<Record<string, string>>({ ...initialQueryDefaults, ...initialTableState.query });
-	const [appliedQueryValues, setAppliedQueryValues] = useState<Record<string, string>>({ ...initialQueryDefaults, ...initialTableState.query });
+	const [queryValues, setQueryValues] = useState<TableQueryValues>({ ...initialQueryDefaults, ...initialTableState.query });
+	const [appliedQueryValues, setAppliedQueryValues] = useState<TableQueryValues>({ ...initialQueryDefaults, ...initialTableState.query });
 	const [searchRequestKey, setSearchRequestKey] = useState(0);
 	const initializedQueryDefaultsFor = useRef('');
 	const requestSequence = useRef(0);
@@ -166,7 +167,7 @@ const TableCRUD = ({ commonApi, resourcePath, initialResponse, initialQueryValue
 	appliedQueryValuesRef.current = appliedQueryValues;
 	const currentQueryValues = () => appliedQueryValuesRef.current;
 	const selectedQuerySuffix = () => {
-		const query = new URLSearchParams(currentQueryValues()).toString();
+		const query = new URLSearchParams(queryRequestValues(currentQueryValues())).toString();
 		return query ? `?${query}` : '';
 	};
 	const cacheResJsonTable = useRef<ResJsonTable>({
@@ -317,7 +318,7 @@ const TableCRUD = ({ commonApi, resourcePath, initialResponse, initialQueryValue
 				};
 				const currentCursor = cursorsByPage.current[currentPage];
 				if (currentCursor) query.cursor = currentCursor;
-				Object.assign(query, currentQueryValues());
+				Object.assign(query, queryRequestValues(currentQueryValues()));
 				// `include` 是公共响应协议参数，优先级高于业务查询字段。
 				// 首次请求加载结构，之后只请求数据；回收站状态始终保留。
 				const includes = new Set((query.include ?? '').split(',').map((value) => value.trim()).filter(Boolean));
@@ -351,10 +352,14 @@ const TableCRUD = ({ commonApi, resourcePath, initialResponse, initialQueryValue
 						const fieldNames = new Set(fields.map((field) => field.dataIndex));
 						setQueryValues((previous) => ({
 							...Object.fromEntries(Object.entries(initialQueryDefaults).filter(([name]) => !fieldNames.has(name))),
-							...Object.fromEntries(fields.map((field) => [
-								field.dataIndex,
-								previous[field.dataIndex] ?? initialTableState.query[field.dataIndex] ?? initialQueryDefaults[field.dataIndex] ?? field.defaultValue ?? '',
-							])),
+							...Object.fromEntries(fields.map((field) => {
+								// 按**有没有这一条**取，不用 `??` 串下去：`null` 是用户明确选的「未填写」，
+								// `??` 会把它当成没值，一路落到后端下发的默认值上——清掉的框刷新回来又满了。
+								for (const source of [previous, initialTableState.query, initialQueryDefaults]) {
+									if (field.dataIndex in source) return [field.dataIndex, source[field.dataIndex]];
+								}
+								return [field.dataIndex, field.defaultValue ?? null];
+							})),
 						}));
 						if (initializedQueryDefaultsFor.current !== apiPath) {
 							initializedQueryDefaultsFor.current = apiPath;
@@ -729,7 +734,7 @@ const TableCRUD = ({ commonApi, resourcePath, initialResponse, initialQueryValue
 		if (action.disabled || !selectedRowKeys.length) return;
 		const control = await confirmChange([action.confirm ?? `确定对所选的 ${selectedRowKeys.length} 项执行「${action.label}」吗？`]);
 		if (control === undefined) return;
-		const query = new URLSearchParams(currentQueryValues());
+		const query = new URLSearchParams(queryRequestValues(currentQueryValues()));
 		query.set('action', action.key);
 		await commonApi.apiFetch(`${apiPath}?${query.toString()}`, {
 			method: 'POST',
@@ -744,7 +749,7 @@ const TableCRUD = ({ commonApi, resourcePath, initialResponse, initialQueryValue
 		if (!rowId || action.disabled) return;
 		const control = await confirmChange([action.confirm ? rowConfirmText(action.confirm, record) : `确定执行「${action.label}」吗？`]);
 		if (control === undefined) return;
-		const query = new URLSearchParams(currentQueryValues());
+		const query = new URLSearchParams(queryRequestValues(currentQueryValues()));
 		query.set('action', action.key);
 		// 要带哪几个字段回去由服务端声明（sendFields），前端不按 key 名去猜——猜的话每加一个
 		// 这样的动作都要回来改前端。审批那三个动作用它把「页面上看到的是哪几条申请」带回去。
@@ -797,7 +802,7 @@ const TableCRUD = ({ commonApi, resourcePath, initialResponse, initialQueryValue
 		download: (action, _value, record) => <a key={action.key} aria-disabled={action.disabled} onClick={async () => {
 			if (action.disabled) return;
 			const key = String(record[tableOptionRef.current.rowKey] ?? '');
-			const query = new URLSearchParams(currentQueryValues());
+			const query = new URLSearchParams(queryRequestValues(currentQueryValues()));
 			query.set('key', key);
 			const response = await commonApi.apiFetch(`${apiPath}?${query}`, { method: 'PUT' });
 			const result = await response.json() as { downloadUrl?: string };
@@ -909,8 +914,21 @@ const TableCRUD = ({ commonApi, resourcePath, initialResponse, initialQueryValue
 				<Space key={field.dataIndex} size={4}>
 					<span>{field.label}</span>
 					{field.component === 'select'
-						? <Select style={{ minWidth: 190 }} value={queryValues[field.dataIndex] || undefined} options={field.options?.map((item) => ({ value: item.value, label: item.text }))} onChange={(value) => setQueryValues((previous) => ({ ...previous, [field.dataIndex]: value }))} placeholder={field.placeholder} allowClear />
-						: <Input value={queryValues[field.dataIndex] ?? ''} onChange={(event) => setQueryValues((previous) => ({ ...previous, [field.dataIndex]: event.target.value }))} onPressEnter={() => canSearch && applySearch()} placeholder={field.placeholder} />}
+						/**
+						 * 下拉框也分「未填写」和「选了某一项」，与文本框同一套说法——清空就是不加
+						 * 这个条件，占位文字直接写「未填写」。原先各页自己在选项里摆一个「全部」，
+						 * 那是「不筛选」的第二种拼法：一个控件里同时有「全部」和空着两种表达，
+						 * 看的人先得琢磨它们差在哪。留一种。
+						 *
+						 * **清不清得掉看它有没有默认值。** 有默认值的下拉框是这一页运转所必需的
+						 * （数据管理的「数据表」、对象存储的「Bucket 绑定」），清空了页面就没东西可显示，
+						 * 那不是一种筛选状态；没有默认值的才是可选条件，清掉就是未填写。
+						 * 这个判断照着字段自己的声明来，不另加一个开关。
+						 */
+						? <Select style={{ minWidth: 190 }} value={queryValues[field.dataIndex] ?? undefined} options={field.options?.map((item) => ({ value: item.value, label: item.text }))} onChange={(value) => setQueryValues((previous) => ({ ...previous, [field.dataIndex]: value ?? null }))} placeholder={field.placeholder ?? '未填写'} allowClear={field.defaultValue === undefined} />
+						// 文本框分三态：未填写（不筛）、填了空（找空的）、有字（按字筛）。
+						// 点 ✕ 回到未填写，删光字符只是空串——那正是「我要找空的」。
+						: <span style={{ display: 'inline-block', minWidth: 190 }}><NullableInput value={queryValues[field.dataIndex] ?? null} onChange={(value) => setQueryValues((previous) => ({ ...previous, [field.dataIndex]: value }))} onPressEnter={() => canSearch && applySearch()} placeholder={field.placeholder} /></span>}
 				</Space>
 			))}
 			{queryActions.map((action) => queryActionHandlers[action.key]?.(action) ?? null)}

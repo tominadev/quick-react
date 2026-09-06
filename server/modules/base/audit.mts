@@ -180,7 +180,8 @@ export const describeAuditChanges = (changes: AuditChanges) => flattenChanges(ch
 /**
  * 可见性由公共层的归属判定自动收敛，这里不再叠加条件。
  *
- * `reasonKeyword` 走模糊匹配：操作原因是人写的自由文本，等值匹配没有意义。
+ * `reasonKeyword` 走模糊匹配：操作原因是人写的自由文本，等值匹配没有意义。三态由
+ * {@link SqlBuilder.search} 认——undefined 是不筛，空串是找没写理由的那些。
  */
 /**
  * 符合条件的记录**总数**，与 listAuditEntries 用同一组条件。
@@ -189,10 +190,8 @@ export const describeAuditChanges = (changes: AuditChanges) => flattenChanges(ch
  * 计数单独查一次。
  */
 export const countAuditEntries = async (database: DatabaseAdapter, where: SqlCondition[] = [], reasonKeyword?: string) => {
-	const row = await firstSql<{ count: number }>(database, sql({ database }).count(AUDIT_TABLE, [
-		...where,
-		...(reasonKeyword ? [{ column: 'reason', operator: 'LIKE' as const, value: `%${reasonKeyword}%` }] : []),
-	]));
+	const builder = sql({ database });
+	const row = await firstSql<{ count: number }>(database, builder.count(AUDIT_TABLE, [...where, ...builder.search('reason', reasonKeyword, 'like')]));
 	return Number(row?.count ?? 0);
 };
 
@@ -200,9 +199,7 @@ export const listAuditEntries = async (database: DatabaseAdapter, where: SqlCond
 	table: AUDIT_TABLE,
 	columns: entryColumns,
 	sort,
-	// 关键字直接当模式片段用：`%` 与 `_` 在这里就是通配符。转义需要 ESCAPE 子句，
-	// 三种方言的默认转义字符并不一致，为一个搜索框引入那套规则不划算。
-	where: [...where, ...(reasonKeyword ? [{ column: 'reason', operator: 'LIKE' as const, value: `%${reasonKeyword}%` }] : [])],
+	where: [...where, ...sql({ database }).search('reason', reasonKeyword, 'like')],
 	// 审计列表最常看的是"刚刚发生了什么"；升序分页还会因新记录插入头部而错位（§8）。
 	orderBy: [{ column: 'created_at', direction: 'DESC' }, { column: 'id', direction: 'DESC' }],
 	limit,
@@ -423,7 +420,7 @@ const storedKey = (value: unknown) => {
 };
 
 /**
- * 批准之前核一遍：这一行的内容还是不是申请里写的那一份。
+ * 让这一行生效之前核一遍：它的内容还是不是申请里写的那一份。
  *
  * **批准修改早就有这道校验**（每一列的当前值必须还等于记录里的前值），批准新增却没有——
  * `activate()` 只把 `pended_at` 归零，不看内容。于是待审批期间那一行被别处改过的话，
@@ -478,10 +475,25 @@ const transitionOne = async (database: DatabaseAdapter, entry: AuditEntryRow, to
 	}
 	// 新建：行已经在库里，区别只在看不看得见（驳回与撤销则把它删掉）。
 	if (entry.action === 'insert') {
-		// 批准之前核一遍内容：你批的必须就是你看到的（见 insertContentMatches）。
-		// 别的迁移不核——驳回与撤销是把它拿掉，回滚与重做动的是已经生效过的东西。
-		if (to === 'approve' && !await insertContentMatches(database, entry)) {
-			return { id: entry.id, ok: false, message: '这一行的内容与申请里的不一致，无法批准——它在等待期间被改过，请刷新后重新确认' };
+		/**
+		 * **这一行还要继续存在的每一次翻面，都要求它的内容还是记录上那一份。**
+		 *
+		 * 批准、回滚、重新应用三步都是审批人照着这条记录的 `changes_after` 点的头，
+		 * 三步过后那一行都还在库里（生效、进回收站、再生效），带着的就是这份内容。原先
+		 * 只核了批准，于是：回滚过的行在回收站里被改一笔（那一行照样收得下修改申请），
+		 * 再点「重新应用」，记录上写着 enabled、捞回主表的却是 disabled；回滚同理，
+		 * 看着 A 下线的却是 B，而别人对这一行的合法修改就这么被一起埋了。
+		 *
+		 * **驳回与撤销不核，这是有意留的退路。** 它们把这一行彻底作废——申请结束、行删掉，
+		 * 不留下任何还要继续用的东西。这里也跟着核的话，一条内容被动过手脚的待审批新增
+		 * 就成了死结：批不了（内容不符），也否不掉（同样内容不符），队列里卡着一条谁也
+		 * 收不了场的申请。作废一份被动过手脚的东西，不该被那手脚挡住。
+		 *
+		 * 恢复（requeue）把行放回队列，它在队列里仍然不可见，后面还要再走一次批准，
+		 * 那一次会核，这里不必重复。
+		 */
+		if ((to === 'approve' || to === 'redo' || to === 'revert') && !await insertContentMatches(database, entry)) {
+			return { id: entry.id, ok: false, message: `这一行的内容与申请里的不一致，无法${allowed.label}——它在这之后被改过，请刷新后重新确认` };
 		}
 		if (!await applyInsertTransition(database, entry, to)) {
 			return { id: entry.id, ok: false, message: `原记录已不存在，无法${allowed.label}` };
@@ -489,6 +501,32 @@ const transitionOne = async (database: DatabaseAdapter, entry: AuditEntryRow, to
 	}
 	// 驳回与撤销申请都不碰数据：待审批的修改从未写入过。
 	if (entry.action !== 'insert' && allowed.write !== 'none') {
+		/**
+		 * **改与删只作用在已经生效的那一行上：`pended_at` 必须是 0。**
+		 *
+		 * 把一份变更盖在还没生效、外面根本看不见的行上是说不通的：它将来一旦被批准，
+		 * 放出去的内容已经不是那条新增记录上写的那一份了；回滚同理——把旧值写回一个
+		 * 还没生效的行，等于替一件还没发生的事做撤销。
+		 *
+		 * 这是一道**前置条件，不是在补一个正在漏的洞**：眼下走不到这里，因为改一份还没
+		 * 生效的新建根本不会另开申请，而是直接写进去、顺手刷新那条新增记录的
+		 * `changes_after`（§13.6 的例外，test:change-audit 守着）。于是「有一条修改申请，
+		 * 它指着的行却还在队列里」这个组合造不出来。写在这儿是因为这一段的每一行 SQL
+		 * 都默认了「目标行已经生效」，而那件事此前只由别处的一条例外顺带保证着——
+		 * 那条例外将来动一动，这里就会安静地把变更写进一个还不存在的东西里。
+		 *
+		 * 查一次而不是塞进 WHERE：塞进去写入落空只会报「已被后续修改覆盖」，那不是实情，
+		 * 照着那句话去刷新页面也看不出任何被改过的痕迹。
+		 */
+		const state = await firstSql<{ pended_at: unknown }>(database, sql({ database }).select({
+			table: entry.table_name,
+			columns: { pended_at: { column: 'pended_at', cast: 'text' } },
+			where: [rowCondition(entry)], deleted: 'all', pended: 'all', limit: 1,
+		}));
+		if (!state) return { id: entry.id, ok: false, message: `原记录已不存在，无法${allowed.label}` };
+		if (String(state.pended_at ?? '0') !== '0') {
+			return { id: entry.id, ok: false, message: `这一行还在审批队列里等着生效，无法${allowed.label}——请先处理建它的那条新增申请` };
+		}
 		const changes = parseAuditChanges(entry);
 		const columns = Object.keys(changes);
 		if (!columns.length) return { id: entry.id, ok: false, message: '该记录没有可还原的字段' };

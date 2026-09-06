@@ -53,6 +53,29 @@ try {
 	assert.match(postgresInsert.query, /^INSERT INTO "users" \("created_at", "updated_at", "owner_uid", "key", "name", "status"\) VALUES \(\$1, \$2, \$3, \$4, \$5, \$6\)$/);
 	assert.deepEqual(postgresInsert.values.slice(4), ['Alice', 'enabled']);
 	assert.deepEqual(postgres.count('users', [{ column: 'status', value: 'enabled' }]), { query: 'SELECT COUNT(*) AS "count" FROM "users" WHERE "deleted_at" = $1 AND "pended_at" = $2 AND "status" = $3', values: [0, 0, 'enabled'] });
+	// 计数跟着适配器的作用域走，和 select 用同一个默认值。原先这里写死了 'active'：
+	// 翻回收站时列表读的是已删除的那些行，页脚报的却是主表的总数——列表七条、底下写着共 231 条。
+	const binBuilder = new SqliteSqlBuilder(null, 'deleted');
+	assert.deepEqual(binBuilder.count('users'), { query: 'SELECT COUNT(*) AS "count" FROM "users" WHERE "deleted_at" != ?', values: [0] });
+	assert.equal(binBuilder.select({ table: 'users', includeAll: true }).query, 'SELECT * FROM "users" WHERE "users"."deleted_at" != ?', '与 count 同一组条件');
+	assert.equal(new SqliteSqlBuilder(null, 'all').count('users').query, 'SELECT COUNT(*) AS "count" FROM "users"');
+	assert.equal(binBuilder.count('users', [], 'active').query, 'SELECT COUNT(*) AS "count" FROM "users" WHERE "deleted_at" = ? AND "pended_at" = ?', '显式指定仍然压过默认');
+
+	// —— 搜索框的三态换成 WHERE 条件 ——
+	// 没这个参数是不筛选，空串是「填了，找空的」，有值才按值筛。压成两态就搜不出空值了。
+	assert.deepEqual(sqlite.search('reason', undefined), []);
+	assert.deepEqual(sqlite.search('reason', '改密码'), [{ column: 'reason', value: '改密码' }]);
+	assert.deepEqual(sqlite.search('reason', '改密码', 'like'), [{ column: 'reason', operator: 'LIKE', value: '%改密码%' }]);
+	// 空串匹配 NULL 与空串两种存储形态：文本框只有「未填写」和「空」两个可表达的状态，
+	// 而「未填写」已经占去了「不筛选」。这是问法上的合并，列表里两者照旧分得开。
+	assert.deepEqual(sqlite.search('reason', ''), [{ raw: `("reason" IS NULL OR "reason" = '')` }]);
+	assert.deepEqual(postgres.search('reason', ''), [{ raw: `("reason" IS NULL OR "reason" = '')` }]);
+	assert.deepEqual(mysql.search('reason', ''), [{ raw: "(`reason` IS NULL OR `reason` = '')" }]);
+	// 空串条件不带占位符，接进 select 之后后面的参数编号不能被它挤歪。
+	assert.deepEqual(postgres.select({ table: 'users', includeAll: true, where: [...postgres.search('reason', ''), { column: 'status', value: 'enabled' }] }), {
+		query: `SELECT * FROM "users" WHERE "users"."deleted_at" = $1 AND "users"."pended_at" = $2 AND ("reason" IS NULL OR "reason" = '') AND "status" = $3`,
+		values: [0, 0, 'enabled'],
+	});
 	assert.deepEqual(mysql.select({ table: 'users', includeAll: true, limit: 10, offset: 20 }), { query: 'SELECT * FROM `users` WHERE `users`.`deleted_at` = ? AND `users`.`pended_at` = ? LIMIT ? OFFSET ?', values: [0, 0, 10, 20] });
 	assert.equal(sqlite.select({ table: 'users', includeAll: true, sqliteRowIdAlias: '__rowid__' }).query, 'SELECT rowid AS "__rowid__", * FROM "users" WHERE "users"."deleted_at" = ? AND "users"."pended_at" = ?');
 	assert.deepEqual(sqlite.select({ table: 'users', includeAll: true, deleted: 'deleted' }), { query: 'SELECT * FROM "users" WHERE "users"."deleted_at" != ?', values: [0] });

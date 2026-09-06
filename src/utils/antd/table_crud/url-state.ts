@@ -5,7 +5,19 @@
  * 参数撞名。写入用 replaceState 而不是 pushState：翻了五页再按后退应该离开列表，
  * 而不是一页页倒着退回去。
  */
-export type TableUrlState = { page: number; size: number; sort: string; query: Record<string, string> };
+/**
+ * 搜索框的值是**三态**的：`null` 是「未填写」——不加这个条件；空串是「填了，填的是空」——
+ * 去找空的那些行；有字就按字筛。
+ *
+ * 原先只有字符串，空串既表示「没填」又表示「填了空」，于是**根本没有办法搜空值**：
+ * 想找出哪几行的备注是空的，把框清掉就等于取消筛选。压成两态丢掉的那一位信息，
+ * 下游谁也补不回来。
+ *
+ * 地址栏天生分得开：`?q.reason=` 是空串，参数整个不在就是未填写。
+ */
+export type TableQueryValues = Record<string, string | null>;
+
+export type TableUrlState = { page: number; size: number; sort: string; query: TableQueryValues };
 
 export const defaultTableUrlState: TableUrlState = { page: 1, size: 10, sort: '', query: {} };
 
@@ -34,7 +46,9 @@ export const writeTableUrlState = (search: string, state: Partial<TableUrlState>
 	if (state.sort !== undefined) set('sort', state.sort, !state.sort);
 	if (state.query) {
 		for (const key of [...params.keys()]) if (key.startsWith('q.')) params.delete(key);
-		for (const [key, value] of Object.entries(state.query)) if (value !== '' && value !== undefined && value !== null) params.set(`q.${key}`, String(value));
+		// 空串照写，写成 `q.reason=`：那是「搜空值」这个条件本身，不是「没有条件」。
+		// 只有 null（未填写）才不出现在地址里。
+		for (const [key, value] of Object.entries(state.query)) if (value !== undefined && value !== null) params.set(`q.${key}`, value);
 	}
 	return params.toString();
 };
@@ -88,13 +102,13 @@ export const mergeSort = (sort: string, changed: ReadonlyArray<{ field?: unknown
  * 审计页默认「待审批」；用户改成「全部」再刷新，如果默认值压过地址栏，他挑的就白挑了。
  */
 export const mergeQueryValues = (
-	fields: ReadonlyArray<{ dataIndex: string; defaultValue?: unknown }>,
-	initial: Record<string, string>,
-	fromUrl: Record<string, string>,
-): Record<string, string> => ({
-	...Object.fromEntries(fields
-		.filter((field) => initial[field.dataIndex] !== undefined || (field.defaultValue !== undefined && field.defaultValue !== ''))
-		.map((field) => [field.dataIndex, initial[field.dataIndex] ?? String(field.defaultValue)])),
+	fields: ReadonlyArray<{ dataIndex: string; defaultValue?: string }>,
+	initial: TableQueryValues,
+	fromUrl: TableQueryValues,
+): TableQueryValues => ({
+	// 每个声明过的字段都占一条，没有默认值就是 null（未填写）——先有这一条，
+	// 后面「用户把它清成未填写」才有得可写：缺席和 null 在这里必须是同一件事的两种写法。
+	...Object.fromEntries(fields.map((field) => [field.dataIndex, field.defaultValue ?? null])),
 	...initial,
 	...fromUrl,
 });
@@ -110,12 +124,22 @@ export const mergeQueryValues = (
  * 同一个值，而这两个默认值来自同一份路由声明。
  */
 export const queryUrlValues = (
-	fields: ReadonlyArray<{ dataIndex: string; defaultValue?: unknown }>,
-	values: Record<string, string>,
-): Record<string, string> => {
-	const defaults = new Map(fields.map((field) => [field.dataIndex, field.defaultValue === undefined ? '' : String(field.defaultValue)]));
-	return Object.fromEntries(Object.entries(values).filter(([name, value]) => value !== (defaults.get(name) ?? '')));
+	fields: ReadonlyArray<{ dataIndex: string; defaultValue?: string }>,
+	values: TableQueryValues,
+): TableQueryValues => {
+	const defaults = new Map(fields.map((field) => [field.dataIndex, field.defaultValue ?? null]));
+	// 没声明过的字段（`include` 那一类）默认按 null 算：它们本来就不属于这一排搜索框。
+	return Object.fromEntries(Object.entries(values).filter(([name, value]) => value !== (defaults.has(name) ? defaults.get(name)! : null)));
 };
+
+/**
+ * 三态查询值换成请求参数：**未填写的整个不发**，填了空的发一个空值（`reason=`）。
+ *
+ * 服务端因此照样是三态——`c.req.query('reason')` 拿到 undefined 是没这个条件，
+ * 拿到空串是要找空的。中间这一层只负责把「未填写」这件事表达成「参数不在」，不做解释。
+ */
+export const queryRequestValues = (values: TableQueryValues): Record<string, string> =>
+	Object.fromEntries(Object.entries(values).flatMap(([name, value]) => value === null || value === undefined ? [] : [[name, value] as const]));
 
 /**
  * 把地址栏上的表格状态换成接口参数。

@@ -18,9 +18,11 @@ import { CloseCircleFilled, EditOutlined } from '@ant-design/icons';
  * 清除、要么依赖 `onClear` 这个底层透传，两样都是跟着版本走的实现细节。自己画一个 suffix
  * 按钮，行为由这里说了算。
  */
-export const NullableInput = ({ value, onChange, placeholder, maxLength, readOnly, disabled }: {
+export const NullableInput = ({ value, onChange, onPressEnter, placeholder, maxLength, readOnly, disabled }: {
 	value?: string | null;
 	onChange?: (value: string | null) => void;
+	/** 搜索框用：在框里按回车就搜。NULL 形态是个按钮，按回车等于点它——那时进入编辑。 */
+	onPressEnter?: () => void;
 	placeholder?: string;
 	maxLength?: number;
 	readOnly?: boolean;
@@ -47,6 +49,7 @@ export const NullableInput = ({ value, onChange, placeholder, maxLength, readOnl
 		readOnly={readOnly}
 		disabled={disabled}
 		onChange={(event) => onChange?.(event.target.value)}
+		onPressEnter={onPressEnter}
 		suffix={readOnly || disabled ? undefined : <CloseCircleFilled
 			role="button"
 			aria-label="清空为未填写"
