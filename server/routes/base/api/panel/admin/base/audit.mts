@@ -141,7 +141,7 @@ const publicEntry = (row: AuditEntryRow) => ({
 	row_key: row.row_key,
 	// 发原文不发文案:颜色由 options 里的那一条决定,发中文的话对不上任何一个选项。
 	action: row.action,
-	summary: describeAuditChanges(parseAuditChanges(row.changes)),
+	summary: describeAuditChanges(parseAuditChanges(row)),
 	operation_id: row.operation_id,
 	reason: row.reason ?? '',
 	created_duid: row.created_duid ?? '',
@@ -222,7 +222,7 @@ const handler: ApiHandler = async (c, next, params) => {
 	if (params.id && c.req.method === 'GET') {
 		const row = await readAuditEntry(database, params.id);
 		if (!row) return apiMessage(c, 404, '审计记录不存在');
-		return apiResponse(c, 200, { ...publicEntry(row), changes: publicAuditChanges(parseAuditChanges(row.changes)) });
+		return apiResponse(c, 200, { ...publicEntry(row), changes: publicAuditChanges(parseAuditChanges(row)) });
 	}
 	const flip = c.req.method === 'POST' ? flipActions(isSuperUser(c)).find((action) => action.key === c.req.query('action')) : undefined;
 	if (flip) {

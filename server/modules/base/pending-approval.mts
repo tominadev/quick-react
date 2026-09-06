@@ -11,7 +11,7 @@ export const WITHDRAW_ACTION = 'withdraw-pending';
 export const APPROVE_ACTION = 'approve-pending';
 export const REJECT_ACTION = 'reject-pending';
 
-type PendingEntry = { id: string; changes: string; reason: string; created_at: number; created_duid: string | null };
+type PendingEntry = { id: string; changes_before: string; changes_after: string; reason: string; created_at: number; created_duid: string | null };
 
 /**
  * 这几条申请里哪些是**当前这个人**提的。
@@ -41,7 +41,7 @@ export const pendingEntriesFor = async (database: DatabaseAdapter, table: string
 		// 于是在回收站里恢复一条记录、进了队列，行上却不显示待审批，撤销和批准两个按钮
 		// 被 visibleWhen 一起藏掉。
 		deleted: 'active',
-		columns: { id: { column: 'id', cast: 'text' }, changes: 'changes', reason: 'reason', created_at: 'created_at', created_duid: { column: 'created_duid', cast: 'text' } },
+		columns: { id: { column: 'id', cast: 'text' }, changes_before: 'changes_before', changes_after: 'changes_after', reason: 'reason', created_at: 'created_at', created_duid: { column: 'created_duid', cast: 'text' } },
 		where: [{ column: 'table_name', value: table }, { column: 'row_id', value: String(rowId) }, { column: 'review_status', value: 'pending' }],
 		orderBy: [{ column: 'id' }],
 	}));
@@ -68,7 +68,7 @@ export const pendingRowStates = async (c: Context<AppEnv>, database: DatabaseAda
 		table: 'base_approvals',
 		// 审批记录自己有没有被删，与正在浏览的那张表是不是回收站视图无关。
 		deleted: 'active',
-		columns: { id: { column: 'id', cast: 'text' }, row_id: { column: 'row_id', cast: 'text' }, action: 'action', created_duid: { column: 'created_duid', cast: 'text' }, changes: 'changes', reason: 'reason', created_at: 'created_at' },
+		columns: { id: { column: 'id', cast: 'text' }, row_id: { column: 'row_id', cast: 'text' }, action: 'action', created_duid: { column: 'created_duid', cast: 'text' }, changes_before: 'changes_before', changes_after: 'changes_after', reason: 'reason', created_at: 'created_at' },
 		where: [{ column: 'table_name', value: table }, { column: 'review_status', value: 'pending' }],
 		orderBy: [{ column: 'id' }],
 	}));
@@ -170,7 +170,7 @@ export const pendingApprovalNotice = async (c: Context<AppEnv>, table: string, r
 		type: 'warning' as const,
 		title: `有 ${entries.length} 项修改正在等待审批，尚未生效`,
 		lines: entries.map((entry) => {
-			const detail = describeAuditChanges(parseAuditChanges(entry.changes));
+			const detail = describeAuditChanges(parseAuditChanges(entry));
 			const who = mineIds.has(String(entry.id)) ? '（本人提交）' : '';
 			return entry.reason ? `${detail}${who}（原因：${entry.reason}）` : `${detail}${who}`;
 		}),

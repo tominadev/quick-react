@@ -410,8 +410,17 @@ model base_approvals {
   /// row_id 仍然记着，用于显示与筛选；跨库搬迁后自增值会变，key 不会。
   row_key      String @db.VarChar(36) @default("")
   action       BaseApprovalAction
-  /// JSON 对象：列名 -> { before, after }，只含实际发生变化的列。
-  changes      Json @default("{}")
+  /// 变更前后的值，**前后各一列**：`{列名: 值}`，只含实际发生变化的列。
+  ///
+  /// 不合成一列 `{列名: {before, after}}`：那样每个列名要写两遍、`"before"` 与 `"after"`
+  /// 这两个词占掉大半篇幅，而新建记录里 before 全是 null——直接读库时满屏都是
+  /// `{"nickname":{"before":null,"after":"admin1"},"qq":{"before":null,"after":"11"}}`，
+  /// 想看「这次要新增什么」得先在噪音里把 after 挑出来。分开之后一眼就是一份值。
+  ///
+  /// 新建记录的 changes_before 是 `{}`——**空对象本身就说清了「这一行之前不存在」**，
+  /// 比一串 null 干净。批准/驳回也不读它（那一支自己处理，见 applyInsertTransition）。
+  changes_before Json @default("{}")
+  changes_after  Json @default("{}")
   /// 审批走到哪一步。没进过队列的写入是 none，不是 approved。
   review_status BaseApprovalReview @default(none)
   /// 数据当前停在哪一边。applied ↔ reverted 可以来回翻：回滚不新开记录，

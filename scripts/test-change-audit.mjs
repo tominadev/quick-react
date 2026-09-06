@@ -27,8 +27,8 @@ const auditRouteFilter = async () => {
 		const at = Date.now();
 		// 审批状态与数据状态是两列：待审批的数据从未写入，批准过的才是已生效。
 		for (const [id, review, data] of [['1', 'pending', 'unwritten'], ['2', 'approved', 'applied'], ['3', 'rejected', 'unwritten'], ['4', 'pending', 'unwritten']]) {
-			seed.prepare('INSERT INTO base_approvals (key, created_at,updated_at,operation_id,reason,table_name,row_id,action,changes,review_status,data_status) VALUES (lower(hex(randomblob(16))), ?,?,?,?,?,?,?,?,?,?)')
-				.run(at, at, id, `理由${id}`, 'base_users', id, 'update', '{}', review, data);
+			seed.prepare('INSERT INTO base_approvals (key, created_at,updated_at,operation_id,reason,table_name,row_id,action,changes_before,changes_after,review_status,data_status) VALUES (lower(hex(randomblob(16))), ?,?,?,?,?,?,?,?,?,?,?)')
+				.run(at, at, id, `理由${id}`, 'base_users', id, 'update', '{}', '{}', review, data);
 		}
 		seed.close();
 		const headers = {
@@ -65,8 +65,8 @@ const auditRouteFilter = async () => {
 		const overflow = new DatabaseSync(process.env.DEFAULT_DATABASE_FILE);
 		const now = Date.now();
 		for (let index = 0; index < 250; index += 1) {
-			overflow.prepare('INSERT INTO base_approvals (key, created_at,updated_at,operation_id,reason,table_name,row_id,action,changes,review_status,data_status) VALUES (lower(hex(randomblob(16))), ?,?,?,?,?,?,?,?,?,?)')
-				.run(now, now, `bulk${index}`, '批量', 'base_users', String(index), 'update', '{}', 'pending', 'unwritten');
+			overflow.prepare('INSERT INTO base_approvals (key, created_at,updated_at,operation_id,reason,table_name,row_id,action,changes_before,changes_after,review_status,data_status) VALUES (lower(hex(randomblob(16))), ?,?,?,?,?,?,?,?,?,?,?)')
+				.run(now, now, `bulk${index}`, '批量', 'base_users', String(index), 'update', '{}', '{}', 'pending', 'unwritten');
 		}
 		overflow.close();
 		const capped = await totals('&review_status=pending');
@@ -122,7 +122,7 @@ const auditRouteFilter = async () => {
 		// 先清掉上面为测总数塞的假记录：它们的 table_name 也是 base_users、row_id 是 0..249，
 		// 会和新建账号的 id 撞上，让这一段测到的是那些假记录。
 		const cleanup = new DatabaseSync(process.env.DEFAULT_DATABASE_FILE);
-		cleanup.prepare("DELETE FROM base_approvals WHERE changes = '{}'").run();
+		cleanup.prepare("DELETE FROM base_approvals WHERE changes_after = '{}'").run();
 		cleanup.close();
 		const usersApi = 'http://localhost/api/panel/admin/base/users.php';
 		// 建号也进审批队列（§13.6），三行共享一个操作号；先批掉，后面验的是「改」不是「建」。
@@ -448,7 +448,8 @@ try {
 	const op = (statement, options) => runOperationSql(context(), acting, statement, { immediate: true, ...options });
 
 	const entries = async () => (await allSql(acting, sql({ database: acting }).select({ table: 'base_approvals', includeAll: true, orderBy: [{ column: 'id', direction: 'ASC' }] }))).map((entry) => ({ ...entry, id: String(entry.id) }));
-	const changesOf = (entry) => JSON.parse(entry.changes);
+	// 前后两份值分开存，比对时拼回成对的形状（parseAuditChanges 做的就是这件事）。
+	const changesOf = (entry) => parseAuditChanges(entry);
 	const latestEntry = async () => (await entries()).at(-1);
 
 	await runSql(acting, sql({ database: acting }).insert('base_users', { name: 'alice', roles: '[]', status: 'enabled' }));
@@ -689,7 +690,7 @@ try {
 	await runSql(acting, sql({ database: acting }).insert('base_user_credentials', { user_id: alice.id, password: { hash: 'hash-1', pattern: 'LLLL' } }));
 	await op(sql({ database: acting }).update('base_user_credentials', { password: { hash: 'hash-2', pattern: 'LLLL' } }, { user_id: alice.id }));
 	const passwordEntry = await latestEntry();
-	const storedChanges = parseAuditChanges(passwordEntry.changes);
+	const storedChanges = parseAuditChanges(passwordEntry);
 	// 只记变了的键：pattern 没变就不进记录。回滚按键合并回去，下面那条断言验证了合并结果。
 	assert.deepEqual(storedChanges.password, { before: { hash: 'hash-1' }, after: { hash: 'hash-2' } }, '存储层只记变化的键，且不做加密');
 	assert.deepEqual(publicAuditChanges(storedChanges), { password: { hidden: true } }, '接口不得返回凭证值');
@@ -771,7 +772,7 @@ try {
 	assert.equal((await entries()).length, beforeResubmit, '同一个人对同一行重复提交不该堆出多条待审批记录');
 	const resubmitted = await entryById(pendingEntry.id);
 	assert.equal(resubmitted.reason, '改主意了，换成分站管理员', '待审批记录被覆盖成最新一版');
-	assert.deepEqual(JSON.parse(resubmitted.changes).roles, { before: [], after: ['branch_admin'] });
+	assert.deepEqual(parseAuditChanges(resubmitted).roles, { before: [], after: ['branch_admin'] });
 	// 换个人提交同一行：那是另一件事，各排各的队。
 	const otherActor = withDatabaseActors(counting, { subjectRoles: ['platform_admin'], humanOperation: true, base: '99' });
 	await assert.rejects(() => runOperationSql(context('另一个人的申请'), otherActor, sql({ database: otherActor }).update('base_users', { roles: '["tenant_admin"]' }, { id: alice.id })));

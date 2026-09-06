@@ -3,6 +3,7 @@ import type { AppEnv } from './types.mjs';
 import type { DatabaseAdapter, DatabaseRunResult } from '@server/database/index.mjs';
 import { allSql, AUDIT_TABLE, firstSql, runSystemSql, sql, type SqlAuditAction, type SqlAuditMetadata, type SqlCondition, type SqlInsertAuditMetadata, type SqlQuery } from '@server/database/sql.mjs';
 import { isHiddenValueColumn } from '@shared/audit-tables.mjs';
+import { serializeAuditChanges } from './audit.mjs';
 import { isSystemField } from '@shared/system-fields.mjs';
 
 /**
@@ -238,8 +239,8 @@ const findConflictingPending = async (database: DatabaseAdapter, builder: Return
  * 有的话，随后的修改改的是一份还没生效的草稿：不新开申请，直接写进那一行，并把这条新建
  * 记录的 `changes` 刷新成最新内容——审批人看到的必须是他将要批准的那一份。
  */
-const draftInsertEntry = async (database: DatabaseAdapter, builder: ReturnType<typeof sql>, table: string, rowId: unknown) => firstSql<{ id: string; changes: string }>(database, builder.select({
-	table: AUDIT_TABLE, columns: { id: { column: 'id', cast: 'text' }, changes: 'changes' },
+const draftInsertEntry = async (database: DatabaseAdapter, builder: ReturnType<typeof sql>, table: string, rowId: unknown) => firstSql<{ id: string; changes_after: string }>(database, builder.select({
+	table: AUDIT_TABLE, columns: { id: { column: 'id', cast: 'text' }, changes_after: 'changes_after' },
 	where: [
 		{ column: 'table_name', value: table },
 		{ column: 'row_id', value: rowId },
@@ -270,32 +271,22 @@ const jsonKeyDiff = (before: unknown, after: unknown) => {
 };
 
 /**
- * 一条新建记录里要写下哪些列值。
+ * 一条新建记录的 `changes_after`：**批准之后这一行会是什么样**。
+ *
+ * `changes_before` 是 `{}`——空对象本身就说清了「这一行之前不存在」，比一串 null 干净。
  *
  * **隐藏列一个都不进来**：password、client_secret 这类抄进审批表就会在那里躺满保留期，
  * 而它们对「我在批什么」毫无帮助。这里是不写入，比在显示时脱敏更彻底——库里根本没有。
  *
  * 归属与时间戳也不写：它们每一行都有，写进来只会把真正要看的那几行挤下去。
+ * `pended_at: 0` 是例外——批准落到数据上就是这一列，写上它，这份「批准之后的样子」才完整。
  */
 const insertChanges = (values: Record<string, unknown>, pendedAt: number) => ({
 	...Object.fromEntries(Object.entries(values)
 		.filter(([name, value]) => value !== undefined && value !== null && value !== ''
 			&& !isHiddenValueColumn(name) && !isSystemField(name) && !name.startsWith('owner_'))
-		.map(([name, value]) => [name, { before: null, after: value }])),
-	/**
-	 * 批准这条新建，落到数据上就是这一列：`pended_at: 提交时刻 → 0`。
-	 *
-	 * 记它是因为它**精确描述了批准会做什么**。行是真写进库里的（只是带着 pended_at 谁也
-	 * 看不见），所以这条申请说的不是「将来要造一行」，而是「把已经在那儿的这一行放出来」
-	 * ——那正是一次寻常的列变更。
-	 *
-	 * 时间戳因此要在**记录之前**生成，再原样交给那条 INSERT：两边各调一次 Date.now()
-	 * 就会差上几毫秒，记录里的 before 和行上的实际值对不上。
-	 *
-	 * 立即生效的那条路（个人中心一类）不记这一项：那里的行一开始 pended_at 就是 0，
-	 * 根本没有这个变化，记一条 `0 → 0` 是凭空造出来的。
-	 */
-	...(pendedAt ? { pended_at: { before: pendedAt, after: 0 } } : {}),
+		.map(([name, value]) => [name, value])),
+	...(pendedAt ? { pended_at: 0 } : {}),
 });
 
 /**
@@ -333,7 +324,8 @@ const recordInsert = async (
 		row_id: 0,
 		row_key: metadata.rowKey,
 		action: 'insert',
-		changes: JSON.stringify(insertChanges(metadata.values, pendedAt)),
+		changes_before: '{}',
+		changes_after: JSON.stringify(insertChanges(metadata.values, pendedAt)),
 		review_status: immediate ? 'none' : 'pending',
 		data_status: immediate ? 'applied' : 'unwritten',
 	}));
@@ -418,7 +410,7 @@ const recordStatement = async (database: DatabaseAdapter, metadata: SqlAuditMeta
 			row_id: row.id,
 			row_key: String(row.key ?? ''),
 			action: actionOf(changes),
-			changes: JSON.stringify(changes),
+			...serializeAuditChanges(changes),
 			// 「没人批过」不叫「已批准」：直接生效的记录审批状态是 none，
 			// approved 只留给真的走完队列的那些。
 			review_status: immediate ? 'none' : 'pending',
@@ -451,9 +443,10 @@ const recordStatement = async (database: DatabaseAdapter, metadata: SqlAuditMeta
 		if (!immediate && values.action === 'update') {
 			const draft = await draftInsertEntry(database, builder, metadata.table, row.id);
 			if (draft) {
-				const merged: Record<string, { before: unknown; after: unknown }> = (() => { try { const parsed = JSON.parse(draft.changes) as unknown; return parsed && typeof parsed === 'object' && !Array.isArray(parsed) ? parsed as Record<string, { before: unknown; after: unknown }> : {}; } catch { return {}; } })();
-				for (const [column, change] of Object.entries(changes)) merged[column] = { before: null, after: change.after };
-				await runSystemSql(database, builder.update(AUDIT_TABLE, { changes: JSON.stringify(merged) }, [{ column: 'id', value: draft.id }, { column: 'review_status', value: 'pending' }]));
+				// 只并 after 那一份：新建记录的 before 恒为 `{}`，改草稿改的是「将要新增什么」。
+				const merged: Record<string, unknown> = (() => { try { const parsed = JSON.parse(draft.changes_after) as unknown; return parsed && typeof parsed === 'object' && !Array.isArray(parsed) ? parsed as Record<string, unknown> : {}; } catch { return {}; } })();
+				for (const [column, change] of Object.entries(changes)) merged[column] = change.after;
+				await runSystemSql(database, builder.update(AUDIT_TABLE, { changes_after: JSON.stringify(merged) }, [{ column: 'id', value: draft.id }, { column: 'review_status', value: 'pending' }]));
 				drafted = true;
 				continue;
 			}

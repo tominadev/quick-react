@@ -17,7 +17,8 @@ export type AuditEntryRow = {
 	row_id: string;
 	row_key: string;
 	action: SqlAuditAction;
-	changes: string;
+	changes_before: string;
+	changes_after: string;
 	review_status: ReviewStatus;
 	data_status: DataStatus;
 	scope: 'admin' | 'self';
@@ -47,7 +48,8 @@ const entryColumns = {
 	row_id: { column: 'row_id', cast: 'text' as const },
 	row_key: 'row_key',
 	action: 'action',
-	changes: 'changes',
+	changes_before: 'changes_before',
+	changes_after: 'changes_after',
 	review_status: 'review_status',
 	data_status: 'data_status',
 	scope: 'scope',
@@ -67,13 +69,33 @@ const entryColumns = {
 	owner_uid: { column: 'owner_uid', cast: 'text' as const },
 };
 
-export const parseAuditChanges = (value: unknown): AuditChanges => {
+const parseValues = (value: unknown): Record<string, unknown> => {
+	if (typeof value === 'object' && value !== null && !Array.isArray(value)) return value as Record<string, unknown>;
 	if (typeof value !== 'string' || !value) return {};
 	try {
 		const parsed: unknown = JSON.parse(value);
-		return parsed && typeof parsed === 'object' && !Array.isArray(parsed) ? parsed as AuditChanges : {};
+		return parsed && typeof parsed === 'object' && !Array.isArray(parsed) ? parsed as Record<string, unknown> : {};
 	} catch { return {}; }
 };
+
+/**
+ * 把分开存的前后两份值拼成 `{列名: {before, after}}`。
+ *
+ * **存储分开、内存里拼上**：读库的人要的是一份干净的值表，而比对、显示、写回这几段代码
+ * 要的是成对的前后值——两边各取所需，转换只发生在这一处。
+ */
+export const parseAuditChanges = (entry: { changes_before?: unknown; changes_after?: unknown }): AuditChanges => {
+	const before = parseValues(entry.changes_before);
+	const after = parseValues(entry.changes_after);
+	return Object.fromEntries([...new Set([...Object.keys(before), ...Object.keys(after)])]
+		.map((column) => [column, { before: before[column], after: after[column] }]));
+};
+
+/** 写库时拆回两份。新建那一支的 before 是 `{}`：这一行之前不存在。 */
+export const serializeAuditChanges = (changes: AuditChanges) => ({
+	changes_before: JSON.stringify(Object.fromEntries(Object.entries(changes).filter(([, change]) => change.before !== undefined).map(([column, change]) => [column, change.before]))),
+	changes_after: JSON.stringify(Object.fromEntries(Object.entries(changes).map(([column, change]) => [column, change.after]))),
+});
 
 /** 数组与对象按 JSON 显示：`String(['a','b'])` 得到 `a,b`，看不出它本来是个数组。 */
 const displayValue = (value: unknown) => value === null || value === undefined ? '空'
@@ -303,14 +325,13 @@ const applyInsertTransition = async (database: DatabaseAdapter, entry: AuditEntr
 	const builder = sql({ database, subjectRoles: null });
 	/**
 	 * 「恢复」是把申请放回队列，因此那一行也要回到**待审批**的样子：从回收站捞出来，
-	 * 并把 `pended_at` 写回提交时那个时刻——它就记在这条记录的 `changes` 里，
-	 * 不用另猜一个时间戳，也就不会把「什么时候提交的」改掉。
+	 * `pended_at` 重新写上**此刻**——它是「什么时候进的队列」，而这条申请正是现在才回到
+	 * 队列里的。当初提交的时刻另有去处，记在这条记录的 `created_at` 上。
 	 */
-	const pendedAt = to === 'requeue' ? Number(parseAuditChanges(entry.changes).pended_at?.before ?? 0) : 0;
 	const statement = to === 'approve' ? builder.activate(entry.table_name, where)
 		// 重新应用的对象是**被回滚过的**那一行，它当时是被软删除掉的，因此这里要动的是 deleted_at。
 		: to === 'redo' ? builder.restore(entry.table_name, where)
-			: to === 'requeue' ? builder.revert(entry.table_name, { deleted_at: 0, pended_at: pendedAt || Date.now() }, where)
+			: to === 'requeue' ? builder.revert(entry.table_name, { deleted_at: 0, pended_at: Date.now() }, where)
 				: builder.revert(entry.table_name, { deleted_at: Date.now(), pended_at: 0 }, where);
 	const result = await runSystemSql(database, statement);
 	return Number(result.meta?.changes ?? 0) > 0;
@@ -341,7 +362,7 @@ const transitionOne = async (database: DatabaseAdapter, entry: AuditEntryRow, to
 	}
 	// 驳回与撤销申请都不碰数据：待审批的修改从未写入过。
 	if (entry.action !== 'insert' && allowed.write !== 'none') {
-		const changes = parseAuditChanges(entry.changes);
+		const changes = parseAuditChanges(entry);
 		const columns = Object.keys(changes);
 		if (!columns.length) return { id: entry.id, ok: false, message: '该记录没有可还原的字段' };
 		const toAfter = allowed.write === 'after';
