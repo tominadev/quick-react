@@ -583,10 +583,21 @@ const transitionOne = async (database: DatabaseAdapter, entry: AuditEntryRow, to
 		if (Number(result.meta?.changes ?? 0) === 0) {
 			return { id: entry.id, ok: false, message: `该记录已被后续修改覆盖，无法${allowed.label}` };
 		}
-		// 审批通过是直接把值写回表的，绕过了 configStore 那条会清缓存的路；不清的话
-		// 批准完页面还显示旧值，看起来像批准没生效。
-		if (entry.table_name === CONFIG_TABLE) invalidateConfigurationCache();
 	}
+	/**
+	 * 审批通过是直接把值写回表的，绕过了 configStore 那条会清缓存的路；不清的话批准完
+	 * 页面还显示旧值，看起来像批准没生效。
+	 *
+	 * **新建那一支同样要清。** 原先这一句只在修改那一支里，而种子只预建了三条站点配置
+	 * （site_frontend / site_backend / admin_settings）——`tech_stack` 与
+	 * `accounts_oidc_client` 的第一次保存走的是 INSERT，于是「批准了但 30 秒内不生效」：
+	 * 库里已经是新值，接口读到的还是旧的，等缓存自然过期才对上。改后缀那一页最容易撞到，
+	 * 因为它改的正是接口地址本身。
+	 *
+	 * 不区分是哪一种迁移：走到这里就说明这一行动过了，而配置变更本就罕见，多清一次
+	 * 只是让各租户各自重读一遍。
+	 */
+	if (entry.table_name === CONFIG_TABLE) invalidateConfigurationCache();
 	/**
 	 * **先追加事件，再更新那两个状态列。**
 	 *

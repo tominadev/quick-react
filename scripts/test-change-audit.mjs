@@ -578,6 +578,29 @@ const auditRouteFilter = async () => {
 		}
 
 		/**
+		 * 批准一条**新建**的配置行之后，接口要立刻读到新值。
+		 *
+		 * 审批通过是直接把值写回表的，绕过了 configStore 那条会清缓存的路。原先清缓存那一句
+		 * 只在「修改」那一支里，而种子只预建了三条站点配置——`tech_stack` 与
+		 * `accounts_oidc_client` 的第一次保存走的是 INSERT，于是「批准了但 30 秒内不生效」：
+		 * 库里已经是新值，接口读到的还是旧的，等缓存自然过期才对上。
+		 *
+		 * 改的是 `nginx` 开关而不是 `apiSuffix`：后者改的正是接口地址本身，改完这一段后面的
+		 * 请求就得换地址了。
+		 */
+		{
+			const techStack = 'http://localhost/api/panel/admin/base/settings/tech-stack.php';
+			assert.equal((await app.request(techStack, { method: 'PUT', headers: { ...headers, cookie }, body: JSON.stringify({ nginx: true, __changedFields: ['nginx'] }) })).status, 202);
+			// 看的是**响应头**，不是这一页读回来的值：`currentValues` 每次都现查库，根本不经过
+			// 那层缓存，测不到这个 bug。真正受影响的是 `c.get('techStackConfig')`——每请求从
+			// configurationBucket 取，缓存 30 秒。`Server: nginx` 正是从它来的。
+			const serverHeader = async () => (await app.request('http://localhost/api/panel/me.php', { headers: { ...headers, cookie } })).headers.get('server');
+			assert.equal(await serverHeader(), null, '还没批准，不该有 nginx 标识');
+			assert.equal((await decide('approve', await pendingIds())).status, 200);
+			assert.equal(await serverHeader(), 'nginx', '批准新建的配置行之后要立刻生效，不能等缓存过期');
+		}
+
+		/**
 		 * **改与删只作用在已经生效的那一行上：`pended_at` 必须是 0。**
 		 *
 		 * 这是一道前置条件，不是在补一个正在漏的洞——眼下走不到，因为改一份还没生效的新建
