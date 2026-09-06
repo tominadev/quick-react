@@ -138,6 +138,26 @@ try {
 		[withContact.initialValues.profile_qq, withContact.initialValues.profile_wechat, withContact.initialValues.profile_email],
 		['10001', 'wxme', 'me@example.test'],
 	);
+	/**
+	 * **点 ✕ 清成「未填写」和删光字符留下空串是两件事,一路要传到库里。**
+	 *
+	 * 控件（NullableInput）分得开这两种,列上也声明了 `nullable: true`,可收参数那一行原先写的是
+	 * `String(body[name] ?? '')`——null 在最靠近人的地方就被折成了空串,库里永远只存得下一种。
+	 * `profileStatement` 里「联系方式不折」那段注释描述的行为因此根本走不到。
+	 */
+	const contactColumns = () => {
+		const check = new DatabaseSync(process.env.DEFAULT_DATABASE_FILE, { readOnly: true });
+		const row = check.prepare("SELECT qq, wechat FROM base_user_profiles WHERE user_id = (SELECT id FROM base_users WHERE name = 'meadmin')").get();
+		check.close();
+		return row;
+	};
+	assert.equal((await save({ _section: 'profile', profile_qq: null })).status, 200, '清成未填写要能保存');
+	assert.equal(contactColumns().qq, null, '点 ✕ 存 NULL');
+	assert.equal(contactColumns().wechat, 'wxme', '只清一列，别的不受影响');
+	assert.equal((await save({ _section: 'profile', profile_wechat: '' })).status, 200);
+	assert.equal(contactColumns().wechat, '', '删光字符只是空串，不该被折成 NULL');
+	assert.equal(contactColumns().qq, null, '前一列仍然是 NULL');
+
 	assert.equal((await save({ _section: 'profile' })).status, 400, '什么字段都没带要明确拒绝');
 	assert.equal((await save({ _section: 'nope' })).status, 400, '没指明改哪一组也要拒绝');
 

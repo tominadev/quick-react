@@ -177,8 +177,10 @@ const handler: ApiHandler = async (c, next) => {
 	}
 
 	if (section === 'profile') {
+		// `null` 原样传下去：点 ✕ 清成「未填写」和删光字符留下空串是两件事，控件分得开，
+		// 这一层折成空串就等于在最靠近人的地方把它压回一种（NullableInput / profileStatement）。
 		const fields = Object.fromEntries((['profile_nickname', 'profile_qq', 'profile_wechat', 'profile_email'] as const)
-			.filter((name) => name in body).map((name) => [name, String(body[name] ?? '')]));
+			.filter((name) => name in body).map((name) => [name, body[name] === null ? null : String(body[name] ?? '')]));
 		if (!Object.keys(fields).length) return apiMessage(c, 400, '没有可修改的字段');
 		const result = await profileStatement(database, currentUser.id, fields, scope);
 		if ('error' in result) return apiMessage(c, 400, result.error);

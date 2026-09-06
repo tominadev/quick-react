@@ -47,7 +47,8 @@ const listJoins = [
 const profileFieldsFrom = (body: Record<string, unknown>, changed?: Set<string>) => Object.fromEntries(
 	(['profile_nickname', 'profile_qq', 'profile_wechat', 'profile_email'] as const)
 		.filter((name) => !changed || changed.has(name))
-		.map((name) => [name, String(body[name] ?? '')]),
+		// null 原样传：清成「未填写」与填成空串是两回事（见 ProfileFields）。
+		.map((name) => [name, body[name] === null ? null : String(body[name] ?? '')]),
 );
 
 const publicUser = (row: Record<string, unknown>) => ({

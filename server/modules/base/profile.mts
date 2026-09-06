@@ -19,7 +19,11 @@ export const readProfileNickname = async (database: DatabaseAdapter, userId: str
 	return row?.profile_nickname ?? undefined;
 };
 
-export type ProfileFields = { profile_nickname?: string; profile_qq?: string; profile_wechat?: string; profile_email?: string };
+/**
+ * `undefined` 是「这次没提这一列」，`null` 是「人明确清成了未填写」，空串是「填了，填的是空」。
+ * 三态一路传到写入,中间任何一层折掉都等于把人刚分开的状态又压回一种(见 profileStatement)。
+ */
+export type ProfileFields = { profile_nickname?: string | null; profile_qq?: string | null; profile_wechat?: string | null; profile_email?: string | null };
 export type ProfileCheck = { error: string } | { statement: SqlQuery } | { clear: SqlQuery };
 
 /**
@@ -40,9 +44,10 @@ export const profileStatement = async (
 	 */
 	options: { create?: boolean } = {},
 ): Promise<ProfileCheck> => {
-	const values: Record<string, string> = Object.fromEntries(Object.entries(fields)
+	// null 原样留着：`String(null).trim()` 会变成 "null" 这四个字母，那才是真的把数据弄坏。
+	const values: Record<string, string | null> = Object.fromEntries(Object.entries(fields)
 		.filter(([, value]) => value !== undefined)
-		.map(([key, value]) => [key, String(value).trim()]));
+		.map(([key, value]) => [key, value === null ? null : String(value).trim()]));
 	if (!Object.keys(values).length) return { clear: sql({ database }).softDelete('base_user_profiles', { user_id: userId }) };
 	// 表单里昵称的默认值就是用户名（没设过时回落显示的那个）。原样提交回来说明用户没改，
 	// 当作「没设昵称」处理：不写行、继续回落。这一步必须在长度校验之前——用户名可以短到
