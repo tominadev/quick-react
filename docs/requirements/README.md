@@ -2,6 +2,8 @@
 
 本目录记录已确认的功能需求和对应的设计决策，按主题命名，实现完成后在文档里更新状态，不删除历史需求。
 
+v1.0 beta 发布前的数据库命名与结构审计、阻断项和交接顺序见 [docs/handoff/v1.0-beta](../handoff/v1.0-beta/README.md)。该目录是发布交接资料，不替代本目录中的业务需求。
+
 | 文档 | 主题 |
 | --- | --- |
 | [backend-driven-ui-and-navigation](backend-driven-ui-and-navigation.md) | 后端驱动页面、导航与表格表单协议 |
