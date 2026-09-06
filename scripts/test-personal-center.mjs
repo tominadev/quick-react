@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict';
 import { readPageContext } from './page-context.mjs';
-import { mkdtemp, rm } from 'node:fs/promises';
-import { join } from 'node:path';
+import { mkdtemp, readFile, rm } from 'node:fs/promises';
+import { join, resolve } from 'node:path';
 import { tmpdir } from 'node:os';
 import { DatabaseSync } from 'node:sqlite';
 
@@ -182,6 +182,17 @@ try {
 	// 密码不回显；本来就有密码，那一段的结构也没变，因此不回 formPage。
 	assert.deepEqual(await passwordSaved.json().then((body) => body.currentValues), { currentPassword: '', newPassword: '' });
 	assert.equal((await request('/api/sign.php', { method: 'POST', body: { user_name: 'meadmin', password: 'another-password-1' } })).status, 200, '新密码能登录');
+
+	/**
+	 * 个人中心在面板里，渲染时必须包一层 `Panel`——左侧菜单、面包屑、仪表盘入口都挂在
+	 * 那一层上。漏掉的话点进来菜单整个消失，看着像是「跳出了后台」，而它明明还在
+	 * `/panel/user/` 下面；服务端照常下发导航，从接口上一点看不出问题，只有在页面上才
+	 * 发现。`home` 与 `sign` 不包是另一回事：那两个是公开页，本来就没有面板导航。
+	 */
+	const appSource = await readFile(resolve(import.meta.dirname, '..', 'src/App.tsx'), 'utf8');
+	const personalCenterRenderer = appSource.slice(appSource.indexOf('personalCenter: (page) =>'), appSource.indexOf('sign: (page) =>'));
+	assert.match(personalCenterRenderer, /<Panel[\s\S]*<PersonalCenter/, '个人中心要包在 Panel 里，否则左侧菜单不见了');
+	assert.match(personalCenterRenderer, /navigation=\{page\.navigation\}/, 'Panel 要拿到导航树');
 
 	console.log('personal center test passed');
 } finally {

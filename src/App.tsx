@@ -137,9 +137,17 @@ export const App = ({ commonApi }: AppType) => {
 			const apiPath = `/api/home${initialData.apiSuffix}`;
 			return <HomePage commonApi={commonApi} apiSuffix={initialData.apiSuffix} initialData={bootstrapResponseFor(apiPath)?.home} />;
 		},
+		/**
+		 * 个人中心也在面板里，因此同样包一层 `Panel`——左侧菜单、面包屑、仪表盘入口都在
+		 * 那一层上。漏掉的话点进来菜单整个消失，看着像是「跳出了后台」，而它明明还在
+		 * `/panel/user/` 下面。`home` 与 `sign` 不包是另一回事：那两个是公开页，本来
+		 * 就没有面板导航。
+		 */
 		personalCenter: (page) => {
 			const apiPath = `/api${page.path}${initialData.apiSuffix}`;
-			return <PersonalCenter commonApi={commonApi} user={auth?.currentUser} title={page.title} initialResponse={bootstrapResponseFor(apiPath)} />;
+			return <Panel commonApi={commonApi} navigation={page.navigation} dashboardPath={page.dashboardPath} title={page.title}>
+				<PersonalCenter commonApi={commonApi} user={auth?.currentUser} title={page.title} initialResponse={bootstrapResponseFor(apiPath)} />
+			</Panel>;
 		},
 		sign: (page) => {
 			if (!page.apiPath) return null;
