@@ -107,7 +107,10 @@ const auditRouteFilter = async () => {
 		// 另外三页改了什么在等审批，页面上一点都看不出来。
 		const systemSettings = 'http://localhost/api/panel/admin/base/settings/system-config.php';
 		const putSystem = (domain) => app.request(systemSettings, { method: 'PUT', headers: { ...headers, cookie }, body: JSON.stringify({ domain, __changedFields: ['domain'] }) });
-		await putSystem('unified-jia.example');
+		// **第一次保存**也进队列：配置行还不存在，走的是 upsert 的 INSERT 那一支。这里先把
+		// 它批掉，下面测的是「已经有行之后再改」那条普通路径。
+		assert.equal((await putSystem('unified-jia.example')).status, 202, '第一次保存也要进审批队列');
+		assert.equal((await app.request(`${systemSettings}?action=approve-pending`, { method: 'POST', headers: { ...headers, cookie }, body: '{}' })).status, 200);
 		assert.equal((await putSystem('unified-yi.example')).status, 202, '系统配置也要进审批队列');
 		const systemPage = await (await app.request(systemSettings, { headers: { ...headers, cookie } })).json();
 		assert.match(systemPage.formPage.notice.title, /有 1 项修改正在等待审批/, '系统配置页也要显示待审批提示');
@@ -270,6 +273,23 @@ const auditRouteFilter = async () => {
 		const blockedDelete = await app.request(mixApi, { method: 'DELETE', headers: { ...headers, cookie }, body: JSON.stringify([String(mixTarget.id)]) });
 		assert.equal(blockedDelete.status, 409);
 		assert.match((await blockedDelete.json()).feedback?.message ?? '', /「修改」申请正在等待审批/);
+		assert.equal((await decide('withdraw', await pendingIds())).status, 200);
+
+		/**
+		 * **后台第一次写一张表的某一行，同样进队列。**
+		 *
+		 * 那条语句是 upsert：行不存在时走 INSERT。审计那一层是按修改的形状记的——读不到
+		 * 前值就当作「什么都没改」，于是原先语句被直接执行掉：**每一项配置、每个账号的
+		 * 第一份资料，第一次保存既不进队列也不留痕，从第二次起才正常。**
+		 */
+		const firstSaveApi = 'http://localhost/api/panel/admin/base/users.php';
+		const firstSaveTarget = (await (await app.request(`${firstSaveApi}?include=data`, { headers: { ...headers, cookie } })).json())
+			.table.dataSource.find((row) => row.user_name === 'pendingbob3');
+		assert.equal((await app.request(`${firstSaveApi}/${firstSaveTarget.id}`, { method: 'PUT', headers: { ...headers, cookie }, body: JSON.stringify({ profile_qq: '10001', __changedFields: ['profile_qq'] }) })).status, 202, '第一次给这个账号写资料也要进队列');
+		const firstSaveEntry = (await (await app.request('http://localhost/api/panel/admin/base/audit.php?include=data&review_status=pending&table_name=base_user_profiles', { headers: { ...headers, cookie } })).json())
+			.table.dataSource.find((row) => row.action === 'insert');
+		assert.ok(firstSaveEntry, '记成一条新增');
+		assert.match(firstSaveEntry.summary, /qq：空 → 10001/, '审批人看得见要写进去的是什么');
 		assert.equal((await decide('withdraw', await pendingIds())).status, 200);
 
 		// 个人中心第一次设资料（资料行还不存在）也要留痕，只是立即生效。

@@ -390,10 +390,15 @@ const recordStatement = async (database: DatabaseAdapter, metadata: SqlAuditMeta
 	}));
 	for (const row of rows) {
 		const changes: Record<string, { before: unknown; after: unknown }> = {};
+		// 这一列写下去之后的**完整值**。改草稿时要用它，不能用上面那份差异——
+		// JSON 列的 after 只有变了的那几个键，拿它去覆盖新建记录里的整块配置，
+		// 「批准之后这一行是什么样」就只剩一个片段了。
+		const written: Record<string, unknown> = {};
 		// 只记实际发生变化的列：业务表单常整体提交，照单全收会让"改了什么"失去答案。
 		for (const column of columns) {
 			const [before, after] = logicalPair(row[column], metadata.values[column]);
 			if (sameValue(before, after)) continue;
+			written[column] = after;
 			// JSON 列只记**变了的那几个键**：改一个页脚而把整块站点配置抄进审计，
 			// 「改了什么」等于没答，记录也会随配置一起膨胀。
 			// 回滚时按键合并回去，不整块覆盖，见 audit.mts 的 transitionOne。
@@ -445,7 +450,7 @@ const recordStatement = async (database: DatabaseAdapter, metadata: SqlAuditMeta
 			if (draft) {
 				// 只并 after 那一份：新建记录的 before 恒为 `{}`，改草稿改的是「将要新增什么」。
 				const merged: Record<string, unknown> = (() => { try { const parsed = JSON.parse(draft.changes_after) as unknown; return parsed && typeof parsed === 'object' && !Array.isArray(parsed) ? parsed as Record<string, unknown> : {}; } catch { return {}; } })();
-				for (const [column, change] of Object.entries(changes)) merged[column] = change.after;
+				for (const [column, value] of Object.entries(written)) merged[column] = value;
 				await runSystemSql(database, builder.update(AUDIT_TABLE, { changes_after: JSON.stringify(merged) }, [{ column: 'id', value: draft.id }, { column: 'review_status', value: 'pending' }]));
 				drafted = true;
 				continue;
@@ -515,16 +520,15 @@ export const runOperation = async (
 				/**
 				 * 一行都没匹配到而这条语句又带着 insertAudit：那就是 upsert 走了 INSERT 那一支。
 				 *
-				 * **只在立即生效的路径上记。** 个人中心第一次设昵称走的正是这里——资料行还不
-				 * 存在，原先完全不留痕，现在记一条「新增」，照旧立即生效。
+				 * 这条路上有两处：个人中心第一次设昵称（资料行还不存在），以及**后台每一项配置的
+				 * 第一次保存**（配置行还不存在）。两处原先都完全不留痕——审计那一层是按修改的
+				 * 形状记的，读不到前值就当作「什么都没改」，于是语句被直接执行掉。
 				 *
-				 * 走审批的路径上先维持原样(不记、直接写)。把它记成待审批的新建会有两个问题：
-				 * 新建记录按设计不抄列值(值在行上)，而待审批的配置行是不可见的，审批人无从
-				 * 判断自己在批什么；页面那一侧 configRowId 也查不到那一行，待审批提示会消失。
-				 * 那是一处真的漏洞——后台每一项配置的**第一次**保存都不进队列也不留痕——
-				 * 但补它要连着审批记录的形状和设置页一起改，不该顺手做。
+				 * 后台那一侧因此曾经有个洞：第一次保存既不进队列也不留痕，从第二次起才正常。
+				 * 现在两条路一视同仁——走审批的就记成一条待审批的新建，页面显示默认值加一条
+				 * 「有 1 项修改正在等待审批」，与第二次保存的表现一致。
 				 */
-				if (!result.found && statement.insertAudit && immediate) await asInsert(statement as SqlQuery & { insertAudit: SqlInsertAuditMetadata });
+				if (!result.found && statement.insertAudit) await asInsert(statement as SqlQuery & { insertAudit: SqlInsertAuditMetadata });
 				else recorded += result.recorded;
 				continue;
 			}

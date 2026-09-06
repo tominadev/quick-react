@@ -129,14 +129,20 @@ export const PENDING_KINDS: ReadonlyArray<{ kind: PendingRowKind; label: string;
 	{ kind: 'restore', label: '还原', approve: '确认批准并把这条记录放回列表吗？', reject: '确认驳回这条还原吗？记录会留在回收站里。', withdraw: '确认撤销这条还没生效的还原吗？记录会留在回收站里。' },
 ];
 
-/** 配置项在 base_configs 里的行号；还没有这一行就没有待审批可言。 */
+/**
+ * 配置项在 `base_configs` 里的行号；还没有这一行就没有待审批可言。
+ *
+ * `pended: 'all'`：**第一次保存**写下的那一行带着 `pended_at`，普通查询看不见它。不放开
+ * 的话，页面查不到行号，那条「有 N 项修改正在等待审批」的提示就整个消失——保存完看到的
+ * 是默认值，而且没有任何地方告诉你它在排队。
+ */
 export const configRowId = async (c: Context<AppEnv>, key: string) => {
 	const database = c.get('database');
 	const tenantId = c.get('tenantId');
 	const row = await firstSql<{ id: string }>(database, sql({ database }).select({
 		table: 'base_configs', columns: { id: { column: 'id', cast: 'text' } },
 		where: [{ column: 'key', value: key }, tenantId === null ? { column: 'owner_tid', value: 1 } : { column: 'owner_tid', value: tenantId }],
-		limit: 1,
+		pended: 'all', limit: 1,
 	}));
 	return row?.id;
 };

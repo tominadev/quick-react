@@ -92,7 +92,9 @@ const deviceKey = '00000000-0000-4000-8000-000000000001';
 	assert.equal((await request(sitePath, { method: 'PUT', headers: { cookie }, body: { ...siteSettings, localLoginEnabled: true, __changedFields: ['localLoginEnabled'] } })).status, 202);
 	await approvePending(cookie);
 	const oidcSettings = (await (await request(settingsPath, { headers: { cookie } })).json()).currentValues;
-	assert.equal((await request(settingsPath, { method: 'PUT', headers: { cookie }, body: { ...oidcSettings, enabled: true, issuer: 'https://accounts.test', clientId: 'cid', clientSecret: 'sec', __changedFields: ['enabled', 'issuer', 'clientId', 'clientSecret'] } })).status, 200);
+	// OIDC 配置行还不存在，第一次保存走 upsert 的 INSERT 那一支，同样进队列（§13.7）。
+	assert.equal((await request(settingsPath, { method: 'PUT', headers: { cookie }, body: { ...oidcSettings, enabled: true, issuer: 'https://accounts.test', clientId: 'cid', clientSecret: 'sec', __changedFields: ['enabled', 'issuer', 'clientId', 'clientSecret'] } })).status, 202);
+	await approvePending(cookie);
 	const bothHome = await initialData('/');
 	assert.deepEqual(
 		bothHome.auth.actions.map((action) => action.action),
