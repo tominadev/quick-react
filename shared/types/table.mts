@@ -10,6 +10,11 @@ export type TableColumnFormProperties = {
 	 * 点 ✕ 存 NULL，删光字符只是空串——两种状态在表单这一层就分开，不到最后被压成一个。
 	 */
 	nullable?: boolean;
+	/**
+	 * 最长多少个字符。数据管理直接取自 `VARCHAR(n)`——表规定多长，界面就限多长；
+	 * `TEXT` 这类没有上限的列不给，表没规定，界面也不该替它规定一个。
+	 */
+	maxLength?: number;
 	inputType?: 'text' | 'password';
 	rules?: TableColumnRule[];
 	placeholder?: string;

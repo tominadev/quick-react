@@ -28,11 +28,27 @@ export const databaseTableActions = (editable: boolean, options: { softDelete?: 
 	};
 };
 export type DatabaseTableResponse = TableResponse & { tables: TableSelectOption[]; editable: boolean };
+/**
+ * 界面上的限制**一律照抄表结构**，不自己加也不自己减。
+ *
+ * - **能不能存 NULL** 看 `notnull`：可空的列才给那个「未填写」控件。不额外标成必填——
+ *   `NOT NULL` 说的是「不能是 NULL」，不是「不能是空串」，标了必填就是替表加了一条它
+ *   没有的限制。
+ * - **多长** 看 `VARCHAR(n)`；`TEXT` 这类没有上限的列不给 maxLength——表没规定，界面就
+ *   不该替它规定。
+ * - **数值型给数字输入框**，但 **BIGINT 除外**：雪花号有 19 位，超过 JS 能精确表示的整数，
+ *   进了数字输入框会被悄悄改成另一个数。这一页读 INT 列时本来就一路 cast 成文本
+ *   （见 databaseSelectColumns），正是同一个原因。
+ */
+const numericComponent = (type: string) => /BIGINT|INT8/i.test(type) ? undefined
+	: /INT|REAL|FLOA|DOUB|DECIMAL|NUMERIC/i.test(type) ? 'inputnumber' as const : undefined;
+
 const tableColumn = (column: Awaited<ReturnType<typeof getColumns>>[number]): TableColumn => ({
 	dataIndex: column.name,
 	title: column.name,
-	component: 'textbox',
+	component: numericComponent(column.type) ?? 'textbox',
 	dataType: /INT/i.test(column.type) ? 'int' : /REAL|FLOA|DOUB|DECIMAL|NUMERIC/i.test(column.type) ? 'float' : 'string',
+	...(column.maxLength ? { maxLength: column.maxLength } : {}),
 	// 表自己说了能不能存 NULL，这一页照搬——它看的就是表长什么样。
 	...(column.notnull ? {} : { nullable: true }),
 	// key 新建时可以填（人给短串的表要填），建好之后不可改：它是别的表的引用目标。

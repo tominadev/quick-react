@@ -40,12 +40,12 @@ function getFormItemComponent(item: ResJsonTableColumn, row: DataType, parentVal
 			// 可空的列换成能表达 NULL 的那个控件：点 ✕ 存 NULL，删光字符只是空串。
 			// 密码框不给这条路——那里「留空」的意思是「不修改」，与 NULL 不是一回事。
 			if (item.nullable && item.inputType !== 'password') {
-				return <NullableInput placeholder={item.placeholder} readOnly={readOnly} disabled={readOnly} />;
+				return <NullableInput placeholder={item.placeholder} maxLength={item.maxLength} readOnly={readOnly} disabled={readOnly} />;
 			}
 			return (
 				item.inputType === 'password'
-					? <Input.Password placeholder={item.placeholder} readOnly={readOnly} disabled={readOnly} />
-					: <Input placeholder={item.placeholder} readOnly={readOnly} disabled={readOnly} />
+					? <Input.Password placeholder={item.placeholder} maxLength={item.maxLength} readOnly={readOnly} disabled={readOnly} />
+					: <Input placeholder={item.placeholder} maxLength={item.maxLength} readOnly={readOnly} disabled={readOnly} />
 			);
 		case ('url'):
 			return (

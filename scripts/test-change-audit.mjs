@@ -157,6 +157,25 @@ const auditRouteFilter = async () => {
 		}
 
 		/**
+		 * 数据管理的表单限制**一律照抄表结构**，不自己加也不自己减。
+		 *
+		 * - 可空看 `notnull`：可空的列才给那个能表达 NULL 的控件。不额外标必填——`NOT NULL`
+		 *   说的是「不能是 NULL」，不是「不能是空串」，标了就是替表加一条它没有的限制。
+		 * - 数值型给数字输入框，但 **BIGINT 除外**：雪花号 19 位，超过 JS 能精确表示的整数，
+		 *   进数字框会被悄悄改成另一个数。
+		 * - 长度取自 `VARCHAR(n)`；SQLite 上 prisma 把 `@db.VarChar` 落成 `TEXT`，表本身没有
+		 *   长度限制，界面因此也不给——表没规定，界面不该替它规定。
+		 */
+		const schemaDriven = await (await app.request('http://localhost/api/panel/admin/base/data/rows.php?table=base_users&include=schema,data', { headers: { ...headers, cookie } })).json();
+		const byName = Object.fromEntries(schemaDriven.table.columns.map((column) => [column.dataIndex, column]));
+		assert.equal(byName.agent_uid.nullable, true, 'BigInt? → 可空');
+		assert.equal(byName.name.nullable, undefined, 'String → 不可空');
+		assert.equal(byName.name.rules, undefined, '不可空不等于必填');
+		assert.equal(byName.agent_uid.component, 'textbox', 'BIGINT 不给数字框：雪花号进去会被精度改掉');
+		const flags = await (await app.request('http://localhost/api/panel/admin/base/data/rows.php?table=passport_oidc_clients&include=schema,data', { headers: { ...headers, cookie } })).json();
+		assert.equal(flags.table.columns.find((column) => column.dataIndex === 'require_pkce').component, 'inputnumber', 'INTEGER 给数字框');
+
+		/**
 		 * 完整经过要点得到：列表上只有「最近处理」一行，而一条记录可能被驳回、恢复、批准、
 		 * 回滚、重新应用地翻好几轮。行上挂一个「处理经过」弹窗，带上 approval_id——不带的话
 		 * 弹开的是全站事件。

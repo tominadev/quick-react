@@ -1,7 +1,18 @@
 import type { DatabaseAdapter } from './index.mjs';
 import { allSql, quoteIdentifier, type SqlDialect, type SqlQuery } from './sql.mjs';
 
-export type DatabaseColumn = { name: string; type: string; notnull: number; pk: number; defaultValue?: unknown };
+/**
+ * `maxLength` 只对定长文本有值（`VARCHAR(n)`）。`TEXT` 这类没有上限的列不给——
+ * 表没规定长度，界面就不该替它规定一个。
+ */
+export type DatabaseColumn = { name: string; type: string; notnull: number; pk: number; maxLength?: number; defaultValue?: unknown };
+
+/** 从 `VARCHAR(36)`、`varchar(36)` 这类类型串里取长度；取不到就是没有上限。 */
+const typeMaxLength = (type: string) => {
+	const matched = /\((\d+)\)/.exec(type);
+	const length = matched ? Number(matched[1]) : Number.NaN;
+	return Number.isSafeInteger(length) && length > 0 ? length : undefined;
+};
 export type DatabaseTable = { name: string };
 
 const dialectOf = (database: DatabaseAdapter): SqlDialect => database.dialect ?? 'sqlite';
@@ -23,17 +34,18 @@ export const listColumns = async (database: DatabaseAdapter, tableName: string):
 	if (dialect === 'sqlite') {
 		return (await allSql<DatabaseColumn & { dflt_value?: unknown }>(database, { query: `PRAGMA table_info(${quoteIdentifier(tableName, dialect)})`, values: [] }))
 			.filter((column) => safeName(column.name))
-			.map((column) => ({ ...column, defaultValue: column.dflt_value, notnull: Number(column.notnull), pk: Number(column.pk) }));
+			.map((column) => ({ ...column, defaultValue: column.dflt_value, notnull: Number(column.notnull), pk: Number(column.pk), maxLength: typeMaxLength(column.type) }));
 	}
 	if (dialect === 'mysql') {
 		const rows = await allSql<{ name: string; type: string; is_nullable: string; default_value?: unknown; pk: number }>(database, {
 			query: 'SELECT COLUMN_NAME AS name, COLUMN_TYPE AS type, IS_NULLABLE AS is_nullable, CASE WHEN COLUMN_KEY = \'PRI\' THEN 1 ELSE 0 END AS pk FROM information_schema.COLUMNS WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = ? ORDER BY ORDINAL_POSITION',
 			values: [tableName],
 		});
-		return rows.filter((row) => safeName(row.name)).map((row) => ({ name: row.name, type: row.type, notnull: row.is_nullable === 'NO' ? 1 : 0, pk: Number(row.pk) }));
+		return rows.filter((row) => safeName(row.name)).map((row) => ({ name: row.name, type: row.type, notnull: row.is_nullable === 'NO' ? 1 : 0, pk: Number(row.pk), maxLength: typeMaxLength(row.type) }));
 	}
-	const rows = await allSql<{ name: string; type: string; is_nullable: string; default_value?: unknown; pk: number | boolean }>(database, {
-		query: `SELECT c.column_name AS name, c.data_type AS type, c.is_nullable,
+	// PostgreSQL 的 data_type 只说「character varying」，长度在 character_maximum_length 里。
+	const rows = await allSql<{ name: string; type: string; is_nullable: string; max_length?: number | null; default_value?: unknown; pk: number | boolean }>(database, {
+		query: `SELECT c.column_name AS name, c.data_type AS type, c.is_nullable, c.character_maximum_length AS max_length,
 			CASE WHEN EXISTS (
 				SELECT 1 FROM information_schema.table_constraints tc
 				JOIN information_schema.key_column_usage kcu
@@ -49,7 +61,7 @@ export const listColumns = async (database: DatabaseAdapter, tableName: string):
 		ORDER BY c.ordinal_position`,
 		values: [tableName],
 	});
-	return rows.filter((row) => safeName(row.name)).map((row) => ({ name: row.name, type: row.type, notnull: row.is_nullable === 'NO' ? 1 : 0, pk: Number(row.pk) }));
+	return rows.filter((row) => safeName(row.name)).map((row) => ({ name: row.name, type: row.type, notnull: row.is_nullable === 'NO' ? 1 : 0, pk: Number(row.pk), maxLength: row.max_length ? Number(row.max_length) : undefined }));
 };
 
 const requiredColumnsCache = new WeakMap<object, Map<string, string[]>>();
