@@ -33,8 +33,8 @@ try {
 			method: 'POST', headers: superHeaders,
 			body: JSON.stringify({ user_name: userName, password: 'agent-password-1', roles, status: 'enabled' }),
 		})).status, 202, `建号 ${userName} 应进审批队列`);
-		const queued = await (await app.request('http://localhost/api/panel/admin/base/audit.php?include=data&review_status=pending', { headers: superHeaders })).json();
-		assert.equal((await app.request('http://localhost/api/panel/admin/base/audit.php?action=approve', {
+		const queued = await (await app.request('http://localhost/api/panel/admin/base/audits.php?include=data&review_status=pending', { headers: superHeaders })).json();
+		assert.equal((await app.request('http://localhost/api/panel/admin/base/audits.php?action=approve', {
 			method: 'POST', headers: superHeaders, body: JSON.stringify(queued.table.dataSource.map((row) => String(row.id))),
 		})).status, 200, `批准 ${userName} 的建号申请`);
 	};
@@ -75,7 +75,7 @@ try {
 	assert.match(await refused(await claim(agentHeaders, 'nosuchuser')), /没有用户/, '不存在的用户名');
 
 	// 留痕：一条 self 作用域的 update，改的正是 agent_uid，且没有进过审批队列。
-	const audit = await (await app.request('http://localhost/api/panel/admin/base/audit.php?include=data&table_name=base_users&scope=self', { headers: superHeaders })).json();
+	const audit = await (await app.request('http://localhost/api/panel/admin/base/audits.php?include=data&table_name=base_users&scope=self', { headers: superHeaders })).json();
 	const entry = audit.table.dataSource.find((row) => String(row.summary ?? '').includes('agent_uid'));
 	assert.ok(entry, '拉号要留下一条记录');
 	assert.equal(entry.action, 'update', '动作发原文,颜色和文案由列的 options 决定');

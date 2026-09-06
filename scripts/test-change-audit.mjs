@@ -42,7 +42,7 @@ const auditRouteFilter = async () => {
 		const login = await app.request('http://localhost/api/sign.php', { method: 'POST', headers, body: JSON.stringify({ user_name: 'auditadmin', password: 'audit-password-1' }) });
 		const cookie = login.headers.get('set-cookie')?.split(';')[0];
 		const statuses = async (query) => {
-			const response = await app.request(`http://localhost/api/panel/admin/base/audit.php?include=schema,data${query}`, { headers: { ...headers, cookie } });
+			const response = await app.request(`http://localhost/api/panel/admin/base/audits.php?include=schema,data${query}`, { headers: { ...headers, cookie } });
 			return (await response.json()).table.dataSource.map((row) => row.review_status).sort();
 		};
 		// 三个筛选都不预设默认值：参数缺失就是「全部」。「待审批」当过默认值，问题是它把
@@ -50,7 +50,7 @@ const auditRouteFilter = async () => {
 		assert.deepEqual(await statuses(''), ['approved', 'pending', 'pending', 'rejected'], '参数缺失就是全部');
 		assert.deepEqual(await statuses('&review_status=pending'), ['pending', 'pending']);
 		assert.deepEqual(await statuses('&review_status=approved'), ['approved']);
-		// 这就是 /panel/admin/base/audit.html?q.review_status=all 实际发出的请求。
+		// 这就是 /panel/admin/base/audits.html?q.review_status=all 实际发出的请求。
 		assert.deepEqual(await statuses('&review_status=all'), ['approved', 'pending', 'pending', 'rejected'], 'review_status=all 要返回全部');
 		// 数据状态是另一条轴：待审批与被驳回的申请都停在「未写入」。
 		assert.deepEqual(await statuses('&review_status=all&data_status=unwritten'), ['pending', 'pending', 'rejected']);
@@ -58,7 +58,7 @@ const auditRouteFilter = async () => {
 		// 总数要跟着筛选条件走，而且不能拿列表长度充数——列表有 200 条上限，
 		// 库里更多时那样会谎报「共 200 条」。
 		const totals = async (query) => {
-			const response = await app.request(`http://localhost/api/panel/admin/base/audit.php?include=schema,data${query}`, { headers: { ...headers, cookie } });
+			const response = await app.request(`http://localhost/api/panel/admin/base/audits.php?include=schema,data${query}`, { headers: { ...headers, cookie } });
 			const body = await response.json();
 			return { total: body.table.totalRecords, rows: body.table.dataSource.length };
 		};
@@ -135,12 +135,12 @@ const auditRouteFilter = async () => {
 		// 建号也进审批队列（§13.6），三行共享一个操作号；先批掉，后面验的是「改」不是「建」。
 		await app.request(usersApi, { method: 'POST', headers: { ...headers, cookie }, body: JSON.stringify({ user_name: 'pendingbob', password: 'bob-password-123', roles: [], status: 'enabled' }) });
 		{
-			const queued = await (await app.request('http://localhost/api/panel/admin/base/audit.php?include=data&review_status=pending', { headers: { ...headers, cookie } })).json();
+			const queued = await (await app.request('http://localhost/api/panel/admin/base/audits.php?include=data&review_status=pending', { headers: { ...headers, cookie } })).json();
 			const ids = queued.table.dataSource.map((row) => String(row.id));
 			// 只批一条：同一个操作号的其余记录会跟着一起生效——只批账号那一行，
 			// 得到的是「能登录但没有密码」。
-			assert.equal((await app.request('http://localhost/api/panel/admin/base/audit.php?action=approve', { method: 'POST', headers: { ...headers, cookie }, body: JSON.stringify(ids.slice(0, 1)) })).status, 200);
-			const left = await (await app.request('http://localhost/api/panel/admin/base/audit.php?include=data&review_status=pending', { headers: { ...headers, cookie } })).json();
+			assert.equal((await app.request('http://localhost/api/panel/admin/base/audits.php?action=approve', { method: 'POST', headers: { ...headers, cookie }, body: JSON.stringify(ids.slice(0, 1)) })).status, 200);
+			const left = await (await app.request('http://localhost/api/panel/admin/base/audits.php?include=data&review_status=pending', { headers: { ...headers, cookie } })).json();
 			assert.equal(left.table.dataSource.length, 0, '同一次操作的记录要一起批准');
 		}
 		const listBefore = await (await app.request(`${usersApi}?include=schema,data`, { headers: { ...headers, cookie } })).json();
@@ -184,7 +184,7 @@ const auditRouteFilter = async () => {
 		 * 回滚、重新应用地翻好几轮。行上挂一个「处理经过」弹窗，带上 audit_id——不带的话
 		 * 弹开的是全站事件。
 		 */
-		const auditTable = await (await app.request('http://localhost/api/panel/admin/base/audit.php?include=schema,data&review_status=all', { headers: { ...headers, cookie } })).json();
+		const auditTable = await (await app.request('http://localhost/api/panel/admin/base/audits.php?include=schema,data&review_status=all', { headers: { ...headers, cookie } })).json();
 		const transitionsAction = auditTable.table.option.actions.row.find((action) => action.key === 'transitions');
 		assert.equal(transitionsAction?.label, '处理经过');
 		assert.equal(transitionsAction.modalComponent, 'table');
@@ -232,14 +232,14 @@ const auditRouteFilter = async () => {
 		// 配置项名在 name 上，key 是机器写的雪花号——只用来指向这一行，不承载业务含义。
 		const visibleKeys = async () => (await configRows()).filter((row) => String(row.queued_at) === '0').map((row) => row.name);
 		const queuedKeys = async () => (await configRows()).filter((row) => String(row.queued_at) !== '0').map((row) => row.name);
-		const pendingIds = async () => (await (await app.request('http://localhost/api/panel/admin/base/audit.php?include=data&review_status=pending', { headers: { ...headers, cookie } })).json())
+		const pendingIds = async () => (await (await app.request('http://localhost/api/panel/admin/base/audits.php?include=data&review_status=pending', { headers: { ...headers, cookie } })).json())
 			.table.dataSource.map((row) => String(row.id));
-		const decide = (action, ids) => app.request(`http://localhost/api/panel/admin/base/audit.php?action=${action}`, { method: 'POST', headers: { ...headers, cookie }, body: JSON.stringify(ids) });
+		const decide = (action, ids) => app.request(`http://localhost/api/panel/admin/base/audits.php?action=${action}`, { method: 'POST', headers: { ...headers, cookie }, body: JSON.stringify(ids) });
 
 		assert.equal((await app.request(rowsApi, { method: 'POST', headers: { ...headers, cookie }, body: JSON.stringify({ name: 'audit_fixture', value: '{}' }) })).status, 202, '新建也要进审批队列');
 		assert.equal((await visibleKeys()).includes('audit_fixture'), false, '没批准之前这一行不该生效');
 		assert.equal((await queuedKeys()).includes('audit_fixture'), true, '但它躺在库里，数据管理看得见');
-		const insertEntry = (await (await app.request('http://localhost/api/panel/admin/base/audit.php?include=data&review_status=pending', { headers: { ...headers, cookie } })).json())
+		const insertEntry = (await (await app.request('http://localhost/api/panel/admin/base/audits.php?include=data&review_status=pending', { headers: { ...headers, cookie } })).json())
 			.table.dataSource.find((row) => row.summary.includes('audit_fixture'));
 		assert.equal(insertEntry.action, 'insert');
 		assert.equal(insertEntry.data_status, 'unwritten');
@@ -308,7 +308,7 @@ const auditRouteFilter = async () => {
 		const mixList = async () => (await (await app.request(`${mixApi}?include=schema,data`, { headers: { ...headers, cookie } })).json()).table;
 		// 上一段把它改名成了 pendingbob3。
 		const mixTarget = (await mixList()).dataSource.find((row) => String(row.id) === String(staleId));
-		const mixQueue = async () => (await (await app.request(`http://localhost/api/panel/admin/base/audit.php?include=data&review_status=pending&table_name=base_users&row_id=${mixTarget.id}`, { headers: { ...headers, cookie } })).json())
+		const mixQueue = async () => (await (await app.request(`http://localhost/api/panel/admin/base/audits.php?include=data&review_status=pending&table_name=base_users&row_id=${mixTarget.id}`, { headers: { ...headers, cookie } })).json())
 			.table.dataSource.map((row) => row.action).sort();
 		assert.equal((await app.request(mixApi, { method: 'DELETE', headers: { ...headers, cookie }, body: JSON.stringify([String(mixTarget.id)]) })).status, 202);
 		assert.deepEqual(await mixQueue(), ['soft_delete']);
@@ -354,7 +354,7 @@ const auditRouteFilter = async () => {
 		const firstSaveTarget = (await (await app.request(`${firstSaveApi}?include=data`, { headers: { ...headers, cookie } })).json())
 			.table.dataSource.find((row) => row.user_name === 'pendingbob3');
 		assert.equal((await app.request(`${firstSaveApi}/${firstSaveTarget.id}`, { method: 'PUT', headers: { ...headers, cookie }, body: JSON.stringify({ profile_qq: '10001', __changedFields: ['profile_qq'] }) })).status, 202, '第一次给这个账号写资料也要进队列');
-		const firstSaveEntry = (await (await app.request('http://localhost/api/panel/admin/base/audit.php?include=data&review_status=pending&table_name=base_user_profiles', { headers: { ...headers, cookie } })).json())
+		const firstSaveEntry = (await (await app.request('http://localhost/api/panel/admin/base/audits.php?include=data&review_status=pending&table_name=base_user_profiles', { headers: { ...headers, cookie } })).json())
 			.table.dataSource.find((row) => row.action === 'insert');
 		assert.ok(firstSaveEntry, '记成一条新增');
 		assert.match(firstSaveEntry.summary, /qq：空 → 10001/, '审批人看得见要写进去的是什么');
@@ -367,7 +367,7 @@ const auditRouteFilter = async () => {
 		// 做完在审批表里找不到「谁第一次设了昵称」。
 		const meApi = 'http://localhost/api/panel/me.php';
 		assert.equal((await app.request(meApi, { method: 'PUT', headers: { ...headers, cookie }, body: JSON.stringify({ _section: 'profile', profile_nickname: '首次设置的昵称', profile_qq: '', profile_wechat: '', profile_email: '', __changedFields: ['profile_nickname'] }) })).status, 200, '个人中心立即生效');
-		const selfEntries = await (await app.request('http://localhost/api/panel/admin/base/audit.php?include=data&scope=self&table_name=base_user_profiles', { headers: { ...headers, cookie } })).json();
+		const selfEntries = await (await app.request('http://localhost/api/panel/admin/base/audits.php?include=data&scope=self&table_name=base_user_profiles', { headers: { ...headers, cookie } })).json();
 		const created = selfEntries.table.dataSource.find((row) => row.action === 'insert');
 		assert.ok(created, '第一次设资料要留下一条「新增」');
 		assert.match(created.summary, /nickname：空 → 首次设置的昵称/, '记下新增的内容');
@@ -410,18 +410,18 @@ const auditRouteFilter = async () => {
 		 */
 		const draftEdit = await app.request(`${usersApi}/${draft.id}`, { method: 'PUT', headers: { ...headers, cookie }, body: JSON.stringify({ status: 'disabled', __changedFields: ['status'] }) });
 		assert.equal(draftEdit.status, 200, '改草稿立即生效，不进队列');
-		const draftEntries = (await (await app.request(`http://localhost/api/panel/admin/base/audit.php?include=data&review_status=pending&table_name=base_users&row_id=${draft.id}`, { headers: { ...headers, cookie } })).json()).table.dataSource;
+		const draftEntries = (await (await app.request(`http://localhost/api/panel/admin/base/audits.php?include=data&review_status=pending&table_name=base_users&row_id=${draft.id}`, { headers: { ...headers, cookie } })).json()).table.dataSource;
 		assert.deepEqual(draftEntries.map((row) => row.action), ['insert'], '还是一条新建，没多出一条修改');
 		assert.match(draftEntries[0].summary, /status：空 → disabled/, '新建记录里的内容跟着刷新');
 		// 再改回去，同样立即生效——后面的用例还要用这个账号登录。
 		assert.equal((await app.request(`${usersApi}/${draft.id}`, { method: 'PUT', headers: { ...headers, cookie }, body: JSON.stringify({ status: 'enabled', __changedFields: ['status'] }) })).status, 200);
 		// 但换一种动作仍然挡住：删它不是改草稿。
 		assert.equal((await app.request(usersApi, { method: 'DELETE', headers: { ...headers, cookie }, body: JSON.stringify([String(draft.id)]) })).status, 409, '删它是另一种动作，仍然挡住');
-		const queuedInsert = await (await app.request('http://localhost/api/panel/admin/base/audit.php?include=data&review_status=pending', { headers: { ...headers, cookie } })).json();
+		const queuedInsert = await (await app.request('http://localhost/api/panel/admin/base/audits.php?include=data&review_status=pending', { headers: { ...headers, cookie } })).json();
 		const queuedInserts = queuedInsert.table.dataSource.filter((row) => row.action === 'insert');
 		assert.equal(queuedInserts.length, 3, '建号写三行：账号、凭证、资料');
 		assert.equal(new Set(queuedInserts.map((row) => row.operation_id)).size, 1, '三条共享一个操作号');
-		assert.equal((await app.request('http://localhost/api/panel/admin/base/audit.php?action=reject', { method: 'POST', headers: { ...headers, cookie }, body: JSON.stringify([String(queuedInserts[0].id)]) })).status, 200);
+		assert.equal((await app.request('http://localhost/api/panel/admin/base/audits.php?action=reject', { method: 'POST', headers: { ...headers, cookie }, body: JSON.stringify([String(queuedInserts[0].id)]) })).status, 200);
 		const afterReject = new DatabaseSync(process.env.DEFAULT_DATABASE_FILE);
 		// 三行一起进回收站，一行都不能落下——落下的那一行会指向一个已经不在生效列表里的账号。
 		const rejectedUser = afterReject.prepare("SELECT id, deleted_at, queued_at FROM base_users WHERE name = 'rejectme'").get();
@@ -443,7 +443,7 @@ const auditRouteFilter = async () => {
 		{
 			const pwdApi = 'http://localhost/api/panel/admin/base/users.php';
 			assert.equal((await app.request(pwdApi, { method: 'POST', headers: { ...headers, cookie }, body: JSON.stringify({ user_name: 'pwdguy', password: 'Abc12345', roles: [], status: 'enabled' }) })).status, 202);
-			const queued = await (await app.request('http://localhost/api/panel/admin/base/audit.php?include=data&review_status=pending&table_name=base_user_credentials', { headers: { ...headers, cookie } })).json();
+			const queued = await (await app.request('http://localhost/api/panel/admin/base/audits.php?include=data&review_status=pending&table_name=base_user_credentials', { headers: { ...headers, cookie } })).json();
 			const credential = queued.table.dataSource[0];
 			assert.match(credential.summary, /password（规律）：空 → ULLDDDDD/, '看得到规律，看不到口令');
 			assert.doesNotMatch(credential.summary, /salt|hash|Abc12345/, '整块 blob 一个字都不露');
@@ -646,7 +646,7 @@ const auditRouteFilter = async () => {
 		 * 「恢复」在审批轴（rejected/withdrawn → pending），「重新应用」在数据轴（reverted →
 		 * applied），两个名字分开：状态上互斥，但可以先后发生在同一条记录上。
 		 */
-		assert.equal((await app.request('http://localhost/api/panel/admin/base/audit.php?action=requeue', { method: 'POST', headers: { ...headers, cookie }, body: JSON.stringify([String(queuedInserts[0].id)]) })).status, 200);
+		assert.equal((await app.request('http://localhost/api/panel/admin/base/audits.php?action=requeue', { method: 'POST', headers: { ...headers, cookie }, body: JSON.stringify([String(queuedInserts[0].id)]) })).status, 200);
 		// 只有被否掉的**新增**能恢复：修改/删除/还原重新提交一次就是了，两条路做同一件事，
 		// 而多一条路就多一处状态要想。新建不一样——重来要把整张表单再填一遍。
 		const requeued = new DatabaseSync(process.env.DEFAULT_DATABASE_FILE);
@@ -668,7 +668,7 @@ const auditRouteFilter = async () => {
 		const model = /model base_audits \{([\s\S]*?)\n\}/.exec(schema);
 		assert.ok(model, '找不到 base_audits 模型');
 		const schemaOrder = [...model[1].matchAll(/^\s{2}([a-z_]+)\s+\S/gm)].map((match) => match[1]);
-		const listed = (await (await app.request('http://localhost/api/panel/admin/base/audit.php?include=schema,data', { headers: { ...headers, cookie } })).json()).table.columns
+		const listed = (await (await app.request('http://localhost/api/panel/admin/base/audits.php?include=schema,data', { headers: { ...headers, cookie } })).json()).table.columns
 			.map((column) => column.dataIndex)
 			.filter((dataIndex) => schemaOrder.includes(dataIndex));
 		assert.deepEqual(listed, schemaOrder.filter((column) => listed.includes(column)), '后台列的先后必须与 prisma 字段顺序一致');
@@ -677,7 +677,7 @@ const auditRouteFilter = async () => {
 		// 而不记「在哪改的」，事后分不清是哪个站点的管理员动的手。
 		await app.request('https://site-a.test/api/panel/me.php', { method: 'PUT', headers: { ...headers, cookie }, body: JSON.stringify({ _section: 'profile', profile_nickname: '甲甲', profile_qq: '', profile_wechat: '', profile_email: '' }) });
 		await app.request('https://site-b.test/api/panel/me.php', { method: 'PUT', headers: { ...headers, cookie }, body: JSON.stringify({ _section: 'profile', profile_nickname: '乙乙', profile_qq: '', profile_wechat: '', profile_email: '' }) });
-		const origins = await app.request('http://localhost/api/panel/admin/base/audit.php?include=schema,data&review_status=all&table_name=base_user_profiles', { headers: { ...headers, cookie } });
+		const origins = await app.request('http://localhost/api/panel/admin/base/audits.php?include=schema,data&review_status=all&table_name=base_user_profiles', { headers: { ...headers, cookie } });
 		const originRows = (await origins.json()).table.dataSource;
 		assert.ok(originRows.length >= 1, '改昵称要留下审计记录');
 		// 记的是去掉后缀的逻辑路径：`.php` 是站点可配的接口后缀，记原样会让同一件事
@@ -697,7 +697,7 @@ const auditRouteFilter = async () => {
 		assert.equal((await decide('approve', await pendingIds())).status, 200);
 		const pathTarget = (await (await app.request(`${memberApi}?include=schema,data`, { headers: { ...headers, cookie } })).json()).table.dataSource.find((row) => row.user_name === 'pathguy');
 		assert.equal((await app.request(`${memberApi}/${pathTarget.id}`, { method: 'PUT', headers: { ...headers, cookie }, body: JSON.stringify({ status: 'disabled', __changedFields: ['status'] }) })).status, 202);
-		const memberRows = (await (await app.request('http://localhost/api/panel/admin/base/audit.php?include=schema,data&table_name=base_users', { headers: { ...headers, cookie } })).json()).table.dataSource;
+		const memberRows = (await (await app.request('http://localhost/api/panel/admin/base/audits.php?include=schema,data&table_name=base_users', { headers: { ...headers, cookie } })).json()).table.dataSource;
 		const memberPaths = [...new Set(memberRows.map((row) => String(row.request_path)))];
 		assert.ok(memberPaths.every((path) => !path.includes('.php')), `request_path 不该带接口后缀：${memberPaths.join(' ')}`);
 		assert.ok(memberPaths.includes(`/api/panel/admin/base/users/${pathTarget.id}`), `成员地址剥掉后缀后应是 /api/panel/admin/base/users/<id>：${memberPaths.join(' ')}`);
@@ -1203,7 +1203,7 @@ try {
 	assert.notEqual(noReasonFilter.length, emptyReason.length, '空串不等于不筛：原先这两者是同一个东西，于是空值搜不出来');
 	// 下拉框不摆「全部」：空着就是不加这个条件，占位文字写着「未填写」，与文本框同一套说法。
 	// 「全部」是「不筛选」的第二种拼法，两种摆在一个控件里，看的人先得琢磨它们差在哪。
-	const auditRoute = await readFile(resolve(projectDirectory, 'server/routes/base/api/panel/admin/base/audit.mts'), 'utf8');
+	const auditRoute = await readFile(resolve(projectDirectory, 'server/routes/base/api/panel/admin/base/audits.mts'), 'utf8');
 	assert.doesNotMatch(auditRoute, /text: '全部'/, '审批页的下拉框不该再摆「全部」这一项');
 	const tableCrudSource = await readFile(resolve(projectDirectory, 'src/utils/antd/table_crud/index.tsx'), 'utf8');
 	assert.match(tableCrudSource, /placeholder=\{field\.placeholder \?\? '未填写'\}/, '下拉框空着的时候要讲清楚那是「未填写」');
@@ -1217,17 +1217,34 @@ try {
 	const total = (await entries()).length;
 	assert.equal(await purgeExpiredAuditEntries(database, 0), 0, '保留期为 0 表示不自动清理');
 	assert.equal((await entries()).length, total);
-	const oldest = (await entries()).slice(0, 3).map((entry) => entry.id);
+	/**
+	 * 保留期按 `settled_at` 算，而且**只清已经了结的**。
+	 *
+	 * 从「了结」起算：按提交时刻算的话，一条提交一年后才批准的申请，批准当天就到期该清了。
+	 * 只清已了结的：一条卡在队列里超过保留期的**新建**申请要是被删掉，它那一行还带着
+	 * `queued_at != 0` 躺在库里——谁也看不见、谁也批不了、也不在回收站，连带把那个名字
+	 * 永久占住。下面单独验这一条。
+	 */
 	const staleAt = Date.now() - 400 * 86400_000;
-	for (const id of oldest) database.prepare('UPDATE base_audits SET created_at = ? WHERE id = ?').bind(staleAt, id).run();
+	const settledOnes = (await entries()).filter((entry) => String(entry.settled_at) !== '0').slice(0, 3).map((entry) => entry.id);
+	assert.equal(settledOnes.length, 3, '得有三条已了结的记录可清');
+	// 各给一个时刻：同一行的多条历史记录共用一个 settled_at 会撞上那条唯一索引。
+	settledOnes.forEach((id, index) => database.prepare('UPDATE base_audits SET settled_at = ? WHERE id = ?').bind(staleAt + index, id).run());
 	assert.equal(await purgeExpiredAuditEntries(database, 365, { batchSize: 2 }), 3, '过期记录应被物理删除，且分批可重入');
 	assert.equal((await entries()).length, total - 3, '未到期的记录不受影响');
 	assert.equal(await purgeExpiredAuditEntries(database, 365), 0, '再跑一次没有可清理的记录');
+	// 还在队列里的：做旧到多久都不清。清掉它就会留下一个谁也处理不了的幽灵行。
+	const queuedEntry = (await entries()).find((entry) => entry.review_status === 'pending');
+	if (queuedEntry) {
+		database.prepare('UPDATE base_audits SET created_at = ? WHERE id = ?').bind(staleAt, queuedEntry.id).run();
+		assert.equal(await purgeExpiredAuditEntries(database, 365), 0, '还在队列里的申请不该被保留期清走');
+		assert.ok((await entries()).some((entry) => String(entry.id) === String(queuedEntry.id)), '它得还在');
+	}
 
 	// 保留期按租户独立：读各租户自己的站点设置。
 	await runSql(database, sql({ database }).ignoreInsert('base_tenants', ['name'], { name: 'default', title: '默认租户', status: 'enabled' }));
-	const remaining = (await entries()).find((entry) => String(entry.owner_tid) === '1');
-	database.prepare('UPDATE base_audits SET created_at = ? WHERE id = ?').bind(staleAt, remaining.id).run();
+	const remaining = (await entries()).find((entry) => String(entry.owner_tid) === '1' && String(entry.settled_at) !== '0');
+	database.prepare('UPDATE base_audits SET settled_at = ? WHERE id = ?').bind(staleAt, remaining.id).run();
 	assert.equal(await purgeAuditRetention(database), 1, '未配置保留期的租户应回落到默认的 365 天');
 
 	// 空串与 NULL 都念作「空」：在「改了什么」这个问题上它们是同一件事——原来没有值。

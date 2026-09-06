@@ -38,11 +38,11 @@ try {
 		method: 'POST', headers: superHeaders,
 		body: JSON.stringify({ user_name: 'reviewer', password: 'super-password-2', roles: ['platform_admin'], status: 'enabled' }),
 	})).status, 202);
-	const queued = await (await app.request('http://localhost/api/panel/admin/base/audit.php?include=data&review_status=pending', { headers: superHeaders })).json();
-	assert.equal((await app.request('http://localhost/api/panel/admin/base/audit.php?action=approve', { method: 'POST', headers: superHeaders, body: JSON.stringify(queued.table.dataSource.map((row) => String(row.id))) })).status, 200);
+	const queued = await (await app.request('http://localhost/api/panel/admin/base/audits.php?include=data&review_status=pending', { headers: superHeaders })).json();
+	assert.equal((await app.request('http://localhost/api/panel/admin/base/audits.php?action=approve', { method: 'POST', headers: superHeaders, body: JSON.stringify(queued.table.dataSource.map((row) => String(row.id))) })).status, 200);
 	// 重名的建号要在**记录之前**挡掉：审批是先记录后应用，等 INSERT 撞索引才失败的话，
 	// 队列里会留下一条指向从未写成的行的申请，批也批不动。
-	const queuedNow = async () => (await (await app.request('http://localhost/api/panel/admin/base/audit.php?include=data&review_status=pending', { headers: superHeaders })).json()).table.dataSource.length;
+	const queuedNow = async () => (await (await app.request('http://localhost/api/panel/admin/base/audits.php?include=data&review_status=pending', { headers: superHeaders })).json()).table.dataSource.length;
 	const queuedBefore = await queuedNow();
 	const duplicate = await app.request('http://localhost/api/panel/admin/base/users.php', {
 		method: 'POST', headers: superHeaders,
@@ -58,9 +58,9 @@ try {
 	const settings = 'http://localhost/api/panel/admin/base/settings/site-frontend.php';
 	const submit = (headers, footer) => app.request(settings, { method: 'PUT', headers, body: JSON.stringify({ footer, __changedFields: ['footer'] }) });
 	const approve = async (headers) => {
-		const pending = await (await app.request('http://localhost/api/panel/admin/base/audit.php?include=data&review_status=pending', { headers })).json();
+		const pending = await (await app.request('http://localhost/api/panel/admin/base/audits.php?include=data&review_status=pending', { headers })).json();
 		const ids = pending.table.dataSource.map((row) => String(row.id));
-		const response = await app.request('http://localhost/api/panel/admin/base/audit.php?action=approve', { method: 'POST', headers, body: JSON.stringify(ids) });
+		const response = await app.request('http://localhost/api/panel/admin/base/audits.php?action=approve', { method: 'POST', headers, body: JSON.stringify(ids) });
 		// 失败的响应把话放在 feedback.message 里（messagePayload 的形状）。
 		const body = await response.json();
 		return { status: response.status, message: body.message ?? body.feedback?.message ?? '' };
@@ -110,12 +110,12 @@ try {
 	// 只有被否掉的新增能恢复。
 	assert.equal((await submit(reviewerHeaders, '页脚己')).status, 202);
 	const rejectedIds = await (async () => {
-		const list = await (await app.request('http://localhost/api/panel/admin/base/audit.php?include=data&review_status=pending', { headers: superHeaders })).json();
+		const list = await (await app.request('http://localhost/api/panel/admin/base/audits.php?include=data&review_status=pending', { headers: superHeaders })).json();
 		const ids = list.table.dataSource.map((row) => String(row.id));
-		assert.equal((await app.request('http://localhost/api/panel/admin/base/audit.php?action=reject', { method: 'POST', headers: superHeaders, body: JSON.stringify(ids) })).status, 200);
+		assert.equal((await app.request('http://localhost/api/panel/admin/base/audits.php?action=reject', { method: 'POST', headers: superHeaders, body: JSON.stringify(ids) })).status, 200);
 		return ids;
 	})();
-	const requeued = await app.request('http://localhost/api/panel/admin/base/audit.php?action=requeue', { method: 'POST', headers: superHeaders, body: JSON.stringify(rejectedIds) });
+	const requeued = await app.request('http://localhost/api/panel/admin/base/audits.php?action=requeue', { method: 'POST', headers: superHeaders, body: JSON.stringify(rejectedIds) });
 	assert.equal(requeued.status, 409, '被驳回的修改不给恢复——重新提交一次就是了');
 	assert.match((await requeued.json()).feedback?.message ?? '', /只有被否掉的新增可以恢复/);
 

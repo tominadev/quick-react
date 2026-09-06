@@ -21,9 +21,9 @@ const deviceKey = '00000000-0000-4000-8000-000000000001';
 	});
 	/** 后台的修改一律进审批队列（§11.3）；这些用例验的是业务行为本身，收到 202 就把队列批掉。 */
 	const approvePending = async (cookie) => {
-		const pending = await (await request('/api/panel/admin/base/audit.php?include=data&review_status=pending', { headers: { cookie } })).json();
+		const pending = await (await request('/api/panel/admin/base/audits.php?include=data&review_status=pending', { headers: { cookie } })).json();
 		const ids = (pending.table?.dataSource ?? []).map((row) => String(row.id));
-		if (ids.length) await request('/api/panel/admin/base/audit.php?action=approve', { method: 'POST', headers: { cookie }, body: ids });
+		if (ids.length) await request('/api/panel/admin/base/audits.php?action=approve', { method: 'POST', headers: { cookie }, body: ids });
 	};
 
 	// API 页面启动（CDN 模式）下 auth、siteNavigation、pageStatus 不嵌在文档里，从上下文接口取。

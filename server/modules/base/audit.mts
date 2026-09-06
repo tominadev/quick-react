@@ -477,6 +477,26 @@ const transitionOne = async (database: DatabaseAdapter, entry: AuditEntryRow, to
 	if (allowed.insertOnly && entry.action !== 'insert') {
 		return { id: entry.id, ok: false, message: '只有被否掉的新增可以恢复，其余重新提交一次就是了' };
 	}
+	/**
+	 * **放回队列之前先看那一行的队列有没有空位。**
+	 *
+	 * `settled_at` 归零会让这条记录重新占住 `(table_name, row_key, 0)` 那个位置，而那上面有
+	 * 唯一索引（一行同时只能有一条在队列里）。位置被占着时归零撞索引，抛出来的是裸的
+	 * `UNIQUE constraint failed`，接口回 500。
+	 *
+	 * 这条路完全可达：新建被驳回 → 那一行进回收站 → 有人从回收站还原（排进一条 restore）
+	 * → 再来恢复那条被驳回的新建。**先查再给人话**，别让人对着 500 猜。
+	 */
+	if (allowed.review === 'pending') {
+		const occupying = await firstSql<{ id: string }>(database, auditSql(database).select({
+			table: AUDIT_TABLE, columns: { id: { column: 'id', cast: 'text' } },
+			where: [{ column: 'table_name', value: entry.table_name }, { column: 'row_key', value: entry.row_key }, { column: 'settled_at', value: 0 }],
+			limit: 1,
+		}));
+		if (occupying && String(occupying.id) !== String(entry.id)) {
+			return { id: entry.id, ok: false, message: `这一行已经有另一条申请（#${occupying.id}）在队列里，一行同时只能有一条——请先把那一条处理掉` };
+		}
+	}
 	// 新建：行已经在库里，区别只在看不看得见（驳回与撤销则把它删掉）。
 	if (entry.action === 'insert') {
 		/**
@@ -622,7 +642,7 @@ const transitionOne = async (database: DatabaseAdapter, entry: AuditEntryRow, to
 	 */
 	const settled = allowed.review === undefined ? {}
 		: { settled_at: allowed.review === 'pending' ? 0 : Date.now() };
-	await runSystemSql(database, sql({ database }).update(AUDIT_TABLE, {
+	const moved = await runSystemSql(database, sql({ database }).update(AUDIT_TABLE, {
 		...(allowed.review ? { review_status: allowed.review } : {}),
 		...(allowed.data ? { data_status: allowed.data } : {}),
 		...settled,
@@ -631,6 +651,18 @@ const transitionOne = async (database: DatabaseAdapter, entry: AuditEntryRow, to
 		{ column: 'review_status', value: entry.review_status },
 		{ column: 'data_status', value: entry.data_status },
 	]));
+	/**
+	 * **条件更新的结果要看。** 带上原状态做条件本来就是为了并发下只有一个请求能迁移成功，
+	 * 可原先没人检查它改没改到行——两个请求同时进来时，两个都回「已批准」「已驳回」，
+	 * 而实际只发生了一次。第二个人以为自己做成了。
+	 *
+	 * 单进程 SQLite 撞不上（读写是串行的，后一个请求在前置检查那里就被挡住了），多实例
+	 * 部署会。已知限制见需求文档 §14：数据写入排在这一步之前，因此并发下仍可能出现
+	 * 「数据按 A 的意思写了、状态却是 B 的」，那要靠把抢占提到写入之前才能根治。
+	 */
+	if (Number(moved.meta?.changes ?? 0) === 0) {
+		return { id: entry.id, ok: false, message: '这条申请刚被别人处理过，请刷新后再看' };
+	}
 	return { id: entry.id, ok: true, message: `已${allowed.label}` };
 };
 
@@ -706,8 +738,22 @@ export const purgeExpiredAuditEntries = async (database: DatabaseAdapter, retent
 	if (days <= 0) return 0;
 	const cutoff = Date.now() - days * 86_400_000;
 	const batchSize = options.batchSize ?? 500, maxBatches = options.maxBatches ?? 20;
+	/**
+	 * **只清已经了结的，而且从「了结」那一刻起算。**
+	 *
+	 * 原先的条件只有 `created_at < cutoff`，不看这条申请处理完了没有。于是一条卡在队列里
+	 * 超过保留期的**新建**申请会被物理删掉，而它那一行还带着 `queued_at != 0` 躺在库里：
+	 * 谁也看不见它（正常查询过滤掉了），谁也批不了它（申请没了），它也不在回收站
+	 * （`deleted_at` 是 0）——连带把那个用户名永久占住，因为唯一索引里它还活着。
+	 * 只要有申请卡过保留期，这个幽灵行就必然出现。
+	 *
+	 * 起点也从 `created_at` 换成 `settled_at`：保留期说的是「**处理完的**记录留多久」。
+	 * 按提交时刻算的话，一条提交一年后才批准的申请，批准当天就到期该清了——它的留痕
+	 * 一天都没留住。
+	 */
 	const scope: SqlCondition[] = [
-		{ column: 'created_at', operator: '<', value: cutoff },
+		{ column: 'settled_at', operator: '>', value: 0 },
+		{ column: 'settled_at', operator: '<', value: cutoff },
 		...(options.tenantId === undefined ? [] : [{ column: 'owner_tid', value: options.tenantId }]),
 	];
 	let removed = 0;

@@ -83,8 +83,22 @@ const handler: ApiHandler = async (c, next, params) => {
 	if (c.req.method === 'DELETE') {
 		const ids = await c.req.json<unknown>().catch(() => []);
 		if (!Array.isArray(ids)) return apiMessage(c, 400, '删除参数无效');
-		for (const id of ids) await runOperationSql(c, database, sql({ database }).softDelete(tableName, { [rowKey]: String(id) }));
-		return apiMessage(c, 200, '删除成功，可在回收站找回或彻底删除');
+		/**
+		 * **删了几行要如实报。**
+		 *
+		 * 原先无条件回「删除成功」，不看语句改没改到行——对着一个已经删掉的 id、一个不存在的
+		 * id、或者一行当前主体看不见的记录点删除，得到的都是「删除成功，可在回收站找回」，
+		 * 而回收站里什么也没有。静默失败比报错难查得多：人会以为删掉了。
+		 *
+		 * 进了审批队列的那一路不走到这里（runOperation 抛 PendingApprovalError）。
+		 */
+		let removed = 0;
+		for (const id of ids) {
+			const result = await runOperationSql(c, database, sql({ database }).softDelete(tableName, { [rowKey]: String(id) }));
+			removed += Number(result?.meta?.changes ?? 0);
+		}
+		if (!removed) return apiMessage(c, 404, '没有匹配到要删除的记录：可能它已经删掉了，或者当前身份看不到它');
+		return apiMessage(c, 200, `删除成功 ${removed} 条，可在回收站找回或彻底删除`);
 	}
 	return next();
 };

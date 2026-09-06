@@ -15,7 +15,7 @@ const projectDirectory = resolve(import.meta.dirname, '..');
  */
 const routeTables = {
 	'base/api/panel/admin/base/audit-transitions.mts': 'base_audit_transitions',
-	'base/api/panel/admin/base/audit.mts': 'base_audits',
+	'base/api/panel/admin/base/audits.mts': 'base_audits',
 	'base/api/panel/admin/base/users.mts': 'base_users',
 	'base/api/panel/agent/subordinates.mts': 'base_users',
 	'global/api/panel/admin/global/cloud/credentials.mts': 'global_cloud_credentials',

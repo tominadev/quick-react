@@ -27,9 +27,9 @@ try {
 	};
 	/** 后台的写入一律进审批队列（§11.3）；这些用例验的是业务行为本身，批掉再往下走。 */
 	const approvePending = async (cookie) => {
-		const pending = await (await request('/api/panel/admin/base/audit.php?include=data&review_status=pending', { cookie })).json();
+		const pending = await (await request('/api/panel/admin/base/audits.php?include=data&review_status=pending', { cookie })).json();
 		const ids = (pending.table?.dataSource ?? []).map((row) => String(row.id));
-		if (ids.length) await request('/api/panel/admin/base/audit.php?action=approve', { method: 'POST', cookie, body: ids });
+		if (ids.length) await request('/api/panel/admin/base/audits.php?action=approve', { method: 'POST', cookie, body: ids });
 	};
 
 	// API 页面启动（CDN 模式）下文档对所有访客一致以便缓存：HTTP 一律 200，

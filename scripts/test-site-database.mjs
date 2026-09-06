@@ -29,10 +29,10 @@ try {
 		if (response.status !== 202 || !options.cookie) return response;
 		const auditHeaders = new Headers(headers);
 		auditHeaders.set('content-type', 'application/json');
-		const pending = await (await app.request('http://localhost/api/panel/admin/base/audit.php?include=data&status=pending', { headers: auditHeaders })).json();
+		const pending = await (await app.request('http://localhost/api/panel/admin/base/audits.php?include=data&status=pending', { headers: auditHeaders })).json();
 		const ids = (pending.table?.dataSource ?? []).map((row) => String(row.id));
 		if (ids.length) {
-			await app.request('http://localhost/api/panel/admin/base/audit.php?action=approve', { method: 'POST', headers: auditHeaders, body: JSON.stringify(ids) });
+			await app.request('http://localhost/api/panel/admin/base/audits.php?action=approve', { method: 'POST', headers: auditHeaders, body: JSON.stringify(ids) });
 		}
 		return new Response(await response.text(), { status: 200, headers: response.headers });
 	};

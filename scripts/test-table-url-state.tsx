@@ -111,7 +111,7 @@ assert.equal(new URLSearchParams(queryRequestValues({ reason: '', row_id: null }
 // 地址上什么都没写就不带任何参数，接口照常用它自己的默认值。
 assert.deepEqual(tableRequestParams(''), {});
 assert.deepEqual(tableRequestParams('?tab=profile'), {}, '页面自身的参数不往接口带');
-// 这就是 /panel/admin/base/audit.html?q.review_status=all 首屏该发出的参数。
+// 这就是 /panel/admin/base/audits.html?q.review_status=all 首屏该发出的参数。
 assert.deepEqual(tableRequestParams('?q.review_status=pending'), { review_status: 'pending' });
 // 空串照样带给接口：那是「找空的」这个条件本身。服务端因此也是三态——
 // 参数不在是不筛，参数在而为空是找空的。
