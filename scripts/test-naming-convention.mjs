@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import { readFile, readdir } from 'node:fs/promises';
-import { nameColumnOf } from '../shared/system-fields.mts';
+import { NON_REFERENCE_COLUMNS, nameColumnOf } from '../shared/system-fields.mts';
 import { join, resolve } from 'node:path';
 
 /**
@@ -124,7 +124,9 @@ for (const file of (await readdir(prismaDirectory)).filter((name) => name.endsWi
 				const field = column[1];
 				if (SYSTEM.has(field)) continue;
 				// 外键列没有索引就是全表扫。索引是不是复合的无所谓,前缀能用上就行。
-				if ((field.endsWith('_id') || field.endsWith('_key')) && !covered.has(field)) problems.push(`${name}.${field} 是外键列,要有索引`);
+				// 长得像引用却不是的（Ed25519 公钥这类）登记在 NON_REFERENCE_COLUMNS。
+				const referencing = (field.endsWith('_id') || field.endsWith('_key')) && !NON_REFERENCE_COLUMNS.has(`${name}.${field}`);
+				if (referencing && !covered.has(field)) problems.push(`${name}.${field} 是外键列,要有索引`);
 				// 时间点一律 `_at`:`last_timestamp` 这种一眼看不出它和 expires_at 是同一类。
 				if (/^(?:last|first)_(?:timestamp|time)$|_(?:timestamp|time)$/.test(field)) problems.push(`${name}.${field} 是时间点,要以 _at 结尾`);
 			}

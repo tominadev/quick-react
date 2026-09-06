@@ -36,3 +36,17 @@ export const NAME_COLUMNS: Record<string, string> = {
 
 /** 这张表的名字列；没登记过的就是 `name`。 */
 export const nameColumnOf = (table: string) => NAME_COLUMNS[table] ?? 'name';
+
+/**
+ * 以 `_id` / `_key` 结尾、但**既不指向任何表、也不用来查询**的列。
+ *
+ * 这两个后缀在本项目里意味着「引用」，因此凡是这么结尾的列都要求有索引（没索引的外键
+ * 意味着全表扫）。极少数列长得像引用却不是：`public_key` 是 Ed25519 公钥，是数据本身，
+ * 谁也不会拿一段公钥去查表。
+ *
+ * 登记而不是放宽规则：放宽了就等于所有 `_key` 列都不必有索引，而绝大多数是真外键。
+ * 写成 `<表>.<列>` 是为了精确到那一列——别的表如果也叫 public_key 而它确实是引用，规则照旧管它。
+ */
+export const NON_REFERENCE_COLUMNS = new Set([
+	'sms_integration_client_keys.public_key',
+]);

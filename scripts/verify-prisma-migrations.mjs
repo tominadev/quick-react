@@ -11,7 +11,7 @@ const projectDirectory = resolve(import.meta.dirname, '..');
 const generatorPath = join(projectDirectory, 'scripts', 'generate-prisma-migrations.mjs');
 const prismaBin = join(projectDirectory, 'node_modules/.bin/prisma');
 const snapshotDirectory = join(projectDirectory, 'prisma', '.applied');
-const sites = ['global', 'base', 'passport', 'pve'];
+const sites = ['global', 'base', 'passport', 'pve', 'sms'];
 const migrationsDirectory = join(projectDirectory, 'migrations');
 const prismaDirectory = join(projectDirectory, 'prisma');
 // 缓存放在 node_modules 下：不进版本库，CI 与全新克隆照常做完整校验，

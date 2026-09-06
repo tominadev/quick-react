@@ -14,7 +14,7 @@ const yes = args.has('--yes');
 const fileArg = process.argv.find((value) => value.startsWith('--file='))?.slice(7);
 const groupsArg = process.argv.find((value) => value.startsWith('--groups='))?.slice(9);
 const databaseFile = resolve(fileArg || process.env.DEFAULT_DATABASE_FILE || 'database/default.sqlite');
-const groups = (groupsArg || 'global,base,passport,pve').split(',').map((value) => value.trim()).filter(Boolean);
+const groups = (groupsArg || 'global,base,passport,pve,sms').split(',').map((value) => value.trim()).filter(Boolean);
 if (dropExtra && !yes) throw new Error('删除多余字段必须同时传入 --yes；请先运行 schema:check 查看差异');
 
 const applyMigrations = async (database) => {

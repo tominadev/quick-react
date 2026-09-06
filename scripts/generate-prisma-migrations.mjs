@@ -41,7 +41,7 @@ const migrationName = (nameArgument ? nameArgument.slice('--name='.length) : 'sc
 const snapshotDirectory = resolve(projectDirectory, 'prisma', '.applied');
 const snapshotPath = (site) => join(snapshotDirectory, `${site}.prisma`);
 
-const sites = ['global', 'base', 'passport', 'pve'];
+const sites = ['global', 'base', 'passport', 'pve', 'sms'];
 const dialects = [
 	{ name: 'sqlite', provider: 'sqlite', url: 'file:./database/default.sqlite' },
 	{ name: 'mysql', provider: 'mysql', url: 'mysql://migration:secret@localhost/migration' },

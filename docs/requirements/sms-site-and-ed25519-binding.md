@@ -309,13 +309,13 @@ WHERE id = ? AND status = 'pending' AND next_attempt_at <= ?
 | 字段 | 说明 |
 | --- | --- |
 | `name` | 机器标识，`(owner_tid, name, deleted_at)` 唯一，同时作为对象键中的目录名 |
-| `name` | 管理端显示名称 |
+| `title` | 管理端显示名称 |
 | `secret_hash` | 平台预配凭证的哈希，与 `sms_access_keys` 同规则，不保存明文 |
 | `secret_prefix` | 凭证前缀，仅用于在管理端辨认，不足以还原凭证 |
 | `status` | `enabled` / `disabled` |
 | `last_used_at` | 最近一次成功调用生成接口的时间，可为空 |
 
-`key` 使用运维分配的短标识（如 `mac-studio-01`），**不使用主机名或硬件 UUID**：主机名常含人名且可变，硬件 UUID 属于设备指纹，两者都不适合出现在对象键里。
+`name` 使用运维分配的短标识（如 `mac-studio-01`），**不使用主机名或硬件 UUID**：主机名常含人名且可变，硬件 UUID 属于设备指纹，两者都不适合出现在对象键里。
 
 管理操作：**新增机器**（服务端生成高熵凭证，存哈希，明文只在创建响应中展示一次）、**重置凭证**（生成新凭证，旧凭证立即失效）、**停用机器**（`status` 置 `disabled` 后凭证立即被拒，不影响其他机器与已生成的令牌文件）。
 

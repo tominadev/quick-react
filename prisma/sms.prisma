@@ -1,0 +1,376 @@
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+/// 通用启停。多张表共用同一个枚举：它们说的是同一件事，各建各的会让「enabled」在不同表里
+/// 长成不同的类型，比对和迁移都要多绕一层。
+enum SmsEnabledStatus {
+  enabled
+  disabled
+}
+
+/// 手机绑定的三态。
+///
+/// `enabled` 正常接收；`disabled` 用户临时停收，关系保留、可自行恢复；`revoked` 已解绑，
+/// 关系终止、不可恢复，只能重新绑定——重新绑定靠的是名字列那条带 `deleted_at` 的唯一索引
+/// （见 sms_phones.number）。
+enum SmsPhoneStatus {
+  enabled
+  disabled
+  revoked
+}
+
+/// Shortcut 令牌的四态。
+///
+/// `pending` 已登记但文件还没确认上传；`available` 在公共池里等人领；`bound` 已绑定到手机；
+/// `revoked` 已作废。只有 `available` 且对应文件 `ready` 的才允许被领取。
+enum SmsTokenStatus {
+  pending
+  available
+  bound
+  revoked
+}
+
+/// Shortcut 文件的状态。换发新文件时递增 version 并把旧版本置为 revoked。
+enum SmsArtifactStatus {
+  ready
+  revoked
+}
+
+/// 接入方公钥的状态。轮换流程：先登记新 kid 置 active，接入方切换后把旧 kid 置 retired；
+/// retired 的公钥立即拒绝新票据。
+enum SmsClientKeyStatus {
+  active
+  retired
+}
+
+/// 推送投递的状态机。
+enum SmsDeliveryStatus {
+  pending
+  sending
+  succeeded
+  failed
+}
+
+/// 可以代表用户签发绑定票据的服务端接入方。
+///
+/// 公钥不在本表：轮换期间需要新旧公钥并存，一行放一个公钥做不到，因此拆到
+/// sms_integration_client_keys。
+model sms_integration_clients {
+  id           BigInt @id @default(autoincrement())
+  key          String @db.VarChar(36)
+  @@unique([key])
+  created_at   BigInt @default(0)
+  updated_at   BigInt @default(0)
+  deleted_at   BigInt @default(0)
+  queued_at    BigInt @default(0)
+  created_duid BigInt?
+  updated_duid BigInt?
+  owner_tid    BigInt @default(1)
+  owner_bid    BigInt @default(1)
+  owner_uid    BigInt?
+  /// 接入方标识。票据 JSON 中的协议字段名是 `client_id`，取的就是这个值。
+  name         String @db.VarChar(64)
+  @@unique([owner_tid, name, deleted_at])
+  title        String
+  /// 允许的绑定能力，本期固定包含 `phone:bind`。
+  binding_scope String
+  status       SmsEnabledStatus @default(enabled)
+  /// 最近成功验证时间，可为空。
+  last_used_at BigInt?
+}
+
+/// 一个接入方可以有多个公钥，按 kid 定位。
+model sms_integration_client_keys {
+  id           BigInt @id @default(autoincrement())
+  key          String @db.VarChar(36)
+  @@unique([key])
+  created_at   BigInt @default(0)
+  updated_at   BigInt @default(0)
+  deleted_at   BigInt @default(0)
+  queued_at    BigInt @default(0)
+  created_duid BigInt?
+  updated_duid BigInt?
+  owner_tid    BigInt @default(1)
+  owner_bid    BigInt @default(1)
+  owner_uid    BigInt?
+  integration_client_id BigInt
+  @@index([integration_client_id])
+  /// 密钥标识，票据中携带。**协议只认 kid，不存在 key_version 这个协议字段。**
+  /// 不带 deleted_at：一个用过的 kid 即便记录被删掉也不该能重新启用。
+  kid          String @db.VarChar(64)
+  @@unique([integration_client_id, kid])
+  /// Ed25519 公钥，原始字节的 Base64URL 表示。私钥永远不写入 SMS。
+  public_key   String
+  status       SmsClientKeyStatus @default(active)
+  retired_at   BigInt?
+}
+
+/// 已绑定的手机。
+///
+/// **本表不保存当前令牌的引用**：令牌与手机的关系只由 sms_shortcut_tokens.phone_id 单向维护
+/// ——双向外键在无事务环境下必然出现单边不一致。查询手机的当前令牌用 phone_id 反查。
+model sms_phones {
+  id           BigInt @id @default(autoincrement())
+  key          String @db.VarChar(36)
+  @@unique([key])
+  created_at   BigInt @default(0)
+  updated_at   BigInt @default(0)
+  deleted_at   BigInt @default(0)
+  queued_at    BigInt @default(0)
+  created_duid BigInt?
+  updated_duid BigInt?
+  owner_tid    BigInt @default(1)
+  owner_bid    BigInt @default(1)
+  owner_uid    BigInt?
+  /// 规范化后的 E.164 手机号。**这是本表的名字列**（登记在 shared/system-fields.mts 的
+  /// NAME_COLUMNS 里），因此唯一索引带 `deleted_at`——解绑之后同一个号能重新绑回来，
+  /// 而那正是 status=revoked 的语义所要求的。票据中的协议字段名是 `phone`。
+  number       String @db.VarChar(32)
+  @@unique([owner_tid, number, deleted_at])
+  /// 用户可修改的设备名称。
+  title        String @default("")
+  status       SmsPhoneStatus @default(enabled)
+  bound_at     BigInt @default(0)
+  revoked_at   BigInt?
+}
+
+/// Shortcut 令牌的服务端摘要。原始令牌只存在于 Shortcut 文件与用户手机。
+model sms_shortcut_tokens {
+  id           BigInt @id @default(autoincrement())
+  key          String @db.VarChar(36)
+  @@unique([key])
+  created_at   BigInt @default(0)
+  updated_at   BigInt @default(0)
+  deleted_at   BigInt @default(0)
+  queued_at    BigInt @default(0)
+  created_duid BigInt?
+  updated_duid BigInt?
+  owner_tid    BigInt @default(1)
+  owner_bid    BigInt @default(1)
+  /// 令牌归属账号；公共池阶段为空，领取时写入。
+  owner_uid    BigInt?
+  /// 原始令牌的 SHA-256，小写十六进制 64 字符。不带 deleted_at：一个撤销过的令牌哈希
+  /// 不该能借尸还魂。
+  token_sha256 String @db.VarChar(64)
+  @@unique([token_sha256])
+  /// 绑定的手机；pending 与 available 状态下均为空。
+  phone_id     BigInt?
+  @@index([phone_id])
+  status       SmsTokenStatus @default(pending)
+  /// 生成任务的幂等键。中断后重新运行只补齐未完成项，不产生重复的有效令牌。
+  idempotency_token String @db.VarChar(64)
+  @@unique([idempotency_token])
+  /// 最近一次成功提交短信的时间，可为空。
+  last_used_at BigInt?
+}
+
+/// Shortcut 文件的元数据。文件本身在私有对象存储里。
+model sms_shortcut_artifacts {
+  id           BigInt @id @default(autoincrement())
+  key          String @db.VarChar(36)
+  @@unique([key])
+  created_at   BigInt @default(0)
+  updated_at   BigInt @default(0)
+  deleted_at   BigInt @default(0)
+  queued_at    BigInt @default(0)
+  created_duid BigInt?
+  updated_duid BigInt?
+  owner_tid    BigInt @default(1)
+  owner_bid    BigInt @default(1)
+  owner_uid    BigInt?
+  token_id     BigInt
+  @@index([token_id])
+  /// 私有对象键，形如 `shortcuts/<机器 name>/<yyyymmdd>/<毫秒时间戳>-<随机后缀>.shortcut`。
+  /// **随机后缀不可省略**：仅由时间戳构成时并发的 prepare-upload 可能落在同一毫秒并生成
+  /// 相同键，后一次 PUT 会覆盖前一个对象，领取者会拿到他人的令牌并读到他人短信。
+  object_key   String
+  @@unique([object_key])
+  /// 文件摘要，小写十六进制 64 字符，用于上传完成校验。
+  file_sha256  String @db.VarChar(64)
+  size_bytes   BigInt @default(0)
+  /// 由服务端固定写入，生成器不提交。
+  content_type String
+  /// 同一令牌的文件版本号。
+  version      Int    @default(1)
+  @@unique([token_id, version])
+  /// 由服务端从凭证解析后写入，生成器自称的标识不作数。
+  generator_machine_id BigInt
+  @@index([generator_machine_id])
+  status       SmsArtifactStatus @default(ready)
+}
+
+/// 手机收到的短信。
+///
+/// 本站唯一会持续膨胀的表，因此有保留期（站点配置 `sms.message_retention_days`，默认 90 天）。
+/// 到期记录**物理删除**：软删除只是标记，表体积照涨。
+model sms_messages {
+  id           BigInt @id @default(autoincrement())
+  key          String @db.VarChar(36)
+  @@unique([key])
+  created_at   BigInt @default(0)
+  updated_at   BigInt @default(0)
+  deleted_at   BigInt @default(0)
+  queued_at    BigInt @default(0)
+  created_duid BigInt?
+  updated_duid BigInt?
+  owner_tid    BigInt @default(1)
+  owner_bid    BigInt @default(1)
+  /// 等于所属手机的 owner_uid。短信由 Shortcut 用 Bearer 令牌写入，那一刻没有登录会话，
+  /// **写入前必须显式绑定归属**，否则 NULL 归属的行连主人自己都看不到。
+  owner_uid    BigInt?
+  phone_id     BigInt
+  @@index([phone_id])
+  content      String
+  recipients   String @default("")
+  sender       String @default("")
+  received_at  BigInt @default(0)
+  @@index([received_at])
+  /// 去重哈希。**必须把 received_at 算进去**：这条唯一索引不带 deleted_at，软删掉的短信
+  /// 仍占着它的哈希——只按正文与发送人算的话，用户删掉一条之后同样内容的下一条会被当成
+  /// 重复丢弃，而那明明是一条新短信。
+  payload_hash String @db.VarChar(64)
+  @@unique([phone_id, payload_hash])
+}
+
+/// 票据的一次性消费记录。
+///
+/// **消费方式是插入而不是更新**：用 ignoreInsert 写入，影响行数为 0 即表示该 nonce 已被使用。
+/// 唯一约束在数据库层保证一次性，无需事务。
+model sms_ticket_nonces {
+  id           BigInt @id @default(autoincrement())
+  key          String @db.VarChar(36)
+  @@unique([key])
+  created_at   BigInt @default(0)
+  updated_at   BigInt @default(0)
+  deleted_at   BigInt @default(0)
+  queued_at    BigInt @default(0)
+  created_duid BigInt?
+  updated_duid BigInt?
+  owner_tid    BigInt @default(1)
+  owner_bid    BigInt @default(1)
+  owner_uid    BigInt?
+  integration_client_id BigInt
+  @@index([integration_client_id])
+  /// 票据中的随机数。不带 deleted_at：一个已消费的 nonce 即便记录被删掉也不该能重放。
+  nonce        String @db.VarChar(64)
+  @@unique([integration_client_id, nonce])
+  /// 取票据的 exp，用于过期清理。
+  expires_at   BigInt @default(0)
+  @@index([expires_at])
+}
+
+/// 用户服务端调用管理 API 的 Bearer Access Key。原始 Key 只展示一次。
+model sms_access_keys {
+  id           BigInt @id @default(autoincrement())
+  key          String @db.VarChar(36)
+  @@unique([key])
+  created_at   BigInt @default(0)
+  updated_at   BigInt @default(0)
+  deleted_at   BigInt @default(0)
+  queued_at    BigInt @default(0)
+  created_duid BigInt?
+  updated_duid BigInt?
+  owner_tid    BigInt @default(1)
+  owner_bid    BigInt @default(1)
+  /// 归属账号。
+  owner_uid    BigInt?
+  /// 原始 Key 的哈希，不保存明文。
+  secret_hash  String
+  /// 仅用于在管理端辨认，不足以还原凭证。
+  secret_prefix String @db.VarChar(16)
+  /// 权限范围。
+  scope        String
+  status       SmsEnabledStatus @default(enabled)
+  expires_at   BigInt?
+  revoked_at   BigInt?
+}
+
+/// 把收到的短信投递到用户自己的服务端。
+///
+/// **本表不存任何密钥**：推送用 Ed25519 签名，私钥是平台自己的，放平台密钥存储，不进数据库；
+/// 接收方用 SMS 公布的公钥验签。
+model sms_push_endpoints {
+  id           BigInt @id @default(autoincrement())
+  key          String @db.VarChar(36)
+  @@unique([key])
+  created_at   BigInt @default(0)
+  updated_at   BigInt @default(0)
+  deleted_at   BigInt @default(0)
+  queued_at    BigInt @default(0)
+  created_duid BigInt?
+  updated_duid BigInt?
+  owner_tid    BigInt @default(1)
+  owner_bid    BigInt @default(1)
+  owner_uid    BigInt?
+  /// 推送目标，必须 HTTPS。**每次投递前都要重做出站目标校验**（SSRF）：DNS 记录可以在
+  /// 保存之后被改指到内网地址。
+  url          String
+  status       SmsEnabledStatus @default(enabled)
+  /// 限定只推送该手机的短信；为空表示该账号全部手机。
+  phone_id     BigInt?
+  @@index([phone_id])
+  last_success_at BigInt?
+  last_error   String @default("")
+}
+
+/// 投递状态必须落库，否则进程重启后重试队列丢失。
+model sms_push_deliveries {
+  id           BigInt @id @default(autoincrement())
+  key          String @db.VarChar(36)
+  @@unique([key])
+  created_at   BigInt @default(0)
+  updated_at   BigInt @default(0)
+  deleted_at   BigInt @default(0)
+  queued_at    BigInt @default(0)
+  created_duid BigInt?
+  updated_duid BigInt?
+  owner_tid    BigInt @default(1)
+  owner_bid    BigInt @default(1)
+  owner_uid    BigInt?
+  message_id   BigInt
+  @@index([message_id])
+  push_endpoint_id BigInt
+  @@index([push_endpoint_id])
+  /// 稳定标识，重试沿用同一值；接收方按它去重。
+  delivery_id  String @db.VarChar(64)
+  @@unique([delivery_id])
+  /// 同一条短信对同一目标只产生一条投递记录。
+  @@unique([message_id, push_endpoint_id])
+  status       SmsDeliveryStatus @default(pending)
+  attempts     Int    @default(0)
+  next_attempt_at BigInt @default(0)
+  @@index([next_attempt_at])
+  /// 最近错误摘要，不含密钥与短信正文。
+  last_error   String @default("")
+}
+
+/// 允许运行 Shortcut 生成器的 Mac，一台一行。凭证是它的字段而非独立实体。
+///
+/// 本表属于平台运维数据，`owner_uid` 为 NULL，因此行级判定已经使它对普通账号不可见。
+model sms_generator_machines {
+  id           BigInt @id @default(autoincrement())
+  key          String @db.VarChar(36)
+  @@unique([key])
+  created_at   BigInt @default(0)
+  updated_at   BigInt @default(0)
+  deleted_at   BigInt @default(0)
+  queued_at    BigInt @default(0)
+  created_duid BigInt?
+  updated_duid BigInt?
+  owner_tid    BigInt @default(1)
+  owner_bid    BigInt @default(1)
+  owner_uid    BigInt?
+  /// 运维分配的短标识（如 `mac-studio-01`），同时作为对象键中的目录名。
+  /// **不使用主机名或硬件 UUID**：主机名常含人名且可变，硬件 UUID 属于设备指纹。
+  name         String @db.VarChar(64)
+  @@unique([owner_tid, name, deleted_at])
+  title        String
+  /// 平台预配凭证的哈希，不保存明文。
+  secret_hash  String
+  /// 凭证前缀，仅用于在管理端辨认。
+  secret_prefix String @db.VarChar(16)
+  status       SmsEnabledStatus @default(enabled)
+  last_used_at BigInt?
+}
