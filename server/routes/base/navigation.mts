@@ -102,14 +102,20 @@ const rawSiteNavigation = (): MenuNode[] => [
 	 * 说法与路径对不上号，读的人要在两套词之间来回换算。
 	 */
 	{
-		label: '用户',
+		/**
+		 * 叫「控制台」而不是「用户」：旁边并列的是「管理后台」与「代理中心」，两个都是
+		 * **场所名**，只有这一个是身份名——菜单项要回答的是「点进去是什么地方」，不是
+		 * 「我是谁」。管理员会同时看到它和「管理后台」，区分由「后台」二字承担：
+		 * 控制台管自己的东西，后台管别人的。
+		 */
+		label: '控制台',
 		key: 'panel/user',
 		icon: 'appstore',
 		component: 'panelRoot',
 		navigationGroup: 'user',
 		dropdown: true,
 		dashboardPath: '/panel/user/base/me',
-		title: '用户',
+		title: '控制台',
 		description: '当前登录账号自己的东西',
 		roles: ['user'],
 		children: [

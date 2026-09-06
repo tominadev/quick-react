@@ -45,14 +45,15 @@ try {
 
 	/**
 	 * 用户面与管理后台对称：顶层是 `/panel/user`，页面挂在它下面并带站点名
-	 * （`/panel/user/base/me`）。文案直译——`user` 是「用户」，`me` 是「我」。
+	 * （`/panel/user/base/me`）。`me` 直译成「我」；`user` 那一层叫「控制台」——并列的
+	 * 「管理后台」「代理中心」都是场所名，菜单项回答的是「点进去是什么地方」。
 	 *
 	 * CDN 模式下导航不嵌在文档里，从上下文接口取。
 	 */
 	const navigation = (await readPageContext(app, 'localhost', '/', { cookie, headers: { 'x-device-key': deviceKey, 'x-device-fingerprint': fingerprintData } })).context.siteNavigation;
 	const userPanel = navigation.find((item) => item.key === '/panel/user');
 	assert.ok(userPanel, '用户面应该存在');
-	assert.equal(userPanel.label, '用户', '文案直译，不另造「用户中心」这类词');
+	assert.equal(userPanel.label, '控制台', '与并列的「管理后台」「代理中心」一样是场所名，不用身份名');
 	// `['user']` 是「要登录」，不是特权：每个登录用户都带着这个角色。用户面到此为止，不再细分。
 	assert.deepEqual(userPanel.roles, ['user'], '用户面要求登录');
 	const me = (userPanel.children ?? []).find((item) => item.key === '/panel/user/base/me');

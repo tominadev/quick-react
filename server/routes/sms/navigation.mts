@@ -14,7 +14,8 @@ import type { MenuNode } from '@server/routes/base/navigation.mjs';
  */
 const navigation: MenuNode[] = [
 	{
-		label: '用户', key: 'panel/user', icon: 'appstore', dashboardPath: '/panel/user/sms/phones', roles: ['user'],
+		// 与 base 一致叫「控制台」：并列的「管理后台」是场所名，这一个也该是。
+		label: '控制台', key: 'panel/user', icon: 'appstore', dashboardPath: '/panel/user/sms/phones', roles: ['user'],
 		children: [{
 			label: '短信', key: 'sms', icon: 'appstore', navigationGroup: 'sms', dropdown: false,
 			title: '短信', description: '管理自己绑定的手机，查看收到的短信',
