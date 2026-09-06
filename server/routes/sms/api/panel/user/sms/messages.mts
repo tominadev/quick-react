@@ -1,7 +1,7 @@
 import type { ApiHandler } from '@server/modules/base/api-router.mjs';
 import { apiMessage, apiResponse } from '@server/modules/base/api-response.mjs';
 import { allSql, firstSql, ownerScope, sql } from '@server/database/sql.mjs';
-import { runOperationSql } from '@server/modules/base/operation.mjs';
+import { runOperation, runOperationSql } from '@server/modules/base/operation.mjs';
 import { tableSort } from '@server/modules/base/query-options.mjs';
 import type { TableCrudDefinition } from '@server/modules/base/table-crud.mjs';
 
@@ -76,7 +76,7 @@ const handler: ApiHandler = async (c, next, params) => {
 		const body = await c.req.json<unknown>().catch(() => []);
 		const ids = params.id ? [params.id] : (Array.isArray(body) ? body.map((value) => String(value)).filter(Boolean) : []);
 		if (!ids.length) return apiMessage(c, 400, '请选择要删除的短信');
-		for (const id of ids) await runOperationSql(c, database, sql({ database }).softDelete('sms_messages', [{ column: 'id', value: id }, mine('owner_uid')]));
+		await runOperation(c, database, ids.map((id) => sql({ database }).softDelete('sms_messages', [{ column: 'id', value: id }, mine('owner_uid')])));
 		return apiMessage(c, 200, '删除成功，可在回收站找回或彻底删除');
 	}
 

@@ -6,7 +6,7 @@ import { enabledDisabledOptions, statusValues } from '@shared/types/status.mjs';
 import type { TableCrudDefinition } from '@server/modules/base/table-crud.mjs';
 import { getChangedFields } from '@server/modules/base/changed-fields.mjs';
 import { allSql, firstSql, sql } from '@server/database/sql.mjs';
-import { PendingApprovalError, runOperationSql } from '@server/modules/base/operation.mjs';
+import { PendingApprovalError, runOperation, runOperationSql } from '@server/modules/base/operation.mjs';
 import { tableSort } from '@server/modules/base/query-options.mjs';
 
 export const tableCrud: TableCrudDefinition = { table: 'global_cloud_object_storage_bindings', rowKey: 'id' };
@@ -147,7 +147,7 @@ const handler: ApiHandler = async (c, next, params) => {
 
 	if (!params.id && c.req.method === 'DELETE') {
 		const ids = await c.req.json<unknown>().catch(() => []);
-		for (const id of Array.isArray(ids) ? ids : []) await runOperationSql(c, database, sql({ database }).softDelete('global_cloud_object_storage_bindings', { id: Number(id) }));
+		await runOperation(c, database, (Array.isArray(ids) ? ids : []).map((id) => sql({ database }).softDelete('global_cloud_object_storage_bindings', { id: Number(id) })));
 		return apiMessage(c, 200, '删除成功，可在回收站找回或彻底删除');
 	}
 

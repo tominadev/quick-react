@@ -4,7 +4,7 @@ import { apiMessage, apiMessageData, apiResponse } from '@server/modules/base/ap
 import { parseRedirectUris, randomToken, sha256 } from '@server/modules/passport/accounts/oidc.mjs';
 import { enabledDisabledOptions, statusValues } from '@shared/types/status.mjs';
 import { allSql, runSql, sql } from '@server/database/sql.mjs';
-import { runOperationSql } from '@server/modules/base/operation.mjs';
+import { runOperation, runOperationSql } from '@server/modules/base/operation.mjs';
 import { oidcClient, oidcClients } from '@server/modules/passport/accounts/repository.mjs';
 import type { TableCrudDefinition } from '@server/modules/base/table-crud.mjs';
 import { tableSort } from '@server/modules/base/query-options.mjs';
@@ -115,7 +115,7 @@ const handler: ApiHandler = async (c, next, params) => {
 		const body = await c.req.json<unknown>().catch(() => []);
 		const ids = params.id ? [params.id] : (Array.isArray(body) ? body.map((value) => String(value)).filter(Boolean) : []);
 		if (!ids.length) return apiMessage(c, 400, '请选择要删除的客户端');
-		for (const id of ids) await runOperationSql(c, database, sql({ database }).softDelete('passport_oidc_clients', { client_id: id }));
+		await runOperation(c, database, ids.map((id) => sql({ database }).softDelete('passport_oidc_clients', { client_id: id })));
 		return apiMessage(c, 200, '删除成功，可在回收站找回或彻底删除');
 	}
 	return next();

@@ -119,7 +119,7 @@ const handler: ApiHandler = async (c, next, params) => {
 		const body = await c.req.json<unknown>().catch(() => []);
 		const ids = params.id ? [params.id] : (Array.isArray(body) ? body.map((value) => String(value)).filter(Boolean) : []);
 		if (!ids.length) return apiMessage(c, 400, '请选择要删除的手机');
-		for (const id of ids) await runOperationSql(c, database, sql({ database }).softDelete('sms_phones', [{ column: 'id', value: id }, mine()]));
+		await runOperation(c, database, ids.map((id) => sql({ database }).softDelete('sms_phones', [{ column: 'id', value: id }, mine()])));
 		return apiMessage(c, 200, '删除成功，可在回收站找回或彻底删除');
 	}
 

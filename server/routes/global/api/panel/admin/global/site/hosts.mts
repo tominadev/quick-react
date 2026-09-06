@@ -7,8 +7,8 @@ import type { TableCrudDefinition } from '@server/modules/base/table-crud.mjs';
 export const tableCrud: TableCrudDefinition = { table: 'global_site_hosts', rowKey: 'id' };
 import { getChangedFields } from '@server/modules/base/changed-fields.mjs';
 import { accountsIdentityApi } from '@server/modules/base/navigation.mjs';
-import { allSql, firstSql, runSql, sql } from '@server/database/sql.mjs';
-import { runOperationSql } from '@server/modules/base/operation.mjs';
+import { allSql, firstSql, runSql, sql, type SqlQuery } from '@server/database/sql.mjs';
+import { runOperation, runOperationSql } from '@server/modules/base/operation.mjs';
 import { tableSort } from '@server/modules/base/query-options.mjs';
 
 const columns = [
@@ -32,15 +32,21 @@ const parseBody = async (c: Parameters<ApiHandler>[0]): Promise<Record<string, u
 	catch { return {}; }
 };
 
-const removeHost = async (c: Parameters<ApiHandler>[0], id: number) => {
+/**
+ * 删一个域名前要过两道检查，通过了返回那条待执行的语句。
+ *
+ * **检查与执行分开，是为了让批量删除能一次提交。** 一条一条 `runOperationSql` 的话，
+ * 第一条就抛 `PendingApprovalError`（后台的写入要走审批），循环当场中断——选了五行，
+ * 只有第一行进了队列，其余四行**静默丢失**，而界面回的是「已提交审批」。
+ */
+const hostDeletion = async (c: Parameters<ApiHandler>[0], id: number): Promise<{ error?: Response; statement?: SqlQuery }> => {
 	const database = c.get('database');
 	const host = await firstSql<{ hostname: string; status: string }>(database, sql({ database }).select({ table: 'global_site_hosts', columns: { hostname: 'hostname', status: 'status' }, where: [{ column: 'id', value: id }] }));
-	if (!host) return undefined;
-	if (host.status !== statusValues.disabled) return apiMessage(c, 409, '域名必须先停用才能删除');
+	if (!host) return {};
+	if (host.status !== statusValues.disabled) return { error: await apiMessage(c, 409, '域名必须先停用才能删除') };
 	const bot = await firstSql(database, sql({ database }).select({ table: 'global_telegram_bots', columns: { id: 'id' }, where: [{ column: 'webhook_hostname', value: host.hostname }], limit: 1 }));
-	if (bot) return apiMessage(c, 409, '域名正在被 Telegram 机器人使用，不能删除');
-	await runOperationSql(c, database, sql({ database }).softDelete('global_site_hosts', { id }));
-	return undefined;
+	if (bot) return { error: await apiMessage(c, 409, '域名正在被 Telegram 机器人使用，不能删除') };
+	return { statement: sql({ database }).softDelete('global_site_hosts', { id }) };
 };
 
 const handler: ApiHandler = async (c, next, params) => {
@@ -65,10 +71,13 @@ const handler: ApiHandler = async (c, next, params) => {
 	}
 	if (!params.id && c.req.method === 'DELETE') {
 		const ids = await c.req.json<unknown[]>().catch(() => []);
+		const statements: SqlQuery[] = [];
 		for (const id of Array.isArray(ids) ? ids : []) {
-			const response = await removeHost(c, Number(id));
-			if (response) return response;
+			const result = await hostDeletion(c, Number(id));
+			if (result.error) return result.error;
+			if (result.statement) statements.push(result.statement);
 		}
+		await runOperation(c, database, statements);
 		await c.get('siteRouter').refresh();
 		return apiMessage(c, 200, '删除成功，可在回收站找回或彻底删除');
 	}
@@ -102,8 +111,9 @@ const handler: ApiHandler = async (c, next, params) => {
 		return apiMessage(c, 200, '保存成功');
 	}
 	if (params.id && c.req.method === 'DELETE') {
-		const response = await removeHost(c, Number(params.id));
-		if (response) return response;
+		const result = await hostDeletion(c, Number(params.id));
+		if (result.error) return result.error;
+		if (result.statement) await runOperationSql(c, database, result.statement);
 		await c.get('siteRouter').refresh();
 		return apiMessage(c, 200, '删除成功，可在回收站找回或彻底删除');
 	}

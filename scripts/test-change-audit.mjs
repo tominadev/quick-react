@@ -883,6 +883,57 @@ const orphanedInsertApproval = async () => {
 		await rm(directory, { recursive: true, force: true });
 	}
 };
+/**
+ * 批量删除要把**每一条**都记进队列。
+ *
+ * 后台的写入走审批，`runOperationSql` 记完就抛 `PendingApprovalError`——一条一条地循环
+ * 调它，第一条就把循环打断了：选了五行，只有第一行进队列，其余四行**静默丢失**，而界面
+ * 回的是「已提交审批」。批准之后人回来一看，还剩四行没删。
+ *
+ * 改成一次 `runOperation` 传整批语句：它内部把全部记完再抛，一个 operation_id 串起来。
+ * 这个写法曾经散在十一处（用户、域名、云凭据、Bucket、绑定、OIDC 客户端、SMS 那五页）。
+ */
+const bulkDeleteQueuesEveryRow = async () => {
+	const directory = await mkdtemp(join(tmpdir(), 'quick-react-audit-bulk-'));
+	const previousFile = process.env.DEFAULT_DATABASE_FILE;
+	process.env.DEFAULT_DATABASE_FILE = join(directory, 'default.sqlite');
+	process.env.SKIP_SERVER_LISTEN = '1';
+	try {
+		const { app, runMaintenanceAction } = await import(`../dist/server.mjs?audit-bulk=${Date.now()}`);
+		await runMaintenanceAction('restore-admin', { user_name: 'bulkadmin', password: 'audit-password-1' });
+		const { DatabaseSync } = await import('node:sqlite');
+		const headers = {
+			'content-type': 'application/json',
+			'x-device-key': '00000000000040008000000000000001',
+			'x-device-fingerprint': JSON.stringify({ canvas_cyrb53: 'a', audio_cyrb53: 'b' }),
+		};
+		const login = await app.request('http://localhost/api/sign.php', { method: 'POST', headers, body: JSON.stringify({ user_name: 'bulkadmin', password: 'audit-password-1' }) });
+		const h = { ...headers, cookie: login.headers.get('set-cookie')?.split(';')[0] };
+		const seed = new DatabaseSync(process.env.DEFAULT_DATABASE_FILE);
+		const at = Date.now();
+		// 三个已经生效的账号，直接 seed——这里验的是删除那一步，不是建号。
+		for (const name of ['bulk-one', 'bulk-two', 'bulk-three']) {
+			seed.prepare("INSERT INTO base_users (key, name, roles, status, created_at, updated_at) VALUES (lower(hex(randomblob(16))), ?, '[]', 'enabled', ?, ?)").run(name, at, at);
+		}
+		const ids = seed.prepare("SELECT id FROM base_users WHERE name LIKE 'bulk-%'").all().map((row) => String(row.id));
+		seed.close();
+		assert.equal(ids.length, 3);
+
+		const deleted = await app.request('http://localhost/api/panel/admin/base/users.php', { method: 'DELETE', headers: h, body: JSON.stringify(ids) });
+		assert.equal(deleted.status, 202, '后台的删除要进审批队列');
+		const check = new DatabaseSync(process.env.DEFAULT_DATABASE_FILE, { readOnly: true });
+		const queued = check.prepare("SELECT COUNT(*) AS n FROM base_audits WHERE table_name = 'base_users' AND action = 'soft_delete' AND review_status = 'pending'").get().n;
+		assert.equal(queued, 3, `选了 3 行就要有 3 条申请，实际 ${queued} 条`);
+		// 一次操作一个 operation_id：批准时它们作为一组一起处理，不会只批掉其中一条。
+		const groups = check.prepare("SELECT COUNT(DISTINCT operation_id) AS n FROM base_audits WHERE table_name = 'base_users' AND action = 'soft_delete'").get().n;
+		assert.equal(groups, 1, '同一次批量删除要共享一个 operation_id');
+		check.close();
+	} finally {
+		if (previousFile === undefined) delete process.env.DEFAULT_DATABASE_FILE;
+		else process.env.DEFAULT_DATABASE_FILE = previousFile;
+		await rm(directory, { recursive: true, force: true });
+	}
+};
 const temporaryDirectory = await mkdtemp(join(tmpdir(), 'quick-react-change-audit-'));
 try {
 	const result = await build({
@@ -1383,6 +1434,7 @@ try {
 	await auditRouteFilter();
 	await booleanColumnApproval();
 	await orphanedInsertApproval();
+	await bulkDeleteQueuesEveryRow();
 
 	// ---- 保留期（§10）----
 	const total = (await entries()).length;

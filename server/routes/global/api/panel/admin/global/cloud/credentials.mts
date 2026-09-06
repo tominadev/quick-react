@@ -7,8 +7,8 @@ import { testCloudCredential } from '@server/modules/global/cloud/credential-tes
 import type { CloudCredential } from '@server/modules/global/cloud/index.mjs';
 import { getChangedFields } from '@server/modules/base/changed-fields.mjs';
 import type { DatabaseAdapter } from '@server/database/index.mjs';
-import { allSql, firstSql, runSql, sql } from '@server/database/sql.mjs';
-import { PendingApprovalError, runOperationSql } from '@server/modules/base/operation.mjs';
+import { allSql, firstSql, runSql, sql, type SqlQuery } from '@server/database/sql.mjs';
+import { PendingApprovalError, runOperation, runOperationSql } from '@server/modules/base/operation.mjs';
 import { enabledDisabledOptions, statusValues } from '@shared/types/status.mjs';
 import type { TableCrudDefinition } from '@server/modules/base/table-crud.mjs';
 import { tableSort } from '@server/modules/base/query-options.mjs';
@@ -36,12 +36,19 @@ const credentialInUse = async (database: DatabaseAdapter, id: number) => (await 
 	firstSql(database, sql({ database }).select({ table: 'global_cloud_email_channels', columns: { id: 'id' }, where: [{ column: 'cloud_credential_id', value: id }], limit: 1 })),
 	firstSql(database, sql({ database }).select({ table: 'global_cloud_email_template_publications', columns: { template_id: 'template_id' }, where: [{ column: 'cloud_credential_id', value: id }], limit: 1 })),
 ])).some(Boolean);
-const deleteCredential = async (c: Context<AppEnv>, database: DatabaseAdapter, id: number) => {
+/**
+ * 删一个云凭据前要过三道检查，通过了返回那条待执行的语句。
+ *
+ * **检查与执行分开，是为了让批量删除能一次提交。** 一条一条 `runOperationSql` 的话，
+ * 第一条就抛 `PendingApprovalError`（后台的写入要走审批），循环当场中断——选了五行，
+ * 只有第一行进了队列，其余四行**静默丢失**，而界面回的是「已提交审批」。
+ */
+const credentialDeletion = async (database: DatabaseAdapter, id: number): Promise<{ error?: string; statement?: SqlQuery }> => {
 	const credential = await firstSql<{ id: number; status: string }>(database, sql({ database }).select({ table: 'global_cloud_credentials', columns: { id: 'id', status: 'status' }, where: [{ column: 'id', value: id }] }));
-	if (!credential) return '云凭据不存在';
-	if (credential.status !== statusValues.disabled) return '云凭据必须先停用才能删除';
-	if (await credentialInUse(database, id)) return '云凭据仍被 Bucket、邮件通道或云端模板使用，不能删除';
-	await runOperationSql(c, database, sql({ database }).softDelete('global_cloud_credentials', { id }));
+	if (!credential) return { error: '云凭据不存在' };
+	if (credential.status !== statusValues.disabled) return { error: '云凭据必须先停用才能删除' };
+	if (await credentialInUse(database, id)) return { error: '云凭据仍被 Bucket、邮件通道或云端模板使用，不能删除' };
+	return { statement: sql({ database }).softDelete('global_cloud_credentials', { id }) };
 };
 
 const handler: ApiHandler = async (c, next, params) => {
@@ -65,10 +72,13 @@ const handler: ApiHandler = async (c, next, params) => {
 	}
 	if (!params.id && c.req.method === 'DELETE') {
 		const ids = await c.req.json<unknown>().catch(() => []);
+		const statements: SqlQuery[] = [];
 		for (const id of Array.isArray(ids) ? ids : []) {
-			const error = await deleteCredential(c, database, Number(id));
-			if (error) return apiMessage(c, 409, error);
+			const result = await credentialDeletion(database, Number(id));
+			if (result.error) return apiMessage(c, 409, result.error);
+			if (result.statement) statements.push(result.statement);
 		}
+		await runOperation(c, database, statements);
 		return apiMessage(c, 200, '删除成功，可在回收站找回或彻底删除');
 	}
 	if (params.id && c.req.method === 'GET') {
@@ -116,8 +126,10 @@ const handler: ApiHandler = async (c, next, params) => {
 		return apiMessage(c, 200, '保存成功');
 	}
 	if (params.id && c.req.method === 'DELETE') {
-		const error = await deleteCredential(c, database, Number(params.id));
-		return error ? apiMessage(c, 409, error) : apiMessage(c, 200, '删除成功，可在回收站找回或彻底删除');
+		const result = await credentialDeletion(database, Number(params.id));
+		if (result.error) return apiMessage(c, 409, result.error);
+		if (result.statement) await runOperationSql(c, database, result.statement);
+		return apiMessage(c, 200, '删除成功，可在回收站找回或彻底删除');
 	}
 	return next();
 };

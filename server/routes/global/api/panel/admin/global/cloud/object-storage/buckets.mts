@@ -12,7 +12,7 @@ import type { TableCrudDefinition } from '@server/modules/base/table-crud.mjs';
 
 export const tableCrud: TableCrudDefinition = { table: 'global_cloud_object_storage_buckets', rowKey: 'id' };
 import { allSql, firstSql, runSql, sql } from '@server/database/sql.mjs';
-import { PendingApprovalError, runOperationSql } from '@server/modules/base/operation.mjs';
+import { PendingApprovalError, runOperation, runOperationSql } from '@server/modules/base/operation.mjs';
 import { tableSort } from '@server/modules/base/query-options.mjs';
 
 const baseColumns = [
@@ -101,10 +101,8 @@ const handler: ApiHandler = async (c, next, params) => {
 	}
 	if (!params.id && c.req.method === 'DELETE') {
 		const ids = await c.req.json<unknown>().catch(() => []);
-		for (const id of Array.isArray(ids) ? ids : []) {
-			try { await runOperationSql(c, database, sql({ database }).softDelete('global_cloud_object_storage_buckets', { id: Number(id) })); }
-			catch (error) { if (error instanceof PendingApprovalError) throw error; return apiMessage(c, 409, 'Bucket 已绑定到站点，不能删除'); }
-		}
+		try { await runOperation(c, database, (Array.isArray(ids) ? ids : []).map((id) => sql({ database }).softDelete('global_cloud_object_storage_buckets', { id: Number(id) }))); }
+		catch (error) { if (error instanceof PendingApprovalError) throw error; return apiMessage(c, 409, 'Bucket 已绑定到站点，不能删除'); }
 		return apiMessage(c, 200, '删除成功，可在回收站找回或彻底删除');
 	}
 	if (params.id && c.req.method === 'GET') {
