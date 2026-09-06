@@ -225,24 +225,27 @@ const auditRouteFilter = async () => {
 		// 数据管理**不过滤 pended_at**：它看的是表里实际有什么。所以「生效的行」在这里要
 		// 自己按 pended_at 收一次——顺带证明待审批的那一行确实躺在库里，只是还没生效。
 		const configRows = async () => (await (await app.request(`${rowsApi}&include=data`, { headers: { ...headers, cookie } })).json()).table.dataSource;
-		const visibleKeys = async () => (await configRows()).filter((row) => String(row.pended_at) === '0').map((row) => row.key);
-		const pendedKeys = async () => (await configRows()).filter((row) => String(row.pended_at) !== '0').map((row) => row.key);
+		// 配置项名在 name 上，key 是机器写的雪花号——只用来指向这一行，不承载业务含义。
+		const visibleKeys = async () => (await configRows()).filter((row) => String(row.pended_at) === '0').map((row) => row.name);
+		const pendedKeys = async () => (await configRows()).filter((row) => String(row.pended_at) !== '0').map((row) => row.name);
 		const pendingIds = async () => (await (await app.request('http://localhost/api/panel/admin/base/audit.php?include=data&review_status=pending', { headers: { ...headers, cookie } })).json())
 			.table.dataSource.map((row) => String(row.id));
 		const decide = (action, ids) => app.request(`http://localhost/api/panel/admin/base/audit.php?action=${action}`, { method: 'POST', headers: { ...headers, cookie }, body: JSON.stringify(ids) });
 
-		assert.equal((await app.request(rowsApi, { method: 'POST', headers: { ...headers, cookie }, body: JSON.stringify({ key: 'audit_fixture', value: '{}' }) })).status, 202, '新建也要进审批队列');
+		assert.equal((await app.request(rowsApi, { method: 'POST', headers: { ...headers, cookie }, body: JSON.stringify({ name: 'audit_fixture', value: '{}' }) })).status, 202, '新建也要进审批队列');
 		assert.equal((await visibleKeys()).includes('audit_fixture'), false, '没批准之前这一行不该生效');
 		assert.equal((await pendedKeys()).includes('audit_fixture'), true, '但它躺在库里，数据管理看得见');
 		const insertEntry = (await (await app.request('http://localhost/api/panel/admin/base/audit.php?include=data&review_status=pending', { headers: { ...headers, cookie } })).json())
-			.table.dataSource.find((row) => row.row_key === 'audit_fixture');
+			.table.dataSource.find((row) => row.summary.includes('audit_fixture'));
 		assert.equal(insertEntry.action, 'insert');
 		assert.equal(insertEntry.data_status, 'unwritten');
 		// 新建记录里写下将要新增的内容：待审批的行带着 pended_at，在任何正常列表里都看不见，
 		// 让审批人「自己去看那一行」是行不通的。
-		// `key` 不重复进来——它已经是这条记录的「记录标识」那一列。
+		// `key` 不重复进来——它已经是这条记录的「记录标识」那一列，而且现在是机器写的雪花号，
+		// 抄进变更内容里对审批人没有任何意义。人取的那一份在 name 上，照常进来。
 		assert.match(insertEntry.summary, /value：空 → \{\}/, '审批人要看得见自己在批什么');
-		assert.equal(insertEntry.row_key, 'audit_fixture', '身份看记录标识那一列');
+		assert.match(insertEntry.summary, /name：空 → audit_fixture/, '人取的名字要看得见');
+		assert.match(String(insertEntry.row_key), /^\d+$/, '记录标识是那一行的 key，机器写的雪花号');
 		assert.equal((await decide('approve', [String(insertEntry.id)])).status, 200);
 		assert.equal((await visibleKeys()).includes('audit_fixture'), true, '批准之后这一行才开始存在');
 
@@ -252,8 +255,9 @@ const auditRouteFilter = async () => {
 		// 记录是先写的。不清理的话，队列里会留下一条指向从未写成的行的申请——批也批不动，
 		// 界面上却像是有人在等审批。顺带：撞唯一索引是 409，不是 500。
 		const queuedBefore = (await pendingIds()).length;
-		const duplicate = await app.request(rowsApi, { method: 'POST', headers: { ...headers, cookie }, body: JSON.stringify({ key: 'audit_fixture', value: '{}' }) });
-		assert.equal(duplicate.status, 409, '重复的 key 是用户输入的正常结果，不是服务端故障');
+		// 撞的是 name 上那条唯一索引：key 现在是机器写的雪花号，人再怎么提交也撞不上它。
+		const duplicate = await app.request(rowsApi, { method: 'POST', headers: { ...headers, cookie }, body: JSON.stringify({ name: 'audit_fixture', value: '{}' }) });
+		assert.equal(duplicate.status, 409, '重复的名字是用户输入的正常结果，不是服务端故障');
 		assert.equal((await pendingIds()).length, queuedBefore, '失败的新建不该在队列里留下申请');
 
 		// 驳回：那一行进回收站，不是凭空消失。
@@ -262,11 +266,11 @@ const auditRouteFilter = async () => {
 		// 半天的录入，那份录入不该就此不存在。pended_at 一并归零，让它成为一条普通的
 		// 已删除记录：留着非零的话，从回收站恢复出来的行仍然对业务查询不可见，却又出现在
 		// 管理列表里，成了一个谁也说不清状态的幽灵。
-		assert.equal((await app.request(rowsApi, { method: 'POST', headers: { ...headers, cookie }, body: JSON.stringify({ key: 'audit_rejected', value: '{}' }) })).status, 202);
+		assert.equal((await app.request(rowsApi, { method: 'POST', headers: { ...headers, cookie }, body: JSON.stringify({ name: 'audit_rejected', value: '{}' }) })).status, 202);
 		assert.equal((await decide('reject', await pendingIds())).status, 200);
 		assert.equal([...await visibleKeys(), ...await pendedKeys()].includes('audit_rejected'), false, '驳回之后不该还在生效的行里');
 		const leftovers = new DatabaseSync(process.env.DEFAULT_DATABASE_FILE);
-		const rejectedRow = leftovers.prepare("SELECT deleted_at, pended_at FROM base_configs WHERE key = 'audit_rejected'").get();
+		const rejectedRow = leftovers.prepare("SELECT deleted_at, pended_at FROM base_configs WHERE name = 'audit_rejected'").get();
 		assert.ok(rejectedRow, '被驳回的新建留在回收站里，不是物理删掉');
 		assert.notEqual(Number(rejectedRow.deleted_at), 0, '进了回收站');
 		assert.equal(Number(rejectedRow.pended_at), 0, '并且是一条普通的已删除记录');
@@ -1166,7 +1170,7 @@ try {
 	assert.equal(await purgeExpiredAuditEntries(database, 365), 0, '再跑一次没有可清理的记录');
 
 	// 保留期按租户独立：读各租户自己的站点设置。
-	await runSql(database, sql({ database }).ignoreInsert('base_tenants', ['key'], { key: 'default', title: '默认租户', status: 'enabled' }));
+	await runSql(database, sql({ database }).ignoreInsert('base_tenants', ['name'], { name: 'default', title: '默认租户', status: 'enabled' }));
 	const remaining = (await entries()).find((entry) => String(entry.owner_tid) === '1');
 	database.prepare('UPDATE base_approvals SET created_at = ? WHERE id = ?').bind(staleAt, remaining.id).run();
 	assert.equal(await purgeAuditRetention(database), 1, '未配置保留期的租户应回落到默认的 365 天');

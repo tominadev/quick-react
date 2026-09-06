@@ -15,7 +15,7 @@ try {
 	database.prepare("INSERT INTO global_site_hosts (key, hostname, site_key, status, created_at) VALUES (lower(hex(randomblob(16))), 'accounts.test','passport','enabled',?)").run(Date.now());
 	// 联系邮箱来自站点设置；没配置时首页只显示“站点管理员”，Google 应用验证要求给出可联系的方式。
 	// 三条站点配置由 seedBaseDatabase 建成空行（这样第一次保存也走审批），种子因此改值而不是插行。
-	database.prepare("UPDATE base_configs SET value = ? WHERE key = 'site_frontend'")
+	database.prepare("UPDATE base_configs SET value = ? WHERE name = 'site_frontend'")
 		.run(JSON.stringify({ contactEmail: 'contact@example.com' }));
 	database.close();
 

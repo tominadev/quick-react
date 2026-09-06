@@ -12,8 +12,8 @@
 | 列 | 字符集 | 可变 | 唯一 | 能被别的表引用 | 干什么用的 |
 | --- | --- | --- | --- | --- | --- |
 | `id` | 数字 | 否 | 是 | **是，默认就用它** | 内部关联 |
-| `key` | `[a-z][a-z0-9_]*` 或机器生成的 UUID | **否**（建后不改） | 是 | 是，外键列名 `<表单数>_key` | 要写进配置、路由、DSN、URL，人要读要写的标识 |
-| `name` | 英文数字 | 是 | 是 | **否** | 登录名、技术名（`base_users.name`、`pve_nodes.name`） |
+| `key` | 雪花号或 UUID，**机器写的** | **否**（建后不改） | 是，单字段 | 是，外键列名 `<表单数>_key` | 稳定标识，跨库不重；跟 `id` 一样只用来指向这一行 |
+| `name` | 英文数字，**人给的** | 是 | 是（可带 `owner_tid`） | **否** | 登录名、配置项名、分站标识（`base_users.name`、`base_configs.name`） |
 | `title` | 任意语言 | 是 | 通常否 | **否** | 给人看的名字 |
 
 **判据是「能不能改」，不是「是不是英文」。** `base_users.name` 是纯英文数字，却绝对不能
@@ -25,20 +25,45 @@
 
 ## 每张表都有 `key`
 
-`key` 是**每一行的稳定标识**，紧跟在 `id` 后面，`VARCHAR(36)`。值有三种来源，但角色是同一个：
+`key` 是**每一行的稳定标识**，紧跟在 `id` 后面，`VARCHAR(36)`。
+
+**`key` 只装机器写的值，人给的值一律用 `name`。** `key` 与 `id` 是同一个角色的两种写法——
+一个是跨库不重的字符串（雪花号或 UUID），一个是库内自增的数字；两个都只用来指向这一行，
+内容不承载任何业务含义。
 
 | 值 | 谁给的 | 例子 |
 | --- | --- | --- |
-| 人给的短串 | 建表时定死，写进配置和 URL | `global_sites.key = 'passport'`、`base_configs.key = 'site_settings'` |
+| 雪花号 | SQL 构造器在 INSERT 时补 | 绝大多数表 |
 | 客户端 UUID | 客户端生成并回传 | `base_devices.key`、`passport_devices.key` |
-| 雪花号 | SQL 构造器在 INSERT 时补 | 其余 54 张表 |
+| 建库种子写死的短串 | 迁移脚本 | `base_tenants.key = 'seed-tenant'`（见下） |
 
-**一张表只有一个 `key`。** 已经有人给的 key 的表不再补雪花——两个都叫 key 就又回到了
-`name` 那种一词两义。
+人给的那一份落在 `name` 上：
+
+| 表 | `name` | `key` |
+| --- | --- | --- |
+| `base_tenants` | `default` | 雪花号 |
+| `base_branches` | `main` | 雪花号 |
+| `base_bootstrap` | `initial_admin` | 雪花号 |
+| `base_configs` | `site_frontend`、`accounts_oidc_client` … | 雪花号 |
+
+**种子行的 key 写死。** 建库种子跑在**迁移刚建完表**的时候，而发号器要等 `primeSnowflake`
+从 `global_snowflake_state` 里原子预留一个号段才能发号——那张表正是这次迁移建出来的。
+`seed-tenant` 这几个值是引导数据，跟 `is_system: 1` 一样属于系统内置行的一部分，不是
+「人取的名字」。
+
+**唯一索引：`key` 单独一个，不与任何列组合。** 它本身就是唯一的，再拉一列进复合索引，那个
+索引永远不会冲突——跟把 `id` 拉进去一样没有意义。租户内唯一那件事由 `name` 表达
+（`@@unique([owner_tid, name, deleted_at])`）：不同租户可以各有一个 `main` 分站、各存一份
+`site_frontend` 配置。
+
+**只有 `name` 参与的唯一索引带 `deleted_at`。** 名字是人取的，软删一行之后同一个名字该能
+再用；`key`、各种 hash、token、外部给的 provider/subject 都是机器生成或外部给定、永不重复的
+标识，带上 `deleted_at` 纯属多余。代价是这些值软删之后不能重建同一个。
 
 **建后不改。** `key` 在 `SYSTEM_FIELD_NAMES` 里，更新路径一律挡掉——它能被别的表引用，
-正是因为不动；改一次就把所有引用指向了空处。新建路径显式放行（`global_sites` 这类表的
-key 是人给的），数据管理的新建表单也留着这一格，留空就交给发号器。
+正是因为不动；改一次就把所有引用指向了空处。新建路径显式放行（`global_sites` 的 key
+仍是人给的站点名，见下面的「还没迁完的」），数据管理的新建表单也留着这一格，留空就交给
+发号器。
 
 **36 字节封顶**：雪花最长 19 位（2⁶³−1），人给的短串更短，客户端 UUID 正好 36。
 `VARCHAR(36)` 只管长度，字符集由**写入口**管：`sql.mts` 的 `assertRowKey` 挡住
@@ -79,7 +104,15 @@ worker id 必须跨重启稳定，每次启动重新随机会让两次运行落�
 - **默认用 `id` 关联。** 只有跨库、跨站点、或那个值本身要写进配置文件的，才用 `key`
   ——这解释了为什么 `site_key` 是字符串而 `region_id` 是数字，不是随手定的。
 - **外键列名 = `<被引用表的单数>_<被引用列>`**：`site_key`、`region_id`、`user_id`、`email_id`。
-- **`key` 的值用小写字母加下划线**：`site_settings`、`tech_stack`、`initial_admin`。
+- **`name` 的值用小写字母加下划线**：`site_frontend`、`initial_admin`、`main`。`key` 是机器
+  写的，不存在「取名」这回事。
+
+## 还没迁完的
+
+`global_sites.key` 仍存人取的站点名（`^[a-z][a-z0-9_]*$`），因为 `site_key` 在 149 处引用它、
+`base_site_key` 在 29 处，那些引用的是**值**。要迁的话得连存量数据一起换，且串着对象存储、
+邮件绑定、数据库路由几套，单独一轮做。关联本身不改用 `name`——`name` 可变，能被改的值不能
+被引用。
   URL 路径段按 web 惯例仍用连字符（`/panel/admin/base/settings/tech-stack.html`），
   两者是不同的命名空间——同一个概念在两处写法不同是有意的，不是漏改。
 

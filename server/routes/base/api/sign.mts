@@ -80,7 +80,7 @@ const localSign: ApiHandler = async (c, next) => {
 		// 引导流程不留痕：那时还没有会话，操作者与作用账号都是空的，而 base_bootstrap.value
 		// 是脱敏列（§5），记下来只会是一条「value：已变更」——既说不出谁，也说不出改了什么。
 		// 「初始管理员是什么时候建的」由 base_users.created_at 回答，不需要再抄一遍。
-		const claimed = await runSql(systemDatabase, sql({ database: systemDatabase }).update('base_bootstrap', { value: 'claimed' }, [{ column: 'key', value: 'initial_admin' }, { column: 'value', value: 'open' }, ...(tenantId === null ? [] : [{ column: 'owner_tid', value: tenantId }])]));
+		const claimed = await runSql(systemDatabase, sql({ database: systemDatabase }).update('base_bootstrap', { value: 'claimed' }, [{ column: 'name', value: 'initial_admin' }, { column: 'value', value: 'open' }, ...(tenantId === null ? [] : [{ column: 'owner_tid', value: tenantId }])]));
 		if (Number(claimed.meta?.changes ?? 0) !== 1) return apiMessage(c, 409, '初始管理员已经存在');
 		try {
 			// 初始管理员是平台管理员：控制面与救援入口都要求它。
@@ -90,7 +90,7 @@ const localSign: ApiHandler = async (c, next) => {
 			await setCredential(systemDatabase, userId, storedPassword);
 		} catch (error) {
 			// 回滚本租户的认领，让下一次注册还能重试。
-			await runSql(systemDatabase, sql({ database: systemDatabase }).update('base_bootstrap', { value: 'open' }, [{ column: 'key', value: 'initial_admin' }, { column: 'value', value: 'claimed' }, ...(tenantId === null ? [] : [{ column: 'owner_tid', value: tenantId }])]));
+			await runSql(systemDatabase, sql({ database: systemDatabase }).update('base_bootstrap', { value: 'open' }, [{ column: 'name', value: 'initial_admin' }, { column: 'value', value: 'claimed' }, ...(tenantId === null ? [] : [{ column: 'owner_tid', value: tenantId }])]));
 			throw error;
 		}
 		return apiMessage(c, 201, '初始管理员创建成功，请登录');

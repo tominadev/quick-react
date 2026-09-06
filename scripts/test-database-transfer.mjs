@@ -31,7 +31,7 @@ try {
 		for (const file of (await readdir(directory)).filter((name) => name.endsWith('.sql')).sort()) {
 			await database.exec(await readFile(resolve(directory, file), 'utf8'));
 		}
-		await database.exec("INSERT INTO base_bootstrap (created_at, updated_at, key, value) VALUES (0, 0, 'initial_admin', 'open')");
+		await database.exec("INSERT INTO base_bootstrap (created_at, updated_at, key, name, value) VALUES (0, 0, 'seed-bootstrap', 'initial_admin', 'open')");
 	};
 
 	const mysqlFacade = (backing, { inTransaction = false, failOn = '' } = {}) => ({
@@ -82,13 +82,13 @@ try {
 		await runSql(source, sql({ database: source }).insert('base_devices', { id: 101n, user_id: userId, key: '00000000-0000-4000-8000-000000000001', fingerprint: JSON.stringify({ canvas_cyrb53: '4b5a6c7d8e9f', audio_cyrb53: '1a2b3c4d5e6f' }), status: 'active', last_seen_at: 1n }));
 		await runSql(source, sql({ database: source }).insert('base_device_users', { id: 102n, device_id: 101n, user_id: userId, status: 'active', last_seen_at: 1n }));
 		await runSql(source, sql({ database: source }).insert('base_sessions', { token_hash: 'session-token-hash', user_id: userId, device_id: 101n, expires_at: 2n }));
-		await runSql(source, sql({ database: source }).insert('base_configs', { key: 'site_title', value: 'Accounts' }));
+		await runSql(source, sql({ database: source }).insert('base_configs', { name: 'site_title', value: 'Accounts' }));
 
 		const progress = await transferPortableDatabase(source, mysqlFacade(target), ['base']);
 		assert.equal(progress.length, 17, "base 组的表数——加了 base_approval_events");
 		assert.equal((await firstSql(target, sql({ database: target }).select({ table: 'base_users', columns: { id: 'id' }, limit: 1 }))).id, userId);
 		assert.equal((await firstSql(target, sql({ database: target }).count('base_sessions'))).count, 1n);
-		assert.equal((await firstSql(target, sql({ database: target }).select({ table: 'base_bootstrap', columns: { value: 'value' }, where: [{ column: 'key', value: 'initial_admin' }] }))).value, 'open');
+		assert.equal((await firstSql(target, sql({ database: target }).select({ table: 'base_bootstrap', columns: { value: 'value' }, where: [{ column: 'name', value: 'initial_admin' }] }))).value, 'open');
 
 		await assert.rejects(() => transferPortableDatabase(source, mysqlFacade(rollbackTarget, { failOn: 'base_sessions' }), ['base']), /injected transfer failure/);
 		assert.equal((await firstSql(rollbackTarget, sql({ database: rollbackTarget }).count('base_users'))).count, 0n);

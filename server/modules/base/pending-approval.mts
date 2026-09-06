@@ -164,7 +164,7 @@ export const configRowId = async (c: Context<AppEnv>, key: string) => {
 	const tenantId = c.get('tenantId');
 	const row = await firstSql<{ id: string }>(database, sql({ database }).select({
 		table: 'base_configs', columns: { id: { column: 'id', cast: 'text' } },
-		where: [{ column: 'key', value: key }, tenantId === null ? { column: 'owner_tid', value: 1 } : { column: 'owner_tid', value: tenantId }],
+		where: [{ column: 'name', value: key }, tenantId === null ? { column: 'owner_tid', value: 1 } : { column: 'owner_tid', value: tenantId }],
 		pended: 'all', limit: 1,
 	}));
 	return row?.id;

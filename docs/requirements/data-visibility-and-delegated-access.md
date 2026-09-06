@@ -48,12 +48,12 @@
 
 | 表 | 业务唯一键 | 说明 |
 | --- | --- | --- |
-| `base_tenants` | `(key, deleted_at)` | 租户 key 全库唯一 |
-| `base_branches` | `(key, owner_tid, deleted_at)` | 分站 key **在租户内**唯一，不同租户可各有同名分站 |
+| `base_tenants` | `(name, deleted_at)` | 租户 name 全库唯一；`key` 是雪花号，单独唯一 |
+| `base_branches` | `(owner_tid, name, deleted_at)` | 分站 name **在租户内**唯一，不同租户可各有同名分站 |
 
 分站所属的租户就是它自己的 `owner_tid`，不另设 `tenant_id`。
 
-种子建立默认租户（`key = 'default'`）与它的主分站（`key = 'main'`）。**新建租户时必须一并建立它的主分站**，否则该租户的域名无处可绑。
+种子建立默认租户（`name = 'default'`）与它的主分站（`name = 'main'`）。**新建租户时必须一并建立它的主分站**，否则该租户的域名无处可绑。
 
 ### 3.3 `base_hosts` 与主机名解析
 
@@ -316,7 +316,7 @@ export type SqlSubject = {
 - 代用户新增记录后，归属是目标账号，`created_duid` 是操作者的 device-user。
 - 每次代查请求在 `base_delegation_events` 留下一条记录。
 - 不同租户可以各有同名用户；同租户内重名被拒绝。
-- 不同租户可以各有同名分站 key；同租户内重名被拒绝。
+- 不同租户可以各有同名分站 name；同租户内重名被拒绝。
 - `base_hosts` 绑定分站时，若该分站属于另一个租户则被拒绝。
 
 ## 11. 待定事项

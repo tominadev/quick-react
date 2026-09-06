@@ -70,7 +70,7 @@ try {
 		}
 	}
 	database.exec("INSERT INTO global_sites (created_at, updated_at, key, title, base_site_key, dsn, status, migration_status, is_default, is_system) VALUES (0, 0, 'global', '全局控制面', 'base', '', 'enabled', 'ready', 1, 1)");
-	database.exec("INSERT INTO base_bootstrap (created_at, updated_at, key, value) VALUES (0, 0, 'initial_admin', 'open')");
+	database.exec("INSERT INTO base_bootstrap (created_at, updated_at, key, name, value) VALUES (0, 0, 'seed-bootstrap', 'initial_admin', 'open')");
 	database.prepare(`INSERT INTO global_sites (key, title, base_site_key, dsn, status, migration_status, is_default, is_system)
 		VALUES ('passport', 'Passport', 'base', '', 'enabled', 'ready', 0, 1)`).run();
 	database.prepare(`INSERT INTO global_site_hosts (key, hostname, site_key, status, created_at)

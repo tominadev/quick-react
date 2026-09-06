@@ -60,7 +60,7 @@ try {
 	const rowsPath = '/api/panel/admin/base/data/rows.php?table=base_configs';
 	assert.equal((await request('/api/panel/admin/recycle-bin.php', { cookie })).status, 404, '不应注册独立回收站接口');
 	// 新建现在也进审批队列，外层包装会替它把队走完，因此这里是 200 而不是 201。
-	assert.equal((await request(rowsPath, { method: 'POST', cookie, body: { key: 'recycle_fixture', value: 'test' } })).status, 200);
+	assert.equal((await request(rowsPath, { method: 'POST', cookie, body: { name: 'recycle_fixture', value: 'test' } })).status, 200);
 	const activeBefore = await (await request(rowsPath, { cookie })).json();
 	const fixture = activeBefore.table.dataSource.find((row) => row.value === 'test');
 	assert.ok(fixture, '测试记录应出现在普通列表');

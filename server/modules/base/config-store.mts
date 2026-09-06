@@ -22,7 +22,9 @@ const parse = (value: string | undefined) => {
 };
 
 /**
- * 配置按租户独立：`base_configs` 的唯一键是 (key, owner_tid)，同一个 key 每个租户各存一份。
+ * 配置按租户独立：`base_configs` 的唯一键是 (owner_tid, name, deleted_at)，同一个配置项名每个
+ * 租户各存一份。**配置项名落在 `name` 上，不占 `key`**——key 是机器写的雪花号，跟 id 一样只
+ * 用来指向这一行；人取的值一律用 name。
  * 读写都只针对当前租户；缺省值由各 normalize* 从代码补齐，不在数据库里存一份"平台默认行"。
  */
 /**
@@ -33,12 +35,12 @@ export const createDatabaseConfigStore = (database: DatabaseAdapter, tenantId: D
 	get: async (key) => {
 		// 只读当前租户自己的值。读不到不回落到别的租户——各 normalize* 会用代码里的默认值补齐，
 		// 例如 defaultSiteSettings。默认值属于代码，不属于数据。
-		const where = [{ column: 'key', value: key }, ...(tenantId === null ? [] : [{ column: 'owner_tid', value: tenantId }])];
+		const where = [{ column: 'name', value: key }, ...(tenantId === null ? [] : [{ column: 'owner_tid', value: tenantId }])];
 		const row = await firstSql<{ value: string }>(database, sql({ database }).select({ table: 'base_configs', columns: { value: 'value' }, where }));
 		return parse(row?.value);
 	},
 	put: async (key, value) => {
-		const statement = sql({ database }).upsert('base_configs', ['key', 'owner_tid'], { key, value: JSON.stringify(value) }, ['value', 'updated_at']);
+		const statement = sql({ database }).upsert('base_configs', ['name', 'owner_tid'], { name: key, value: JSON.stringify(value) }, ['value', 'updated_at']);
 		if (c) await runOperationSql(c, database, statement);
 		else await runSql(database, statement);
 	},

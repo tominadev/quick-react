@@ -92,12 +92,16 @@ model base_tenants {
   owner_tid    BigInt @default(1)
   owner_bid    BigInt @default(1)
   owner_uid    BigInt?
+  /// 租户标识（`default` 之类），人取的：因此落在 name 上，不占 key。
+  /// key 是机器写的雪花号，跟 id 一样只用来指向这一行。
+  name         String @db.VarChar(64)
+  @@unique([name, deleted_at])
   title        String
   status       BaseTenantStatus @default(enabled)
 }
 
 /// 分站：租户下面的一层，绑定自己的域名，管理自己的用户与代理。
-/// 分站 key 在租户内唯一：不同租户可以各有同名分站。
+/// 分站 name 在租户内唯一：不同租户可以各有同名分站。
 model base_branches {
   id           BigInt @id @default(autoincrement())
   key          String @db.VarChar(36)
@@ -110,7 +114,10 @@ model base_branches {
   owner_tid    BigInt @default(1)
   owner_bid    BigInt @default(1)
   owner_uid    BigInt?
-  @@unique([owner_tid, key])
+  @@unique([key])
+  /// 分站标识（`main` 之类），人取的。**在租户内唯一**：不同租户可以各有同名分站。
+  name         String @db.VarChar(64)
+  @@unique([owner_tid, name, deleted_at])
   title        String
   status       BaseTenantStatus @default(enabled)
 }
@@ -201,8 +208,11 @@ model base_configs {
   owner_tid     BigInt @default(1)
   owner_bid     BigInt @default(1)
   owner_uid     BigInt?
-  // 配置按租户独立：同一个 key 每个租户各存一份，owner_tid 为 NULL 的行是平台默认值。
-  @@unique([owner_tid, key])
+  @@unique([key])
+  /// 配置项名（`site.frontend` 之类），人取的。
+  /// **配置按租户独立**：同一个 name 每个租户各存一份。
+  name       String @db.VarChar(64)
+  @@unique([owner_tid, name, deleted_at])
   value      String
 }
 
@@ -218,8 +228,11 @@ model base_bootstrap {
   owner_tid     BigInt @default(1)
   owner_bid     BigInt @default(1)
   owner_uid     BigInt?
-  // 引导状态同样按租户独立：每个租户各自创建自己的初始管理员。
-  @@unique([owner_tid, key])
+  @@unique([key])
+  /// 引导项名（`initial_admin`），人取的。
+  /// **同样按租户独立**：每个租户各自创建自己的初始管理员。
+  name         String @db.VarChar(64)
+  @@unique([owner_tid, name, deleted_at])
   value        String
 }
 

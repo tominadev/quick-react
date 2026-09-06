@@ -58,10 +58,10 @@ try {
 	const secretHash = Buffer.from(await sha256(clientSecret)).toString('hex'), challenge = base64Url(await sha256(verifier));
 	database.prepare(`INSERT INTO passport_oidc_clients (key, client_id, title, secret_hash, redirect_uris, allowed_scopes, require_pkce, status, created_at, updated_at, backchannel_logout_uri)
 		VALUES (lower(hex(randomblob(16))), ?, 'Test Client', ?, '["https://client.test/callback","https://site1.test/api/accounts/oidc/callback"]', 'openid profile email', 1, 'enabled', ?, ?, 'https://site1.test/api/accounts/oidc/backchannel-logout')`).run(clientId, secretHash, now, now);
-	database.prepare(`INSERT INTO base_configs (created_at, updated_at, key, value) VALUES (?, ?, 'accounts_oidc_client', ?)`).run(now, now, JSON.stringify({ enabled: true, issuer: 'https://accounts.test', clientId, clientSecret }));
+	database.prepare(`INSERT INTO base_configs (created_at, updated_at, key, name, value) VALUES (?, ?, 'seed-oidc', 'accounts_oidc_client', ?)`).run(now, now, JSON.stringify({ enabled: true, issuer: 'https://accounts.test', clientId, clientSecret }));
 	// 密码同步两侧都要开：Accounts 客户端的「下发密码」+ 本站的「同步 Accounts 密码」。
 	// 站点设置随请求配置一起缓存，必须在第一次请求之前写进去。
-	database.prepare("UPDATE base_configs SET value = ? WHERE key = 'site_backend'").run(JSON.stringify({ passwordSyncEnabled: true }));
+	database.prepare("UPDATE base_configs SET value = ? WHERE name = 'site_backend'").run(JSON.stringify({ passwordSyncEnabled: true }));
 	const bindUserPassword = await storedPassword('accountspassword');
 	database.prepare('INSERT INTO passport_user_credentials (key, user_key, password, created_at, updated_at) VALUES (lower(hex(randomblob(16))), ?, ?, ?, ?)').run(secondUserId, bindUserPassword, now, now);
 
@@ -210,11 +210,11 @@ try {
 	const enabledLocalSession = await (await app.request('https://site1.test/api/sign.php', { headers: { cookie: `base_session=${sessionToken}`, 'x-device-key': deviceKey, 'x-device-fingerprint': fingerprintData } })).json();
 	assert.equal(enabledLocalSession.user, null);
 	const modeDatabase = new DatabaseSync(process.env.DEFAULT_DATABASE_FILE);
-	modeDatabase.prepare(`UPDATE base_configs SET value = ? WHERE key = 'accounts_oidc_client'`).run(JSON.stringify({ enabled: false, issuer: 'https://accounts.test', clientId, clientSecret }));
+	modeDatabase.prepare(`UPDATE base_configs SET value = ? WHERE name = 'accounts_oidc_client'`).run(JSON.stringify({ enabled: false, issuer: 'https://accounts.test', clientId, clientSecret }));
 	const disabledLocalSession = await (await app.request('https://site1.test/api/sign.php', { headers: { cookie: `base_session=${sessionToken}`, 'x-device-key': deviceKey, 'x-device-fingerprint': fingerprintData } })).json();
 	assert.equal(disabledLocalSession.user.user_name, 'localadmin');
 	assert.equal(disabledLocalSession.formPage.fields[0].name, 'user_name');
-	modeDatabase.prepare(`UPDATE base_configs SET value = ? WHERE key = 'accounts_oidc_client'`).run(JSON.stringify({ enabled: true, issuer: 'https://accounts.test', clientId, clientSecret }));
+	modeDatabase.prepare(`UPDATE base_configs SET value = ? WHERE name = 'accounts_oidc_client'`).run(JSON.stringify({ enabled: true, issuer: 'https://accounts.test', clientId, clientSecret }));
 	modeDatabase.close();
 	// 业务站点不允许自动跳转到 Accounts，必须由用户点击按钮确认。
 	// 只保留弹窗登录：既不自动跳转，也不整页跳走。

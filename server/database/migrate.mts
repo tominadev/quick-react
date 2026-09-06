@@ -43,13 +43,25 @@ export const migrateDatabase = async (database: DatabaseAdapter, migrationsRoot:
 	}
 };
 
+/**
+ * 种子行的 `key` 写死，不走发号器。
+ *
+ * 种子跑在**迁移刚建完表**的时候，而发号器要等 `primeSnowflake` 从 `global_snowflake_state`
+ * 里原子预留一个号段才能发号——那张表正是这次迁移建出来的，此刻还没人 prime 过它。
+ * （`KEYLESS_TABLES` 里的迁移记录表是同一个处境。）
+ *
+ * 这几个值是**引导数据**，不是人取的名字：跟 `is_system: 1` 一样属于系统内置行的一部分。
+ * 人取的那一份（`default` / `main` / `initial_admin`）落在 `name` 上。
+ */
+const SEED_KEYS = { bootstrap: 'seed-bootstrap', tenant: 'seed-tenant', branch: 'seed-branch', config: (name: string) => `seed-config-${name}` };
+
 const seedBaseDatabase = async (database: DatabaseAdapter) => {
 	// 平台默认引导状态（owner_tid 为 NULL）：各租户没有自己的行时回落到它。
-	await runSql(database, sql({ database }).ignoreInsert('base_bootstrap', ['key', 'owner_tid'], { key: 'initial_admin', value: 'open' }));
+	await runSql(database, sql({ database }).ignoreInsert('base_bootstrap', ['name', 'owner_tid'], { key: SEED_KEYS.bootstrap, name: 'initial_admin', value: 'open' }));
 	// 默认租户与它的主分站：主机名解析不到时一律落到这一对，单租户单分站部署因此开箱即用。
 	// 每个域名都必须绑定分站，所以每个租户都要有主分站——新建租户时同样要建一个。
-	await runSql(database, sql({ database }).ignoreInsert('base_tenants', ['key'], { key: 'default', title: '默认租户', status: 'enabled' }));
-	await runSql(database, sql({ database }).ignoreInsert('base_branches', ['key', 'owner_tid'], { key: 'main', title: '主分站', status: 'enabled' }));
+	await runSql(database, sql({ database }).ignoreInsert('base_tenants', ['name'], { key: SEED_KEYS.tenant, name: 'default', title: '默认租户', status: 'enabled' }));
+	await runSql(database, sql({ database }).ignoreInsert('base_branches', ['name', 'owner_tid'], { key: SEED_KEYS.branch, name: 'main', title: '主分站', status: 'enabled' }));
 	// 三条站点配置先建成空行。
 	//
 	// 不建的话，每张设置表单的**第一次保存**是 INSERT，而新增不留痕、也就不走审批
@@ -58,7 +70,7 @@ const seedBaseDatabase = async (database: DatabaseAdapter) => {
 	//
 	// 值留空而不是写一份默认值：默认值属于代码（各 normalize* 补齐），不属于数据。
 	for (const key of Object.values(siteSettingsKeys)) {
-		await runSql(database, sql({ database }).ignoreInsert('base_configs', ['key', 'owner_tid'], { key, value: {} }));
+		await runSql(database, sql({ database }).ignoreInsert('base_configs', ['name', 'owner_tid'], { key: SEED_KEYS.config(key), name: key, value: {} }));
 	}
 };
 

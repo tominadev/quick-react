@@ -35,7 +35,7 @@ export type TransferProgress = { table: string; rows: number };
 
 const seedRows = new Map<string, { column: string; value: string }>([
 	['global_sites', { column: 'key', value: 'global' }],
-	['base_bootstrap', { column: 'key', value: 'initial_admin' }],
+	['base_bootstrap', { column: 'name', value: 'initial_admin' }],
 ]);
 
 const targetMustBeEmpty = async (target: DatabaseAdapter, tables: string[]) => {
