@@ -467,7 +467,10 @@ const TableCRUD = ({ commonApi, resourcePath, initialResponse, initialQueryValue
 						width: 160,
 						render: (value: any, record: DataType, index: number) => <Space wrap size={[8, 4]}>
 							{(tableOptionRef.current.actions?.row ?? []).filter((action) => actionVisibleForRow(action, record)).map((action) => rowActionHandlers[action.key]?.(action, value, record, index)
-								?? <a key={action.key} aria-disabled={action.disabled} onClick={() => action.modalPath ? onRowModalAction(action, record) : action.form ? onRowFormAction(action, record) : onSimpleRowAction(action, record)}>{action.label}</a>)}
+								// 换查询条件的动作（目录导航）由服务端声明 applyQueryFields，前端不按 key 名去猜。
+								?? (action.applyQueryFields
+									? <a key={action.key} aria-disabled={action.disabled} onClick={() => !action.disabled && applySearch(Object.fromEntries(Object.entries(action.applyQueryFields!).map(([field, column]) => [field, String(record[column] ?? '')])))}>{action.label}</a>
+									: <a key={action.key} aria-disabled={action.disabled} onClick={() => action.modalPath ? onRowModalAction(action, record) : action.form ? onRowFormAction(action, record) : onSimpleRowAction(action, record)}>{action.label}</a>))}
 						</Space>,
 					});
 					setTableColumns(tableColumns);
@@ -880,14 +883,21 @@ const TableCRUD = ({ commonApi, resourcePath, initialResponse, initialQueryValue
 		});
 	};
 	const queryActionHandlers: Record<string, (action: TableAction) => React.ReactNode> = {
-		search: (action) => <Button key={action.key} onClick={applySearch} icon={<SearchOutlined />} disabled={loading || action.disabled}>{action.label}</Button>,
+		search: (action) => <Button key={action.key} onClick={() => applySearch()} icon={<SearchOutlined />} disabled={loading || action.disabled}>{action.label}</Button>,
 	};
 
 	// 普通搜索只更新当前表的数据；只有后端标记结构依赖的查询值变化时才清空结构。
-	const applySearch = () => {
+	/**
+	 * `override` 是一次性的条件覆盖，给「进入目录」这类由行动作触发的查询用。
+	 *
+	 * 不能先 `setQueryValues` 再调用它：状态更新是异步的，这一轮读到的还是旧值，
+	 * 点一次目录进不去，点第二次才进上一次那个——两次点击差一格。
+	 */
+	const applySearch = (override?: Record<string, string | null>) => {
+		const nextValues = override ? { ...queryValues, ...override } : queryValues;
 		requestSequence.current += 1;
 		setDataSource([]);
-		const schemaChanged = queryFields.some((field) => field.reloadSchema && queryValues[field.dataIndex] !== appliedQueryValues[field.dataIndex]);
+		const schemaChanged = queryFields.some((field) => field.reloadSchema && nextValues[field.dataIndex] !== appliedQueryValues[field.dataIndex]);
 		if (schemaChanged) {
 			setTableColumns(undefined);
 			setResJsonColumns([]);
@@ -900,11 +910,12 @@ const TableCRUD = ({ commonApi, resourcePath, initialResponse, initialQueryValue
 		cursorsByPage.current = { 1: undefined };
 		setSelectedRowKeys([]);
 		setFilters({});
-		setAppliedQueryValues(queryValues);
+		if (override) setQueryValues(nextValues);
+		setAppliedQueryValues(nextValues);
 		setSearchRequestKey((previous) => previous + 1);
 		setPagination((prev) => ({ ...prev, current: 1, total: 0 }));
 		// 搜索条件也记进地址栏：刷新回到同一组条件，链接可以直接分享。
-		rememberTableState({ query: queryUrlValues(queryFields, queryValues), page: 1 });
+		rememberTableState({ query: queryUrlValues(queryFields, nextValues), page: 1 });
 	};
 	// 查询区是裸的输入框，不在 form 里，没有默认提交行为可拦。用 antd 自带的
 	// onPressEnter，而不是为此套一层 form——嵌套 form 还要处理默认提交与冒泡。

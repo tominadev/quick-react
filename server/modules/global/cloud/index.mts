@@ -96,7 +96,7 @@ export type CloudObjectPage = {
 
 export type CloudStorageAdapter = {
 	listBuckets: () => Promise<CloudBucket[]>;
-	list: (prefix: string, continuationToken?: string, limit?: number) => Promise<CloudObjectPage>;
+	list: (prefix: string, continuationToken?: string, limit?: number, delimiter?: string) => Promise<CloudObjectPage>;
 	createUploadUrl: (key: string, contentType?: string) => Promise<string>;
 	createDownloadUrl: (key: string) => Promise<string>;
 	deleteObject: (key: string) => Promise<void>;

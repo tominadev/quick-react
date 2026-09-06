@@ -80,8 +80,17 @@ export const createS3Adapter = (target: CloudStorageTarget): CloudStorageAdapter
 				}))
 				.filter((item) => Boolean(item.name));
 		},
-		list: async (prefix, continuationToken, limit = 100): Promise<CloudObjectPage> => {
-			const response = await request('GET', '', { 'list-type': '2', prefix, 'max-keys': String(Math.min(1000, Math.max(1, limit))), ...(continuationToken ? { 'continuation-token': continuationToken } : {}) });
+		list: async (prefix, continuationToken, limit = 100, delimiter): Promise<CloudObjectPage> => {
+			/**
+			 * **`delimiter` 不传就没有目录。** S3 只有收到它才会把同一层的对象折成
+			 * `CommonPrefixes` 返回；不传就是把整个 Bucket 扁平列出来，浏览器里看到的是一长串
+			 * 带完整路径的 key，点不进任何一层。解析 `CommonPrefixes` 的代码一直都在，
+			 * 只是从来没有东西可解析。
+			 *
+			 * 默认仍然不传：`shortcut-tokens.mts` 那种「查这个精确 key 传上来没有」的调用
+			 * 不需要分层，多一个参数只会多一种出错的方式。
+			 */
+			const response = await request('GET', '', { 'list-type': '2', prefix, 'max-keys': String(Math.min(1000, Math.max(1, limit))), ...(delimiter ? { delimiter } : {}), ...(continuationToken ? { 'continuation-token': continuationToken } : {}) });
 			const xml = await response.text();
 			const objects = [...xml.matchAll(/<Contents>([\s\S]*?)<\/Contents>/g)].map((match) => ({ key: xmlDecode(xmlValue(match[1], 'Key') ?? ''), size: Number(xmlValue(match[1], 'Size') ?? 0), lastModified: xmlValue(match[1], 'LastModified'), etag: xmlValue(match[1], 'ETag') }));
 			const prefixes = [...xml.matchAll(/<CommonPrefixes>([\s\S]*?)<\/CommonPrefixes>/g)].map((match) => ({ key: xmlDecode(xmlValue(match[1], 'Prefix') ?? ''), size: 0, isPrefix: true }));

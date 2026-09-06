@@ -68,6 +68,13 @@ export type TableAction = {
 	 * 审批那三个动作用它把「页面上看到的是哪几条申请」带回去。
 	 */
 	sendFields?: string[];
+	/**
+	 * 点这个动作时，把该行的这几列填进**查询条件**并重新查询：`{查询字段: 本行的哪一列}`。
+	 *
+	 * 对象存储浏览器的「进入」用它把目录的 key 填进 `prefix`——目录导航就是换一个查询条件，
+	 * 不是另开页面。由服务端声明，前端不按 key 名去猜。
+	 */
+	applyQueryFields?: Record<string, string>;
 	/** 在当前列表内打开后端驱动的表单弹窗。工具栏与行上都支持。 */
 	modalPath?: string;
 	/**

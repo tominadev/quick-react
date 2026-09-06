@@ -39,13 +39,38 @@ const handler: ApiHandler = async (c, next) => {
 		if (!target) return apiMessage(c, 404, 'Bucket 绑定不存在或已停用');
 		try {
 			const limit = Math.min(100, Math.max(1, Number(c.req.query('pageSize')) || 10));
-			const page = await createCloudStorageAdapter(target).list(`${target.key_prefix ?? ''}${safeRelativePrefix(c.req.query('prefix'))}`, text(c.req.query('cursor')) || undefined, limit);
-			return apiResponse(c, 200, { table: { option: { rowKey: 'key', actions: { query: [{ key: 'search', label: '查询' }], toolbar: [{ key: 'upload', label: '上传' }], row: [{ key: 'download', label: '下载' }, { key: 'delete', label: '删除', confirm: '确认删除对象吗？' }] }, queryFields }, columns: [
-				{ dataIndex: 'key', title: '对象 Key' },
+			/**
+			 * **按目录浏览，不是把整个 Bucket 扁平列出来。**
+			 *
+			 * `delimiter` 让 S3 把同一层的对象折成 `CommonPrefixes` 返回，那才是「目录」。
+			 * 不传的话拿回来的是一长串带完整路径的 key（`shortcuts/mac-studio-01/20260906/…`），
+			 * 一层也点不进去——解析 `CommonPrefixes` 的代码一直都在，只是从来没有东西可解析。
+			 */
+			const relativePrefix = safeRelativePrefix(c.req.query('prefix'));
+			const fullPrefix = `${target.key_prefix ?? ''}${relativePrefix}`;
+			const page = await createCloudStorageAdapter(target).list(fullPrefix, text(c.req.query('cursor')) || undefined, limit, '/');
+			const rows = page.objects.map((item) => ({
+				...item,
+				// 显示相对当前目录的那一段：整串完整路径在窄屏上根本读不出差别。
+				name: String(item.key).slice(fullPrefix.length) || String(item.key),
+				// 「进入」要填回 prefix 查询字段，而那个字段是**相对绑定前缀**的。
+				relative_key: String(item.key).slice((target.key_prefix ?? '').length),
+				is_prefix: item.isPrefix ? '1' : '0',
+			}));
+			// 不在根目录时补一行「..」：目录导航要能退回去，而清空输入框不是所有人都想得到。
+			const parent = relativePrefix ? { key: `${fullPrefix}..`, name: '..', relative_key: relativePrefix.replace(/[^/]*\/?$/, ''), size: 0, is_prefix: '1' } : undefined;
+			const dataSource = parent ? [parent, ...rows] : rows;
+			return apiResponse(c, 200, { table: { option: { rowKey: 'key', actions: { query: [{ key: 'search', label: '查询' }], toolbar: [{ key: 'upload', label: '上传' }], row: [
+				// 目录只能进，文件才谈得上下载与删除；一行上永远只出现其中一组。
+				{ key: 'enter', label: '进入', applyQueryFields: { prefix: 'relative_key' }, visibleWhen: { field: 'is_prefix', values: ['1'] } },
+				{ key: 'download', label: '下载', visibleWhen: { field: 'is_prefix', values: ['0'] } },
+				{ key: 'delete', label: '删除', confirm: '确认删除对象吗？', visibleWhen: { field: 'is_prefix', values: ['0'] } },
+			] }, queryFields }, columns: [
+				{ dataIndex: 'name', title: '名称' },
 				{ dataIndex: 'size', title: '大小', dataType: 'int' },
-				{ dataIndex: 'lastModified', title: '最后修改' },
-				{ dataIndex: 'etag', title: 'ETag' },
-			], dataSource: page.objects, totalRecords: page.objects.length, nextCursor: page.nextToken, hasMore: page.hasMore } });
+				{ dataIndex: 'lastModified', title: '最后修改', emptyText: '—' },
+				{ dataIndex: 'etag', title: 'ETag', emptyText: '—' },
+			], dataSource, totalRecords: dataSource.length, nextCursor: page.nextToken, hasMore: page.hasMore } });
 		} catch (error) { return apiMessage(c, 502, error instanceof Error ? error.message : '对象列表读取失败'); }
 	}
 	if (!Number.isInteger(bindingId) || bindingId <= 0) return apiMessage(c, 400, '请选择站点 Bucket 绑定');
