@@ -279,19 +279,38 @@ X-Sms-Signature: ed25519=<base64url>
 ```json
 {
   "algorithm": "Ed25519",
-  "kid": "f4e3a022ba40dfcf",
-  "public_key": "<32 字节公钥的 Base64URL，43 个字符>",
+  "keys": [
+    { "kid": "f4e3a022ba40dfcf", "public_key": "<32 字节公钥的 Base64URL>", "status": "active" },
+    { "kid": "94cb61ff6db7185d", "public_key": "<上一把，仅轮换期间出现>", "status": "retiring" }
+  ],
   "encoding": { "public_key": "base64url", "signature": "base64url", "signed_input": "timestamp + \".\" + 原始请求体字节" }
 }
 ```
 
-`kid` 由公钥自身算出（SHA-256 前 16 位十六进制），不另配变量：换了公钥 `kid` 自动跟着变，接收方据此判断缓存的那把是否还有效，运维也少一个会配错、会忘记同步的地方。
+**`keys` 是数组，接收方按 `kid` 挑**，不要假设只有一把、也不要假设第一把就是签名用的那把。`kid` 由公钥自身算出（SHA-256 前 16 位十六进制），不另配变量：换了公钥它自动跟着变，接收方据此判断缓存的那把是否还有效，运维也少一个会配错、会忘记同步的地方。
 
-配置用两个变量，**公钥也从环境读、不从私钥推导**：Ed25519 的 WebCrypto 在 Node 与 Workers 上支持有差异（见 §10），从私钥导公钥这一步两个运行时写法不同；而运维生成密钥对时本来就两个都拿得到，配两个变量没有额外负担。
+#### 4.9.2.1 平台密钥轮换
+
+**只公布一把公钥的话，换密钥那一刻就断了**：接收方缓存着旧公钥，而新签的请求用的是新私钥，验不过；反过来，已经发出去、正在重试的旧请求也会在接收方换到新公钥之后验不过。两边都不是攻击，表现却和攻击一模一样，运维只能靠停机来回避。
+
+因此轮换期间**两把并存**，`SMS_PUSH_PUBLIC_KEY_PREVIOUS` 装上一把。**签名只用 `active` 那把**，`retiring` 仅供验证在途请求：
+
+1. 在平台密钥存储里生成新密钥对；
+2. 把当前的 `SMS_PUSH_PUBLIC_KEY` 原样抄进 `SMS_PUSH_PUBLIC_KEY_PREVIOUS`；
+3. 新公钥写入 `SMS_PUSH_PUBLIC_KEY`，新私钥写入 `SMS_PUSH_SIGNING_KEY`，下发配置；
+4. 等过一个完整的投递重试窗口——**保留时间必须盖过重试窗口**，否则最后几次重试仍会验不过；
+5. 删掉 `SMS_PUSH_PUBLIC_KEY_PREVIOUS`。
+
+两个变量填成同一把时只公布一把（复制粘贴时忘了换是常见的误操作，重复公布会让接收方以为正在轮换）。`SMS_PUSH_PUBLIC_KEY_PREVIOUS` 格式不对时**跳过它并在服务端留一条警告**，不让整个端点挂掉——过渡期的一处配置错误不该连累到当前公钥取不到，那会让所有接收方一起失败。
+
+这与接入方那一侧的轮换是同一套做法（§4.2 的 `kid` + `active`/`retired`），方向相反而已。
+
+配置用三个变量，**公钥也从环境读、不从私钥推导**：Ed25519 的 WebCrypto 在 Node 与 Workers 上支持有差异（见 §10），从私钥导公钥这一步两个运行时写法不同；而运维生成密钥对时本来就两个都拿得到，配两个变量没有额外负担。
 
 ```dotenv
-SMS_PUSH_PUBLIC_KEY=<32 字节 Ed25519 公钥的 Base64URL>
-SMS_PUSH_SIGNING_KEY=<私钥，签名时用>
+SMS_PUSH_PUBLIC_KEY=<当前公钥，32 字节 Ed25519 的 Base64URL>
+SMS_PUSH_PUBLIC_KEY_PREVIOUS=<上一把公钥，仅轮换观察期内保留>
+SMS_PUSH_SIGNING_KEY=<当前私钥，签名时用>
 ```
 
 > 推送本身（`sms_push_endpoints`、`sms_push_deliveries` 与投递逻辑）尚未实现，公钥端点先把公钥公布出去。

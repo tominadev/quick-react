@@ -26,28 +26,55 @@ import { apiMessage, apiResponse } from '@server/modules/base/api-response.mjs';
 
 const publicKeyPattern = /^[A-Za-z0-9_-]{43}$/;
 
+const readEnv = (c: Parameters<ApiHandler>[0], name: string) => String(
+	(c.env as Record<string, unknown> | undefined)?.[name]
+	?? (globalThis as { process?: { env?: Record<string, string | undefined> } }).process?.env?.[name]
+	?? '',
+).trim();
+
+/** `kid` 由公钥自身算出：换了公钥它自动跟着变，接收方据此判断缓存的那把是否还有效。 */
+const keyIdOf = async (publicKey: string) => {
+	const bytes = Uint8Array.from(atob(publicKey.replaceAll('-', '+').replaceAll('_', '/')), (character) => character.charCodeAt(0));
+	const digest = [...new Uint8Array(await crypto.subtle.digest('SHA-256', bytes))].map((value) => value.toString(16).padStart(2, '0')).join('');
+	return digest.slice(0, 16);
+};
+
 const handler: ApiHandler = async (c, next) => {
 	if (c.req.method !== 'GET') return next();
 	/**
 	 * 两个运行时的环境来源不同：Workers 走 `c.env` 绑定，Node 走 `process.env`，而
 	 * `process` 在 Workers 上根本不存在——直接读会抛 ReferenceError，整个端点变成 500。
-	 * 先看绑定、再看进程环境，两边都能配。
 	 */
-	const publicKey = String(
-		(c.env as Record<string, unknown> | undefined)?.SMS_PUSH_PUBLIC_KEY
-		?? (globalThis as { process?: { env?: Record<string, string | undefined> } }).process?.env?.SMS_PUSH_PUBLIC_KEY
-		?? '',
-	).trim();
-	if (!publicKey) return apiMessage(c, 503, '本站还没有配置推送签名公钥（SMS_PUSH_PUBLIC_KEY）');
+	const current = readEnv(c, 'SMS_PUSH_PUBLIC_KEY');
+	if (!current) return apiMessage(c, 503, '本站还没有配置推送签名公钥（SMS_PUSH_PUBLIC_KEY）');
 	// 配错了要当场说清楚：接收方拿到一把不合法的公钥，只会在验签时报一句「签名无效」，
 	// 那时排查的方向完全错了——他会去怀疑签名，而不是怀疑这把公钥。
-	if (!publicKeyPattern.test(publicKey)) return apiMessage(c, 500, '配置的推送签名公钥格式不对：应当是 Ed25519 原始字节的 Base64URL，43 个字符');
-	const bytes = Uint8Array.from(atob(publicKey.replaceAll('-', '+').replaceAll('_', '/')), (character) => character.charCodeAt(0));
-	const digest = [...new Uint8Array(await crypto.subtle.digest('SHA-256', bytes))].map((value) => value.toString(16).padStart(2, '0')).join('');
+	if (!publicKeyPattern.test(current)) return apiMessage(c, 500, '配置的推送签名公钥格式不对：应当是 Ed25519 原始字节的 Base64URL，43 个字符');
+
+	/**
+	 * **轮换期间两把公钥并存。**
+	 *
+	 * 只公布一把的话，换密钥那一刻就断了：接收方缓存着旧公钥，而新签的请求用的是新私钥，
+	 * 验不过；反过来，已经发出去、正在重试的旧请求也会在接收方换到新公钥之后验不过。
+	 * 两边都不是「攻击」，但表现和攻击一模一样，运维只能靠停机来回避。
+	 *
+	 * 所以轮换时把旧公钥填进 `SMS_PUSH_PUBLIC_KEY_PREVIOUS`，**签名只用当前那把**，
+	 * 旧的仅供验证在途请求。保留时间要盖过投递的重试窗口，之后再删掉这个变量。
+	 *
+	 * 旧的那把格式不对就跳过它，不让整个端点挂掉——过渡期的一处配置错误不该连累到
+	 * 当前公钥取不到，那会让**所有**接收方一起失败。跳过时在服务端留一条警告，
+	 * 否则运维看不到就以为配好了。
+	 */
+	const previous = readEnv(c, 'SMS_PUSH_PUBLIC_KEY_PREVIOUS');
+	if (previous && !publicKeyPattern.test(previous)) console.warn('SMS_PUSH_PUBLIC_KEY_PREVIOUS 格式不对，已跳过；轮换期间的在途请求可能验不过签');
+	const keys: Array<{ status: 'active' | 'retiring'; public_key: string }> = [{ status: 'active', public_key: current }];
+	// 两个变量填成同一把是常见的误操作（复制粘贴时忘了换），去重，别让接收方以为在轮换。
+	if (previous && publicKeyPattern.test(previous) && previous !== current) keys.push({ status: 'retiring', public_key: previous });
+
 	return apiResponse(c, 200, {
 		algorithm: 'Ed25519',
-		kid: digest.slice(0, 16),
-		public_key: publicKey,
+		// 数组而不是单个：轮换期间有两把，接收方**按 kid 挑**，不要假设只有一把或第一把就是签名那把。
+		keys: await Promise.all(keys.map(async (item) => ({ kid: await keyIdOf(item.public_key), public_key: item.public_key, status: item.status }))),
 		// 编码规则写进响应，省得接收方去翻文档：全系统一套（§10）。
 		encoding: { public_key: 'base64url', signature: 'base64url', signed_input: 'timestamp + "." + 原始请求体字节' },
 	});

@@ -85,9 +85,18 @@ const handler: ApiHandler = async (c, next, params) => {
 			})),
 			clientOptions(),
 		]);
-		const tableColumns = columns.map((column) => column.dataIndex === 'integration_client_id'
-			? { ...column, options, ...(clientFilter ? { form: { create: { defaultValue: clientFilter } as never, edit: false as const } } : {}) }
-			: column);
+		/**
+		 * 从接入方那一页点「公钥」进来时**已经知道是哪一家**，表单里就不该再问一遍。
+		 *
+		 * 那个值随弹窗的 `modalQueryFields` 进到嵌套表格的查询条件里，新增请求会把它一起
+		 * 发出来（见 table_crud 的 selectedQuerySuffix），所以服务端照样收得到。
+		 * 独立打开这一页时没有它，那时才需要在表单里选。
+		 */
+		const tableColumns = columns.map((column) => column.dataIndex !== 'integration_client_id'
+			? column
+			: clientFilter
+				? { ...column, options, form: { create: false as const, edit: false as const } }
+				: { ...column, options });
 		return apiResponse(c, 200, { table: {
 			option: { rowKey: 'id', actions: {
 				query: [{ key: 'search', label: '搜索' }],
@@ -107,7 +116,8 @@ const handler: ApiHandler = async (c, next, params) => {
 
 	if (!params.id && c.req.method === 'POST') {
 		const body = await c.req.json<Record<string, unknown>>().catch(() => ({} as Record<string, unknown>));
-		const clientId = String(body.integration_client_id ?? '').trim();
+		// 表单里没有这一列时（从接入方页面点进来的那种），值在查询条件里。
+		const clientId = String(body.integration_client_id ?? '').trim() || clientFilter;
 		const kid = String(body.kid ?? '').trim();
 		// 粘贴时常带上换行与首尾空白，去掉再校验——否则「明明复制对了」却一直报格式错。
 		const publicKeyValue = String(body.public_key ?? '').replace(/\s+/g, '');
