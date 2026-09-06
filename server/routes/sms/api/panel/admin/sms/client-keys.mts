@@ -10,8 +10,12 @@ import type { TableCrudDefinition } from '@server/modules/base/table-crud.mjs';
  * 接入方的 Ed25519 公钥。**这里只存公钥。**
  *
  * 接入方用自己的私钥签发绑定票据，SMS 用登记的公钥验签（绑定文档 §7）。私钥始终留在接入方
- * 的服务端——**不由本站生成，也永远不写入本站的数据库、日志、接口响应或页面**（§4.2）。
- * 页面上给的是生成命令，让它在接入方那边跑；本站从头到尾只见过公钥。
+ * 的服务端——**永远不写入本站的数据库、日志或接口响应**（§4.2）。
+ *
+ * 公钥那一栏带「在这台电脑上生成密钥对」：密钥对在**浏览器里**用 WebCrypto 生成，公钥自动
+ * 填进表单，私钥只显示在那一个页面上供复制，**不上传**。服务端生成再发下来的话，私钥就经过
+ * 了本站的代码路径，而「只有接入方持有私钥」正是这套签名的全部价值。不想用这个按钮的，
+ * 占位符里写着 openssl 命令。
  *
  * **一个接入方多个公钥**，按 `kid` 定位：轮换期间新旧必须并存，一行放一个公钥做不到。
  * 流程是「先登记新 kid 置 active → 接入方切过去 → 把旧 kid 置 retired」，`retired` 的公钥
@@ -38,8 +42,8 @@ const columns = [
 		// 改不得：票据里带的就是它，改掉等于让所有在途票据验不过。
 		form: { edit: false as const },
 		rules: [{ required: true, message: '请输入密钥标识' }] },
-	{ dataIndex: 'public_key', title: '公钥', component: 'textarea' as const,
-		placeholder: 'Ed25519 公钥，Base64URL、43 个字符。在接入方那台机器上生成，私钥不要发给任何人：\nopenssl genpkey -algorithm ed25519 -out private.pem\nopenssl pkey -in private.pem -pubout -outform DER | tail -c 32 | basenc --base64url | tr -d "="',
+	{ dataIndex: 'public_key', title: '公钥', component: 'ed25519_public_key' as const,
+		placeholder: 'Ed25519 公钥，Base64URL、43 个字符。点下面的按钮当场生成，或在接入方那台机器上用命令生成：\nopenssl genpkey -algorithm ed25519 -out private.pem\nopenssl pkey -in private.pem -pubout -outform DER | tail -c 32 | basenc --base64url | tr -d "="',
 		form: { edit: false as const },
 		rules: [{ required: true, message: '请粘贴公钥' }] },
 	{ dataIndex: 'status', title: '状态', component: 'select' as const, options: STATUS_OPTIONS },

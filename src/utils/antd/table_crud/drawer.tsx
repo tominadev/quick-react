@@ -8,7 +8,7 @@ import type { ChangeControlValue } from '@shared/table-form.mjs';
 import { changedFieldsKey, type ChangedFieldsPayload } from '@shared/types/changed-fields.mjs';
 
 import { ClearOutlined, InboxOutlined, RollbackOutlined } from '@ant-design/icons';
-import { Alert, Button, Checkbox, Col, DatePicker, Drawer, Form, Input, Row, Select, Space, Switch, Tabs } from 'antd';
+import { Alert, Button, Checkbox, Col, DatePicker, Drawer, Form, Input, Row, Select, Space, Switch, Tabs, Typography } from 'antd';
 import { Upload } from 'antd';
 import { InputNumber } from 'antd';
 import { useEffect, useRef, useState } from 'react';
@@ -29,6 +29,58 @@ type TableCrudType = {
 	cancelText: string;
 	loading: boolean;
 	submitting‌: boolean;
+};
+
+const base64Url = (bytes: ArrayBuffer) => btoa(String.fromCharCode(...new Uint8Array(bytes))).replaceAll('+', '-').replaceAll('/', '_').replaceAll('=', '');
+
+/**
+ * Ed25519 公钥输入框，外加一个「在这台电脑上生成密钥对」。
+ *
+ * **密钥对在浏览器里生成，私钥不上传。** 接入方用私钥签发绑定票据、SMS 用登记的公钥验签，
+ * 这套东西的全部价值就在于「只有接入方持有私钥」——由服务端生成再发下来的话，私钥就经过了
+ * SMS 控制的代码路径，那句话立刻不成立。这里生成的私钥只出现在这一个页面上，复制走之后
+ * 刷新即失，服务端从头到尾只收到公钥。
+ *
+ * 浏览器不支持 Ed25519 时不硬撑：说清楚，并让人回到 openssl 那条路（占位符里就写着命令）。
+ */
+const Ed25519PublicKeyField = ({ value, onChange, placeholder, readOnly }: { value?: string; onChange?: (value: string) => void; placeholder?: string; readOnly?: boolean }) => {
+	const [privateKey, setPrivateKey] = useState('');
+	const [error, setError] = useState('');
+	const [generating, setGenerating] = useState(false);
+	const generate = async () => {
+		setGenerating(true);
+		setError('');
+		try {
+			const pair = await crypto.subtle.generateKey({ name: 'Ed25519' }, true, ['sign', 'verify']) as CryptoKeyPair;
+			onChange?.(base64Url(await crypto.subtle.exportKey('raw', pair.publicKey)));
+			// 私钥给 PKCS#8 的 PEM：openssl、PHP 的 sodium、Node 都直接读得进去，
+			// 而裸字节还要对方自己拼头，拼错了只会在验签时看到一句「签名无效」。
+			const pkcs8 = btoa(String.fromCharCode(...new Uint8Array(await crypto.subtle.exportKey('pkcs8', pair.privateKey))));
+			setPrivateKey(`-----BEGIN PRIVATE KEY-----\n${(pkcs8.match(/.{1,64}/g) ?? []).join('\n')}\n-----END PRIVATE KEY-----`);
+		} catch {
+			setError('这个浏览器不支持在本地生成 Ed25519 密钥对。请按输入框里的命令用 openssl 生成，然后把公钥粘进来。');
+		} finally {
+			setGenerating(false);
+		}
+	};
+	return (
+		<Space direction="vertical" style={{ width: '100%' }} size="small">
+			<Input.TextArea rows={3} value={value ?? ''} onChange={(event) => onChange?.(event.target.value)} placeholder={placeholder} readOnly={readOnly} disabled={readOnly} />
+			{!readOnly && <Button onClick={() => void generate()} loading={generating}>在这台电脑上生成密钥对</Button>}
+			{error && <Alert type="warning" showIcon message={error} />}
+			{privateKey && <Alert
+				type="warning"
+				showIcon
+				message="私钥只显示这一次"
+				description={<Space direction="vertical" style={{ width: '100%' }} size={4}>
+					<span>复制给接入方，让它保存在自己的服务端。<strong>本站不会保存私钥</strong>，这个页面关掉或刷新之后就再也拿不到了；弄丢了就重新生成一把、换一个 kid 登记。</span>
+					<Typography.Paragraph copyable={{ text: privateKey }} style={{ margin: 0 }}>
+						<Typography.Text code style={{ whiteSpace: 'pre-wrap', wordBreak: 'break-all', fontSize: 12 }}>{privateKey}</Typography.Text>
+					</Typography.Paragraph>
+				</Space>}
+			/>}
+		</Space>
+	);
 };
 
 function getFullFileExtension(filename: string): string {
@@ -81,6 +133,8 @@ function getFormItemComponent(item: ResJsonTableColumn, row: DataType, parentVal
 			return (
 				<Input.TextArea rows={4} placeholder={item.placeholder} readOnly={readOnly} disabled={readOnly} />
 			);
+		case ('ed25519_public_key'):
+			return <Ed25519PublicKeyField placeholder={item.placeholder} readOnly={readOnly} />;
 		case ('datepicker'):
 			return (
 				<DatePicker

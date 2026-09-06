@@ -1,5 +1,12 @@
 export type TableData = Record<string, unknown>;
-export type TableColumnComponent = 'textbox' | 'url' | 'avatar' | 'avatar_text' | 'textarea' | 'select' | 'switch' | 'datepicker' | 'datepicker_rangepicker' | 'inputnumber' | 'upload';
+export type TableColumnComponent = 'textbox' | 'url' | 'avatar' | 'avatar_text' | 'textarea' | 'select' | 'switch' | 'datepicker' | 'datepicker_rangepicker' | 'inputnumber' | 'upload'
+	/**
+	 * Ed25519 公钥输入框，外加「在这台电脑上生成密钥对」。
+	 *
+	 * 密钥对在**浏览器里**生成，私钥只显示在页面上、不上传——服务端生成再发下来的话，
+	 * 私钥就经过了服务端的代码路径，而「只有接入方持有私钥」正是这套签名的全部价值。
+	 */
+	| 'ed25519_public_key';
 export type TableDataType = 'js_timestamp' | 'int' | 'float' | 'string' | 'datetime';
 export type TableColumnRule = { required: boolean; message: string };
 export type TableColumnRemoteOptions = { action: string; dependencies: string[]; clearFields?: string[] };
