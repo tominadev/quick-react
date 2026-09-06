@@ -67,7 +67,7 @@ model passport_users {
   id          BigInt @id @default(autoincrement())
   /// 账号的稳定标识，也是 OIDC 的 sub。雪花值，建号时定下，此后不变。
   key         String @db.VarChar(36)
-  @@unique([key, deleted_at])
+  @@unique([key])
   created_at  BigInt
   updated_at  BigInt
   deleted_at BigInt @default(0)
@@ -95,7 +95,7 @@ model passport_user_email_otps {
   owner_bid     BigInt @default(1)
   owner_uid     BigInt?
   otp_id        String
-  @@unique([otp_id, deleted_at])
+  @@unique([otp_id])
   user_key       String @db.VarChar(36)
   email         String
   code_hash     String
@@ -104,7 +104,7 @@ model passport_user_email_otps {
   expires_at    BigInt
 
   @@index([user_key, status, created_at])
-  @@unique([key, deleted_at])
+  @@unique([key])
 }
 
 model passport_user_credentials {
@@ -124,7 +124,7 @@ model passport_user_credentials {
   password   Json
 
   @@index([user_key, created_at, id])
-  @@unique([key, deleted_at])
+  @@unique([key])
 }
 
 model passport_sessions {
@@ -140,14 +140,14 @@ model passport_sessions {
   owner_bid     BigInt @default(1)
   owner_uid     BigInt?
   token_hash String
-  @@unique([token_hash, deleted_at])
+  @@unique([token_hash])
   user_key    String @db.VarChar(36)
   expires_at BigInt
   device_id  BigInt
 
   @@index([user_key])
   @@index([expires_at])
-  @@unique([key, deleted_at])
+  @@unique([key])
 }
 
 model passport_devices {
@@ -171,7 +171,7 @@ model passport_devices {
   last_seen_at BigInt
   revoked_at   BigInt?
 
-  @@unique([key, deleted_at])
+  @@unique([key])
 }
 
 model passport_device_users {
@@ -192,8 +192,8 @@ model passport_device_users {
   last_seen_at BigInt
   revoked_at   BigInt?
 
-  @@unique([device_id, user_key, deleted_at])
-  @@unique([key, deleted_at])
+  @@unique([device_id, user_key])
+  @@unique([key])
 }
 
 model passport_telegram_accounts {
@@ -214,8 +214,8 @@ model passport_telegram_accounts {
   chat_id          BigInt
   nickname         String
 
-  @@unique([bot_id, telegram_user_id, deleted_at])
-  @@unique([key, deleted_at])
+  @@unique([bot_id, telegram_user_id])
+  @@unique([key])
 }
 
 model passport_oauth_accounts {
@@ -234,8 +234,8 @@ model passport_oauth_accounts {
   provider         String
   provider_user_id String
 
-  @@unique([provider, provider_user_id, deleted_at])
-  @@unique([key, deleted_at])
+  @@unique([provider, provider_user_id])
+  @@unique([key])
 }
 
 model passport_emails {
@@ -253,8 +253,8 @@ model passport_emails {
   email      String
   verified   Int    @default(0)
 
-  @@unique([email, deleted_at])
-  @@unique([key, deleted_at])
+  @@unique([email])
+  @@unique([key])
 }
 
 model passport_user_emails {
@@ -273,9 +273,9 @@ model passport_user_emails {
   email_id   BigInt
   is_primary Int    @default(0)
 
-  @@unique([user_key, email_id, deleted_at])
-  @@unique([email_id, deleted_at])
-  @@unique([key, deleted_at])
+  @@unique([user_key, email_id])
+  @@unique([email_id])
+  @@unique([key])
 }
 
 model passport_email_otp {
@@ -300,7 +300,7 @@ model passport_email_otp {
   expires_at       BigInt
 
   @@index([bot_id, telegram_user_id, status, created_at])
-  @@unique([key, deleted_at])
+  @@unique([key])
 }
 
 
@@ -321,8 +321,8 @@ model passport_telegram_menus {
   chat_id          BigInt
   message_id       BigInt
   mode             String
-  @@unique([bot_id, telegram_user_id, deleted_at])
-  @@unique([key, deleted_at])
+  @@unique([bot_id, telegram_user_id])
+  @@unique([key])
 }
 
 model passport_telegram_updates {
@@ -340,9 +340,9 @@ model passport_telegram_updates {
   bot_id     BigInt
   update_id  BigInt
   status     PassportTelegramUpdateStatus
-  @@unique([bot_id, update_id, deleted_at])
+  @@unique([bot_id, update_id])
   @@index([status, updated_at])
-  @@unique([key, deleted_at])
+  @@unique([key])
 }
 
 model passport_telegram_identity_choices {
@@ -366,7 +366,7 @@ model passport_telegram_identity_choices {
   expires_at       BigInt
 
   @@index([bot_id, telegram_user_id, status, created_at])
-  @@unique([key, deleted_at])
+  @@unique([key])
 }
 
 model passport_login_challenges {
@@ -382,7 +382,7 @@ model passport_login_challenges {
   owner_bid     BigInt @default(1)
   owner_uid     BigInt?
   challenge_id     String
-  @@unique([challenge_id, deleted_at])
+  @@unique([challenge_id])
   user_key          String @db.VarChar(36)
   bot_id           BigInt
   telegram_user_id BigInt
@@ -393,7 +393,7 @@ model passport_login_challenges {
 
   @@index([bot_id, telegram_user_id, status, created_at])
   @@index([status, expires_at])
-  @@unique([key, deleted_at])
+  @@unique([key])
 }
 
 model passport_sso_requests {
@@ -409,14 +409,14 @@ model passport_sso_requests {
   owner_bid     BigInt @default(1)
   owner_uid     BigInt?
   request_id        String
-  @@unique([request_id, deleted_at])
+  @@unique([request_id])
   target_site_key   String
   target_hostname   String
   status            PassportSsoStatus
   expires_at        BigInt
 
   @@index([status, expires_at])
-  @@unique([key, deleted_at])
+  @@unique([key])
 }
 
 model passport_login_tickets {
@@ -432,7 +432,7 @@ model passport_login_tickets {
   owner_bid     BigInt @default(1)
   owner_uid     BigInt?
   token_hash        String
-  @@unique([token_hash, deleted_at])
+  @@unique([token_hash])
   user_key           String @db.VarChar(36)
   target_site_key   String
   target_hostname   String
@@ -440,7 +440,7 @@ model passport_login_tickets {
   expires_at        BigInt
 
   @@index([status, expires_at])
-  @@unique([key, deleted_at])
+  @@unique([key])
 }
 
 model passport_site_sessions {
@@ -456,7 +456,7 @@ model passport_site_sessions {
   owner_bid     BigInt @default(1)
   owner_uid     BigInt?
   session_id String
-  @@unique([session_id, deleted_at])
+  @@unique([session_id])
   user_key    String @db.VarChar(36)
   site_key   String
   hostname   String
@@ -464,7 +464,7 @@ model passport_site_sessions {
 
   @@index([user_key])
   @@index([site_key, hostname, expires_at])
-  @@unique([key, deleted_at])
+  @@unique([key])
 }
 
 model passport_group_prompts {
@@ -485,7 +485,7 @@ model passport_group_prompts {
   expires_at BigInt
 
   @@index([chat_id, actor_id, updated_at])
-  @@unique([key, deleted_at])
+  @@unique([key])
 }
 
 model passport_external_email_otps {
@@ -501,7 +501,7 @@ model passport_external_email_otps {
   owner_bid     BigInt @default(1)
   owner_uid     BigInt?
   otp_id                String
-  @@unique([otp_id, deleted_at])
+  @@unique([otp_id])
   pending_identity_hash String
   email                 String
   code_hash             String
@@ -510,7 +510,7 @@ model passport_external_email_otps {
   expires_at            BigInt
 
   @@index([pending_identity_hash, status, created_at])
-  @@unique([key, deleted_at])
+  @@unique([key])
 }
 
 model passport_external_identities {
@@ -530,9 +530,9 @@ model passport_external_identities {
   subject     String
   profile     String @default("{}")
 
-  @@unique([provider, subject, deleted_at])
+  @@unique([provider, subject])
   @@index([user_key])
-  @@unique([key, deleted_at])
+  @@unique([key])
 }
 
 model passport_external_login_states {
@@ -548,7 +548,7 @@ model passport_external_login_states {
   owner_bid     BigInt @default(1)
   owner_uid     BigInt?
   id_hash         String
-  @@unique([id_hash, deleted_at])
+  @@unique([id_hash])
   provider        String
   code_verifier   String
   nonce           String
@@ -560,7 +560,7 @@ model passport_external_login_states {
   oidc_request_id String?
 
   @@index([expires_at, consumed_at])
-  @@unique([key, deleted_at])
+  @@unique([key])
 }
 
 model passport_external_pending_identities {
@@ -576,14 +576,14 @@ model passport_external_pending_identities {
   owner_bid     BigInt @default(1)
   owner_uid     BigInt?
   id_hash      String
-  @@unique([id_hash, deleted_at])
+  @@unique([id_hash])
   provider     String
   subject      String
   nickname     String
   profile      String
   status       PassportExternalPendingStatus @default(pending)
   expires_at   BigInt
-  @@unique([key, deleted_at])
+  @@unique([key])
 }
 
 model passport_external_pending_qr_states {
@@ -599,10 +599,10 @@ model passport_external_pending_qr_states {
   owner_bid     BigInt @default(1)
   owner_uid     BigInt?
   pending_identity_hash String
-  @@unique([pending_identity_hash, deleted_at])
+  @@unique([pending_identity_hash])
   qr_state_hash         String
-  @@unique([qr_state_hash, deleted_at])
-  @@unique([key, deleted_at])
+  @@unique([qr_state_hash])
+  @@unique([key])
 }
 
 model passport_external_providers {
@@ -618,14 +618,14 @@ model passport_external_providers {
   owner_bid     BigInt @default(1)
   owner_uid     BigInt?
   provider                String
-  @@unique([provider, deleted_at])
+  @@unique([provider])
   title                   String
   client_id               String
   client_secret           String
   status                  PassportAccountStatus @default(enabled)
   wechat_mode             String @default("open_platform")
   wechat_redirect_domain  String @default("")
-  @@unique([key, deleted_at])
+  @@unique([key])
 }
 
 model passport_oidc_clients {
@@ -641,7 +641,7 @@ model passport_oidc_clients {
   owner_bid     BigInt @default(1)
   owner_uid     BigInt?
   client_id              String
-  @@unique([client_id, deleted_at])
+  @@unique([client_id])
   title                  String
   secret_hash            String
   redirect_uris          String @default("[]")
@@ -655,7 +655,7 @@ model passport_oidc_clients {
   /// 默认关闭。开着等于把这个账号的口令哈希交给接入方——接入方脱库就等于拿到
   /// Accounts 的密码。两侧都要显式打开才会真的下发：这里是签发侧。
   password_sync          Int    @default(0)
-  @@unique([key, deleted_at])
+  @@unique([key])
 }
 
 model passport_oidc_authorization_requests {
@@ -671,7 +671,7 @@ model passport_oidc_authorization_requests {
   owner_bid     BigInt @default(1)
   owner_uid     BigInt?
   request_id            String
-  @@unique([request_id, deleted_at])
+  @@unique([request_id])
   client_id             String
   redirect_uri          String
   scope                 String
@@ -680,7 +680,7 @@ model passport_oidc_authorization_requests {
   code_challenge        String @default("")
   code_challenge_method String @default("")
   expires_at            BigInt
-  @@unique([key, deleted_at])
+  @@unique([key])
 }
 
 model passport_oidc_authorization_codes {
@@ -696,7 +696,7 @@ model passport_oidc_authorization_codes {
   owner_bid     BigInt @default(1)
   owner_uid     BigInt?
   code_hash             String
-  @@unique([code_hash, deleted_at])
+  @@unique([code_hash])
   client_id             String
   user_key               String @db.VarChar(36)
   redirect_uri          String
@@ -709,7 +709,7 @@ model passport_oidc_authorization_codes {
   session_id            String @default("")
 
   @@index([expires_at, consumed_at])
-  @@unique([key, deleted_at])
+  @@unique([key])
 }
 
 model passport_oidc_access_tokens {
@@ -725,7 +725,7 @@ model passport_oidc_access_tokens {
   owner_bid     BigInt @default(1)
   owner_uid     BigInt?
   token_hash              String
-  @@unique([token_hash, deleted_at])
+  @@unique([token_hash])
   client_id               String
   user_key                 String @db.VarChar(36)
   scope                   String
@@ -733,10 +733,10 @@ model passport_oidc_access_tokens {
   revoked_at              BigInt?
   session_id              String @default("")
   authorization_code_hash String?
-  @@unique([authorization_code_hash, deleted_at])
+  @@unique([authorization_code_hash])
 
   @@index([expires_at, revoked_at])
-  @@unique([key, deleted_at])
+  @@unique([key])
 }
 
 model passport_oidc_signing_keys {
@@ -752,11 +752,11 @@ model passport_oidc_signing_keys {
   owner_bid     BigInt @default(1)
   owner_uid     BigInt?
   kid          String
-  @@unique([kid, deleted_at])
+  @@unique([kid])
   private_jwk  String
   public_jwk   String
   status       PassportSigningKeyStatus @default(active)
-  @@unique([key, deleted_at])
+  @@unique([key])
 }
 
 /// Accounts 账号的资料。
@@ -788,6 +788,6 @@ model passport_user_profiles {
 
   /// 邮箱不在这里：passport_emails + passport_user_emails 已经带了验证状态与主邮箱。
   /// 头像也不在这里：对象路径由 user_id 推导，见 modules/passport/avatar.mts。
-  @@unique([user_key, deleted_at])
-  @@unique([key, deleted_at])
+  @@unique([user_key])
+  @@unique([key])
 }

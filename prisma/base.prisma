@@ -82,7 +82,7 @@ enum BaseApprovalScope {
 model base_tenants {
   id           BigInt @id @default(autoincrement())
   key          String @db.VarChar(36)
-  @@unique([key, deleted_at])
+  @@unique([key])
   created_at   BigInt
   updated_at   BigInt
   deleted_at   BigInt @default(0)
@@ -110,7 +110,7 @@ model base_branches {
   owner_tid    BigInt @default(1)
   owner_bid    BigInt @default(1)
   owner_uid    BigInt?
-  @@unique([owner_tid, key, deleted_at])
+  @@unique([owner_tid, key])
   title        String
   status       BaseTenantStatus @default(enabled)
 }
@@ -131,11 +131,11 @@ model base_hosts {
   owner_bid    BigInt @default(1)
   owner_uid    BigInt?
   hostname     String
-  @@unique([hostname, deleted_at])
+  @@unique([hostname])
   tenant_id    BigInt
   branch_id    BigInt
   status       BaseTenantStatus @default(enabled)
-  @@unique([key, deleted_at])
+  @@unique([key])
 }
 
 model base_users {
@@ -166,7 +166,7 @@ model base_users {
   @@unique([owner_tid, name, deleted_at])
   roles         String[] @default([])
   status        BaseUserStatus @default(enabled)
-  @@unique([key, deleted_at])
+  @@unique([key])
 }
 
 model base_sessions {
@@ -182,11 +182,11 @@ model base_sessions {
   owner_bid     BigInt @default(1)
   owner_uid     BigInt?
   token_hash String
-  @@unique([token_hash, deleted_at])
+  @@unique([token_hash])
   user_id    BigInt
   expires_at BigInt
   device_id  BigInt
-  @@unique([key, deleted_at])
+  @@unique([key])
 }
 
 model base_configs {
@@ -202,7 +202,7 @@ model base_configs {
   owner_bid     BigInt @default(1)
   owner_uid     BigInt?
   // 配置按租户独立：同一个 key 每个租户各存一份，owner_tid 为 NULL 的行是平台默认值。
-  @@unique([owner_tid, key, deleted_at])
+  @@unique([owner_tid, key])
   value      String
 }
 
@@ -219,7 +219,7 @@ model base_bootstrap {
   owner_bid     BigInt @default(1)
   owner_uid     BigInt?
   // 引导状态同样按租户独立：每个租户各自创建自己的初始管理员。
-  @@unique([owner_tid, key, deleted_at])
+  @@unique([owner_tid, key])
   value        String
 }
 
@@ -236,10 +236,10 @@ model base_oidc_login_requests {
   owner_bid     BigInt @default(1)
   owner_uid     BigInt?
   request_id    String
-  @@unique([request_id, deleted_at])
+  @@unique([request_id])
   issuer        String
   state         String
-  @@unique([state, deleted_at])
+  @@unique([state])
   nonce         String
   code_verifier String
   return_path   String @default("/")
@@ -258,7 +258,7 @@ model base_oidc_login_requests {
   /// base_oidc_users.profile，那是「数据管理」里可见的普通列。这一列随请求行在落定时删掉，
   /// 列名进了 HIDDEN_VALUE_COLUMNS，接口不返回它的值。
   credential    String @default("")
-  @@unique([key, deleted_at])
+  @@unique([key])
 }
 
 model base_oidc_users {
@@ -279,8 +279,8 @@ model base_oidc_users {
   profile       String @default("{}")
 
   // 同一个 Accounts 身份在每个租户各有一个本地账号。
-  @@unique([owner_tid, issuer, subject, deleted_at])
-  @@unique([key, deleted_at])
+  @@unique([owner_tid, issuer, subject])
+  @@unique([key])
 }
 
 model base_oidc_sessions {
@@ -298,10 +298,10 @@ model base_oidc_sessions {
   issuer        String
   sid           String
   session_id    BigInt
-  @@unique([session_id, deleted_at])
+  @@unique([session_id])
 
-  @@unique([issuer, sid, deleted_at])
-  @@unique([key, deleted_at])
+  @@unique([issuer, sid])
+  @@unique([key])
 }
 
 model base_devices {
@@ -326,7 +326,7 @@ model base_devices {
   last_seen_at BigInt
   revoked_at   BigInt?
 
-  @@unique([key, deleted_at])
+  @@unique([key])
 }
 
 model base_device_users {
@@ -347,8 +347,8 @@ model base_device_users {
   last_seen_at BigInt
   revoked_at   BigInt?
 
-  @@unique([device_id, user_id, deleted_at])
-  @@unique([key, deleted_at])
+  @@unique([device_id, user_id])
+  @@unique([key])
 }
 
 model base_device_snapshots {
@@ -372,7 +372,7 @@ model base_device_snapshots {
   screen_width  Int    @default(0)
   screen_height Int    @default(0)
   captured_at   BigInt
-  @@unique([key, deleted_at])
+  @@unique([key])
 }
 
 /// 变更留痕：受管表上每一次业务字段变更的前后值，同时用作操作日志与撤回依据。
@@ -405,7 +405,7 @@ model base_approval_events {
   /// 这一次的理由。撤销没有理由——那是申请人把自己提的东西收回去，不需要向谁交代。
   reason       String @default("")
   @@index([approval_id, id])
-  @@unique([key, deleted_at])
+  @@unique([key])
 }
 
 model base_approvals {
@@ -473,7 +473,7 @@ model base_approvals {
   @@index([operation_id])
   @@index([review_status, created_at])
   @@index([scope, created_at])
-  @@unique([key, deleted_at])
+  @@unique([key])
 }
 
 /// 本站账号的登录凭证。
@@ -499,8 +499,8 @@ model base_user_credentials {
   password     Json
 
   /// 一个账号一份当前凭证；user_id 本身全局唯一，不必再按租户划分。
-  @@unique([user_id, deleted_at])
-  @@unique([key, deleted_at])
+  @@unique([user_id])
+  @@unique([key])
 }
 
 /// 本站账号的资料。
@@ -536,7 +536,7 @@ model base_user_profiles {
   email        String?
 
   /// 一个账号一份资料；user_id 本身全局唯一，不必再按租户划分。
-  @@unique([user_id, deleted_at])
-  @@unique([owner_tid, nickname, deleted_at])
-  @@unique([key, deleted_at])
+  @@unique([user_id])
+  @@unique([owner_tid, nickname])
+  @@unique([key])
 }

@@ -46,7 +46,16 @@ try {
 	assert.throws(() => sqlite.insert('users', { deleted_at: 1 }), /系统字段/);
 	assert.throws(() => sqlite.update('users', { id: 2 }, { id: 1 }), /系统字段/);
 	assert.throws(() => sqlite.update('users', { deleted_at: 1 }, { id: 1 }), /系统字段/);
-	assert.match(sqlite.upsert('sessions', ['issuer', 'sid'], { issuer: 'i', sid: 's', session_id: 'x' }, ['session_id']).query, /ON CONFLICT \("issuer", "sid", "deleted_at"\) DO UPDATE/);
+	/**
+	 * ON CONFLICT 的目标列要与库里那条唯一索引逐列对上。
+	 *
+	 * **只有 `name` 参与的唯一索引带 `deleted_at`**：名字是人取的，删掉一行之后同一个名字
+	 * 该能再用。其余一律不带——它们要么是系统生成、永不重复的标识（雪花号 key、各种 hash、
+	 * token），要么是外部给的稳定标识，`deleted_at` 在那里纯属多余。
+	 */
+	assert.match(sqlite.upsert('sessions', ['issuer', 'sid'], { issuer: 'i', sid: 's', session_id: 'x' }, ['session_id']).query, /ON CONFLICT \("issuer", "sid"\) DO UPDATE/);
+	assert.match(sqlite.upsert('tenants', ['name'], { name: 'a', title: 'b' }, ['title']).query, /ON CONFLICT \("name", "deleted_at"\) DO UPDATE/, 'name 是人取的，软删之后要能重建同名');
+	assert.match(sqlite.ignoreInsert('configs', ['key', 'owner_tid'], { key: 'k' }).query, /ON CONFLICT \("key", "owner_tid"\) DO NOTHING/, 'key 当 id 一样用，不带 deleted_at');
 	assert.match(mysql.upsert('sessions', ['issuer', 'sid'], { issuer: 'i', sid: 's', session_id: 'x' }, ['session_id']).query, /ON DUPLICATE KEY UPDATE `session_id` = VALUES\(`session_id`\)/);
 	assert.match(mysql.ignoreInsert('users', ['name'], { name: 'Alice' }).query, /^INSERT IGNORE/);
 	const postgresInsert = postgres.insert('users', { name: 'Alice', status: 'enabled' });
@@ -91,7 +100,7 @@ try {
 	assert.deepEqual(mysql.advanceNumber('snowflake_state', 'last_timestamp', 100, 101, { worker_id: 7 }), { query: 'UPDATE `snowflake_state` SET `last_timestamp` = GREATEST(`last_timestamp` + 1, ?), `updated_at` = ? WHERE `worker_id` = ?', values: [100, 101, 7] });
 	assert.match(sqlite.advanceNumber('snowflake_state', 'last_timestamp', 100, 101, { worker_id: 7 }).query, /MAX\("last_timestamp" \+ 1, \?\)/);
 	assert.deepEqual(postgres.insertFromSelect('sessions', { id: 'session', user_id: { column: 'user_id' }, expires_at: 123 }, 'challenges', [{ column: 'id', value: 'challenge' }, { column: 'status', value: 'approved' }]), { query: 'INSERT INTO "sessions" ("id", "user_id", "expires_at") SELECT $1, "user_id", $2 FROM "challenges" WHERE "id" = $3 AND "status" = $4', values: ['session', 123, 'challenge', 'approved'] });
-	assert.match(postgres.upsert('sessions', ['issuer', 'sid'], { issuer: 'i', sid: 's', session_id: 'x' }, ['session_id']).query, /ON CONFLICT \("issuer", "sid", "deleted_at"\) DO UPDATE/);
+	assert.match(postgres.upsert('sessions', ['issuer', 'sid'], { issuer: 'i', sid: 's', session_id: 'x' }, ['session_id']).query, /ON CONFLICT \("issuer", "sid"\) DO UPDATE/);
 	assert.equal(sqlite.castText('user_id'), 'CAST("user_id" AS TEXT)'); assert.equal(mysql.castText('user_id'), 'CAST(`user_id` AS CHAR)');
 	assert.throws(() => sqlite.insert('users; DROP TABLE users', { name: 'x' }), /Unsafe SQL identifier/);
 	const mysqlLegacy = compileSqlPlaceholders('SELECT ?2 AS second, ?1 AS first, ?2 AS repeated', 'mysql');

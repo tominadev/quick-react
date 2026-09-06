@@ -11,7 +11,7 @@ enum PveEnabledStatus {
 model pve_regions {
   id           BigInt @id @default(autoincrement())
   key          String @db.VarChar(36)
-  @@unique([key, deleted_at])
+  @@unique([key])
   created_at   BigInt @default(0)
   updated_at   BigInt @default(0)
   deleted_at   BigInt @default(0)
@@ -49,7 +49,7 @@ model pve_nodes {
   status           PveEnabledStatus @default(enabled)
   last_checked_at  Int?
   last_error       String @default("")
-  @@unique([key, deleted_at])
+  @@unique([key])
 }
 
 model pve_instance_flavors {
@@ -70,8 +70,8 @@ model pve_instance_flavors {
   status               PveEnabledStatus @default(enabled)
   sort_order           Int    @default(0)
 
-  @@unique([key, deleted_at])
-  @@unique([cpu_cores, memory_gb, deleted_at])
+  @@unique([key])
+  @@unique([cpu_cores, memory_gb])
 }
 
 model pve_vms {
@@ -95,7 +95,7 @@ model pve_vms {
   pve_status         String @default("")
   pve_config         Json   @default("{}")
   error_message      String @default("")
-  @@unique([key, deleted_at])
+  @@unique([key])
 }
 
 model pve_vm_tasks {
@@ -113,11 +113,11 @@ model pve_vm_tasks {
   vm_id            BigInt
   action           String
   idempotency_key  String
-  @@unique([idempotency_key, deleted_at])
+  @@unique([idempotency_key])
   status           String @default("pending")
   request_payload  Json   @default("{}")
   response_payload Json   @default("{}")
   retry_count      Int    @default(0)
   error_message    String @default("")
-  @@unique([key, deleted_at])
+  @@unique([key])
 }

@@ -49,10 +49,24 @@ export const quoteIdentifier = (identifier: string, dialect: SqlDialect) => {
 
 const dialectOf = (database: DatabaseAdapter): SqlDialect => database.dialect ?? 'sqlite';
 const definedEntries = (values: Values) => Object.entries(values).filter((entry): entry is [string, SqlValue] => entry[1] !== undefined);
-/** All business uniqueness is scoped to active rows so soft-deleted identifiers can be recreated. */
+/**
+ * ON CONFLICT 的目标列。**必须与库里那条唯一索引逐列对上**，对不上 PostgreSQL 会直接报
+ * 「no unique or exclusion constraint matching the ON CONFLICT specification」。
+ *
+ * **只有 `name` 参与的唯一索引带 `deleted_at`。** 名字是人取的，删掉一行之后同一个名字
+ * 该能再用——`deleted_at` 进索引正是为了这件事（软删的行带着非 0 的时间戳，与新行不撞）。
+ *
+ * 其余一律不带。它们要么是系统生成、永不重复的标识（雪花号 `key`、各种 hash、token、
+ * 自增 id），`deleted_at` 在那里纯属多余；要么是外部给的稳定标识（provider、subject、
+ * telegram_user_id），删了再回来还是同一个东西，本来就不该换一行。
+ *
+ * 代价说在前面：这些值**软删之后不能重建同一个**。删掉一条 `hostname` 绑定再绑同一个
+ * 域名、删掉一个套餐规格再建同样的 cpu/内存组合，都会撞上那条已删除的行。
+ */
 const conflictTarget = (keys: string[]) => {
 	if (!keys.length) throw new Error('INSERT conflict keys cannot be empty');
-	return keys.includes('deleted_at') ? keys : [...keys, 'deleted_at'];
+	if (keys.includes('deleted_at')) return keys;
+	return keys.includes('name') ? [...keys, 'deleted_at'] : keys;
 };
 const assertBusinessWriteFields = (values: Values, options: { allowId?: boolean; allowKey?: boolean; allowManagedFlags?: boolean } = {}) => {
 	const protectedFields = Object.keys(values).filter((field) => isSystemField(field)
