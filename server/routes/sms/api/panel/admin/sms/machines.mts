@@ -68,6 +68,22 @@ const issueSecret = async () => {
 };
 
 /**
+ * 创建与重置都回一份完整的 `.env`，运维整体复制到那台 Mac 就行（绑定文档 §4.10）。
+ *
+ * **给的是完整端点而不是基址。** 站点的 API 后缀可配（`siteConfig.apiSuffix`），基址加
+ * 路径要生成器自己拼，拼错就是一台永远调不通的机器——理由与接收地址由 `action=config`
+ * 下发是同一条（§5.2）。机器标识只作注释：机器身份由服务端从凭证解析，自称的不作数。
+ *
+ * 文件里**只有平台预配凭证**，不含用户 Access Key 或 Ed25519 私钥：生成器不调用户级
+ * 接口，也不签发绑定票据，放进去只是扩大泄露面。
+ */
+const envFile = (c: Parameters<ApiHandler>[0], machineName: string, secret: string) => [
+	`# machine: ${machineName}`,
+	`SMS_API_ENDPOINT=${new URL(c.req.url).origin}/api/platform/shortcut-tokens${c.get('techStackConfig').apiSuffix}`,
+	`SMS_PROVISIONING_KEY=${secret}`,
+].join('\n');
+
+/**
  * 明文要穿过审批那一层。
  *
  * 记成待审批之后，`worker.mts` 的兜底会把任何非 202 的响应改写成「修改已提交审批」——
@@ -76,15 +92,18 @@ const issueSecret = async () => {
  *
  * 被驳回的话这份凭证不会生效，管理员照着它配的机器调不通——文案里说清楚。
  */
-const secretNotice = (c: Parameters<ApiHandler>[0], queued: boolean, secret: string, extra: Record<string, unknown> = {}) => apiMessageData(
-	c,
-	queued ? 202 : 201,
-	queued
-		? `凭证只显示这一次，请立即保存：\n\n${secret}\n\n这条登记已提交审批，通过后这台机器才能调用生成器接口；被驳回的话这份凭证不会生效。`
-		: `凭证只显示这一次，请立即保存：\n\n${secret}`,
-	{ secret, ...extra },
-	{ component: 'modal', showIcon: true, title: '机器凭证' },
-);
+const secretNotice = (c: Parameters<ApiHandler>[0], queued: boolean, machineName: string, secret: string) => {
+	const env = envFile(c, machineName, secret);
+	return apiMessageData(
+		c,
+		queued ? 202 : 201,
+		queued
+			? `这份 .env 只显示这一次，请立即保存到那台 Mac（权限 600，不进版本库）：\n\n${env}\n\n这条登记已提交审批，通过后这台机器才能调用生成器接口；被驳回的话这份凭证不会生效。`
+			: `这份 .env 只显示这一次，请立即保存到那台 Mac（权限 600，不进版本库）：\n\n${env}`,
+		{ secret, env_file: env, machine: machineName },
+		{ component: 'modal', showIcon: true, title: '机器凭证' },
+	);
+};
 
 const handler: ApiHandler = async (c, next, params) => {
 	const database = c.get('database');
@@ -136,7 +155,7 @@ const handler: ApiHandler = async (c, next, params) => {
 				status: String(body.status ?? statusValues.enabled),
 			}), { operationId, defer: true });
 			const pending = c.get('pendingApproval');
-			return secretNotice(c, pending?.operationId === operationId, issued.secret, { name });
+			return secretNotice(c, pending?.operationId === operationId, name, issued.secret);
 		} catch (error) {
 			if (error instanceof PendingApprovalError) throw error;
 			if (!isUniqueViolation(error)) throw error;
@@ -146,8 +165,8 @@ const handler: ApiHandler = async (c, next, params) => {
 
 	if (params.id && c.req.method === 'PUT') {
 		const body = await c.req.json<Record<string, unknown>>().catch(() => ({} as Record<string, unknown>));
-		const current = await firstSql<{ id: string }>(database, sql({ database }).select({
-			table: 'sms_generator_machines', columns: { id: { column: 'id', cast: 'text' } }, where: [{ column: 'id', value: params.id }],
+		const current = await firstSql<{ id: string; name: string }>(database, sql({ database }).select({
+			table: 'sms_generator_machines', columns: { id: { column: 'id', cast: 'text' }, name: 'name' }, where: [{ column: 'id', value: params.id }],
 		}));
 		if (!current) return apiMessage(c, 404, '机器不存在');
 		const changed = getChangedFields(body, ['title', 'status', 'reset_secret']);
@@ -165,7 +184,7 @@ const handler: ApiHandler = async (c, next, params) => {
 		const operationId = crypto.randomUUID();
 		await runOperation(c, database, [sql({ database }).update('sms_generator_machines', values, { id: params.id })], { operationId, defer: true });
 		const queued = c.get('pendingApproval')?.operationId === operationId;
-		if (issued) return secretNotice(c, queued, issued.secret);
+		if (issued) return secretNotice(c, queued, String(current.name), issued.secret);
 		if (queued) throw new PendingApprovalError(operationId, c.get('pendingApproval')?.entries ?? 1);
 		return apiMessage(c, 200, '机器已保存');
 	}
