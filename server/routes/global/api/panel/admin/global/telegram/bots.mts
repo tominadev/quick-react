@@ -80,7 +80,7 @@ const botColumns = {
 };
 const loadBot = (database: DatabaseAdapter, id: number) => firstSql<BotRow>(database, sql({ database }).select({ table: 'global_telegram_bots', columns: botColumns, where: [{ column: 'id', value: id }] }));
 const botAssociated = async (database: DatabaseAdapter, id: number) => (await Promise.all([
-	'passport_telegram_accounts', 'passport_email_otp', 'passport_telegram_menus', 'passport_telegram_identity_choices', 'passport_telegram_updates',
+	'passport_telegram_accounts', 'passport_telegram_email_otps', 'passport_telegram_menus', 'passport_telegram_identity_choices', 'passport_telegram_updates',
 ].map((table) => firstSql(database, sql({ database }).select({ table, columns: { bot_id: 'bot_id' }, where: [{ column: 'bot_id', value: id }], limit: 1 }))))).some(Boolean);
 const duplicateBot = async (database: DatabaseAdapter, id: number, name: string, token: string, username: string) => (await Promise.all([
 	['name', name], ['token', token], ['username', username],

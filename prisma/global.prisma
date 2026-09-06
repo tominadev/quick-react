@@ -45,6 +45,7 @@ model global_sites {
   is_default       Int     @default(0)
   is_system        Int     @default(0)
   passport_sso_enabled Int  @default(0)
+  @@index([base_site_key])
 }
 
 model global_site_hosts {
@@ -64,6 +65,7 @@ model global_site_hosts {
   site_key     String
   status       GlobalEnabledStatus @default(enabled)
   @@unique([key])
+  @@index([site_key])
 }
 
 model global_cloud_credentials {
@@ -86,6 +88,8 @@ model global_cloud_credentials {
   access_key_secret String @default("")
   status            GlobalEnabledStatus @default(enabled)
   @@unique([key])
+  @@index([account_id])
+  @@index([access_key_id])
 }
 
 model global_cloud_object_storage_buckets {
@@ -154,6 +158,7 @@ model global_cloud_object_storage_binding_purposes {
 
   @@unique([binding_id, purpose])
   @@unique([key])
+  @@index([site_key])
 }
 
 model global_telegram_bots {
@@ -270,15 +275,16 @@ model global_cloud_email_template_publications {
 
   @@unique([template_id, cloud_credential_id, region])
   @@unique([key])
+  @@index([provider_template_id])
 }
 /// 雪花发号器的号段状态。全站共享一份：每张业务表的 key 都由它发。
 ///
-/// 每个 worker 一行，`last_timestamp` 是**已经预留到哪个逻辑毫秒**。预留走原子推进
+/// 每个 worker 一行，`last_at` 是**已经预留到哪个逻辑毫秒**。预留走原子推进
 /// （UPDATE 的 WHERE 带旧值），因此两个进程即使配了同一个 worker id，拿到的也是彼此
 /// 不相交的两段；进程重启后从这里接着往下走，不会把发过的号再发一遍。
 ///
 /// 这张表自己没有 key 列——发 key 要先读它，加上去就成了死循环。
-model global_snowflake_state {
+model global_snowflake_states {
   id             BigInt @id @default(autoincrement())
   created_at     BigInt
   updated_at     BigInt
@@ -291,5 +297,5 @@ model global_snowflake_state {
   owner_uid      BigInt?
   worker_id      Int
   @@unique([worker_id])
-  last_timestamp BigInt
+  last_at BigInt
 }

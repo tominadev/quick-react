@@ -148,6 +148,7 @@ model passport_sessions {
   @@index([user_key])
   @@index([expires_at])
   @@unique([key])
+  @@index([device_id])
 }
 
 model passport_devices {
@@ -216,6 +217,8 @@ model passport_telegram_accounts {
 
   @@unique([bot_id, telegram_user_id])
   @@unique([key])
+  @@index([user_key])
+  @@index([chat_id])
 }
 
 model passport_oauth_accounts {
@@ -236,6 +239,7 @@ model passport_oauth_accounts {
 
   @@unique([provider, provider_user_id])
   @@unique([key])
+  @@index([user_key])
 }
 
 model passport_emails {
@@ -278,7 +282,7 @@ model passport_user_emails {
   @@unique([key])
 }
 
-model passport_email_otp {
+model passport_telegram_email_otps {
   id               BigInt @id @default(autoincrement())
   key          String @db.VarChar(36)
   created_at       BigInt
@@ -301,6 +305,7 @@ model passport_email_otp {
 
   @@index([bot_id, telegram_user_id, status, created_at])
   @@unique([key])
+  @@index([chat_id])
 }
 
 
@@ -323,6 +328,8 @@ model passport_telegram_menus {
   mode             String
   @@unique([bot_id, telegram_user_id])
   @@unique([key])
+  @@index([chat_id])
+  @@index([message_id])
 }
 
 model passport_telegram_updates {
@@ -367,6 +374,8 @@ model passport_telegram_identity_choices {
 
   @@index([bot_id, telegram_user_id, status, created_at])
   @@unique([key])
+  @@index([chat_id])
+  @@index([target_user_key])
 }
 
 model passport_login_challenges {
@@ -394,6 +403,8 @@ model passport_login_challenges {
   @@index([bot_id, telegram_user_id, status, created_at])
   @@index([status, expires_at])
   @@unique([key])
+  @@index([user_key])
+  @@index([chat_id])
 }
 
 model passport_sso_requests {
@@ -417,6 +428,7 @@ model passport_sso_requests {
 
   @@index([status, expires_at])
   @@unique([key])
+  @@index([target_site_key])
 }
 
 model passport_login_tickets {
@@ -441,6 +453,8 @@ model passport_login_tickets {
 
   @@index([status, expires_at])
   @@unique([key])
+  @@index([user_key])
+  @@index([target_site_key])
 }
 
 model passport_site_sessions {
@@ -561,6 +575,8 @@ model passport_external_login_states {
 
   @@index([expires_at, consumed_at])
   @@unique([key])
+  @@index([qr_user_key])
+  @@index([oidc_request_id])
 }
 
 model passport_external_pending_identities {
@@ -626,6 +642,7 @@ model passport_external_providers {
   wechat_mode             String @default("open_platform")
   wechat_redirect_domain  String @default("")
   @@unique([key])
+  @@index([client_id])
 }
 
 model passport_oidc_clients {
@@ -681,6 +698,7 @@ model passport_oidc_authorization_requests {
   code_challenge_method String @default("")
   expires_at            BigInt
   @@unique([key])
+  @@index([client_id])
 }
 
 model passport_oidc_authorization_codes {
@@ -710,6 +728,9 @@ model passport_oidc_authorization_codes {
 
   @@index([expires_at, consumed_at])
   @@unique([key])
+  @@index([client_id])
+  @@index([user_key])
+  @@index([session_id])
 }
 
 model passport_oidc_access_tokens {
@@ -737,6 +758,9 @@ model passport_oidc_access_tokens {
 
   @@index([expires_at, revoked_at])
   @@unique([key])
+  @@index([client_id])
+  @@index([user_key])
+  @@index([session_id])
 }
 
 model passport_oidc_signing_keys {

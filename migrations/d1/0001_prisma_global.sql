@@ -232,7 +232,7 @@ CREATE TABLE "global_cloud_email_template_publications" (
 );
 
 -- CreateTable
-CREATE TABLE "global_snowflake_state" (
+CREATE TABLE "global_snowflake_states" (
     "id" INTEGER NOT NULL PRIMARY KEY AUTOINCREMENT,
     "created_at" BIGINT NOT NULL,
     "updated_at" BIGINT NOT NULL,
@@ -244,17 +244,29 @@ CREATE TABLE "global_snowflake_state" (
     "owner_bid" BIGINT NOT NULL DEFAULT 1,
     "owner_uid" BIGINT,
     "worker_id" INTEGER NOT NULL,
-    "last_timestamp" BIGINT NOT NULL
+    "last_at" BIGINT NOT NULL
 );
 
 -- CreateIndex
+CREATE INDEX "global_sites_base_site_key_idx" ON "global_sites"("base_site_key");
+
+-- CreateIndex
 CREATE UNIQUE INDEX "global_sites_key_key" ON "global_sites"("key");
+
+-- CreateIndex
+CREATE INDEX "global_site_hosts_site_key_idx" ON "global_site_hosts"("site_key");
 
 -- CreateIndex
 CREATE UNIQUE INDEX "global_site_hosts_hostname_key" ON "global_site_hosts"("hostname");
 
 -- CreateIndex
 CREATE UNIQUE INDEX "global_site_hosts_key_key" ON "global_site_hosts"("key");
+
+-- CreateIndex
+CREATE INDEX "global_cloud_credentials_account_id_idx" ON "global_cloud_credentials"("account_id");
+
+-- CreateIndex
+CREATE INDEX "global_cloud_credentials_access_key_id_idx" ON "global_cloud_credentials"("access_key_id");
 
 -- CreateIndex
 CREATE UNIQUE INDEX "global_cloud_credentials_title_key" ON "global_cloud_credentials"("title");
@@ -276,6 +288,9 @@ CREATE UNIQUE INDEX "global_cloud_object_storage_bindings_site_key_bucket_id_key
 
 -- CreateIndex
 CREATE UNIQUE INDEX "global_cloud_object_storage_bindings_key_key" ON "global_cloud_object_storage_bindings"("key");
+
+-- CreateIndex
+CREATE INDEX "global_cloud_object_storage_binding_purposes_site_key_idx" ON "global_cloud_object_storage_binding_purposes"("site_key");
 
 -- CreateIndex
 CREATE UNIQUE INDEX "global_cloud_object_storage_binding_purposes_binding_id_purpose_key" ON "global_cloud_object_storage_binding_purposes"("binding_id", "purpose");
@@ -314,10 +329,13 @@ CREATE UNIQUE INDEX "global_cloud_email_bindings_site_key_channel_id_template_id
 CREATE UNIQUE INDEX "global_cloud_email_bindings_key_key" ON "global_cloud_email_bindings"("key");
 
 -- CreateIndex
+CREATE INDEX "global_cloud_email_template_publications_provider_template_id_idx" ON "global_cloud_email_template_publications"("provider_template_id");
+
+-- CreateIndex
 CREATE UNIQUE INDEX "global_cloud_email_template_publications_template_id_cloud_credential_id_region_key" ON "global_cloud_email_template_publications"("template_id", "cloud_credential_id", "region");
 
 -- CreateIndex
 CREATE UNIQUE INDEX "global_cloud_email_template_publications_key_key" ON "global_cloud_email_template_publications"("key");
 
 -- CreateIndex
-CREATE UNIQUE INDEX "global_snowflake_state_worker_id_key" ON "global_snowflake_state"("worker_id");
+CREATE UNIQUE INDEX "global_snowflake_states_worker_id_key" ON "global_snowflake_states"("worker_id");

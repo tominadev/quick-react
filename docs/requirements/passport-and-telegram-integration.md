@@ -304,7 +304,7 @@ passport_user_emails
   is_primary INTEGER NOT NULL DEFAULT 0
   UNIQUE (user_id, email_id)
 
-passport_email_otp
+passport_telegram_email_otps
   id BIGINT PRIMARY KEY
   created_at BIGINT NOT NULL
   updated_at BIGINT NOT NULL
@@ -326,7 +326,7 @@ passport_snowflake_state
   created_duid BIGINT
   updated_duid BIGINT
   worker_id INTEGER UNIQUE
-  last_timestamp BIGINT NOT NULL
+  last_at BIGINT NOT NULL
 
 passport_telegram_menus
   id BIGINT PRIMARY KEY
@@ -403,7 +403,7 @@ passport_group_prompts
 
 当已验证邮箱属于现有用户、但当前 Telegram 外部身份尚未归属用户时，验证码通过后创建有时效的 `passport_telegram_identity_choices`，由用户在 Telegram 菜单中明确确认绑定或取消。只有确认操作才能新增 Telegram 账号关系；选择记录长期保留终态以说明关联来源。若当前 Telegram 外部身份和邮箱已经分别属于不同用户，只报告冲突，不自动迁移或合并任一身份。
 
-创建首个用户时还没有 `user_id` 和 `email_id`，因此 Telegram 首期的 `passport_email_otp` 直接记录机器人、Telegram 用户、Chat 和规范化邮箱。验证码通过后，才在同一事务中创建或解析 Passport 用户、邮箱及绑定关系，避免用 `NULL`、空字符串或伪造的用户 ID 表达尚未完成的注册。
+创建首个用户时还没有 `user_id` 和 `email_id`，因此 Telegram 首期的 `passport_telegram_email_otps` 直接记录机器人、Telegram 用户、Chat 和规范化邮箱。验证码通过后，才在同一事务中创建或解析 Passport 用户、邮箱及绑定关系，避免用 `NULL`、空字符串或伪造的用户 ID 表达尚未完成的注册。
 
 `passport_snowflake_state` 属于 Passport 数据，不能放入 global。生成器按 Worker ID 在 Passport 数据库中原子预留逻辑毫秒，再在该毫秒内分配 12 位序列号；这样可以处理并发、多实例、进程重启和时钟回拨。Worker ID 由运行实例配置，范围为 0–1023，不新增 `PASSPORT_DB` 一类数据库变量。
 

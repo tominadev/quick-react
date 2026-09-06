@@ -143,6 +143,8 @@ model base_hosts {
   branch_id    BigInt
   status       BaseTenantStatus @default(enabled)
   @@unique([key])
+  @@index([tenant_id])
+  @@index([branch_id])
 }
 
 model base_users {
@@ -194,6 +196,8 @@ model base_sessions {
   expires_at BigInt
   device_id  BigInt
   @@unique([key])
+  @@index([user_id])
+  @@index([device_id])
 }
 
 model base_configs {
@@ -216,7 +220,7 @@ model base_configs {
   value      String
 }
 
-model base_bootstrap {
+model base_bootstraps {
   id           BigInt @id @default(autoincrement())
   key          String @db.VarChar(36)
   created_at   BigInt
@@ -294,6 +298,7 @@ model base_oidc_users {
   // 同一个 Accounts 身份在每个租户各有一个本地账号。
   @@unique([owner_tid, issuer, subject])
   @@unique([key])
+  @@index([user_id])
 }
 
 model base_oidc_sessions {
@@ -340,6 +345,7 @@ model base_devices {
   revoked_at   BigInt?
 
   @@unique([key])
+  @@index([user_id])
 }
 
 model base_device_users {
@@ -386,6 +392,7 @@ model base_device_snapshots {
   screen_height Int    @default(0)
   captured_at   BigInt
   @@unique([key])
+  @@index([device_id])
 }
 
 /// 变更留痕：受管表上每一次业务字段变更的前后值，同时用作操作日志与撤回依据。

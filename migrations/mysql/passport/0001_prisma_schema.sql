@@ -90,6 +90,7 @@ CREATE TABLE `passport_sessions` (
 
     INDEX `passport_sessions_user_key_idx`(`user_key`),
     INDEX `passport_sessions_expires_at_idx`(`expires_at`),
+    INDEX `passport_sessions_device_id_idx`(`device_id`),
     UNIQUE INDEX `passport_sessions_token_hash_key`(`token_hash`),
     UNIQUE INDEX `passport_sessions_key_key`(`key`),
     PRIMARY KEY (`id`)
@@ -164,6 +165,8 @@ CREATE TABLE `passport_telegram_accounts` (
     `chat_id` BIGINT NOT NULL,
     `nickname` VARCHAR(191) NOT NULL,
 
+    INDEX `passport_telegram_accounts_user_key_idx`(`user_key`),
+    INDEX `passport_telegram_accounts_chat_id_idx`(`chat_id`),
     UNIQUE INDEX `passport_telegram_accounts_bot_id_telegram_user_id_key`(`bot_id`, `telegram_user_id`),
     UNIQUE INDEX `passport_telegram_accounts_key_key`(`key`),
     PRIMARY KEY (`id`)
@@ -186,6 +189,7 @@ CREATE TABLE `passport_oauth_accounts` (
     `provider` VARCHAR(191) NOT NULL,
     `provider_user_id` VARCHAR(191) NOT NULL,
 
+    INDEX `passport_oauth_accounts_user_key_idx`(`user_key`),
     UNIQUE INDEX `passport_oauth_accounts_provider_provider_user_id_key`(`provider`, `provider_user_id`),
     UNIQUE INDEX `passport_oauth_accounts_key_key`(`key`),
     PRIMARY KEY (`id`)
@@ -236,7 +240,7 @@ CREATE TABLE `passport_user_emails` (
 ) DEFAULT CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci;
 
 -- CreateTable
-CREATE TABLE `passport_email_otp` (
+CREATE TABLE `passport_telegram_email_otps` (
     `id` BIGINT NOT NULL AUTO_INCREMENT,
     `key` VARCHAR(36) NOT NULL,
     `created_at` BIGINT NOT NULL,
@@ -257,8 +261,9 @@ CREATE TABLE `passport_email_otp` (
     `status` ENUM('pending', 'expired', 'used') NOT NULL DEFAULT 'pending',
     `expires_at` BIGINT NOT NULL,
 
-    INDEX `passport_email_otp_bot_id_telegram_user_id_status_created_at_idx`(`bot_id`, `telegram_user_id`, `status`, `created_at`),
-    UNIQUE INDEX `passport_email_otp_key_key`(`key`),
+    INDEX `passport_telegram_email_otps_bot_id_telegram_user_id_status__idx`(`bot_id`, `telegram_user_id`, `status`, `created_at`),
+    INDEX `passport_telegram_email_otps_chat_id_idx`(`chat_id`),
+    UNIQUE INDEX `passport_telegram_email_otps_key_key`(`key`),
     PRIMARY KEY (`id`)
 ) DEFAULT CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci;
 
@@ -281,6 +286,8 @@ CREATE TABLE `passport_telegram_menus` (
     `message_id` BIGINT NOT NULL,
     `mode` VARCHAR(191) NOT NULL,
 
+    INDEX `passport_telegram_menus_chat_id_idx`(`chat_id`),
+    INDEX `passport_telegram_menus_message_id_idx`(`message_id`),
     UNIQUE INDEX `passport_telegram_menus_bot_id_telegram_user_id_key`(`bot_id`, `telegram_user_id`),
     UNIQUE INDEX `passport_telegram_menus_key_key`(`key`),
     PRIMARY KEY (`id`)
@@ -331,6 +338,8 @@ CREATE TABLE `passport_telegram_identity_choices` (
     `expires_at` BIGINT NOT NULL,
 
     INDEX `passport_telegram_identity_choices_bot_id_telegram_user_id_s_idx`(`bot_id`, `telegram_user_id`, `status`, `created_at`),
+    INDEX `passport_telegram_identity_choices_chat_id_idx`(`chat_id`),
+    INDEX `passport_telegram_identity_choices_target_user_key_idx`(`target_user_key`),
     UNIQUE INDEX `passport_telegram_identity_choices_key_key`(`key`),
     PRIMARY KEY (`id`)
 ) DEFAULT CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci;
@@ -359,6 +368,8 @@ CREATE TABLE `passport_login_challenges` (
 
     INDEX `passport_login_challenges_bot_id_telegram_user_id_status_cre_idx`(`bot_id`, `telegram_user_id`, `status`, `created_at`),
     INDEX `passport_login_challenges_status_expires_at_idx`(`status`, `expires_at`),
+    INDEX `passport_login_challenges_user_key_idx`(`user_key`),
+    INDEX `passport_login_challenges_chat_id_idx`(`chat_id`),
     UNIQUE INDEX `passport_login_challenges_challenge_id_key`(`challenge_id`),
     UNIQUE INDEX `passport_login_challenges_key_key`(`key`),
     PRIMARY KEY (`id`)
@@ -384,6 +395,7 @@ CREATE TABLE `passport_sso_requests` (
     `expires_at` BIGINT NOT NULL,
 
     INDEX `passport_sso_requests_status_expires_at_idx`(`status`, `expires_at`),
+    INDEX `passport_sso_requests_target_site_key_idx`(`target_site_key`),
     UNIQUE INDEX `passport_sso_requests_request_id_key`(`request_id`),
     UNIQUE INDEX `passport_sso_requests_key_key`(`key`),
     PRIMARY KEY (`id`)
@@ -410,6 +422,8 @@ CREATE TABLE `passport_login_tickets` (
     `expires_at` BIGINT NOT NULL,
 
     INDEX `passport_login_tickets_status_expires_at_idx`(`status`, `expires_at`),
+    INDEX `passport_login_tickets_user_key_idx`(`user_key`),
+    INDEX `passport_login_tickets_target_site_key_idx`(`target_site_key`),
     UNIQUE INDEX `passport_login_tickets_token_hash_key`(`token_hash`),
     UNIQUE INDEX `passport_login_tickets_key_key`(`key`),
     PRIMARY KEY (`id`)
@@ -540,6 +554,8 @@ CREATE TABLE `passport_external_login_states` (
     `oidc_request_id` VARCHAR(191) NULL,
 
     INDEX `passport_external_login_states_expires_at_consumed_at_idx`(`expires_at`, `consumed_at`),
+    INDEX `passport_external_login_states_qr_user_key_idx`(`qr_user_key`),
+    INDEX `passport_external_login_states_oidc_request_id_idx`(`oidc_request_id`),
     UNIQUE INDEX `passport_external_login_states_id_hash_key`(`id_hash`),
     UNIQUE INDEX `passport_external_login_states_key_key`(`key`),
     PRIMARY KEY (`id`)
@@ -614,6 +630,7 @@ CREATE TABLE `passport_external_providers` (
     `wechat_mode` VARCHAR(191) NOT NULL DEFAULT 'open_platform',
     `wechat_redirect_domain` VARCHAR(191) NOT NULL DEFAULT '',
 
+    INDEX `passport_external_providers_client_id_idx`(`client_id`),
     UNIQUE INDEX `passport_external_providers_provider_key`(`provider`),
     UNIQUE INDEX `passport_external_providers_key_key`(`key`),
     PRIMARY KEY (`id`)
@@ -671,6 +688,7 @@ CREATE TABLE `passport_oidc_authorization_requests` (
     `code_challenge_method` VARCHAR(191) NOT NULL DEFAULT '',
     `expires_at` BIGINT NOT NULL,
 
+    INDEX `passport_oidc_authorization_requests_client_id_idx`(`client_id`),
     UNIQUE INDEX `passport_oidc_authorization_requests_request_id_key`(`request_id`),
     UNIQUE INDEX `passport_oidc_authorization_requests_key_key`(`key`),
     PRIMARY KEY (`id`)
@@ -702,6 +720,9 @@ CREATE TABLE `passport_oidc_authorization_codes` (
     `session_id` VARCHAR(191) NOT NULL DEFAULT '',
 
     INDEX `passport_oidc_authorization_codes_expires_at_consumed_at_idx`(`expires_at`, `consumed_at`),
+    INDEX `passport_oidc_authorization_codes_client_id_idx`(`client_id`),
+    INDEX `passport_oidc_authorization_codes_user_key_idx`(`user_key`),
+    INDEX `passport_oidc_authorization_codes_session_id_idx`(`session_id`),
     UNIQUE INDEX `passport_oidc_authorization_codes_code_hash_key`(`code_hash`),
     UNIQUE INDEX `passport_oidc_authorization_codes_key_key`(`key`),
     PRIMARY KEY (`id`)
@@ -730,6 +751,9 @@ CREATE TABLE `passport_oidc_access_tokens` (
     `authorization_code_hash` VARCHAR(191) NULL,
 
     INDEX `passport_oidc_access_tokens_expires_at_revoked_at_idx`(`expires_at`, `revoked_at`),
+    INDEX `passport_oidc_access_tokens_client_id_idx`(`client_id`),
+    INDEX `passport_oidc_access_tokens_user_key_idx`(`user_key`),
+    INDEX `passport_oidc_access_tokens_session_id_idx`(`session_id`),
     UNIQUE INDEX `passport_oidc_access_tokens_token_hash_key`(`token_hash`),
     UNIQUE INDEX `passport_oidc_access_tokens_authorization_code_hash_key`(`authorization_code_hash`),
     UNIQUE INDEX `passport_oidc_access_tokens_key_key`(`key`),

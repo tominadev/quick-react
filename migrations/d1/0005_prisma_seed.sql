@@ -4,4 +4,4 @@
 INSERT INTO global_sites (key, name, title, base_site_key, dsn, database_binding, status, migration_status, is_default, is_system) VALUES ('seed-global', 'global', '全局控制面', 'base', '', '', 'enabled', 'ready', 1, 1) ON CONFLICT(key) DO NOTHING;
 INSERT INTO base_tenants (created_at, updated_at, key, name, title, status) VALUES (0, 0, 'seed-tenant', 'default', '默认租户', 'enabled') ON CONFLICT(key) DO NOTHING;
 INSERT INTO base_branches (created_at, updated_at, key, name, title, status) VALUES (0, 0, 'seed-branch', 'main', '主分站', 'enabled') ON CONFLICT(key) DO NOTHING;
-INSERT INTO base_bootstrap (created_at, updated_at, key, name, value) VALUES (0, 0, 'seed-bootstrap', 'initial_admin', 'open') ON CONFLICT(key) DO NOTHING;
+INSERT INTO base_bootstraps (created_at, updated_at, key, name, value) VALUES (0, 0, 'seed-bootstrap', 'initial_admin', 'open') ON CONFLICT(key) DO NOTHING;

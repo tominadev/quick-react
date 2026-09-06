@@ -47,6 +47,8 @@ CREATE TABLE `pve_nodes` (
     `last_checked_at` INTEGER NULL,
     `last_error` VARCHAR(191) NOT NULL DEFAULT '',
 
+    INDEX `pve_nodes_region_id_idx`(`region_id`),
+    INDEX `pve_nodes_api_token_id_idx`(`api_token_id`),
     UNIQUE INDEX `pve_nodes_owner_tid_name_deleted_at_key`(`owner_tid`, `name`, `deleted_at`),
     UNIQUE INDEX `pve_nodes_key_key`(`key`),
     PRIMARY KEY (`id`)
@@ -99,6 +101,9 @@ CREATE TABLE `pve_vms` (
     `pve_config` JSON NOT NULL,
     `error_message` VARCHAR(191) NOT NULL DEFAULT '',
 
+    INDEX `pve_vms_region_id_idx`(`region_id`),
+    INDEX `pve_vms_node_id_idx`(`node_id`),
+    INDEX `pve_vms_instance_flavor_id_idx`(`instance_flavor_id`),
     UNIQUE INDEX `pve_vms_owner_tid_name_deleted_at_key`(`owner_tid`, `name`, `deleted_at`),
     UNIQUE INDEX `pve_vms_key_key`(`key`),
     PRIMARY KEY (`id`)
@@ -119,14 +124,15 @@ CREATE TABLE `pve_vm_tasks` (
     `owner_uid` BIGINT NULL,
     `vm_id` BIGINT NOT NULL,
     `action` VARCHAR(191) NOT NULL,
-    `idempotency_key` VARCHAR(191) NOT NULL,
+    `idempotency_token` VARCHAR(191) NOT NULL,
     `status` VARCHAR(191) NOT NULL DEFAULT 'pending',
     `request_payload` JSON NOT NULL,
     `response_payload` JSON NOT NULL,
     `retry_count` INTEGER NOT NULL DEFAULT 0,
     `error_message` VARCHAR(191) NOT NULL DEFAULT '',
 
-    UNIQUE INDEX `pve_vm_tasks_idempotency_key_key`(`idempotency_key`),
+    INDEX `pve_vm_tasks_vm_id_idx`(`vm_id`),
+    UNIQUE INDEX `pve_vm_tasks_idempotency_token_key`(`idempotency_token`),
     UNIQUE INDEX `pve_vm_tasks_key_key`(`key`),
     PRIMARY KEY (`id`)
 ) DEFAULT CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci;

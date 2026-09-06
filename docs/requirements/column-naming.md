@@ -43,11 +43,11 @@
 | --- | --- | --- |
 | `base_tenants` | `default` | 雪花号 |
 | `base_branches` | `main` | 雪花号 |
-| `base_bootstrap` | `initial_admin` | 雪花号 |
+| `base_bootstraps` | `initial_admin` | 雪花号 |
 | `base_configs` | `site_frontend`、`accounts_oidc_client` … | 雪花号 |
 
 **种子行的 key 写死。** 建库种子跑在**迁移刚建完表**的时候，而发号器要等 `primeSnowflake`
-从 `global_snowflake_state` 里原子预留一个号段才能发号——那张表正是这次迁移建出来的。
+从 `global_snowflake_states` 里原子预留一个号段才能发号——那张表正是这次迁移建出来的。
 `seed-tenant` 这几个值是引导数据，跟 `is_system: 1` 一样属于系统内置行的一部分，不是
 「人取的名字」。
 
@@ -83,7 +83,7 @@
 `[A-Za-z0-9_-]` 以外的字符。CHECK 约束 Prisma schema 写不出来，手写又破坏了「迁移全部由
 prisma 生成」，因此校验放在唯一必经之路上。
 
-两张表没有 `key`，都是基础设施而不是业务数据：`global_snowflake_state`（发号要先读它，
+两张表没有 `key`，都是基础设施而不是业务数据：`global_snowflake_states`（发号要先读它，
 给它加 key 就是死循环）和 `global_schema_migrations`（它在建库之前就要写入，那时号段还不存在）。
 
 ### 发号器
@@ -137,6 +137,27 @@ worker id 必须跨重启稳定，每次启动重新随机会让两次运行落�
 - **`name` 的值用小写字母加下划线**：`site_frontend`、`initial_admin`、`main`。`key` 是机器
   写的，不存在「取名」这回事。
 
+## 外键列用简称
+
+外键列名是 `<被引用表的领域名>_<被引用列>`，**领域名不含库前缀和分类前缀**：
+
+```
+channel_id     → global_cloud_email_channels.id
+binding_id     → global_cloud_object_storage_bindings.id
+site_key       → global_sites.key
+user_key       → passport_users.key
+```
+
+严格按「被引用表单数 + 列」会长成 `global_cloud_object_storage_binding_id`，那种长度没人愿意
+写,也不会让人读得更明白 —— 在「对象存储用途表」这个上下文里,`binding_id` 指的是哪一种绑定
+没有第二种解释。**判据是在本表上下文中无歧义**,不是名字有多完整。
+
+同一张表里出现两种绑定时,才需要把限定词加回来（`target_site_key`、`qr_user_key`、
+`target_user_key` 就是这么来的）。
+
+**`_key` 后缀只给「指向某张表的 key 列」留着。** 幂等键这类不指向任何表的标识用 `_token`
+（`pve_vm_tasks.idempotency_token`），否则读的人会去找那张并不存在的表。
+
 ## 还没迁完的
 
 `global_sites.key` 仍存人取的站点名（`^[a-z][a-z0-9_]*$`），因为 `site_key` 在 149 处引用它、
@@ -156,6 +177,18 @@ antd 的表格要求每一行有唯一的 `key`。**这个 `key` 与数据库的
 现在的做法：`option.rowKey` 直接声明成这张表真实的主键列名，不再往行里塞字段。只有
 **没有主键的只读表**才合成一个 `_row_key`（下划线前缀＝协议保留字段，与 `_pending`、
 `_section` 一致，撞不上任何业务列）。
+
+## 表名与索引
+
+- **表名一律复数**：表装的是一堆东西，单数会让人以为它只有一行。`base_bootstraps`、
+  `global_snowflake_states` 每租户/每 worker 各一行，`passport_telegram_email_otps` 更是每次
+  验证一行。
+- **表名要说得出它装什么**：`passport_email_otp` 曾经带着 `bot_id`/`telegram_user_id`/
+  `chat_id`，却叫通用的 email_otp——它其实只装 Telegram 那条路发起的验证码，另外两条路各有
+  自己的表。名字盖不住内容时，改名字。
+- **外键列一律有索引**：没有索引的外键列意味着查询全表扫，而 `base_sessions.user_id`、
+  `base_hosts.tenant_id` 这些在每个请求的热路径上。
+- **时间点一律 `_at` 结尾**：`last_timestamp` 一眼看不出它和 `expires_at` 是同一类。
 
 ## 由测试守着
 

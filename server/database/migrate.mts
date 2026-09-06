@@ -46,7 +46,7 @@ export const migrateDatabase = async (database: DatabaseAdapter, migrationsRoot:
 /**
  * 种子行的 `key` 写死，不走发号器。
  *
- * 种子跑在**迁移刚建完表**的时候，而发号器要等 `primeSnowflake` 从 `global_snowflake_state`
+ * 种子跑在**迁移刚建完表**的时候，而发号器要等 `primeSnowflake` 从 `global_snowflake_states`
  * 里原子预留一个号段才能发号——那张表正是这次迁移建出来的，此刻还没人 prime 过它。
  * （`KEYLESS_TABLES` 里的迁移记录表是同一个处境。）
  *
@@ -57,7 +57,7 @@ const SEED_KEYS = { bootstrap: 'seed-bootstrap', tenant: 'seed-tenant', branch: 
 
 const seedBaseDatabase = async (database: DatabaseAdapter) => {
 	// 平台默认引导状态（owner_tid 为 NULL）：各租户没有自己的行时回落到它。
-	await runSql(database, sql({ database }).ignoreInsert('base_bootstrap', ['name', 'owner_tid'], { key: SEED_KEYS.bootstrap, name: 'initial_admin', value: 'open' }));
+	await runSql(database, sql({ database }).ignoreInsert('base_bootstraps', ['name', 'owner_tid'], { key: SEED_KEYS.bootstrap, name: 'initial_admin', value: 'open' }));
 	// 默认租户与它的主分站：主机名解析不到时一律落到这一对，单租户单分站部署因此开箱即用。
 	// 每个域名都必须绑定分站，所以每个租户都要有主分站——新建租户时同样要建一个。
 	await runSql(database, sql({ database }).ignoreInsert('base_tenants', ['name'], { key: SEED_KEYS.tenant, name: 'default', title: '默认租户', status: 'enabled' }));

@@ -52,6 +52,8 @@ model pve_nodes {
   last_checked_at  Int?
   last_error       String @default("")
   @@unique([key])
+  @@index([region_id])
+  @@index([api_token_id])
 }
 
 model pve_instance_flavors {
@@ -100,6 +102,9 @@ model pve_vms {
   pve_config         Json   @default("{}")
   error_message      String @default("")
   @@unique([key])
+  @@index([region_id])
+  @@index([node_id])
+  @@index([instance_flavor_id])
 }
 
 model pve_vm_tasks {
@@ -116,12 +121,13 @@ model pve_vm_tasks {
   owner_uid     BigInt?
   vm_id            BigInt
   action           String
-  idempotency_key  String
-  @@unique([idempotency_key])
+  idempotency_token  String
+  @@unique([idempotency_token])
   status           String @default("pending")
   request_payload  Json   @default("{}")
   response_payload Json   @default("{}")
   retry_count      Int    @default(0)
   error_message    String @default("")
   @@unique([key])
+  @@index([vm_id])
 }

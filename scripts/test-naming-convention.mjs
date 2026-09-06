@@ -12,7 +12,7 @@ const projectDirectory = resolve(import.meta.dirname, '..');
 const prismaDirectory = join(projectDirectory, 'prisma');
 const banned = { code: 'key', display_name: 'title', label: 'title', caption: 'title' };
 /** 没有 key 列的表，与 sql.mts 的 KEYLESS_TABLES 一一对应。 */
-const keyless = new Set(['global_snowflake_state']);
+const keyless = new Set(['global_snowflake_states']);
 /**
  * 每张表都带的十一个系统字段，顺序固定。
  *
@@ -91,6 +91,36 @@ for (const file of (await readdir(prismaDirectory)).filter((name) => name.endsWi
 		 */
 		for (const unique of uniqueIndexes) {
 			if (unique.includes('deleted_at') && !unique.includes('name')) problems.push(`${name} 的 [${unique.join(', ')}] 不该带 deleted_at——只有 name 需要`);
+		}
+	}
+}
+
+/**
+ * **表名一律复数,外键列一律有索引,时间列一律以 `_at` 结尾。**
+ *
+ * 三条都是「扫一遍全库才发现」的那种不一致:65 张表里曾经有 3 张是单数、43 个外键列没有任何
+ * 索引(查询要全表扫,而 base_sessions.user_id 这种在每个请求的热路径上)、一个时间列叫
+ * `last_timestamp`。规矩只有写进测试才立得住。
+ */
+{
+	const SYSTEM = new Set(['id', 'key', 'created_at', 'updated_at', 'deleted_at', 'queued_at', 'created_duid', 'updated_duid', 'owner_tid', 'owner_bid', 'owner_uid']);
+	for (const file of await readdir(prismaDirectory)) {
+		if (!file.endsWith('.prisma')) continue;
+		const source = await readFile(join(prismaDirectory, file), 'utf8');
+		for (const match of source.matchAll(/^model (\w+) \{(.*?)^\}/gms)) {
+			const [, name, body] = match;
+			// 复数:表装的是「一堆东西」,单数会让人以为它只有一行。
+			if (!name.split('_').at(-1).endsWith('s')) problems.push(`${name} 表名要用复数`);
+			const groups = [...body.matchAll(/@@(?:unique|index)\(\[([^\]]+)\]\)/g)].map((group) => group[1].split(',').map((column) => column.trim()));
+			const covered = new Set(groups.flat());
+			for (const column of [...body.matchAll(/^\s{2}(\w+)\s+(\S+)/gm)]) {
+				const field = column[1];
+				if (SYSTEM.has(field)) continue;
+				// 外键列没有索引就是全表扫。索引是不是复合的无所谓,前缀能用上就行。
+				if ((field.endsWith('_id') || field.endsWith('_key')) && !covered.has(field)) problems.push(`${name}.${field} 是外键列,要有索引`);
+				// 时间点一律 `_at`:`last_timestamp` 这种一眼看不出它和 expires_at 是同一类。
+				if (/^(?:last|first)_(?:timestamp|time)$|_(?:timestamp|time)$/.test(field)) problems.push(`${name}.${field} 是时间点,要以 _at 结尾`);
+			}
 		}
 	}
 }

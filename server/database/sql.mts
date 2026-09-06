@@ -103,9 +103,9 @@ export type SqlCondition =
  */
 export const KEYLESS_TABLES = new Set([
 	// 发号器自己的状态表：发 key 要先读它。
-	'global_snowflake_state',
+	'global_snowflake_states',
 	// 迁移记录表：它在**建库之前**就要写入，那时发号器还没有号段可用（号段存在
-	// global_snowflake_state 里，而那张表正是迁移建出来的）。它也不是业务数据。
+	// global_snowflake_states 里，而那张表正是迁移建出来的）。它也不是业务数据。
 	'global_schema_migrations',
 ]);
 

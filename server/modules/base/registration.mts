@@ -7,7 +7,7 @@ import { firstSql, runSystemSql, sql, ownerScope } from '@server/database/sql.mj
  * 本站当前允许哪种注册。
  *
  * - `bootstrap`：还没有初始管理员，允许创建一次，并且创建出来的是平台管理员。
- *   由 `base_bootstrap.initial_admin` 这把一次性闩控制，与开关无关——否则关掉开关
+ *   由 `base_bootstraps.initial_admin` 这把一次性闩控制，与开关无关——否则关掉开关
  *   就再也没人能进后台了。
  * - `open`：站点设置里开了「允许用户注册」，任何人都能注册**普通用户**。
  * - `closed`：都不满足，注册入口整个不出现。
@@ -22,7 +22,7 @@ export const resolveRegistrationMode = async (c: Context<AppEnv>): Promise<Regis
 	const database = c.get('systemDatabase');
 	const tenantId = c.get('tenantId');
 	const where = [{ column: 'name', value: 'initial_admin' }, ...(tenantId === null ? [] : [{ column: 'owner_tid', value: tenantId }])];
-	const row = await firstSql<{ value: string }>(database, sql({ database }).select({ table: 'base_bootstrap', columns: { value: 'value' }, where }));
+	const row = await firstSql<{ value: string }>(database, sql({ database }).select({ table: 'base_bootstraps', columns: { value: 'value' }, where }));
 	if (row?.value === 'open') return 'bootstrap';
 	return c.get('siteSettings').registrationEnabled ? 'open' : 'closed';
 };

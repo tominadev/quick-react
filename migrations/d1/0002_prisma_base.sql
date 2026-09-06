@@ -112,7 +112,7 @@ CREATE TABLE "base_configs" (
 );
 
 -- CreateTable
-CREATE TABLE "base_bootstrap" (
+CREATE TABLE "base_bootstraps" (
     "id" INTEGER NOT NULL PRIMARY KEY AUTOINCREMENT,
     "key" TEXT NOT NULL,
     "created_at" BIGINT NOT NULL,
@@ -356,6 +356,12 @@ CREATE UNIQUE INDEX "base_branches_key_key" ON "base_branches"("key");
 CREATE UNIQUE INDEX "base_branches_owner_tid_name_deleted_at_key" ON "base_branches"("owner_tid", "name", "deleted_at");
 
 -- CreateIndex
+CREATE INDEX "base_hosts_tenant_id_idx" ON "base_hosts"("tenant_id");
+
+-- CreateIndex
+CREATE INDEX "base_hosts_branch_id_idx" ON "base_hosts"("branch_id");
+
+-- CreateIndex
 CREATE UNIQUE INDEX "base_hosts_hostname_key" ON "base_hosts"("hostname");
 
 -- CreateIndex
@@ -371,6 +377,12 @@ CREATE UNIQUE INDEX "base_users_owner_tid_name_deleted_at_key" ON "base_users"("
 CREATE UNIQUE INDEX "base_users_key_key" ON "base_users"("key");
 
 -- CreateIndex
+CREATE INDEX "base_sessions_user_id_idx" ON "base_sessions"("user_id");
+
+-- CreateIndex
+CREATE INDEX "base_sessions_device_id_idx" ON "base_sessions"("device_id");
+
+-- CreateIndex
 CREATE UNIQUE INDEX "base_sessions_token_hash_key" ON "base_sessions"("token_hash");
 
 -- CreateIndex
@@ -383,10 +395,10 @@ CREATE UNIQUE INDEX "base_configs_key_key" ON "base_configs"("key");
 CREATE UNIQUE INDEX "base_configs_owner_tid_name_deleted_at_key" ON "base_configs"("owner_tid", "name", "deleted_at");
 
 -- CreateIndex
-CREATE UNIQUE INDEX "base_bootstrap_key_key" ON "base_bootstrap"("key");
+CREATE UNIQUE INDEX "base_bootstraps_key_key" ON "base_bootstraps"("key");
 
 -- CreateIndex
-CREATE UNIQUE INDEX "base_bootstrap_owner_tid_name_deleted_at_key" ON "base_bootstrap"("owner_tid", "name", "deleted_at");
+CREATE UNIQUE INDEX "base_bootstraps_owner_tid_name_deleted_at_key" ON "base_bootstraps"("owner_tid", "name", "deleted_at");
 
 -- CreateIndex
 CREATE UNIQUE INDEX "base_oidc_login_requests_request_id_key" ON "base_oidc_login_requests"("request_id");
@@ -396,6 +408,9 @@ CREATE UNIQUE INDEX "base_oidc_login_requests_state_key" ON "base_oidc_login_req
 
 -- CreateIndex
 CREATE UNIQUE INDEX "base_oidc_login_requests_key_key" ON "base_oidc_login_requests"("key");
+
+-- CreateIndex
+CREATE INDEX "base_oidc_users_user_id_idx" ON "base_oidc_users"("user_id");
 
 -- CreateIndex
 CREATE UNIQUE INDEX "base_oidc_users_owner_tid_issuer_subject_key" ON "base_oidc_users"("owner_tid", "issuer", "subject");
@@ -413,6 +428,9 @@ CREATE UNIQUE INDEX "base_oidc_sessions_issuer_sid_key" ON "base_oidc_sessions"(
 CREATE UNIQUE INDEX "base_oidc_sessions_key_key" ON "base_oidc_sessions"("key");
 
 -- CreateIndex
+CREATE INDEX "base_devices_user_id_idx" ON "base_devices"("user_id");
+
+-- CreateIndex
 CREATE UNIQUE INDEX "base_devices_key_key" ON "base_devices"("key");
 
 -- CreateIndex
@@ -420,6 +438,9 @@ CREATE UNIQUE INDEX "base_device_users_device_id_user_id_key" ON "base_device_us
 
 -- CreateIndex
 CREATE UNIQUE INDEX "base_device_users_key_key" ON "base_device_users"("key");
+
+-- CreateIndex
+CREATE INDEX "base_device_snapshots_device_id_idx" ON "base_device_snapshots"("device_id");
 
 -- CreateIndex
 CREATE UNIQUE INDEX "base_device_snapshots_key_key" ON "base_device_snapshots"("key");

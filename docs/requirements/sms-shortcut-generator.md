@@ -135,7 +135,7 @@ Content-Type: application/json
 
 ```json
 {
-  "idempotency_key": "<task_id>:<序号>",
+  "idempotency_token": "<task_id>:<序号>",
   "file_sha256": "文件 SHA-256",
   "size_bytes": 12345
 }
@@ -152,7 +152,7 @@ Content-Type: application/json
 
 工具不得反推或自行拼接对象键。
 
-**该阶段服务端完全无状态**：上传票据是自包含的签名结构（对象键、`file_sha256`、`size_bytes`、`idempotency_key`、过期时间经服务端密钥签名），不落库，也不需要过期清理任务。幂等性不靠这一步，而由 `commit` 阶段数据库上的唯一约束保证。
+**该阶段服务端完全无状态**：上传票据是自包含的签名结构（对象键、`file_sha256`、`size_bytes`、`idempotency_token`、过期时间经服务端密钥签名），不落库，也不需要过期清理任务。幂等性不靠这一步，而由 `commit` 阶段数据库上的唯一约束保证。
 
 #### 第二步：上传文件
 
@@ -168,7 +168,7 @@ Content-Type: application/json
 
 ```json
 {
-  "idempotency_key": "<task_id>:<序号>",
+  "idempotency_token": "<task_id>:<序号>",
   "upload_ticket": "prepare-upload 返回的票据",
   "token_sha256": "原始令牌的 SHA-256",
   "file_sha256": "文件 SHA-256",
@@ -181,7 +181,7 @@ Content-Type: application/json
 服务端验签上传票据、校验对象存在与摘要一致后，按绑定文档 §5.1 的四步收敛写入令牌与文件元数据。**该过程不使用数据库事务**（原因见绑定文档 §11）。对本工具而言只需知道三件事：
 
 - `commit` 返回成功 = 令牌已是 `available`，可被用户领取。
-- `commit` 返回失败 = 令牌未生效，重试同一 `idempotency_key` 会收敛到同一结果。
+- `commit` 返回失败 = 令牌未生效，重试同一 `idempotency_token` 会收敛到同一结果。
 - 中断在中途 = 令牌停在 `pending`，不可被领取，重试可推进完成。
 
 #### 放弃上传
@@ -190,27 +190,27 @@ Content-Type: application/json
 
 ### 5.5 幂等与断点续传
 
-`idempotency_key` 的形式固定为 `<task_id>:<序号>`。`task_id` **由工具本地生成**，不来自服务端，首次运行时写入状态文件；序号是该批次内的 1..N 序数。
+`idempotency_token` 的形式固定为 `<task_id>:<序号>`。`task_id` **由工具本地生成**，不来自服务端，首次运行时写入状态文件；序号是该批次内的 1..N 序数。
 
 它**必须跨进程运行保持稳定**：若每次运行都生成新的 key，重跑就会创建重复令牌，与 §9 的验收条目直接冲突。因此 `task_id` 必须持久化。
 
-`idempotency_key` 与 `token_sha256` **刻意不关联**，原因有两条，都是本文档已定的约束：`prepare-upload` 不带摘要（§5.4），状态文件不得记录摘要（下方）。key 若由令牌派生，两条同时破功。
+`idempotency_token` 与 `token_sha256` **刻意不关联**，原因有两条，都是本文档已定的约束：`prepare-upload` 不带摘要（§5.4），状态文件不得记录摘要（下方）。key 若由令牌派生，两条同时破功。
 
 本地状态文件记录每一项的：
 
 | 字段 | 说明 |
 | --- | --- |
-| `idempotency_key` | 续传的唯一依据 |
+| `idempotency_token` | 续传的唯一依据 |
 | 阶段 | `generated` / `uploaded` / `committed` / `aborted` |
 | 本地文件路径 | 用于续传时重新上传 |
 | `token_id` | `commit` 成功后由服务端返回 |
 
 **状态文件禁止记录原始令牌与 `token_sha256`。** 重跑时按阶段决定动作：`generated` 重新走 prepare 与上传；`uploaded` 直接 commit；`committed` 跳过。
 
-服务端对同一 `idempotency_key` 的重复 `commit` 必须返回与首次相同的结果，而不是创建第二条令牌。另有两条规则：
+服务端对同一 `idempotency_token` 的重复 `commit` 必须返回与首次相同的结果，而不是创建第二条令牌。另有两条规则：
 
-- **同一 `idempotency_key` 的 `commit` 若携带与首次不同的 `token_sha256` 或 `file_sha256`，必须拒绝**，不得覆盖也不得返回成功。否则对象里装的是令牌 A、数据库记的是令牌 B，那个 Shortcut 永远认证不了。
-- **本地文件丢失且尚未 `commit` 的项，作废该 `idempotency_key`，用新序号重做。** 原始令牌只存在于该文件，文件没了这一项无法完成；沿用旧 key 重试会撞上前一条规则。
+- **同一 `idempotency_token` 的 `commit` 若携带与首次不同的 `token_sha256` 或 `file_sha256`，必须拒绝**，不得覆盖也不得返回成功。否则对象里装的是令牌 A、数据库记的是令牌 B，那个 Shortcut 永远认证不了。
+- **本地文件丢失且尚未 `commit` 的项，作废该 `idempotency_token`，用新序号重做。** 原始令牌只存在于该文件，文件没了这一项无法完成；沿用旧 key 重试会撞上前一条规则。
 
 ### 5.6 本地文件的保留与删除
 
@@ -222,7 +222,7 @@ Content-Type: application/json
 
 | 场景 | 命名 | 由谁决定 |
 | --- | --- | --- |
-| 本地临时文件 | 任意，建议用 `idempotency_key` | 工具 |
+| 本地临时文件 | 任意，建议用 `idempotency_token` | 工具 |
 | 对象存储的对象键 | `shortcuts/<机器 key>/<yyyymmdd>/<毫秒时间戳>-<随机后缀>.shortcut` | 服务端在 prepare 阶段生成 |
 | 用户下载时的呈现名 | `sms-<token_id>.shortcut` | 服务端下载接口的 `Content-Disposition` |
 
@@ -260,7 +260,7 @@ Shortcut 不得包含平台预配凭证、用户 Access Key、Ed25519 私钥、�
 
 - 已经是 `available` 或 `bound` 的令牌不能被重置或覆盖。
 - `commit` 校验失败时不写入任何业务记录，工具将该项标为可重试。
-- 网络超时后重试同一 `idempotency_key`，不得改用新 key；令牌或文件已重新生成时例外，此时必须换用新序号。
+- 网络超时后重试同一 `idempotency_token`，不得改用新 key；令牌或文件已重新生成时例外，此时必须换用新序号。
 - 停留在 `pending` 状态的令牌不可被领取，可由服务端定期清理或由重试推进到 `available`。
 - 工具提供 `--check`：校验 `.env` 变量完整、服务端可达、凭证有效，并能成功拉取接收地址，不打印凭证或令牌。
 
@@ -282,10 +282,10 @@ Shortcut 不得包含平台预配凭证、用户 Access Key、Ed25519 私钥、�
 - 每个 Shortcut 都能用自己的原始令牌成功提交短信，服务端通过 SHA-256 比对认证成功。
 - 改动令牌、把令牌放进 URL 或 JSON 正文时，接收 API 一律拒绝。
 - 在 `prepare-upload` 与 `commit` 之间中断，重新运行后该项被补齐，服务端令牌总数仍为 N。
-- 上传成功但 `commit` 中途失败时，令牌停留在 `pending` 且不可被领取；重试同一 `idempotency_key` 后收敛为 `available`，总数不变。
-- 用同一 `idempotency_key` 提交不同的 `token_sha256` 或 `file_sha256` 时被拒绝，已有记录不被修改。
+- 上传成功但 `commit` 中途失败时，令牌停留在 `pending` 且不可被领取；重试同一 `idempotency_token` 后收敛为 `available`，总数不变。
+- 用同一 `idempotency_token` 提交不同的 `token_sha256` 或 `file_sha256` 时被拒绝，已有记录不被修改。
 - 完整重跑同一 `task_id`，不产生任何重复令牌。
-- 放弃的项调用 `abort` 后临时对象可清理，服务端没有该 `idempotency_key` 的令牌记录。
+- 放弃的项调用 `abort` 后临时对象可清理，服务端没有该 `idempotency_token` 的令牌记录。
 - 10 个队列并发生成时，所有对象键互不相同，没有对象被覆盖。
 - 在两台不同的 Mac 上分别生成，对象键落在各自的机器目录下，`sms_shortcut_artifacts.generator_machine_id` 与实际机器一致。
 - 机器在后台被停用后，该机器的凭证立即被拒绝，其他机器不受影响。
@@ -303,7 +303,7 @@ Shortcut 不得包含平台预配凭证、用户 Access Key、Ed25519 私钥、�
 
 | 依赖 | 位置 |
 | --- | --- |
-| `sms_shortcut_tokens` 的 `idempotency_key` 唯一约束与 `pending` 状态 | 绑定文档 §4.4 |
+| `sms_shortcut_tokens` 的 `idempotency_token` 唯一约束与 `pending` 状态 | 绑定文档 §4.4 |
 | `sms_shortcut_artifacts` 的 `file_sha256`、`generator_machine_id`、对象键形状 | 绑定文档 §4.5 |
 | `sms_generator_machines`、平台预配凭证与 `.env` 的下发 | 绑定文档 §4.9 |
 | `action=config` 返回当前接收地址 | 绑定文档 §5 |

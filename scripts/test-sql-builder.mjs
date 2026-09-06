@@ -97,8 +97,8 @@ try {
 	assert.deepEqual(addColumn({ dialect: 'postgresql' }, 'users', 'score', 'numeric', false, 0), { query: 'ALTER TABLE "users" ADD COLUMN "score" NUMERIC DEFAULT 0', values: [] });
 	assert.deepEqual(renameColumn({ dialect: 'sqlite' }, 'users', 'name', 'display_name'), { query: 'ALTER TABLE "users" RENAME COLUMN "name" TO "display_name"', values: [] });
 	assert.throws(() => addColumn({ dialect: 'postgresql' }, 'users', 'score', 'UNSAFE TYPE', false), /支持的字段类型/);
-	assert.deepEqual(mysql.advanceNumber('snowflake_state', 'last_timestamp', 100, 101, { worker_id: 7 }), { query: 'UPDATE `snowflake_state` SET `last_timestamp` = GREATEST(`last_timestamp` + 1, ?), `updated_at` = ? WHERE `worker_id` = ?', values: [100, 101, 7] });
-	assert.match(sqlite.advanceNumber('snowflake_state', 'last_timestamp', 100, 101, { worker_id: 7 }).query, /MAX\("last_timestamp" \+ 1, \?\)/);
+	assert.deepEqual(mysql.advanceNumber('snowflake_state', 'last_at', 100, 101, { worker_id: 7 }), { query: 'UPDATE `snowflake_state` SET `last_at` = GREATEST(`last_at` + 1, ?), `updated_at` = ? WHERE `worker_id` = ?', values: [100, 101, 7] });
+	assert.match(sqlite.advanceNumber('snowflake_state', 'last_at', 100, 101, { worker_id: 7 }).query, /MAX\("last_at" \+ 1, \?\)/);
 	assert.deepEqual(postgres.insertFromSelect('sessions', { id: 'session', user_id: { column: 'user_id' }, expires_at: 123 }, 'challenges', [{ column: 'id', value: 'challenge' }, { column: 'status', value: 'approved' }]), { query: 'INSERT INTO "sessions" ("id", "user_id", "expires_at") SELECT $1, "user_id", $2 FROM "challenges" WHERE "id" = $3 AND "status" = $4', values: ['session', 123, 'challenge', 'approved'] });
 	assert.match(postgres.upsert('sessions', ['issuer', 'sid'], { issuer: 'i', sid: 's', session_id: 'x' }, ['session_id']).query, /ON CONFLICT \("issuer", "sid"\) DO UPDATE/);
 	assert.equal(sqlite.castText('user_id'), 'CAST("user_id" AS TEXT)'); assert.equal(mysql.castText('user_id'), 'CAST(`user_id` AS CHAR)');

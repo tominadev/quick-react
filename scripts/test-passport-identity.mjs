@@ -51,7 +51,7 @@ try {
 	await passport.primeSnowflake(database, 7);
 	assert.ok(BigInt(passport.nextSnowflake()) > maximumBeforeRestart);
 	// 时钟回拨：库里已经预留到了未来，那就从未来接着发，不会与已经发出去的号重合。
-	await database.prepare(`INSERT INTO global_snowflake_state (created_at, updated_at, worker_id, last_timestamp)
+	await database.prepare(`INSERT INTO global_snowflake_states (created_at, updated_at, worker_id, last_at)
 		VALUES (?1, ?2, ?3, ?4)`).bind(Date.now(), Date.now(), 8, Date.now() + 60_000).run();
 	passport.resetSnowflake();
 	await passport.primeSnowflake(database, 8);
@@ -73,7 +73,7 @@ try {
 	assert.match(created.userId, /^\d+$/);
 
 	await assert.rejects(passport.issueTelegramEmailOtp(database, firstIdentity, 'second@example.com'), (error) => error?.waitSeconds > 0);
-	await database.prepare(`UPDATE passport_email_otp SET created_at = created_at - 61000 WHERE bot_id = ?1 AND telegram_user_id = ?2`)
+	await database.prepare(`UPDATE passport_telegram_email_otps SET created_at = created_at - 61000 WHERE bot_id = ?1 AND telegram_user_id = ?2`)
 		.bind(firstIdentity.botId, firstIdentity.telegramUserId).run();
 	const secondEmailOtp = await passport.issueTelegramEmailOtp(database, firstIdentity, 'second@example.com');
 	const linked = await passport.verifyTelegramEmailOtp(database, firstIdentity, secondEmailOtp.code);

@@ -25,6 +25,7 @@ CREATE TABLE `global_sites` (
     `is_system` INTEGER NOT NULL DEFAULT 0,
     `passport_sso_enabled` INTEGER NOT NULL DEFAULT 0,
 
+    INDEX `global_sites_base_site_key_idx`(`base_site_key`),
     UNIQUE INDEX `global_sites_key_key`(`key`),
     PRIMARY KEY (`id`)
 ) DEFAULT CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci;
@@ -46,6 +47,7 @@ CREATE TABLE `global_site_hosts` (
     `site_key` VARCHAR(191) NOT NULL,
     `status` ENUM('enabled', 'disabled') NOT NULL DEFAULT 'enabled',
 
+    INDEX `global_site_hosts_site_key_idx`(`site_key`),
     UNIQUE INDEX `global_site_hosts_hostname_key`(`hostname`),
     UNIQUE INDEX `global_site_hosts_key_key`(`key`),
     PRIMARY KEY (`id`)
@@ -71,6 +73,8 @@ CREATE TABLE `global_cloud_credentials` (
     `access_key_secret` VARCHAR(191) NOT NULL DEFAULT '',
     `status` ENUM('enabled', 'disabled') NOT NULL DEFAULT 'enabled',
 
+    INDEX `global_cloud_credentials_account_id_idx`(`account_id`),
+    INDEX `global_cloud_credentials_access_key_id_idx`(`access_key_id`),
     UNIQUE INDEX `global_cloud_credentials_title_key`(`title`),
     UNIQUE INDEX `global_cloud_credentials_key_key`(`key`),
     PRIMARY KEY (`id`)
@@ -145,6 +149,7 @@ CREATE TABLE `global_cloud_object_storage_binding_purposes` (
     `purpose` VARCHAR(191) NOT NULL,
     `is_default` INTEGER NOT NULL DEFAULT 0,
 
+    INDEX `global_cloud_object_storage_binding_purposes_site_key_idx`(`site_key`),
     UNIQUE INDEX `global_cloud_object_storage_binding_purposes_binding_id_purp_key`(`binding_id`, `purpose`),
     UNIQUE INDEX `global_cloud_object_storage_binding_purposes_key_key`(`key`),
     PRIMARY KEY (`id`)
@@ -272,13 +277,14 @@ CREATE TABLE `global_cloud_email_template_publications` (
     `content_hash` VARCHAR(191) NOT NULL DEFAULT '',
     `status` ENUM('reviewing', 'ready', 'rejected', 'failed') NOT NULL,
 
+    INDEX `global_cloud_email_template_publications_provider_template_i_idx`(`provider_template_id`),
     UNIQUE INDEX `global_cloud_email_template_publications_template_id_cloud_c_key`(`template_id`, `cloud_credential_id`, `region`),
     UNIQUE INDEX `global_cloud_email_template_publications_key_key`(`key`),
     PRIMARY KEY (`id`)
 ) DEFAULT CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci;
 
 -- CreateTable
-CREATE TABLE `global_snowflake_state` (
+CREATE TABLE `global_snowflake_states` (
     `id` BIGINT NOT NULL AUTO_INCREMENT,
     `created_at` BIGINT NOT NULL,
     `updated_at` BIGINT NOT NULL,
@@ -290,8 +296,8 @@ CREATE TABLE `global_snowflake_state` (
     `owner_bid` BIGINT NOT NULL DEFAULT 1,
     `owner_uid` BIGINT NULL,
     `worker_id` INTEGER NOT NULL,
-    `last_timestamp` BIGINT NOT NULL,
+    `last_at` BIGINT NOT NULL,
 
-    UNIQUE INDEX `global_snowflake_state_worker_id_key`(`worker_id`),
+    UNIQUE INDEX `global_snowflake_states_worker_id_key`(`worker_id`),
     PRIMARY KEY (`id`)
 ) DEFAULT CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci;

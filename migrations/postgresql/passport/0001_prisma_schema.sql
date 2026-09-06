@@ -246,7 +246,7 @@ CREATE TABLE "passport_user_emails" (
 );
 
 -- CreateTable
-CREATE TABLE "passport_email_otp" (
+CREATE TABLE "passport_telegram_email_otps" (
     "id" BIGSERIAL NOT NULL,
     "key" VARCHAR(36) NOT NULL,
     "created_at" BIGINT NOT NULL,
@@ -267,7 +267,7 @@ CREATE TABLE "passport_email_otp" (
     "status" "PassportOtpStatus" NOT NULL DEFAULT 'pending',
     "expires_at" BIGINT NOT NULL,
 
-    CONSTRAINT "passport_email_otp_pkey" PRIMARY KEY ("id")
+    CONSTRAINT "passport_telegram_email_otps_pkey" PRIMARY KEY ("id")
 );
 
 -- CreateTable
@@ -764,6 +764,9 @@ CREATE INDEX "passport_sessions_user_key_idx" ON "passport_sessions"("user_key")
 CREATE INDEX "passport_sessions_expires_at_idx" ON "passport_sessions"("expires_at");
 
 -- CreateIndex
+CREATE INDEX "passport_sessions_device_id_idx" ON "passport_sessions"("device_id");
+
+-- CreateIndex
 CREATE UNIQUE INDEX "passport_sessions_token_hash_key" ON "passport_sessions"("token_hash");
 
 -- CreateIndex
@@ -779,10 +782,19 @@ CREATE UNIQUE INDEX "passport_device_users_device_id_user_key_key" ON "passport_
 CREATE UNIQUE INDEX "passport_device_users_key_key" ON "passport_device_users"("key");
 
 -- CreateIndex
+CREATE INDEX "passport_telegram_accounts_user_key_idx" ON "passport_telegram_accounts"("user_key");
+
+-- CreateIndex
+CREATE INDEX "passport_telegram_accounts_chat_id_idx" ON "passport_telegram_accounts"("chat_id");
+
+-- CreateIndex
 CREATE UNIQUE INDEX "passport_telegram_accounts_bot_id_telegram_user_id_key" ON "passport_telegram_accounts"("bot_id", "telegram_user_id");
 
 -- CreateIndex
 CREATE UNIQUE INDEX "passport_telegram_accounts_key_key" ON "passport_telegram_accounts"("key");
+
+-- CreateIndex
+CREATE INDEX "passport_oauth_accounts_user_key_idx" ON "passport_oauth_accounts"("user_key");
 
 -- CreateIndex
 CREATE UNIQUE INDEX "passport_oauth_accounts_provider_provider_user_id_key" ON "passport_oauth_accounts"("provider", "provider_user_id");
@@ -806,10 +818,19 @@ CREATE UNIQUE INDEX "passport_user_emails_email_id_key" ON "passport_user_emails
 CREATE UNIQUE INDEX "passport_user_emails_key_key" ON "passport_user_emails"("key");
 
 -- CreateIndex
-CREATE INDEX "passport_email_otp_bot_id_telegram_user_id_status_created_a_idx" ON "passport_email_otp"("bot_id", "telegram_user_id", "status", "created_at");
+CREATE INDEX "passport_telegram_email_otps_bot_id_telegram_user_id_status_idx" ON "passport_telegram_email_otps"("bot_id", "telegram_user_id", "status", "created_at");
 
 -- CreateIndex
-CREATE UNIQUE INDEX "passport_email_otp_key_key" ON "passport_email_otp"("key");
+CREATE INDEX "passport_telegram_email_otps_chat_id_idx" ON "passport_telegram_email_otps"("chat_id");
+
+-- CreateIndex
+CREATE UNIQUE INDEX "passport_telegram_email_otps_key_key" ON "passport_telegram_email_otps"("key");
+
+-- CreateIndex
+CREATE INDEX "passport_telegram_menus_chat_id_idx" ON "passport_telegram_menus"("chat_id");
+
+-- CreateIndex
+CREATE INDEX "passport_telegram_menus_message_id_idx" ON "passport_telegram_menus"("message_id");
 
 -- CreateIndex
 CREATE UNIQUE INDEX "passport_telegram_menus_bot_id_telegram_user_id_key" ON "passport_telegram_menus"("bot_id", "telegram_user_id");
@@ -830,6 +851,12 @@ CREATE UNIQUE INDEX "passport_telegram_updates_key_key" ON "passport_telegram_up
 CREATE INDEX "passport_telegram_identity_choices_bot_id_telegram_user_id__idx" ON "passport_telegram_identity_choices"("bot_id", "telegram_user_id", "status", "created_at");
 
 -- CreateIndex
+CREATE INDEX "passport_telegram_identity_choices_chat_id_idx" ON "passport_telegram_identity_choices"("chat_id");
+
+-- CreateIndex
+CREATE INDEX "passport_telegram_identity_choices_target_user_key_idx" ON "passport_telegram_identity_choices"("target_user_key");
+
+-- CreateIndex
 CREATE UNIQUE INDEX "passport_telegram_identity_choices_key_key" ON "passport_telegram_identity_choices"("key");
 
 -- CreateIndex
@@ -837,6 +864,12 @@ CREATE INDEX "passport_login_challenges_bot_id_telegram_user_id_status_cr_idx" O
 
 -- CreateIndex
 CREATE INDEX "passport_login_challenges_status_expires_at_idx" ON "passport_login_challenges"("status", "expires_at");
+
+-- CreateIndex
+CREATE INDEX "passport_login_challenges_user_key_idx" ON "passport_login_challenges"("user_key");
+
+-- CreateIndex
+CREATE INDEX "passport_login_challenges_chat_id_idx" ON "passport_login_challenges"("chat_id");
 
 -- CreateIndex
 CREATE UNIQUE INDEX "passport_login_challenges_challenge_id_key" ON "passport_login_challenges"("challenge_id");
@@ -848,6 +881,9 @@ CREATE UNIQUE INDEX "passport_login_challenges_key_key" ON "passport_login_chall
 CREATE INDEX "passport_sso_requests_status_expires_at_idx" ON "passport_sso_requests"("status", "expires_at");
 
 -- CreateIndex
+CREATE INDEX "passport_sso_requests_target_site_key_idx" ON "passport_sso_requests"("target_site_key");
+
+-- CreateIndex
 CREATE UNIQUE INDEX "passport_sso_requests_request_id_key" ON "passport_sso_requests"("request_id");
 
 -- CreateIndex
@@ -855,6 +891,12 @@ CREATE UNIQUE INDEX "passport_sso_requests_key_key" ON "passport_sso_requests"("
 
 -- CreateIndex
 CREATE INDEX "passport_login_tickets_status_expires_at_idx" ON "passport_login_tickets"("status", "expires_at");
+
+-- CreateIndex
+CREATE INDEX "passport_login_tickets_user_key_idx" ON "passport_login_tickets"("user_key");
+
+-- CreateIndex
+CREATE INDEX "passport_login_tickets_target_site_key_idx" ON "passport_login_tickets"("target_site_key");
 
 -- CreateIndex
 CREATE UNIQUE INDEX "passport_login_tickets_token_hash_key" ON "passport_login_tickets"("token_hash");
@@ -902,6 +944,12 @@ CREATE UNIQUE INDEX "passport_external_identities_key_key" ON "passport_external
 CREATE INDEX "passport_external_login_states_expires_at_consumed_at_idx" ON "passport_external_login_states"("expires_at", "consumed_at");
 
 -- CreateIndex
+CREATE INDEX "passport_external_login_states_qr_user_key_idx" ON "passport_external_login_states"("qr_user_key");
+
+-- CreateIndex
+CREATE INDEX "passport_external_login_states_oidc_request_id_idx" ON "passport_external_login_states"("oidc_request_id");
+
+-- CreateIndex
 CREATE UNIQUE INDEX "passport_external_login_states_id_hash_key" ON "passport_external_login_states"("id_hash");
 
 -- CreateIndex
@@ -923,6 +971,9 @@ CREATE UNIQUE INDEX "passport_external_pending_qr_states_qr_state_hash_key" ON "
 CREATE UNIQUE INDEX "passport_external_pending_qr_states_key_key" ON "passport_external_pending_qr_states"("key");
 
 -- CreateIndex
+CREATE INDEX "passport_external_providers_client_id_idx" ON "passport_external_providers"("client_id");
+
+-- CreateIndex
 CREATE UNIQUE INDEX "passport_external_providers_provider_key" ON "passport_external_providers"("provider");
 
 -- CreateIndex
@@ -935,6 +986,9 @@ CREATE UNIQUE INDEX "passport_oidc_clients_client_id_key" ON "passport_oidc_clie
 CREATE UNIQUE INDEX "passport_oidc_clients_key_key" ON "passport_oidc_clients"("key");
 
 -- CreateIndex
+CREATE INDEX "passport_oidc_authorization_requests_client_id_idx" ON "passport_oidc_authorization_requests"("client_id");
+
+-- CreateIndex
 CREATE UNIQUE INDEX "passport_oidc_authorization_requests_request_id_key" ON "passport_oidc_authorization_requests"("request_id");
 
 -- CreateIndex
@@ -944,6 +998,15 @@ CREATE UNIQUE INDEX "passport_oidc_authorization_requests_key_key" ON "passport_
 CREATE INDEX "passport_oidc_authorization_codes_expires_at_consumed_at_idx" ON "passport_oidc_authorization_codes"("expires_at", "consumed_at");
 
 -- CreateIndex
+CREATE INDEX "passport_oidc_authorization_codes_client_id_idx" ON "passport_oidc_authorization_codes"("client_id");
+
+-- CreateIndex
+CREATE INDEX "passport_oidc_authorization_codes_user_key_idx" ON "passport_oidc_authorization_codes"("user_key");
+
+-- CreateIndex
+CREATE INDEX "passport_oidc_authorization_codes_session_id_idx" ON "passport_oidc_authorization_codes"("session_id");
+
+-- CreateIndex
 CREATE UNIQUE INDEX "passport_oidc_authorization_codes_code_hash_key" ON "passport_oidc_authorization_codes"("code_hash");
 
 -- CreateIndex
@@ -951,6 +1014,15 @@ CREATE UNIQUE INDEX "passport_oidc_authorization_codes_key_key" ON "passport_oid
 
 -- CreateIndex
 CREATE INDEX "passport_oidc_access_tokens_expires_at_revoked_at_idx" ON "passport_oidc_access_tokens"("expires_at", "revoked_at");
+
+-- CreateIndex
+CREATE INDEX "passport_oidc_access_tokens_client_id_idx" ON "passport_oidc_access_tokens"("client_id");
+
+-- CreateIndex
+CREATE INDEX "passport_oidc_access_tokens_user_key_idx" ON "passport_oidc_access_tokens"("user_key");
+
+-- CreateIndex
+CREATE INDEX "passport_oidc_access_tokens_session_id_idx" ON "passport_oidc_access_tokens"("session_id");
 
 -- CreateIndex
 CREATE UNIQUE INDEX "passport_oidc_access_tokens_token_hash_key" ON "passport_oidc_access_tokens"("token_hash");

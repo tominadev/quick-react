@@ -7,11 +7,11 @@ export const portableTableGroups = {
 		'global_sites', 'global_site_hosts', 'global_cloud_credentials', 'global_cloud_object_storage_buckets',
 		'global_cloud_object_storage_bindings', 'global_cloud_object_storage_binding_purposes', 'global_telegram_bots',
 		'global_cloud_email_channels', 'global_cloud_email_templates', 'global_cloud_email_bindings',
-		'global_cloud_email_template_publications', 'global_snowflake_state',
+		'global_cloud_email_template_publications', 'global_snowflake_states',
 	],
 	base: [
 		'base_tenants', 'base_branches', 'base_hosts',
-		'base_users', 'base_user_credentials', 'base_user_profiles', 'base_sessions', 'base_configs', 'base_bootstrap',
+		'base_users', 'base_user_credentials', 'base_user_profiles', 'base_sessions', 'base_configs', 'base_bootstraps',
 		'base_oidc_login_requests', 'base_oidc_users', 'base_oidc_sessions',
 		'base_devices', 'base_device_users', 'base_device_snapshots',
 		'base_audits', 'base_audit_transitions',
@@ -19,7 +19,7 @@ export const portableTableGroups = {
 	passport: [
 		'passport_users', 'passport_user_credentials', 'passport_user_profiles', 'passport_sessions', 'passport_telegram_accounts',
 		'passport_devices', 'passport_device_users',
-		'passport_oauth_accounts', 'passport_emails', 'passport_user_emails', 'passport_email_otp',
+		'passport_oauth_accounts', 'passport_emails', 'passport_user_emails', 'passport_telegram_email_otps',
 		'passport_group_prompts', 'passport_telegram_menus',
 		'passport_telegram_updates', 'passport_telegram_identity_choices', 'passport_login_challenges',
 		'passport_sso_requests', 'passport_login_tickets', 'passport_site_sessions', 'passport_external_identities',
@@ -35,7 +35,7 @@ export type TransferProgress = { table: string; rows: number };
 
 const seedRows = new Map<string, { column: string; value: string }>([
 	['global_sites', { column: 'key', value: 'global' }],
-	['base_bootstrap', { column: 'name', value: 'initial_admin' }],
+	['base_bootstraps', { column: 'name', value: 'initial_admin' }],
 ]);
 
 const targetMustBeEmpty = async (target: DatabaseAdapter, tables: string[]) => {

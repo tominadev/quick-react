@@ -70,7 +70,7 @@ try {
 		}
 	}
 	database.exec("INSERT INTO global_sites (created_at, updated_at, key, title, base_site_key, dsn, status, migration_status, is_default, is_system) VALUES (0, 0, 'global', '全局控制面', 'base', '', 'enabled', 'ready', 1, 1)");
-	database.exec("INSERT INTO base_bootstrap (created_at, updated_at, key, name, value) VALUES (0, 0, 'seed-bootstrap', 'initial_admin', 'open')");
+	database.exec("INSERT INTO base_bootstraps (created_at, updated_at, key, name, value) VALUES (0, 0, 'seed-bootstrap', 'initial_admin', 'open')");
 	database.prepare(`INSERT INTO global_sites (key, title, base_site_key, dsn, status, migration_status, is_default, is_system)
 		VALUES ('passport', 'Passport', 'base', '', 'enabled', 'ready', 0, 1)`).run();
 	database.prepare(`INSERT INTO global_site_hosts (key, hostname, site_key, status, created_at)
@@ -104,8 +104,8 @@ try {
 	assert.deepEqual(resultDatabase.prepare('SELECT CAST(key AS TEXT) AS user_key FROM passport_users ORDER BY key').all().map((row) => row.user_key), [userOne, userTwo]);
 	assert.equal(resultDatabase.prepare('SELECT COUNT(*) AS count FROM passport_telegram_accounts WHERE bot_id = 7').get().count, 3);
 	assert.equal(resultDatabase.prepare('SELECT COUNT(*) AS count FROM passport_user_emails').get().count, 3);
-	assert.equal(resultDatabase.prepare("SELECT COUNT(*) AS count FROM passport_email_otp WHERE status = 'expired'").get().count, 1);
-	assert.equal(resultDatabase.prepare("SELECT COUNT(*) AS count FROM passport_email_otp WHERE code_hash LIKE '%123456%'").get().count, 0);
+	assert.equal(resultDatabase.prepare("SELECT COUNT(*) AS count FROM passport_telegram_email_otps WHERE status = 'expired'").get().count, 1);
+	assert.equal(resultDatabase.prepare("SELECT COUNT(*) AS count FROM passport_telegram_email_otps WHERE code_hash LIKE '%123456%'").get().count, 0);
 	assert.equal(resultDatabase.prepare("SELECT COUNT(*) AS count FROM passport_telegram_menus WHERE mode = 'otp'").get().count, 1);
 	resultDatabase.close();
 

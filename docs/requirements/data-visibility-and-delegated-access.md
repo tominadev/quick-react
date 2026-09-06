@@ -85,7 +85,7 @@
 | `base_users` | `(name, owner_tid, deleted_at)` |
 | `base_oidc_users` | `(issuer, subject, owner_tid, deleted_at)` |
 | `base_configs` | `(key, owner_tid, deleted_at)` |
-| `base_bootstrap` | `(key, owner_tid, deleted_at)` |
+| `base_bootstraps` | `(key, owner_tid, deleted_at)` |
 
 用户名跨分站共享正是分站与租户的关键区别。同一个 Accounts 身份在每个租户各有一个本地账号。配置与引导状态按租户独立，缺省值由代码中的 `defaultSiteSettings` 等补齐，不在库里存"平台默认行"。
 
@@ -299,7 +299,7 @@ export type SqlSubject = {
 结构部分（已达成）：
 
 - 每张表都存在 `owner_tid`、`owner_bid`、`owner_uid` 三列且顺序固定，前两列 `NOT NULL`。
-- 全新初始化的数据库中，默认租户与其主分站各一行，`base_bootstrap` 恰好一行。
+- 全新初始化的数据库中，默认租户与其主分站各一行，`base_bootstraps` 恰好一行。
 - 登录账号新增的记录，三列分别等于当前租户、当前分站与该账号；账号行归属自己。
 - 迁移与种子写入的记录落到默认租户的主分站，`owner_uid` 为 `NULL`。
 

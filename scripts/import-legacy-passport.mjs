@@ -207,7 +207,7 @@ export const parseLegacyPassportBackup = (backup) => {
 	};
 };
 
-const requiredTables = ['global_telegram_bots', 'passport_users', 'passport_telegram_accounts', 'passport_emails', 'passport_user_emails', 'passport_email_otp', 'passport_telegram_menus'];
+const requiredTables = ['global_telegram_bots', 'passport_users', 'passport_telegram_accounts', 'passport_emails', 'passport_user_emails', 'passport_telegram_email_otps', 'passport_telegram_menus'];
 
 let databaseHelpersPromise;
 const loadDatabaseHelpers = () => databaseHelpersPromise ??= (async () => {
@@ -284,9 +284,9 @@ export const importLegacyPassportData = async ({ parsed, databaseFile, globalDat
 				}
 				for (const otp of parsed.otps) {
 					const where = [{ column: 'bot_id', value: BigInt(botId) }, { column: 'telegram_user_id', value: BigInt(otp.telegramUserId) }, { column: 'email', value: otp.email }, { column: 'created_at', value: otp.createdAt }, { column: 'status', value: otp.status }];
-					if (await firstSql(target, sql({ database: target }).select({ table: 'passport_email_otp', columns: { id: 'id' }, where, limit: 1 }))) continue;
+					if (await firstSql(target, sql({ database: target }).select({ table: 'passport_telegram_email_otps', columns: { id: 'id' }, where, limit: 1 }))) continue;
 					const placeholderHash = `legacy-${otp.status}:${createHash('sha256').update(`${botId}\u0000${otp.telegramUserId}\u0000${otp.email}\u0000${otp.createdAt}`).digest('hex')}`;
-					imported.otps += changes(await runSql(target, sql({ database: target }).insertExisting('passport_email_otp', { bot_id: BigInt(botId), telegram_user_id: BigInt(otp.telegramUserId), chat_id: BigInt(otp.chatId), email: otp.email, code_hash: placeholderHash, attempt_count: otp.attemptCount, status: otp.status, expires_at: otp.expiresAt, created_at: otp.createdAt, updated_at: otp.createdAt })));
+					imported.otps += changes(await runSql(target, sql({ database: target }).insertExisting('passport_telegram_email_otps', { bot_id: BigInt(botId), telegram_user_id: BigInt(otp.telegramUserId), chat_id: BigInt(otp.chatId), email: otp.email, code_hash: placeholderHash, attempt_count: otp.attemptCount, status: otp.status, expires_at: otp.expiresAt, created_at: otp.createdAt, updated_at: otp.createdAt })));
 				}
 				for (const menu of parsed.menus) imported.menus += changes(await runSql(target, sql({ database: target }).ignoreInsertExisting('passport_telegram_menus', ['bot_id', 'telegram_user_id'], { bot_id: BigInt(botId), telegram_user_id: BigInt(menu.telegramUserId), chat_id: BigInt(menu.chatId), message_id: BigInt(menu.messageId), mode: menu.mode, created_at: menu.createdAt, updated_at: menu.updatedAt })));
 
@@ -300,7 +300,7 @@ export const importLegacyPassportData = async ({ parsed, databaseFile, globalDat
 					if (owner?.user_key !== item.userId || Number(owner.verified) !== 1) fail(`email ${item.email} failed verification`);
 				}
 				for (const otp of parsed.otps) {
-					const found = await firstSql(target, sql({ database: target }).select({ table: 'passport_email_otp', columns: { found: 'id' }, where: [{ column: 'bot_id', value: BigInt(botId) }, { column: 'telegram_user_id', value: BigInt(otp.telegramUserId) }, { column: 'email', value: otp.email }, { column: 'created_at', value: otp.createdAt }, { column: 'status', value: otp.status }], limit: 1 }));
+					const found = await firstSql(target, sql({ database: target }).select({ table: 'passport_telegram_email_otps', columns: { found: 'id' }, where: [{ column: 'bot_id', value: BigInt(botId) }, { column: 'telegram_user_id', value: BigInt(otp.telegramUserId) }, { column: 'email', value: otp.email }, { column: 'created_at', value: otp.createdAt }, { column: 'status', value: otp.status }], limit: 1 }));
 					if (!found) fail(`OTP history for Telegram identity ${otp.telegramUserId} failed verification`);
 				}
 				for (const menu of parsed.menus) {

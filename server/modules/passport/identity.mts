@@ -57,18 +57,18 @@ export const issueTelegramEmailOtp = async (database: DatabaseAdapter, identity:
 	const email = normalizePassportEmail(rawEmail);
 	const code = generateOtpCode();
 	const now = Date.now();
-	const recent = await allSql<{ created_at: number }>(database, sql({ database }).select({ table: 'passport_email_otp', columns: { created_at: 'created_at' }, where: [{ column: 'bot_id', value: botId }, { column: 'telegram_user_id', value: telegramUserId }, { column: 'created_at', operator: '>=', value: now - 60 * 60_000 }], orderBy: [{ column: 'created_at' }] }));
+	const recent = await allSql<{ created_at: number }>(database, sql({ database }).select({ table: 'passport_telegram_email_otps', columns: { created_at: 'created_at' }, where: [{ column: 'bot_id', value: botId }, { column: 'telegram_user_id', value: telegramUserId }, { column: 'created_at', operator: '>=', value: now - 60 * 60_000 }], orderBy: [{ column: 'created_at' }] }));
 	const firstCreatedAt = recent[0]?.created_at, lastCreatedAt = recent.at(-1)?.created_at;
 	if (lastCreatedAt && now - lastCreatedAt < 60_000) throw new TelegramOtpRateLimitError(Math.ceil((60_000 - (now - lastCreatedAt)) / 1000));
 	if (recent.length >= 10) throw new TelegramOtpRateLimitError(Math.max(1, Math.ceil((Number(firstCreatedAt ?? now) + 60 * 60_000 - now) / 1000)));
-	await runSql(database, sql({ database }).update('passport_email_otp', { status: 'expired' }, [{ column: 'bot_id', value: botId }, { column: 'telegram_user_id', value: telegramUserId }, { column: 'status', value: 'pending' }]));
-	await runSql(database, sql({ database }).insert('passport_email_otp', { bot_id: botId, telegram_user_id: telegramUserId, chat_id: chatId, email, code_hash: await hashPassword(code), attempt_count: 0, status: 'pending', expires_at: now + lifetimeMs }));
+	await runSql(database, sql({ database }).update('passport_telegram_email_otps', { status: 'expired' }, [{ column: 'bot_id', value: botId }, { column: 'telegram_user_id', value: telegramUserId }, { column: 'status', value: 'pending' }]));
+	await runSql(database, sql({ database }).insert('passport_telegram_email_otps', { bot_id: botId, telegram_user_id: telegramUserId, chat_id: chatId, email, code_hash: await hashPassword(code), attempt_count: 0, status: 'pending', expires_at: now + lifetimeMs }));
 	return { code, email, expiresAt: now + lifetimeMs };
 };
 
 export const expireTelegramEmailOtp = async (database: DatabaseAdapter, identity: TelegramIdentity) => {
 	const botId = decimalId(identity.botId, true), telegramUserId = decimalId(identity.telegramUserId, true);
-	await runSql(database, sql({ database }).update('passport_email_otp', { status: 'expired' }, [{ column: 'bot_id', value: botId }, { column: 'telegram_user_id', value: telegramUserId }, { column: 'status', value: 'pending' }]));
+	await runSql(database, sql({ database }).update('passport_telegram_email_otps', { status: 'expired' }, [{ column: 'bot_id', value: botId }, { column: 'telegram_user_id', value: telegramUserId }, { column: 'status', value: 'pending' }]));
 };
 
 type AccountOwner = { user_key: string; status: string };
@@ -95,19 +95,19 @@ export const verifyTelegramEmailOtp = async (
 	if (!/^\d{6}$/.test(code)) return { status: 'invalid' };
 	const otp = await firstSql<{
 		id: number; email: string; code_hash: string; attempt_count: number; expires_at: number;
-	}>(database, sql({ database }).select({ table: 'passport_email_otp', columns: { id: 'id', email: 'email', code_hash: 'code_hash', attempt_count: 'attempt_count', expires_at: 'expires_at' }, where: [{ column: 'bot_id', value: botId }, { column: 'telegram_user_id', value: telegramUserId }, { column: 'status', value: 'pending' }], orderBy: [{ column: 'created_at', direction: 'DESC' }, { column: 'id', direction: 'DESC' }], limit: 1 }));
+	}>(database, sql({ database }).select({ table: 'passport_telegram_email_otps', columns: { id: 'id', email: 'email', code_hash: 'code_hash', attempt_count: 'attempt_count', expires_at: 'expires_at' }, where: [{ column: 'bot_id', value: botId }, { column: 'telegram_user_id', value: telegramUserId }, { column: 'status', value: 'pending' }], orderBy: [{ column: 'created_at', direction: 'DESC' }, { column: 'id', direction: 'DESC' }], limit: 1 }));
 	if (!otp) return { status: 'invalid' };
 	if (otp.expires_at <= Date.now()) {
-		await runSql(database, sql({ database }).update('passport_email_otp', { status: 'expired' }, { id: otp.id, status: 'pending' }));
+		await runSql(database, sql({ database }).update('passport_telegram_email_otps', { status: 'expired' }, { id: otp.id, status: 'pending' }));
 		return { status: 'expired' };
 	}
 	if (otp.attempt_count >= 5) {
-		await runSql(database, sql({ database }).update('passport_email_otp', { status: 'expired' }, { id: otp.id, status: 'pending' }));
+		await runSql(database, sql({ database }).update('passport_telegram_email_otps', { status: 'expired' }, { id: otp.id, status: 'pending' }));
 		return { status: 'locked' };
 	}
 	if (!await verifyPassword(code, otp.code_hash)) {
 		const nextAttempts = otp.attempt_count + 1;
-		await runSql(database, sql({ database }).update('passport_email_otp', { attempt_count: nextAttempts, status: nextAttempts >= 5 ? 'expired' : 'pending' }, { id: otp.id, status: 'pending' }));
+		await runSql(database, sql({ database }).update('passport_telegram_email_otps', { attempt_count: nextAttempts, status: nextAttempts >= 5 ? 'expired' : 'pending' }, { id: otp.id, status: 'pending' }));
 		return { status: nextAttempts >= 5 ? 'locked' : 'invalid' };
 	}
 
@@ -118,11 +118,11 @@ export const verifyTelegramEmailOtp = async (
 	if (external?.status === 'disabled') return { status: 'disabled', userId: external.user_key };
 	if (email?.status === 'disabled') return { status: 'disabled', userId: email.user_key };
 	if (external && email && external.user_key !== email.user_key) {
-		await runSql(database, sql({ database }).update('passport_email_otp', { status: 'used' }, { id: otp.id, status: 'pending' }));
+		await runSql(database, sql({ database }).update('passport_telegram_email_otps', { status: 'used' }, { id: otp.id, status: 'pending' }));
 		return { status: 'conflict', telegramUserId: external.user_key, emailUserId: email.user_key };
 	}
 	if (!external && email) {
-		await runSql(database, sql({ database }).update('passport_email_otp', { status: 'used' }, { id: otp.id, status: 'pending' }));
+		await runSql(database, sql({ database }).update('passport_telegram_email_otps', { status: 'used' }, { id: otp.id, status: 'pending' }));
 		return { status: 'conflict', emailUserId: email.user_key };
 	}
 
@@ -154,7 +154,7 @@ export const verifyTelegramEmailOtp = async (
 			builder.insert('passport_user_emails', { user_key: userId, email_id: emailId, is_primary: hasUserEmail ? 0 : 1 }),
 		);
 	}
-	statements.push(builder.update('passport_email_otp', { status: 'used' }, { id: otp.id, status: 'pending' }));
+	statements.push(builder.update('passport_telegram_email_otps', { status: 'used' }, { id: otp.id, status: 'pending' }));
 	if (!database.batch) throw new Error('Passport database does not support atomic batch writes');
 	await database.batch(statements);
 	return { status: resultStatus, userId };

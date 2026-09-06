@@ -8,7 +8,7 @@ import { firstSql, runSql, sql } from '@server/database/sql.mjs';
  * `passport_users.key` 就是老库里的那个 `user_id`，值必须一模一样。
  */
 export const SNOWFLAKE_EPOCH = 1288834974657n;
-const STATE_TABLE = 'global_snowflake_state';
+const STATE_TABLE = 'global_snowflake_states';
 const MAX_TIMESTAMP_DELTA = (1n << 41n) - 1n;
 const MAX_SEQUENCE = 0xfff;
 /**
@@ -46,19 +46,19 @@ let source: DatabaseAdapter | undefined;
 const reserveBlock = async (database: DatabaseAdapter) => {
 	const now = Math.max(Date.now(), Number(SNOWFLAKE_EPOCH));
 	const reserve = async (target: DatabaseAdapter) => {
-		await runSql(target, sql({ database: target }).ignoreInsert(STATE_TABLE, ['worker_id'], { worker_id: workerId, last_timestamp: now - 1 }));
+		await runSql(target, sql({ database: target }).ignoreInsert(STATE_TABLE, ['worker_id'], { worker_id: workerId, last_at: now - 1 }));
 		// 推进到 max(已存, now) + 窗口：并发下只有一个请求能从旧值推到新值，另一个读到的
 		// 是已经被推过的值，于是两段不会重叠。
 		// 推进一整段：MAX(已存 + 段长, now + 段长)。两种情况都保证新段的起点大于已存值，
 		// 也就是大于所有已经发出去的号。
-		await runSql(target, sql({ database: target }).advanceNumber(STATE_TABLE, 'last_timestamp', now + RESERVE_MILLISECONDS, now, { worker_id: workerId }, RESERVE_MILLISECONDS));
-		return firstSql<{ last_timestamp: number }>(target, sql({ database: target }).select({
-			table: STATE_TABLE, columns: { last_timestamp: 'last_timestamp' }, where: [{ column: 'worker_id', value: workerId }],
+		await runSql(target, sql({ database: target }).advanceNumber(STATE_TABLE, 'last_at', now + RESERVE_MILLISECONDS, now, { worker_id: workerId }, RESERVE_MILLISECONDS));
+		return firstSql<{ last_at: number }>(target, sql({ database: target }).select({
+			table: STATE_TABLE, columns: { last_at: 'last_at' }, where: [{ column: 'worker_id', value: workerId }],
 		}));
 	};
 	const row = database.transaction ? await database.transaction(reserve) : await reserve(database);
 	// 有些适配器按 BigInt 读整数（迁移工具就是这么开的），先归一成 number 再判。
-	const limit = Number(row?.last_timestamp ?? Number.NaN);
+	const limit = Number(row?.last_at ?? Number.NaN);
 	if (!Number.isSafeInteger(limit)) throw new Error('无法预留雪花号段');
 	const timestamp = limit - RESERVE_MILLISECONDS + 1;
 	const delta = BigInt(limit) - SNOWFLAKE_EPOCH;

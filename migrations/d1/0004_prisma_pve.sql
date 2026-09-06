@@ -104,7 +104,7 @@ CREATE TABLE "pve_vm_tasks" (
     "owner_uid" BIGINT,
     "vm_id" BIGINT NOT NULL,
     "action" TEXT NOT NULL,
-    "idempotency_key" TEXT NOT NULL,
+    "idempotency_token" TEXT NOT NULL,
     "status" TEXT NOT NULL DEFAULT 'pending',
     "request_payload" TEXT NOT NULL DEFAULT '{}',
     "response_payload" TEXT NOT NULL DEFAULT '{}',
@@ -114,6 +114,12 @@ CREATE TABLE "pve_vm_tasks" (
 
 -- CreateIndex
 CREATE UNIQUE INDEX "pve_regions_key_key" ON "pve_regions"("key");
+
+-- CreateIndex
+CREATE INDEX "pve_nodes_region_id_idx" ON "pve_nodes"("region_id");
+
+-- CreateIndex
+CREATE INDEX "pve_nodes_api_token_id_idx" ON "pve_nodes"("api_token_id");
 
 -- CreateIndex
 CREATE UNIQUE INDEX "pve_nodes_owner_tid_name_deleted_at_key" ON "pve_nodes"("owner_tid", "name", "deleted_at");
@@ -128,13 +134,25 @@ CREATE UNIQUE INDEX "pve_instance_flavors_key_key" ON "pve_instance_flavors"("ke
 CREATE UNIQUE INDEX "pve_instance_flavors_cpu_cores_memory_gb_key" ON "pve_instance_flavors"("cpu_cores", "memory_gb");
 
 -- CreateIndex
+CREATE INDEX "pve_vms_region_id_idx" ON "pve_vms"("region_id");
+
+-- CreateIndex
+CREATE INDEX "pve_vms_node_id_idx" ON "pve_vms"("node_id");
+
+-- CreateIndex
+CREATE INDEX "pve_vms_instance_flavor_id_idx" ON "pve_vms"("instance_flavor_id");
+
+-- CreateIndex
 CREATE UNIQUE INDEX "pve_vms_owner_tid_name_deleted_at_key" ON "pve_vms"("owner_tid", "name", "deleted_at");
 
 -- CreateIndex
 CREATE UNIQUE INDEX "pve_vms_key_key" ON "pve_vms"("key");
 
 -- CreateIndex
-CREATE UNIQUE INDEX "pve_vm_tasks_idempotency_key_key" ON "pve_vm_tasks"("idempotency_key");
+CREATE INDEX "pve_vm_tasks_vm_id_idx" ON "pve_vm_tasks"("vm_id");
+
+-- CreateIndex
+CREATE UNIQUE INDEX "pve_vm_tasks_idempotency_token_key" ON "pve_vm_tasks"("idempotency_token");
 
 -- CreateIndex
 CREATE UNIQUE INDEX "pve_vm_tasks_key_key" ON "pve_vm_tasks"("key");

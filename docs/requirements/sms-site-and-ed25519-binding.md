@@ -109,7 +109,7 @@ SMS 站点集中查看多部手机收到的短信，不负责发送。手机侧�
 | `owner_uid` | 令牌归属账号；公共池阶段为空，领取时写入 |
 | `phone_id` | 绑定的手机；`pending` 与 `available` 状态下均为空 |
 | `status` | `pending` / `available` / `bound` / `revoked` |
-| `idempotency_key` | 生成任务的幂等键，`(idempotency_key, deleted_at)` 唯一 |
+| `idempotency_token` | 生成任务的幂等键，`(idempotency_token, deleted_at)` 唯一 |
 | `last_used_at` | 最近一次成功提交短信的时间，可为空 |
 
 `status` 四值语义：`pending` 入库过程中的中间态，不可领取；`available` 在公共池中待领取；`bound` 已绑定手机；`revoked` 已作废。
@@ -314,12 +314,12 @@ Shortcut 文件必须在 macOS 上生成和签名，因此**令牌只能由 Mac 
 
 生成器上传文件并调用 `commit` 后，服务端验签上传票据、校验对象存在与摘要一致，然后：
 
-1. 以 `status = 'pending'` 插入 `sms_shortcut_tokens`，带 `idempotency_key`；重复提交在唯一约束处被挡下。
-2. 按 `idempotency_key` 读回 `token_id`。
+1. 以 `status = 'pending'` 插入 `sms_shortcut_tokens`，带 `idempotency_token`；重复提交在唯一约束处被挡下。
+2. 按 `idempotency_token` 读回 `token_id`。
 3. 插入 `sms_shortcut_artifacts`，`status = 'ready'`。
 4. 把令牌由 `pending` 改为 `available`。
 
-任一步之后中断都不产生有害中间态：`pending` 令牌不可领取，孤儿对象由生命周期规则清理。重试同一 `idempotency_key` 会收敛到同一结果。同一 `idempotency_key` 携带与首次不同的 `token_sha256` 或 `file_sha256` 时必须拒绝，不得覆盖也不得返回成功。
+任一步之后中断都不产生有害中间态：`pending` 令牌不可领取，孤儿对象由生命周期规则清理。重试同一 `idempotency_token` 会收敛到同一结果。同一 `idempotency_token` 携带与首次不同的 `token_sha256` 或 `file_sha256` 时必须拒绝，不得覆盖也不得返回成功。
 
 ### 5.2 领取（单条条件更新）
 
@@ -462,7 +462,7 @@ Content-Type: application/json
 
 | 场景 | 做法 | 中断后的状态 |
 | --- | --- | --- |
-| 令牌与文件元数据入库（§5.1） | 四步收敛，`idempotency_key` 唯一约束保证幂等 | 停在 `pending`，不可领取，重试收敛 |
+| 令牌与文件元数据入库（§5.1） | 四步收敛，`idempotency_token` 唯一约束保证幂等 | 停在 `pending`，不可领取，重试收敛 |
 | 领取令牌（§5.2） | 单条 `UPDATE ... WHERE status='available'`，看影响行数 | 要么领到要么没领到，无中间态 |
 | 换绑令牌（§5.3） | 先撤旧、后绑新，顺序强制 | 手机暂时无有效令牌，无害 |
 | 消费 nonce（§6.2） | `ignoreInsert` 到 `sms_ticket_nonces`，看影响行数 | 一次性由唯一约束保证 |

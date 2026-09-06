@@ -63,6 +63,8 @@ CREATE TABLE `base_hosts` (
     `branch_id` BIGINT NOT NULL,
     `status` ENUM('enabled', 'disabled') NOT NULL DEFAULT 'enabled',
 
+    INDEX `base_hosts_tenant_id_idx`(`tenant_id`),
+    INDEX `base_hosts_branch_id_idx`(`branch_id`),
     UNIQUE INDEX `base_hosts_hostname_key`(`hostname`),
     UNIQUE INDEX `base_hosts_key_key`(`key`),
     PRIMARY KEY (`id`)
@@ -110,6 +112,8 @@ CREATE TABLE `base_sessions` (
     `expires_at` BIGINT NOT NULL,
     `device_id` BIGINT NOT NULL,
 
+    INDEX `base_sessions_user_id_idx`(`user_id`),
+    INDEX `base_sessions_device_id_idx`(`device_id`),
     UNIQUE INDEX `base_sessions_token_hash_key`(`token_hash`),
     UNIQUE INDEX `base_sessions_key_key`(`key`),
     PRIMARY KEY (`id`)
@@ -137,7 +141,7 @@ CREATE TABLE `base_configs` (
 ) DEFAULT CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci;
 
 -- CreateTable
-CREATE TABLE `base_bootstrap` (
+CREATE TABLE `base_bootstraps` (
     `id` BIGINT NOT NULL AUTO_INCREMENT,
     `key` VARCHAR(36) NOT NULL,
     `created_at` BIGINT NOT NULL,
@@ -152,8 +156,8 @@ CREATE TABLE `base_bootstrap` (
     `name` VARCHAR(64) NOT NULL,
     `value` VARCHAR(191) NOT NULL,
 
-    UNIQUE INDEX `base_bootstrap_key_key`(`key`),
-    UNIQUE INDEX `base_bootstrap_owner_tid_name_deleted_at_key`(`owner_tid`, `name`, `deleted_at`),
+    UNIQUE INDEX `base_bootstraps_key_key`(`key`),
+    UNIQUE INDEX `base_bootstraps_owner_tid_name_deleted_at_key`(`owner_tid`, `name`, `deleted_at`),
     PRIMARY KEY (`id`)
 ) DEFAULT CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci;
 
@@ -206,6 +210,7 @@ CREATE TABLE `base_oidc_users` (
     `user_id` BIGINT NOT NULL,
     `profile` VARCHAR(191) NOT NULL DEFAULT '{}',
 
+    INDEX `base_oidc_users_user_id_idx`(`user_id`),
     UNIQUE INDEX `base_oidc_users_owner_tid_issuer_subject_key`(`owner_tid`, `issuer`, `subject`),
     UNIQUE INDEX `base_oidc_users_key_key`(`key`),
     PRIMARY KEY (`id`)
@@ -257,6 +262,7 @@ CREATE TABLE `base_devices` (
     `last_seen_at` BIGINT NOT NULL,
     `revoked_at` BIGINT NULL,
 
+    INDEX `base_devices_user_id_idx`(`user_id`),
     UNIQUE INDEX `base_devices_key_key`(`key`),
     PRIMARY KEY (`id`)
 ) DEFAULT CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci;
@@ -308,6 +314,7 @@ CREATE TABLE `base_device_snapshots` (
     `screen_height` INTEGER NOT NULL DEFAULT 0,
     `captured_at` BIGINT NOT NULL,
 
+    INDEX `base_device_snapshots_device_id_idx`(`device_id`),
     UNIQUE INDEX `base_device_snapshots_key_key`(`key`),
     PRIMARY KEY (`id`)
 ) DEFAULT CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci;
