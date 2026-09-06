@@ -367,7 +367,7 @@ const auditRouteFilter = async () => {
 		// 那条语句是 upsert：冲突走 UPDATE、不冲突走 INSERT，建语句时不知道是哪一支。
 		// 原先一律按修改记，于是走 INSERT 那一支时读不到前值，一条记录都没有——
 		// 做完在审批表里找不到「谁第一次设了昵称」。
-		const meApi = 'http://localhost/api/panel/me.php';
+		const meApi = 'http://localhost/api/panel/user/base/me.php';
 		assert.equal((await app.request(meApi, { method: 'PUT', headers: { ...headers, cookie }, body: JSON.stringify({ _section: 'profile', profile_nickname: '首次设置的昵称', profile_qq: '', profile_wechat: '', profile_email: '', __changedFields: ['profile_nickname'] }) })).status, 200, '个人中心立即生效');
 		const selfEntries = await (await app.request('http://localhost/api/panel/admin/base/audits.php?include=data&scope=self&table_name=base_user_profiles', { headers: { ...headers, cookie } })).json();
 		const created = selfEntries.table.dataSource.find((row) => row.action === 'insert');
@@ -621,7 +621,7 @@ const auditRouteFilter = async () => {
 			// 看的是**响应头**，不是这一页读回来的值：`currentValues` 每次都现查库，根本不经过
 			// 那层缓存，测不到这个 bug。真正受影响的是 `c.get('techStackConfig')`——每请求从
 			// configurationBucket 取，缓存 30 秒。`Server: nginx` 正是从它来的。
-			const serverHeader = async () => (await app.request('http://localhost/api/panel/me.php', { headers: { ...headers, cookie } })).headers.get('server');
+			const serverHeader = async () => (await app.request('http://localhost/api/panel/user/base/me.php', { headers: { ...headers, cookie } })).headers.get('server');
 			assert.equal(await serverHeader(), null, '还没批准，不该有 nginx 标识');
 			assert.equal((await decide('approve', await pendingIds())).status, 200);
 			assert.equal(await serverHeader(), 'nginx', '批准新建的配置行之后要立刻生效，不能等缓存过期');
@@ -702,8 +702,8 @@ const auditRouteFilter = async () => {
 
 		// 操作的来源域名与接口路径要记进审计：多站点共用一套代码，只记「改了什么」
 		// 而不记「在哪改的」，事后分不清是哪个站点的管理员动的手。
-		await app.request('https://site-a.test/api/panel/me.php', { method: 'PUT', headers: { ...headers, cookie }, body: JSON.stringify({ _section: 'profile', profile_nickname: '甲甲', profile_qq: '', profile_wechat: '', profile_email: '' }) });
-		await app.request('https://site-b.test/api/panel/me.php', { method: 'PUT', headers: { ...headers, cookie }, body: JSON.stringify({ _section: 'profile', profile_nickname: '乙乙', profile_qq: '', profile_wechat: '', profile_email: '' }) });
+		await app.request('https://site-a.test/api/panel/user/base/me.php', { method: 'PUT', headers: { ...headers, cookie }, body: JSON.stringify({ _section: 'profile', profile_nickname: '甲甲', profile_qq: '', profile_wechat: '', profile_email: '' }) });
+		await app.request('https://site-b.test/api/panel/user/base/me.php', { method: 'PUT', headers: { ...headers, cookie }, body: JSON.stringify({ _section: 'profile', profile_nickname: '乙乙', profile_qq: '', profile_wechat: '', profile_email: '' }) });
 		const origins = await app.request('http://localhost/api/panel/admin/base/audits.php?include=schema,data&review_status=all&table_name=base_user_profiles', { headers: { ...headers, cookie } });
 		const originRows = (await origins.json()).table.dataSource;
 		assert.ok(originRows.length >= 1, '改昵称要留下审计记录');
@@ -713,7 +713,7 @@ const auditRouteFilter = async () => {
 		// 个人中心那几条记的是去掉后缀的逻辑路径。不断言「只有这一个」：后台改资料也会写
 	// base_user_profiles，那是另一条合法来路，多一条不说明这里出了问题。
 	const profilePaths = [...new Set(originRows.filter((row) => row.action === 'update').map((row) => String(row.request_path)))];
-	assert.ok(profilePaths.includes('/api/panel/me'), `个人中心那几条应记成 /api/panel/me：${profilePaths.join(' ')}`);
+	assert.ok(profilePaths.includes('/api/panel/user/base/me'), `个人中心那几条应记成 /api/panel/user/base/me：${profilePaths.join(' ')}`);
 	assert.ok(profilePaths.every((path) => !path.includes('.php')), `request_path 不该带接口后缀：${profilePaths.join(' ')}`);
 		assert.ok(originRows.some((row) => row.request_hostname === 'site-b.test'), '域名要如实记下来，而不是都记成同一个');
 		/**

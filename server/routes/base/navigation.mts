@@ -82,8 +82,37 @@ const rawSiteNavigation = (): MenuNode[] => [
 			{ label: '下级用户', key: 'subordinates', icon: 'appstore', component: 'table', title: '下级用户', description: '查看名下的下级用户，或按用户名把还没有代理的用户拉过来' },
 		],
 	},
-	// 个人中心只做当前登录身份的只读展示，账号资料由 Accounts 维护，不设子页面。
-	{ label: '个人中心', key: 'panel/me', icon: 'appstore', hidden: true, component: 'personalCenter', title: '个人中心', description: '查看当前登录账号的身份信息', roles: ['user'] },
+	/**
+	 * 用户面。与管理后台对称：那边是 `/panel/admin/<站点>/<页>`，这边是
+	 * `/panel/user/<站点>/<页>`，两边都带站点名，因此 base 与 sms 的用户面页面不会撞在同一层。
+	 *
+	 * **路径前缀同时决定要不要走审批**：`operationScope` 只认 `/api/panel/admin/`，
+	 * 用户面一律是自助——立即生效、照常留痕、不进队列。
+	 *
+	 * `roles: ['user']` 的意思是**「要登录」**，不是某种特权：每个登录用户都自动带着 `user`
+	 * 这个角色（见 worker.mts 的 effectiveRoles），未登录的只有 `public`。用户面到此为止，
+	 * 不再往下分等级——能不能动一行数据凭的是「这是我的行」而不是「我有什么角色」，越界由
+	 * 行级归属判定在 SQL 层挡住。
+	 *
+	 * 文案直译，不另造词：`user` 是「用户」，`me` 是「我」。「个人中心」「用户中心」这类
+	 * 说法与路径对不上号，读的人要在两套词之间来回换算。
+	 */
+	{
+		label: '用户',
+		key: 'panel/user',
+		icon: 'appstore',
+		component: 'panelRoot',
+		navigationGroup: 'user',
+		dropdown: true,
+		dashboardPath: '/panel/user/base/me',
+		title: '用户',
+		description: '当前登录账号自己的东西',
+		roles: ['user'],
+		children: [
+			// 只做当前登录身份的只读展示，账号资料由 Accounts 维护，不设子页面。
+			{ label: '我', key: 'base/me', icon: 'appstore', component: 'personalCenter', title: '我', description: '查看当前登录账号的身份信息' },
+		],
+	},
 ];
 
 export const menuItems = resolveNavigationPaths(rawSiteNavigation());

@@ -217,7 +217,7 @@ passport_user_email_otps                -- 已登录用户添加邮箱时的验�
 - 通用 `FormPage` 的自定义 action 现在也会应用响应里的 `formPage`/`currentValues`/`redirectTo`；只要响应里带 `formPage` 就不再安排跳转，修掉了多步表单被反馈倒计时带走的问题。
 - 账户中心概览用 `dashboard` 组件（统计 + 账户信息表），邮箱管理用 `table` 组件：工具栏"添加邮箱"发送验证码，工具栏"输入验证码"完成绑定（通用抽屉的新增表单只有一步，验证码必须作为独立动作）。
 - 待验证邮箱以只读行的形式出现在邮箱列表里，数据来自 `passport_user_email_otps`，不写入 `passport_emails`。
-- 业务站点的个人中心由 Base 的 `/api/panel/me` 提供，启用 Accounts 登录时下发指向 `<issuer>/panel/accounts` 的链接（不带页面后缀，由 Accounts 站点跳转到规范地址），页面上不再重复本站的占位说明。
+- 业务站点的个人中心由 Base 的 `/api/panel/user/base/me` 提供，启用 Accounts 登录时下发指向 `<issuer>/panel/accounts` 的链接（不带页面后缀，由 Accounts 站点跳转到规范地址），页面上不再重复本站的占位说明。
 - 覆盖测试：`npm run test:user-roles`、`npm run test:accounts-center`，以及扩展后的 `npm run test:accounts-external`、`npm run test:passport-login`。
 
 ## 分离部署约束（2026-08-27 补充）
@@ -248,8 +248,8 @@ Google 应用验证要求首页公开说明应用的用途（[品牌验证要求
 Accounts 站点上可能同时存在两种会话：站点本地账号（`base_users`，供站点管理员使用）和 Accounts 账号。
 
 - 头部展示的身份**以 Accounts 昵称为准**；两个会话同时存在时也显示昵称，并同时给出「账户中心 / 退出 Accounts」和「个人中心 / 退出登录」两套入口。
-- `/panel/accounts`（账户中心）属于 Accounts 身份，`/panel/me`（个人中心）属于站点本地账号，两者并存，都没有废弃：业务站点和控制面的本地账号仍然使用 `/panel/me`。
-- `/panel/me` 精简为**单页只读**：不再有账户概览、个人资料、安全设置、登录设备等子页面，也不套后台侧边栏，只展示当前登录身份的用户名和角色。
+- `/panel/accounts`（账户中心）属于 Accounts 身份，`/panel/user/base/me`（「我」）属于站点本地账号，两者并存，都没有废弃：业务站点和控制面的本地账号仍然使用 `/panel/user/base/me`。
+- `/panel/user/base/me` 精简为**单页只读**：不再有账户概览、个人资料、安全设置、登录设备等子页面，也不套后台侧边栏，只展示当前登录身份的用户名和角色。
 - 启用 Accounts 登录的站点，个人中心给出一句说明和「在新页面打开账号中心」按钮。**业务站点不会把当前页面带去其它域名**，入口一律 `target="_blank"`；用户主动点开新窗口是允许的。
 - Accounts 站点的登录入口指向 `/accounts/sign`（第三方与邮箱登录都在那里），`/sign` 只留给站点本地账号。
 

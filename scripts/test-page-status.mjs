@@ -67,7 +67,7 @@ try {
 	assert.equal(publicPage.pageStatus, undefined);
 
 	// 无后缀路径是同一页面的访问别名，直接返回页面内容而不是重定向（见 AGENTS.md 的目录与别名约定）。
-	const withoutSuffix = await document('/panel/me?from=test');
+	const withoutSuffix = await document('/panel/user/base/me?from=test');
 	assert.equal(withoutSuffix.response.status, 200);
 	assert.equal(withoutSuffix.response.headers.get('location'), null);
 	assert.equal(withoutSuffix.pageStatus.status, 401, '未登录访问个人中心仍然给出登录提示');
@@ -114,7 +114,7 @@ try {
 	assert.equal(userMissing.pageStatus.status, 404);
 
 	// 个人中心对普通用户开放。
-	const personal = await document('/panel/me.html', { cookie: userCookie });
+	const personal = await document('/panel/user/base/me.html', { cookie: userCookie });
 	assert.equal(personal.response.status, 200);
 	assert.equal(personal.pageStatus, undefined);
 

@@ -615,7 +615,7 @@ export const runOperation = async (
 			try {
 				const url = new URL(c.req.url);
 				// 记去掉后缀的逻辑路径：`.php` 是站点可配的接口后缀，同一个接口在不同站点
-				// 可能是 /api/panel/me.php、/api/panel/me.json 或干脆没有后缀。记原样的话，
+				// 可能是 /api/panel/user/base/me.php、/api/panel/user/base/me.json 或干脆没有后缀。记原样的话，
 				// 同一件事在审计里长出好几种写法，按路径筛选也就筛不干净。
 				//
 				// 用路由匹配那一侧的同一个函数（normalizeApiPath）：这里原先自己写了一版

@@ -43,19 +43,28 @@ try {
 		other.close();
 	}
 
-	// 导航里个人中心只有一个页面，没有子菜单。
-	// CDN 模式下导航不嵌在文档里，从上下文接口取。
+	/**
+	 * 用户面与管理后台对称：顶层是 `/panel/user`，页面挂在它下面并带站点名
+	 * （`/panel/user/base/me`）。文案直译——`user` 是「用户」，`me` 是「我」。
+	 *
+	 * CDN 模式下导航不嵌在文档里，从上下文接口取。
+	 */
 	const navigation = (await readPageContext(app, 'localhost', '/', { cookie, headers: { 'x-device-key': deviceKey, 'x-device-fingerprint': fingerprintData } })).context.siteNavigation;
-	const me = navigation.find((item) => item.key === '/panel/me');
-	assert.ok(me, '个人中心应该存在');
-	assert.deepEqual(me.children ?? [], [], '个人中心不应该再有子页面');
-	assert.equal(me.dashboardPath, undefined);
+	const userPanel = navigation.find((item) => item.key === '/panel/user');
+	assert.ok(userPanel, '用户面应该存在');
+	assert.equal(userPanel.label, '用户', '文案直译，不另造「用户中心」这类词');
+	// `['user']` 是「要登录」，不是特权：每个登录用户都带着这个角色。用户面到此为止，不再细分。
+	assert.deepEqual(userPanel.roles, ['user'], '用户面要求登录');
+	const me = (userPanel.children ?? []).find((item) => item.key === '/panel/user/base/me');
+	assert.ok(me, '「我」应该在用户面下');
+	assert.equal(me.label, '我');
+	assert.deepEqual(me.children ?? [], [], '「我」不应该再有子页面');
 	// 原来的子页面路径不再存在。CDN 模式下文档一律 200（可缓存的壳），404 由上下文的 pageStatus 下发。
 	const removed = await readPageContext(app, 'localhost', '/panel/me/security.html', { cookie, headers: { 'x-device-key': deviceKey, 'x-device-fingerprint': fingerprintData } });
 	assert.equal(removed.context.pageStatus.status, 404);
 
 	// 未启用 Accounts 登录时只有身份信息，没有任何外站入口。
-	const plain = await (await request('/api/panel/me.php', { cookie })).json();
+	const plain = await (await request('/api/panel/user/base/me.php', { cookie })).json();
 	assert.equal(plain.user.user_name, 'meadmin');
 	assert.equal(plain.accountsCenter, undefined);
 	assert.equal(plain.accountsNotice, undefined);
@@ -66,14 +75,14 @@ try {
 	database.prepare("INSERT INTO base_configs (created_at, updated_at, key, name, value) VALUES (?, ?, 'seed-oidc', 'accounts_oidc_client', ?)")
 		.run(now, now, JSON.stringify({ enabled: true, issuer: 'https://accounts.test', clientId: 'acct', clientSecret: 'secret' }));
 	database.close();
-	const linked = await (await request('/api/panel/me.php', { cookie })).json();
+	const linked = await (await request('/api/panel/user/base/me.php', { cookie })).json();
 	assert.match(linked.accountsNotice, /accounts\.test/);
 	assert.match(linked.accountsNotice, /当前页面不会离开/);
 	assert.deepEqual(linked.accountsCenter, { label: '在新页面打开账号中心', url: 'https://accounts.test/panel/accounts' });
 
 	// 自助改资料：三组设置分成选项卡，各自提交——它们互不相干，各有各的失败方式，
 	// 混在一起的话一处失败会让另外两处也白填。
-	const mePath = '/api/panel/me.php';
+	const mePath = '/api/panel/user/base/me.php';
 	const meForm = async () => (await (await request(mePath, { cookie })).json()).formPage;
 	const before = await meForm();
 	assert.equal(before.sectionLayout, 'tabs');

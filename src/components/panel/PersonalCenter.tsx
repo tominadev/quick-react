@@ -14,7 +14,7 @@ type MeResponse = FormPageResponse & { user?: UserIdentity; accountsNotice?: str
 /**
  * 个人中心：上半截展示当前身份，下半截是可编辑的三段表单。
  *
- * 两截共用 `/api/panel/me` 一个接口，所以这里**只取一次**，再把响应交给 FormPage——
+ * 两截共用 `/api/panel/user/base/me` 一个接口，所以这里**只取一次**，再把响应交给 FormPage——
  * 让 FormPage 自己去取的话，一进页面就是两次一模一样的请求。
  */
 export default function PersonalCenter({ commonApi, user: initialUser, title, initialResponse }: PersonalCenterProps) {
@@ -27,7 +27,7 @@ export default function PersonalCenter({ commonApi, user: initialUser, title, in
 			return;
 		}
 		let active = true;
-		commonApi.apiFetch(`/api/panel/me${apiSuffix}`).then(async (result) => {
+		commonApi.apiFetch(`/api/panel/user/base/me${apiSuffix}`).then(async (result) => {
 			const data = await result.json() as MeResponse;
 			if (!active) return;
 			setResponse(data);
@@ -53,7 +53,7 @@ export default function PersonalCenter({ commonApi, user: initialUser, title, in
 			    改完用户名或昵称后，保存响应里带着新身份，上面那块跟着更新。 */}
 			{response ? <FormPage
 				commonApi={commonApi}
-				apiPath={`/api/panel/me${apiSuffix}`}
+				apiPath={`/api/panel/user/base/me${apiSuffix}`}
 				title=""
 				submitMethod="PUT"
 				initialResponse={response}

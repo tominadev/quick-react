@@ -26,7 +26,7 @@ export default function AuthActions({ auth, commonApi, apiSuffix, pageSuffix }: 
 	const logicalPath = pageSuffix && location.pathname.endsWith(pageSuffix)
 		? location.pathname.slice(0, -pageSuffix.length)
 		: location.pathname;
-	const isPersonalCenter = logicalPath === '/panel/me' || logicalPath.startsWith('/panel/me/');
+	const isPersonalCenter = logicalPath === '/panel/user/base/me' || logicalPath.startsWith('/panel/user/base/me/');
 	if (!auth) return null;
 	const pageUrl = (path: string) => path === '/' ? path : path + pageSuffix;
 	const identity = auth.currentUser

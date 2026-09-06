@@ -43,7 +43,7 @@ export const buildAuthState = async (c: Context<AppEnv>): Promise<AuthState> => 
 	const currentUser = c.get('currentUser'), passportUser = c.get('passportUser');
 	// 登录后的入口只看当前持有哪些会话，退出统一走本站的 /sign。
 	const actions: HeaderAction[] = [
-		...(currentUser ? [{ key: '/panel/me', label: '个人中心', action: 'navigate' as const, icon: 'user' as const }] : []),
+		...(currentUser ? [{ key: '/panel/user/base/me', label: '个人中心', action: 'navigate' as const, icon: 'user' as const }] : []),
 		...(passportUser ? [{ key: '/panel/accounts', label: '账户中心', action: 'navigate' as const, icon: 'user' as const }] : []),
 		...(currentUser && c.get('siteSettings').logoutLocalEnabled ? [{ key: '/sign', label: '退出本站', action: 'local-logout' as const, icon: 'logout' as const }] : []),
 		...(passportUser && c.get('siteSettings').logoutPassportEnabled ? [{ key: '/accounts/sign', label: '退出 Passport', action: 'accounts-logout' as const, icon: 'logout' as const }] : []),
@@ -120,7 +120,7 @@ export const resolvePageStatus = async (
 		status: 403,
 		title: '无权访问',
 		description: `当前账号 ${c.get('currentUser')?.user_name ?? c.get('passportUser')?.user_name ?? ''} 没有访问 ${requestPath} 的权限，请联系管理员分配对应角色。`,
-		actions: [{ key: '/panel/me', label: '个人中心', action: 'navigate', icon: 'user' }, home],
+		actions: [{ key: '/panel/user/base/me', label: '个人中心', action: 'navigate', icon: 'user' }, home],
 	};
 };
 

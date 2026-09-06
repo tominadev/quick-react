@@ -12,7 +12,7 @@ try {
 	await writeFile(file, result.outputFiles[0].contents);
 	const { collectPageDefinitions, findNavigationTrail, matchNavigationKey, navigationBreadcrumb, stripPageSuffix } = await import(pathToFileURL(file));
 
-	const keys = ['/', '/panel/admin', '/about', '/panel/me', '/panel/accounts'];
+	const keys = ['/', '/panel/admin', '/about', '/panel/user/base/me', '/panel/accounts'];
 	// 首页只匹配自身，不匹配其它路径。
 	assert.equal(matchNavigationKey(keys, '/'), '/');
 	assert.equal(matchNavigationKey(keys, '/about'), '/about');
@@ -59,7 +59,7 @@ try {
 	// 分组与页面同名时只留一个：写两遍不给读的人任何新信息。
 	assert.deepEqual(navigationBreadcrumb(panelNavigation, '/panel/admin/base/data/rows'), ['管理后台', '基础管理', '数据管理']);
 	// 菜单里没有的页面没有路径可走，调用方据此回落到页面标题。
-	assert.deepEqual(navigationBreadcrumb(panelNavigation, '/panel/me'), []);
+	assert.deepEqual(navigationBreadcrumb(panelNavigation, '/panel/user/base/me'), []);
 	// 同一条路径同时供菜单展开用：末项是当前页，前面几项就是要展开的父级。
 	assert.deepEqual(
 		findNavigationTrail(panelNavigation, '/panel/admin/base/settings/site-frontend').slice(0, -1).map((item) => item.key),
