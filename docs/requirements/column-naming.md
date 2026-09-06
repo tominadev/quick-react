@@ -56,14 +56,33 @@
 （`@@unique([owner_tid, name, deleted_at])`）：不同租户可以各有一个 `main` 分站、各存一份
 `site_frontend` 配置。
 
-**`name` 的唯一索引形态固定**：`@@unique([owner_tid, name, deleted_at])`。`owner_tid` 让名字
+### 名字列可以换名字，但要登记
+
+「名字列」装的是**人给的、可重用的标识**——人取的、可以改的、租户内唯一的、不被别的表引用的
+那一列。默认就叫 `name`。
+
+个别表里 `name` 读不出它装的是什么：`sms_phones.name` 存的是手机号，读的人得愣一下。这种
+情况可以换一个更具体的词，**但必须登记在 `shared/system-fields.mts` 的 `NAME_COLUMNS` 里**：
+
+```ts
+export const NAME_COLUMNS: Record<string, string> = { sms_phones: 'number' };
+```
+
+为什么要登记而不是随便取：下面那条「只有名字列参与的唯一索引带 `deleted_at`」是靠列名机械
+判断的，`test:naming` 就是这么守的。不登记等于规则漏掉了这张表，而漏掉的后果不是报错——是
+那个手机号被永久占住、解绑之后再也绑不回来，一个要等到线上才发现的 bug。
+
+登记是个显式动作，因此规则不会漂：今天加 `number`，明天有人想用 `code`，得先在这里写一行。
+登记之后这张表**不能再有一列叫 `name`**，否则「名字列」说的是哪一个都不清楚。
+
+**名字列的唯一索引形态固定**：`@@unique([owner_tid, <名字列>, deleted_at])`。`owner_tid` 让名字
 在租户内唯一（不同租户各有一个 `main` 分站），`deleted_at` 让软删之后同名可以再建。
 
 两张顶层表例外，用 `[name, deleted_at]`：`base_tenants` 的租户名必须全库唯一——加上
 `owner_tid` 反而会允许两个同名租户；`passport_users` 在独立的账号中心库里，登录名同样是
 全局的。
 
-**只有 `name` 参与的唯一索引带 `deleted_at`。** 名字是人取的，软删一行之后同一个名字该能
+**只有名字列参与的唯一索引带 `deleted_at`。** 名字是人取的，软删一行之后同一个名字该能
 再用；`key`、各种 hash、token、外部给的 provider/subject 都是机器生成或外部给定、永不重复的
 标识，带上 `deleted_at` 纯属多余。代价是这些值软删之后不能重建同一个。
 

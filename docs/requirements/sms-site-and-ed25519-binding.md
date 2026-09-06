@@ -63,12 +63,15 @@ owner_tid  owner_bid  owner_uid
 `queued_at` 非 0 表示这一行还在审批队列里等着生效，对正常查询不可见；`owner_*` 是行归属字段，
 不是审计字段。
 
-**唯一约束里只有 `name` 参与时才带 `deleted_at`。** 名字是人取的，软删一行之后同一个名字该能
-再用；哈希、令牌摘要、nonce、对象键这些要么是机器生成、要么是外部给定，永不重复，带上
-`deleted_at` 纯属多余——更要紧的是**不带反而更安全**：一个已消费的 nonce 即便记录被删掉也不该
-能重放，一个撤销过的令牌哈希不该能借尸还魂。
+**唯一约束里只有这张表的名字列参与时才带 `deleted_at`。** 名字是人取的，软删一行之后同一个
+名字该能再用；哈希、令牌摘要、nonce、对象键这些要么是机器生成、要么是外部给定，永不重复，
+带上 `deleted_at` 纯属多余——更要紧的是**不带反而更安全**：一个已消费的 nonce 即便记录被删掉
+也不该能重放，一个撤销过的令牌哈希不该能借尸还魂。
 
-`name` 的唯一索引形态固定为 `@@unique([owner_tid, name, deleted_at])`。
+名字列默认叫 `name`；个别表里 `name` 读不出它装的是什么，可以换一个更具体的词，但必须登记
+在 `shared/system-fields.mts` 的 `NAME_COLUMNS` 里——本文的 `sms_phones` 就登记成了 `number`。
+
+名字列的唯一索引形态固定为 `@@unique([owner_tid, <名字列>, deleted_at])`。
 
 **外键列一律建索引**（`@@index([<列>])`）：没有索引的外键意味着查询全表扫，而这套设计里
 `phone_id`、`token_id`、`integration_client_id`、`message_id`、`push_endpoint_id`、
@@ -107,18 +110,23 @@ owner_tid  owner_bid  owner_uid
 | 字段 | 说明 |
 | --- | --- |
 | `owner_uid` | 归属账号，指向当前数据库的 `base_users.id` |
-| `name` | 规范化后的 E.164 手机号，`(owner_tid, name, deleted_at)` 唯一。票据中的协议字段名为 `phone` |
+| `number` | 规范化后的 E.164 手机号，`(owner_tid, number, deleted_at)` 唯一。票据中的协议字段名为 `phone` |
 | `title` | 用户可修改的设备名称 |
 | `status` | `enabled` / `disabled` / `revoked` |
 | `bound_at`、`revoked_at` | 绑定与撤销时间，后者可为空 |
 
-**手机号落在 `name` 上，不叫 `phone_number`。** 它是人给的、租户内唯一、可以被改的标识，
-正是 `name` 这一列的定义（见 [列命名约定](column-naming.md)）；协议字段名仍是 `phone`，
-对外的票据格式不受影响。
+**`number` 是这张表的名字列。** 「名字列」装的是人给的、可重用的标识——人取的、可以改的、
+租户内唯一的、不被别的表引用的那一列。手机号四条全中，所以它就是这张表的名字列;默认该叫
+`name`，但 `sms_phones.name` 读不出它装的是手机号，因此**登记**成 `number`
+（登记表在 `shared/system-fields.mts` 的 `NAME_COLUMNS`，`test:naming` 照着它守）。
 
-这个位置还决定了一件业务上必须成立的事：**唯一索引带着 `deleted_at`，因此解绑之后同一个号
-能重新绑回来。** 换成任何别的列名都不带 `deleted_at`（§4 的规则），那条被软删的记录会永久占住
-这个号——而下面的 `revoked` 语义明确要求「只能重新绑定」，两者会直接打架。
+这个身份决定了一件业务上必须成立的事：**只有名字列的唯一索引带 `deleted_at`，因此解绑之后
+同一个号能重新绑回来。** 换成一个没登记的列名就不带 `deleted_at`（§4 的规则），那条被软删的
+记录会永久占住这个号——而下面的 `revoked` 语义明确要求「只能重新绑定」，两者会直接打架。
+这个后果不是报错，是要等到线上才发现的一个 bug，所以登记不是形式。
+
+协议字段名仍是 `phone`，对外的票据格式不受影响。这张表因此**不再有一列叫 `name`**——
+两个名字列会让「名字列参与的唯一索引」说的是哪一个都不清楚，`test:naming` 直接报。
 
 `title` 而不是 `display_name`：显示名一律用 `title`，`display_name` 是被禁的词。
 
@@ -128,7 +136,7 @@ owner_tid  owner_bid  owner_uid
 
 手机号本身不是认证凭证。解绑或撤销后原令牌立即失效，不能继续写入短信。
 
-同一归属账号与同一规范化手机号的绑定必须幂等：重复绑定直接返回成功，不创建重复的有效记录——靠的就是 `(owner_tid, name, deleted_at)` 这条唯一索引加 `ignoreInsert`，不是先查后插（理由同 §4.6）。手机号已属于其他账号时拒绝，不自动迁移。
+同一归属账号与同一规范化手机号的绑定必须幂等：重复绑定直接返回成功，不创建重复的有效记录——靠的就是 `(owner_tid, number, deleted_at)` 这条唯一索引加 `ignoreInsert`，不是先查后插（理由同 §4.6）。手机号已属于其他账号时拒绝，不自动迁移。
 
 ### 4.4 `sms_shortcut_tokens`
 
@@ -421,7 +429,7 @@ WHERE id = ? AND status = 'available'
 | `client_id` | 对应 `sms_integration_clients.key` |
 | `kid` | 对应 `sms_integration_client_keys.kid`，唯一确定验签公钥 |
 | `base_user_id` | 目标账号，必须存在于当前 SMS 数据库的 `base_users` |
-| `phone` | 规范化后的 E.164 手机号，对应 `sms_phones.name` |
+| `phone` | 规范化后的 E.164 手机号，对应 `sms_phones.number` |
 | `iat`、`exp` | Unix 秒；有效期不超过 5 分钟，允许的时钟偏差不超过 60 秒 |
 | `nonce` | 接入方生成的高熵随机数，同一接入方不得重复 |
 

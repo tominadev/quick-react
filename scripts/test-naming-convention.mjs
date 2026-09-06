@@ -1,5 +1,6 @@
 import assert from 'node:assert/strict';
 import { readFile, readdir } from 'node:fs/promises';
+import { nameColumnOf } from '../shared/system-fields.mts';
 import { join, resolve } from 'node:path';
 
 /**
@@ -66,7 +67,10 @@ for (const file of (await readdir(prismaDirectory)).filter((name) => name.endsWi
 			if (unique.includes('key') && unique.length > 1) problems.push(`${name} 把 key 塞进了复合索引：[${unique.join(', ')}]`);
 		}
 		/**
-		 * **人给的值落在 `name` 上，唯一索引带 `owner_tid` 与 `deleted_at`。**
+		 * **人给的值落在这张表的名字列上，唯一索引带 `owner_tid` 与 `deleted_at`。**
+		 *
+		 * 名字列默认叫 `name`，个别表登记了更具体的词（`sms_phones` 用 `number`，因为
+		 * `name` 读不出它装的是手机号）——登记表在 shared/system-fields.mts。
 		 *
 		 * `owner_tid`：名字在租户内唯一，不同租户可以各有一个 `main` 分站。
 		 * `deleted_at`：名字是人取的，软删一行之后同一个名字该能再用。
@@ -76,10 +80,13 @@ for (const file of (await readdir(prismaDirectory)).filter((name) => name.endsWi
 		 * 登录名同样是全局的。
 		 */
 		const topLevel = new Set(['base_tenants', 'passport_users']);
-		if (columns.includes('name')) {
-			const wanted = topLevel.has(name) ? ['name', 'deleted_at'] : ['owner_tid', 'name', 'deleted_at'];
+		const nameColumn = nameColumnOf(name);
+		// 登记了替代名的表不能再有一列叫 name：那就成了两个名字列，规则说的是哪一个都不清楚。
+		if (nameColumn !== 'name' && columns.includes('name')) problems.push(`${name} 的名字列登记成了 ${nameColumn}，就不该再有一列叫 name`);
+		if (columns.includes(nameColumn)) {
+			const wanted = topLevel.has(name) ? [nameColumn, 'deleted_at'] : ['owner_tid', nameColumn, 'deleted_at'];
 			if (!uniqueIndexes.some((unique) => unique.join(',') === wanted.join(','))) {
-				problems.push(`${name}.name 要有 @@unique([${wanted.join(', ')}])，现有：${uniqueIndexes.map((unique) => `[${unique.join(', ')}]`).join(' ') || '（无）'}`);
+				problems.push(`${name}.${nameColumn} 要有 @@unique([${wanted.join(', ')}])，现有：${uniqueIndexes.map((unique) => `[${unique.join(', ')}]`).join(' ') || '（无）'}`);
 			}
 		}
 		/**
@@ -90,7 +97,7 @@ for (const file of (await readdir(prismaDirectory)).filter((name) => name.endsWi
 		 * 它是那条「一行同时只能有一条在队列里」的哨兵位，与软删无关。
 		 */
 		for (const unique of uniqueIndexes) {
-			if (unique.includes('deleted_at') && !unique.includes('name')) problems.push(`${name} 的 [${unique.join(', ')}] 不该带 deleted_at——只有 name 需要`);
+			if (unique.includes('deleted_at') && !unique.includes(nameColumn)) problems.push(`${name} 的 [${unique.join(', ')}] 不该带 deleted_at——只有名字列（${nameColumn}）需要`);
 		}
 	}
 }
