@@ -27,7 +27,8 @@ const handler: ApiHandler = async (c, next) => {
 	const subject = c.get('protocolSubject');
 	// **这不是第二道验证**，是类型收窄：`protocolSubject` 在协议之外的接口上不存在，因此
 	// 声明成可选。凭证在 `/api/shortcut.mts` 验过一次且只验一次；走到这里主体必然在。
-	if (!subject?.deviceId) return apiMessage(c, 401, '设备不可用或凭证无效');
+	// 走到这里 shortcut.mts 必定已经解析出主体；没有就是那一层被改坏了，不是调用方的问题。
+	if (!subject?.deviceId) return apiMessage(c, 500, '服务端没有解析出设备主体，这是一个内部错误，请联系管理员');
 
 	const body = await c.req.json<Record<string, unknown>>().catch(() => ({} as Record<string, unknown>));
 	const content = textField(body.content, 4000);

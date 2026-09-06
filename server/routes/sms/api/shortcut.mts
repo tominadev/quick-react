@@ -47,12 +47,23 @@ const handler: ApiHandler = async (c, next) => {
 	const database = c.get('database');
 	const token = authorization.replace(/^Bearer\s+/i, '').trim();
 	/**
-	 * 失败一律回同一句话、同一个状态。
+	 * **令牌本身对不对，一律回同一句话。**
 	 *
-	 * 令牌对不对、手机停没停用、是不是已解绑，对调用方来说都是「这台设备现在不能提交」。
-	 * 逐一告知等于白送一个区分器：拿一个偷来的令牌就能测出它是被撤销了还是手机被停用了。
+	 * 这一步的失败要模糊：说「这个令牌不存在」等于给了枚举的判据，拿一串猜的值就能测出
+	 * 哪些是真的。
+	 *
+	 * 但**过了这一步之后就要说清楚**。文档 §8 要求「令牌被撤销、手机被禁用或已解绑时返回
+	 * 确定性错误」，而合并成一句「设备不可用或凭证无效」让用户完全无从下手——他手里拿着
+	 * 一个真令牌，却分不清是自己还没绑定手机、还是手机被停收了、还是令牌被撤销了，
+	 * 三种情况的处理方式完全不同。
+	 *
+	 * 这不牺牲安全：能读到这些话的前提是**已经持有一个有效令牌**，而持有者本就知道这个
+	 * 令牌的一切。偷到令牌的人确实能借此分辨「撤销了」还是「手机停用了」，但他已经拿着
+	 * 令牌，这个区别对他没有用处——两种情况他都提交不了。
+	 *
+	 * 三句话都不回显令牌、完整手机号或数据库异常（§8）。
 	 */
-	const refuse = () => apiMessage(c, 401, '设备不可用或凭证无效');
+	const refuse = () => apiMessage(c, 401, '凭证无效：这个令牌不存在，或者与服务端记录的对不上');
 
 	const digest = await sha256(token);
 	const found = await firstSql<{ token_sha256: string; phone_id: string | null; status: string }>(database, sql({ database, subjectRoles: null }).select({
@@ -62,7 +73,9 @@ const handler: ApiHandler = async (c, next) => {
 		limit: 1,
 	}));
 	if (!found || !timingSafeEqual(String(found.token_sha256), digest)) return refuse();
-	if (found.status !== 'bound' || !found.phone_id) return refuse();
+	if (found.status === 'revoked') return apiMessage(c, 403, '这个令牌已被撤销，不能再提交短信。请重新领取一份 Shortcut 文件。');
+	if (found.status === 'pending') return apiMessage(c, 403, '这个令牌还没有完成入库，暂时不能使用。这通常表示生成器那一步中断了，请联系管理员重新生成。');
+	if (found.status !== 'bound' || !found.phone_id) return apiMessage(c, 403, '这个令牌还没有绑定手机。请先在「我的手机」页面用这份 Shortcut 完成绑定，再回来运行它。');
 
 	const phone = await firstSql<{ id: string; owner_uid: string | null; status: string }>(database, sql({ database, subjectRoles: null }).select({
 		table: 'sms_phones',
@@ -70,7 +83,12 @@ const handler: ApiHandler = async (c, next) => {
 		where: [{ column: 'id', value: found.phone_id }],
 		limit: 1,
 	}));
-	if (!phone || phone.status !== 'enabled' || !phone.owner_uid) return refuse();
+	if (!phone) return apiMessage(c, 403, '这个令牌绑定的手机记录已经不存在了，请重新绑定一次。');
+	if (phone.status === 'disabled') return apiMessage(c, 403, '这部手机已停收短信。请在「我的手机」页面把它改回「正常接收」。');
+	if (phone.status === 'revoked') return apiMessage(c, 403, '这部手机已经解绑，不能再接收短信。要继续使用请重新绑定一次。');
+	// 归属为空是数据异常而不是用户能处理的状态：短信写进去也没人看得到（NULL 归属对
+	// 普通账号一律不可见）。说成「联系管理员」，别让用户对着一句状态描述反复重试。
+	if (!phone.owner_uid) return apiMessage(c, 500, '这部手机没有归属账号，短信无法入账，请联系管理员处理。');
 
 	// 主体交给叶子：谁的、哪一台。叶子不再碰凭证，也就没有「忘了验」这种可能。
 	c.set('protocolSubject', { kind: 'token', ownerUid: String(phone.owner_uid), deviceId: String(phone.id) });
