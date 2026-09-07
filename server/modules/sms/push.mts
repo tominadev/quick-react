@@ -25,12 +25,16 @@ type MessageRow = { id: string; phone_id: string; content: string; sender: strin
 /**
  * 为一条短信登记投递任务。
  *
- * 匹配两个条件：**推送地址属于这条短信的主人**，并且**限定的手机对得上**（不填手机表示
- * 这个账号的全部手机）。
+ * 匹配三个条件：
  *
- * 一条短信可以同时推给好几个地址——一部手机、一份 Shortcut、短信只进来一次，由服务端在
- * 这里分发给用户配的每一个项目。授权就是「用户为那个项目配了这条地址」这个动作本身，
- * 不必再有一张「谁可以收哪部手机」的关系表。
+ * 1. **同一个主人**——推送地址属于这条短信的主人；
+ * 2. **同一个项目**——手机登记在哪个项目下，就只推给那个项目的地址。手机往往是客户的，
+ *    客户把手机交给项目 X 用，不等于同意项目 Y 也读他的验证码；不按项目配对的话，同一个
+ *    人名下的另一个项目会收到不属于它的客户短信。`0` 是一个有效的分组，表示「用户自己的
+ *    手机」，配对到同样没挂项目的那些地址；
+ * 3. **限定手机对得上**——地址上不填手机表示这个项目下的全部手机。
+ *
+ * 一条短信可以同时推给好几个地址：同一个项目下配了几条，就都推。
  *
  * `ignoreInsert` 配合 `(message_id, push_endpoint_id)` 的唯一约束——同一条短信对同一个
  * 目标只登记一次，重复调用是安全的。
@@ -38,11 +42,17 @@ type MessageRow = { id: string; phone_id: string; content: string; sender: strin
 export const enqueuePushDeliveries = async (database: DatabaseAdapter, message: MessageRow) => {
 	if (!message.owner_uid) return 0;
 	const builder = sql({ database, subjectRoles: null });
+	// 这条短信落在哪个项目下，看它那部手机登记在谁名下。0 表示用户自己的手机。
+	const phone = await firstSql<{ integration_client_id: string }>(database, builder.select({
+		table: 'sms_phones', columns: { integration_client_id: { column: 'integration_client_id', cast: 'text' } },
+		where: [{ column: 'id', value: message.phone_id }], limit: 1,
+	}));
 	const endpoints = await allSql<{ id: string; phone_id: string | null }>(database, builder.select({
 		table: 'sms_push_endpoints',
 		columns: { id: { column: 'id', cast: 'text' }, phone_id: { column: 'phone_id', cast: 'text' } },
 		where: [
 			{ column: 'owner_uid', value: message.owner_uid },
+			{ column: 'integration_client_id', value: String(phone?.integration_client_id ?? '0') },
 			{ column: 'status', value: 'enabled' },
 		],
 	}));

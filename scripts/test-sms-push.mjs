@@ -83,7 +83,7 @@ const receiver = createServer((request, response) => {
 	let body = '';
 	request.on('data', (chunk) => { body += chunk; });
 	request.on('end', () => {
-		receiverRequests.push({ headers: request.headers, body });
+		receiverRequests.push({ url: request.url, headers: request.headers, body });
 		response.writeHead(200);
 		response.end('ok');
 	});
@@ -209,7 +209,7 @@ try {
 	await app.request('http://sms.test/api/panel/user/sms/push-endpoints.php', { method: 'POST', headers: other, body: JSON.stringify({ url: `http://127.0.0.1:${receiverPort}/other`, status: 'enabled' }) });
 	await app.request('http://sms.test/api/shortcut/message-receive.php', { method: 'POST', headers: { authorization: 'Bearer raw-token', 'content-type': 'application/json' }, body: JSON.stringify({ message_id: 'm-2', content: '第二条', sender: '10086' }) });
 	await runMaintenanceAction('dispatch-sms-push', {});
-	assert.equal(receiverRequests.filter((item) => String(item.headers[':path'] ?? '').includes('/other')).length, 0);
+	assert.equal(receiverRequests.filter((item) => item.url === '/other').length, 0, '别人的地址不该收到');
 	const isolated = new DatabaseSync(process.env.DEFAULT_DATABASE_FILE, { readOnly: true });
 	const otherId = isolated.prepare("SELECT id FROM base_users WHERE name = 'pushother'").get().id;
 	assert.equal(isolated.prepare('SELECT COUNT(*) AS n FROM sms_push_deliveries d JOIN sms_push_endpoints e ON e.id = d.push_endpoint_id WHERE e.owner_uid = ?').get(otherId).n, 0, '别人的地址不该收到任何投递');
@@ -219,6 +219,22 @@ try {
 	assert.equal(isolated.prepare('SELECT COUNT(*) AS n FROM sms_shortcut_tokens t JOIN sms_phones p ON p.id = t.phone_id WHERE p.owner_uid = ?').get(otherId).n, 1);
 	assert.equal(isolated.prepare('SELECT COUNT(*) AS n FROM sms_messages WHERE owner_uid = ?').get(otherId).n, 0, '一条短信都不该记到他名下——短信从哪个令牌进来就归属谁');
 	isolated.close();
+
+	/**
+	 * **按项目配对**：手机登记在哪个项目下，就只推给那个项目的地址。
+	 *
+	 * 手机往往是客户的。客户把手机交给项目 X 用，不等于同意项目 Y 也读他的验证码——同一个
+	 * 人名下的另一个项目配一条限定这部手机的地址就能收到的话，那是越权。`0` 是一个有效的
+	 * 分组（用户自己的手机），配对到同样没挂项目的那些地址。
+	 */
+	const clientCreated = await app.request('http://sms.test/api/panel/user/sms/integration-clients.php', { method: 'POST', headers: h, body: JSON.stringify({ name: 'sideproject', title: '另一个项目', binding_scope: ['phone:bind'], status: 'enabled' }) });
+	assert.equal(clientCreated.status, 201);
+	const sideClient = (await (await app.request('http://sms.test/api/panel/user/sms/integration-clients.php?include=data', { headers: h })).json()).table.dataSource.find((row) => row.name === 'sideproject');
+	// 另一个项目也盯着同一部手机
+	await app.request('http://sms.test/api/panel/user/sms/push-endpoints.php', { method: 'POST', headers: h, body: JSON.stringify({ url: `http://127.0.0.1:${receiverPort}/side`, status: 'enabled', integration_client_id: String(sideClient.id), phone_id: '1' }) });
+	await app.request('http://sms.test/api/shortcut/message-receive.php', { method: 'POST', headers: { authorization: 'Bearer raw-token', 'content-type': 'application/json' }, body: JSON.stringify({ message_id: 'm-3', content: '第三条', sender: '10086' }) });
+	await runMaintenanceAction('dispatch-sms-push', {});
+	assert.equal(receiverRequests.filter((item) => item.url === '/side').length, 0, '手机没登记在那个项目下，它就收不到——客户把手机交给一个项目用，不等于同意另一个也读');
 
 	console.log('sms push test passed');
 } finally {
