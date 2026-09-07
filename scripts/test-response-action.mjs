@@ -11,7 +11,13 @@ import { pathToFileURL } from 'node:url';
  * 嵌套容器每层再叠 100（上限十层）——不显式抬高的话遮罩落在所有弹窗底下：抽屉里点保存，
  * 转圈的圈圈在抽屉后面，看着像没反应。渲染要浏览器环境才测得到，这里守住写法。
  */
-const apiSource = await readFile(resolve(import.meta.dirname, '../clients/web/utils/common/api.tsx'), 'utf8');
+// 遮罩与弹窗在 antd 渲染层；请求与协议处理在 utils/common/api.ts，那一层不碰 UI。
+const apiSource = await readFile(resolve(import.meta.dirname, '../clients/web/utils/antd/common-api.tsx'), 'utf8');
+const clientSource = await readFile(resolve(import.meta.dirname, '../clients/web/utils/common/api.ts'), 'utf8');
+// 请求层不许再依赖任何 UI 框架——绑上去的话，第二套 UI 就得把请求逻辑重写一遍。
+// 只看**行首的 import**：注释里引用那句 `import … from 'antd'` 来解释为什么要拆，
+// 按出现过 antd 就判失败的话，写清楚理由反而会把测试弄挂。
+assert.doesNotMatch(clientSource, /^import[^\n]*(from\s*'antd'|@ant-design)/m, '请求层不能依赖 antd');
 const zIndex = /zIndexPopupBase \+ (\d+)/.exec(apiSource);
 assert.ok(zIndex, '全局遮罩要按 zIndexPopupBase 算出自己的 z-index');
 assert.ok(Number(zIndex[1]) > 1000, '遮罩要高过容器叠加的上限（zIndexPopupBase + 1000）');

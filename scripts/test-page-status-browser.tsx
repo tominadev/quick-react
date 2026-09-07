@@ -26,7 +26,7 @@ const userEvent = (await import('@testing-library/user-event')).default;
 const { MemoryRouter } = await import('react-router-dom');
 const StatusPage = (await import('../clients/web/components/common/StatusPage.js')).default;
 const AuthActions = (await import('../clients/web/components/AuthActions.js')).default;
-const { useCommonApi } = await import('../clients/web/utils/common/api.js');
+const { useCommonApi } = await import('../clients/web/utils/antd/common-api.js');
 
 const requests: string[] = [];
 const commonApi = {

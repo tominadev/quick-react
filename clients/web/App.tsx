@@ -291,7 +291,7 @@ export const App = ({ commonApi }: AppType) => {
 	);
 };
 
-import { useCommonApi } from '@/utils/common/api.js'
+import { useCommonApi } from '@/utils/antd/common-api.js'
 import { tableRequestParams } from '@/utils/antd/table_crud/url-state.js';
 
 const AppRoot = () => {
