@@ -1,5 +1,5 @@
 import type React from 'react';
-import { useEffect, useMemo, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import { BrowserRouter as Router, Navigate, Route, Routes, useLocation, useNavigate } from 'react-router-dom';
 import { Button, ErrorBlock, List, NavBar, Result, TabBar } from 'antd-mobile';
 import type { AuthState, InitialData } from '@shared/types/initial-data.mjs';
@@ -7,9 +7,11 @@ import type { ApiContext } from '@shared/types/api-response.mjs';
 import type { NavigationItem } from '@shared/types/navigation.mjs';
 import { collectPageDefinitions, normalizePagePath, stripPageSuffix, type NavigationPageDefinition } from '@shared/navigation-tree.mjs';
 import { apiNavigationEvent, planApiNavigation, type ApiNavigationEventDetail } from '@clients/browser/response-action.js';
+import type { CommonApi } from '@clients/browser/api.js';
 import { useCommonApi } from './common-api.js';
 import MobileTable from './components/MobileTable.js';
 import MobileForm from './components/MobileForm.js';
+import AuthBar from './components/AuthBar.js';
 
 /**
  * 手机版应用壳。
@@ -32,14 +34,14 @@ const topLevelEntries = (navigation: NavigationItem[]) => navigation
 	.filter((item) => item.key === '/' || item.dashboardPath || (item.children?.length ?? 0) > 0)
 	.slice(0, 5);
 
-const Shell = ({ navigation, children }: { navigation: NavigationItem[]; children: React.ReactNode }) => {
+const Shell = ({ navigation, auth, commonApi, children }: { navigation: NavigationItem[]; auth?: AuthState; commonApi: CommonApi; children: React.ReactNode }) => {
 	const navigate = useNavigate();
 	const location = useLocation();
 	const entries = useMemo(() => topLevelEntries(navigation), [navigation]);
 	const current = entries.find((item) => location.pathname.startsWith(stripPageSuffix(item.key, initialData.pageSuffix)))?.key ?? entries[0]?.key;
 	return (
 		<div style={{ display: 'flex', flexDirection: 'column', height: '100%' }}>
-			<NavBar back={location.pathname === '/' ? null : '返回'} onBack={() => navigate(-1)}>{initialData.siteName}</NavBar>
+			<NavBar back={location.pathname === '/' ? null : '返回'} onBack={() => navigate(-1)} right={<AuthBar auth={auth} commonApi={commonApi} />}>{initialData.siteName}</NavBar>
 			<div style={{ flex: 1, overflow: 'auto', background: '#f5f5f5' }}>{children}</div>
 			{entries.length > 1 && (
 				<TabBar activeKey={current} onChange={(key) => navigate(pageUrl(navigation.find((item) => item.key === key)?.dashboardPath ?? key))}>
@@ -79,6 +81,42 @@ export const App = () => {
 		mode: page.mode,
 	})), [auth]);
 
+	const [ready, setReady] = useState(initialData.bootstrapMode !== 'api');
+	const [contextError, setContextError] = useState(false);
+	const bootstrapRequested = useRef(false);
+
+	/**
+	 * **CDN 模式下页面壳里没有身份，要自己去取。**
+	 *
+	 * `bootstrapMode: 'api'` 时服务端只输出不含用户状态的公共壳——那样它才能被 CDN 缓存。
+	 * 导航、登录入口、当前身份全都得由这一个请求带回来；不发它的话，手机版拿到的
+	 * `siteNavigation` 是空数组、`auth` 是 undefined，页面上什么都没有，连登录都进不去。
+	 *
+	 * 只发一次：`bootstrapRequested` 挡住 React 严格模式下的第二次执行，否则每次进页面
+	 * 都要多打一个请求。
+	 */
+	useEffect(() => {
+		if (initialData.bootstrapMode !== 'api' || bootstrapRequested.current) return;
+		bootstrapRequested.current = true;
+		void (async () => {
+			try {
+				const apiPath = initialData.bootstrapApiPath ?? `/api/home${initialData.apiSuffix}`;
+				const endpoint = new URL(apiPath, window.location.origin);
+				const includes = new Set((endpoint.searchParams.get('include') ?? '').split(',').map((value) => value.trim()).filter(Boolean));
+				includes.add('auth');
+				endpoint.searchParams.set('include', [...includes].join(','));
+				const body = await (await commonApi.apiFetch(`${endpoint.pathname}${endpoint.search}`)).json() as { context?: ApiContext };
+				setNavigation(body.context?.siteNavigation ?? []);
+				if (body.context?.auth) setAuth(body.context.auth as AuthState);
+			} catch {
+				// 取不到身份不能停在空白页上：给一句话和一个重试，至少让人知道发生了什么。
+				setContextError(true);
+			} finally {
+				setReady(true);
+			}
+		})();
+	}, [commonApi]);
+
 	// 认证上下文由响应层统一下发（与桌面版同一条路径），这里只管把导航换掉。
 	useEffect(() => {
 		const onNavigation = (event: Event) => {
@@ -101,10 +139,18 @@ export const App = () => {
 		return <Result status="info" title={page.title ?? '这一页还没有手机版'} description="桌面版里有完整功能，手机版正在逐步补齐。" />;
 	};
 
+	if (!ready) return <>{contextHolder}<div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', height: '100%', color: '#999' }}>正在加载…</div></>;
+	if (contextError) return (
+		<>
+			{contextHolder}
+			<ErrorBlock status="disconnected" title="没能连上服务器" description={<Button color="primary" onClick={() => window.location.reload()}>重试</Button>} />
+		</>
+	);
+
 	return (
 		<Router>
 			{contextHolder}
-			<Shell navigation={navigation}>
+			<Shell navigation={navigation} auth={auth} commonApi={commonApi}>
 				<Routes>
 					{pages.map((page) => (
 						<Route key={page.path} path={normalizePagePath(pageUrl(page.path))} element={renderPage(page)} />
