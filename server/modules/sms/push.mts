@@ -25,30 +25,30 @@ type MessageRow = { id: string; phone_id: string; content: string; sender: strin
 /**
  * 为一条短信登记投递任务。
  *
- * 匹配的是**这条短信主人**的推送地址：要么没限定手机（该账号全部手机），要么正好限定了
- * 这一部。`ignoreInsert` 配合 `(message_id, push_endpoint_id)` 的唯一约束——同一条短信对
- * 同一个目标只登记一次，重复调用是安全的。
+ * 匹配两个条件：**推送地址属于这条短信的主人**，并且**限定的手机对得上**（不填手机表示
+ * 这个账号的全部手机）。
+ *
+ * 一条短信可以同时推给好几个地址——一部手机、一份 Shortcut、短信只进来一次，由服务端在
+ * 这里分发给用户配的每一个项目。授权就是「用户为那个项目配了这条地址」这个动作本身，
+ * 不必再有一张「谁可以收哪部手机」的关系表。
+ *
+ * `ignoreInsert` 配合 `(message_id, push_endpoint_id)` 的唯一约束——同一条短信对同一个
+ * 目标只登记一次，重复调用是安全的。
  */
 export const enqueuePushDeliveries = async (database: DatabaseAdapter, message: MessageRow) => {
 	if (!message.owner_uid) return 0;
 	const builder = sql({ database, subjectRoles: null });
-	const endpoints = await allSql<{ id: string }>(database, builder.select({
+	const endpoints = await allSql<{ id: string; phone_id: string | null }>(database, builder.select({
 		table: 'sms_push_endpoints',
-		columns: { id: { column: 'id', cast: 'text' } },
+		columns: { id: { column: 'id', cast: 'text' }, phone_id: { column: 'phone_id', cast: 'text' } },
 		where: [
 			{ column: 'owner_uid', value: message.owner_uid },
 			{ column: 'status', value: 'enabled' },
 		],
 	}));
-	// 限定手机的那几条要按 phone_id 再筛一次。写在应用层而不是 SQL 里，是因为「为空表示
+	// 限定手机的那几条要按 phone_id 再筛一次。写在应用层而不是 SQL 里，是因为「不填表示
 	// 全部手机」这条规则用 SQL 表达要 OR + IS NULL，读起来比这一行难懂得多。
-	const matched = [] as string[];
-	for (const endpoint of endpoints) {
-		const row = await firstSql<{ phone_id: string | null }>(database, builder.select({
-			table: 'sms_push_endpoints', columns: { phone_id: { column: 'phone_id', cast: 'text' } }, where: [{ column: 'id', value: endpoint.id }], limit: 1,
-		}));
-		if (!row?.phone_id || String(row.phone_id) === String(message.phone_id)) matched.push(endpoint.id);
-	}
+	const matched = endpoints.filter((endpoint) => !endpoint.phone_id || String(endpoint.phone_id) === String(message.phone_id)).map((endpoint) => endpoint.id);
 	for (const endpointId of matched) {
 		await runSql(database, builder.ignoreInsert('sms_push_deliveries', ['message_id', 'push_endpoint_id'], {
 			message_id: message.id,

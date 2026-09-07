@@ -64,7 +64,11 @@ enum SmsDeliveryStatus {
   failed
 }
 
-/// 可以代表用户签发绑定票据的服务端接入方。
+/// 接入方：**用户自己注册的一个项目**，代表他签发绑定票据。
+///
+/// 归属是 owner_uid——一个用户可以注册好几个（博客、商城、内部系统各一个），每个有自己的
+/// 公钥与推送地址，互不影响。不是平台级的登记：平台不该关心某个用户有多少个项目，而要求
+/// 用户找管理员开通，等于把一件本来能自助的事变成工单。
 ///
 /// 公钥不在本表：轮换期间需要新旧公钥并存，一行放一个公钥做不到，因此拆到
 /// sms_integration_client_keys。
@@ -174,6 +178,15 @@ model sms_phones {
   /// 规范化后的 E.164 手机号。**这是本表的名字列**（登记在 shared/system-fields.mts 的
   /// NAME_COLUMNS 里），因此唯一索引带 `deleted_at`——解绑之后同一个号能重新绑回来，
   /// 而那正是 status=revoked 的语义所要求的。票据中的协议字段名是 `phone`。
+  ///
+  /// **手机不挂在接入方名下，一个号在一个账号下只有一行。** 曾经想过把接入方也放进这条
+  /// 索引，让同一个号在每个项目下各绑一次——那样项目之间倒是完全隔离了，代价却是**同一部
+  /// 手机要装好几个快捷指令**，同一条短信被转发好几次，手机端跑好几次网络请求：为了服务端
+  /// 少一张关系表，把成本推给了用户的手机。
+  ///
+  /// 而那张关系表根本不需要：`sms_push_endpoints` 上同时有 `integration_client_id` 和
+  /// `phone_id`，用户为某个项目配一条限定这部手机的推送地址，这个动作本身就是授权。
+  /// 一部手机、一个令牌、一份 Shortcut，短信进来一次，服务端再分发给各个项目。
   number       String @db.VarChar(32)
   @@unique([owner_tid, number, deleted_at])
   /// 用户可修改的设备名称。
@@ -356,6 +369,10 @@ model sms_push_endpoints {
   owner_tid    BigInt @default(1)
   owner_bid    BigInt @default(1)
   owner_uid    BigInt?
+  /// 属于哪个接入方（用户自己注册的一个项目）。**0 表示不属于任何项目**——用户直接为
+  /// 自己配的一条转发地址。与 sms_phones 上那一列同一个含义、同一种表示法。
+  integration_client_id BigInt @default(0)
+  @@index([integration_client_id])
   /// 推送目标，必须 HTTPS。**每次投递前都要重做出站目标校验**（SSRF）：DNS 记录可以在
   /// 保存之后被改指到内网地址。
   url          String

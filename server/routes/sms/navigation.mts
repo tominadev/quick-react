@@ -25,6 +25,12 @@ const navigation: MenuNode[] = [
 				// 推送地址由用户自己填（§4.9.1「投递到用户自己的服务端」）：接入方想收短信，
 				// 也得由用户把它的地址填进来——控制权留在短信的主人手里。
 				{ label: '推送地址', key: 'push-endpoints', icon: 'appstore', component: 'table', title: '推送地址', description: '把收到的短信转发到自己的服务端；每条推送都带 Ed25519 签名' },
+				// 接入方是**用户自己注册的项目**，不是平台代为登记：平台不该关心某个用户有
+				// 几个项目，把一件能自助的事变成工单，只会让人绕过它去共用一套密钥。
+				{ label: '接入方', key: 'integration-clients', icon: 'appstore', component: 'table', title: '接入方', description: '自己注册的项目，用来代表自己签发绑定票据' },
+				// 公钥单独一页：轮换要新旧并存，一个接入方会同时有好几把（§4.2）。
+				// 从接入方那一页点「公钥」进来时带着 integration_client_id，只看那一家的。
+				{ label: '接入方公钥', key: 'client-keys', icon: 'appstore', component: 'table', title: '接入方公钥', description: '接入方签发绑定票据用的 Ed25519 公钥；本站只存公钥，私钥留在你自己的服务端' },
 			],
 		}],
 	},
@@ -37,10 +43,6 @@ const navigation: MenuNode[] = [
 			children: [
 				{ label: '生成器机器', key: 'machines', icon: 'appstore', component: 'table', title: '生成器机器', description: '登记允许运行 Shortcut 生成器的 Mac' },
 				{ label: 'Shortcut 令牌', key: 'tokens', icon: 'appstore', component: 'table', title: 'Shortcut 令牌', description: '查看令牌池，撤销、回收或重新分配' },
-				{ label: '接入方', key: 'integration-clients', icon: 'appstore', component: 'table', title: '接入方', description: '登记可以代表用户签发绑定票据的服务端' },
-				// 公钥单独一页：轮换要新旧并存，一个接入方会同时有好几把（§4.2）。
-				// 从接入方那一页点「公钥」进来时带着 integration_client_id，只看那一家的。
-				{ label: '接入方公钥', key: 'client-keys', icon: 'appstore', component: 'table', title: '接入方公钥', description: '接入方用来签发绑定票据的 Ed25519 公钥；本站只存公钥，私钥始终留在接入方' },
 				// 与接入方公钥方向相反：那边私钥属于接入方，这边私钥是平台自己的、不出服务端。
 				{ label: '推送密钥', key: 'platform-keys', icon: 'appstore', component: 'table', title: '推送密钥', description: '平台给推送请求签名用的 Ed25519 密钥；接收方从 /api/push-key 取公钥验签' },
 				// 全站短信只读，管理员排查用——用户报「没收到验证码」时，这里是唯一能看出

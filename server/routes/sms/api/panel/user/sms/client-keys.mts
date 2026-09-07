@@ -1,6 +1,6 @@
 import type { ApiHandler } from '@server/modules/base/api-router.mjs';
 import { apiMessage, apiResponse } from '@server/modules/base/api-response.mjs';
-import { allSql, firstSql, isUniqueViolation, sql } from '@server/database/sql.mjs';
+import { allSql, firstSql, isUniqueViolation, ownerScope, sql } from '@server/database/sql.mjs';
 import { PendingApprovalError, runOperation, runOperationSql } from '@server/modules/base/operation.mjs';
 import { getChangedFields } from '@server/modules/base/changed-fields.mjs';
 import { tableSort } from '@server/modules/base/query-options.mjs';
@@ -73,18 +73,21 @@ const publicKey = (row: Record<string, unknown>) => ({
 
 const handler: ApiHandler = async (c, next, params) => {
 	const database = c.get('database');
+	const currentUser = c.get('currentUser');
+	if (!currentUser) return apiMessage(c, 401, '请先登录');
+	const mine = (column = 'k.owner_uid') => ownerScope(column, currentUser.id);
 	// 从接入方页面点进来时带着 integration_client_id：不筛的话弹开的是全站的公钥。
 	const clientFilter = (c.req.query('integration_client_id') ?? '').trim();
 
 	const clientOptions = async () => (await allSql<{ id: string; name: string; title: string }>(database, sql({ database }).select({
-		table: 'sms_integration_clients', columns: { id: { column: 'id', cast: 'text' }, name: 'name', title: 'title' }, orderBy: [{ column: 'id' }],
+		table: 'sms_integration_clients', columns: { id: { column: 'id', cast: 'text' }, name: 'name', title: 'title' }, where: [ownerScope('owner_uid', currentUser.id)], orderBy: [{ column: 'id' }],
 	}))).map((row) => ({ value: String(row.id), text: `${row.title}（${row.name}）` }));
 
 	if (c.req.method === 'GET' && !params.id) {
 		const [rows, options] = await Promise.all([
 			allSql<Record<string, unknown>>(database, sql({ database }).select({
 				table: 'sms_integration_client_keys', alias: 'k', columns: listColumns, joins: listJoins,
-				where: clientFilter ? [{ column: 'k.integration_client_id', value: clientFilter }] : [],
+				where: clientFilter ? [{ column: 'k.integration_client_id', value: clientFilter }, mine()] : [mine()],
 				sort: tableSort(c), orderBy: [{ column: 'k.id', direction: 'DESC' }],
 			})),
 			clientOptions(),
@@ -113,7 +116,7 @@ const handler: ApiHandler = async (c, next, params) => {
 
 	if (params.id && c.req.method === 'GET') {
 		const row = await firstSql<Record<string, unknown>>(database, sql({ database }).select({
-			table: 'sms_integration_client_keys', alias: 'k', columns: listColumns, joins: listJoins, where: [{ column: 'k.id', value: params.id }],
+			table: 'sms_integration_client_keys', alias: 'k', columns: listColumns, joins: listJoins, where: [{ column: 'k.id', value: params.id }, mine()],
 		}));
 		return row ? apiResponse(c, 200, publicKey(row)) : apiMessage(c, 404, '公钥不存在');
 	}
@@ -129,9 +132,9 @@ const handler: ApiHandler = async (c, next, params) => {
 		if (!kid) return apiMessage(c, 400, '请输入密钥标识');
 		if (!publicKeyPattern.test(publicKeyValue)) return apiMessage(c, 400, '公钥格式不对：应当是 Ed25519 原始字节的 Base64URL，43 个字符（不含补位的 =）');
 		const client = await firstSql<{ id: string }>(database, sql({ database }).select({
-			table: 'sms_integration_clients', columns: { id: { column: 'id', cast: 'text' } }, where: [{ column: 'id', value: clientId }], limit: 1,
+			table: 'sms_integration_clients', columns: { id: { column: 'id', cast: 'text' } }, where: [{ column: 'id', value: clientId }, ownerScope('owner_uid', currentUser.id)], limit: 1,
 		}));
-		if (!client) return apiMessage(c, 400, '接入方不存在');
+		if (!client) return apiMessage(c, 400, '接入方不存在，或者不属于你');
 		// kid 重复要在**记录之前**挡掉：审批是先记录后应用，等撞唯一索引才失败的话，
 		// 队列里已经留下一条谁也批不动的申请（同 users.mts 那一处）。
 		const taken = await firstSql<{ id: string }>(database, sql({ database, subjectRoles: null }).select({
@@ -155,7 +158,7 @@ const handler: ApiHandler = async (c, next, params) => {
 	if (params.id && c.req.method === 'PUT') {
 		const body = await c.req.json<Record<string, unknown>>().catch(() => ({} as Record<string, unknown>));
 		const row = await firstSql<{ id: string; status: string }>(database, sql({ database }).select({
-			table: 'sms_integration_client_keys', columns: { id: { column: 'id', cast: 'text' }, status: 'status' }, where: [{ column: 'id', value: params.id }],
+			table: 'sms_integration_client_keys', columns: { id: { column: 'id', cast: 'text' }, status: 'status' }, where: [{ column: 'id', value: params.id }, ownerScope('owner_uid', currentUser.id)],
 		}));
 		if (!row) return apiMessage(c, 404, '公钥不存在');
 		/**
@@ -170,7 +173,7 @@ const handler: ApiHandler = async (c, next, params) => {
 		await runOperation(c, database, [sql({ database }).update('sms_integration_client_keys',
 			// 退役时间由服务端写：它是「什么时候停用的」这一事实，不是一个可填字段。
 			{ status, retired_at: status === 'retired' ? Date.now() : null },
-			[{ column: 'id', value: params.id }, { column: 'status', value: row.status }])]);
+			[{ column: 'id', value: params.id }, { column: 'status', value: row.status }, ownerScope('owner_uid', currentUser.id)])]);
 		return apiMessage(c, 200, status === 'retired' ? '已退役，用这个 kid 签的新票据会被拒绝' : '已启用');
 	}
 
@@ -178,7 +181,7 @@ const handler: ApiHandler = async (c, next, params) => {
 		const body = await c.req.json<unknown>().catch(() => []);
 		const ids = params.id ? [params.id] : (Array.isArray(body) ? body.map((value) => String(value)).filter(Boolean) : []);
 		if (!ids.length) return apiMessage(c, 400, '请选择要删除的公钥');
-		await runOperation(c, database, ids.map((id) => sql({ database }).softDelete('sms_integration_client_keys', { id })));
+		await runOperation(c, database, ids.map((id) => sql({ database }).softDelete('sms_integration_client_keys', [{ column: 'id', value: id }, ownerScope('owner_uid', currentUser.id)])));
 		return apiMessage(c, 200, '删除成功，可在回收站找回或彻底删除');
 	}
 

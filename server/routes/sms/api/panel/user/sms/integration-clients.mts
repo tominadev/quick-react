@@ -8,7 +8,11 @@ import { enabledDisabledOptions, statusValues } from '@shared/types/status.mjs';
 import type { TableCrudDefinition } from '@server/modules/base/table-crud.mjs';
 
 /**
- * 接入方：可以代表用户签发绑定票据的服务端。
+ * 我的接入方：**自己注册的一个项目**，代表自己签发绑定票据。
+ *
+ * 一个人可以注册好几个——博客、商城、内部系统各一个，每个有自己的公钥与推送地址，互不
+ * 影响。**不需要找管理员开通**：平台不该关心某个用户有几个项目，而把一件能自助的事变成
+ * 工单，只会让人绕过它去共用一套密钥。
  *
  * 用户在别处的系统里点「绑定手机」，那个系统用自己的 Ed25519 私钥签一张票据，SMS 验签后
  * 才认这次绑定（绑定文档 §6）。这一页登记的是「谁有资格签」。
@@ -58,11 +62,14 @@ const publicClient = (row: Record<string, unknown>) => ({
 
 const handler: ApiHandler = async (c, next, params) => {
 	const database = c.get('database');
-	const tenantScope = () => ownerScope('owner_tid', c.get('tenantId'));
+	const currentUser = c.get('currentUser');
+	if (!currentUser) return apiMessage(c, 401, '请先登录');
+	// 只看自己的。公共层的归属判定已经会收敛，这里再写一次是因为这一页的语义就是「我的」。
+	const mine = () => ownerScope('owner_uid', currentUser.id);
 
 	if (c.req.method === 'GET' && !params.id) {
 		const rows = await allSql<Record<string, unknown>>(database, sql({ database }).select({
-			table: 'sms_integration_clients', columns: listColumns,
+			table: 'sms_integration_clients', columns: listColumns, where: [mine()],
 			sort: tableSort(c), orderBy: [{ column: 'id', direction: 'DESC' }],
 		}));
 		return apiResponse(c, 200, { table: {
@@ -72,7 +79,7 @@ const handler: ApiHandler = async (c, next, params) => {
 				row: [
 					// 公钥在另一张表上（轮换要新旧并存），带上 integration_client_id 打开，
 					// 不带的话弹开的是全站的公钥。
-					{ key: 'keys', label: '公钥', modalPath: '/panel/admin/sms/client-keys', modalComponent: 'table' as const, modalQueryFields: { integration_client_id: 'id' } },
+					{ key: 'keys', label: '公钥', modalPath: '/panel/user/sms/client-keys', modalComponent: 'table' as const, modalQueryFields: { integration_client_id: 'id' } },
 					{ key: 'edit', label: '编辑' },
 					{ key: 'delete', label: '删除' },
 				],
@@ -83,7 +90,7 @@ const handler: ApiHandler = async (c, next, params) => {
 
 	if (params.id && c.req.method === 'GET') {
 		const row = await firstSql<Record<string, unknown>>(database, sql({ database }).select({
-			table: 'sms_integration_clients', columns: listColumns, where: [{ column: 'id', value: params.id }],
+			table: 'sms_integration_clients', columns: listColumns, where: [{ column: 'id', value: params.id }, mine()],
 		}));
 		return row ? apiResponse(c, 200, publicClient(row)) : apiMessage(c, 404, '接入方不存在');
 	}
@@ -100,7 +107,7 @@ const handler: ApiHandler = async (c, next, params) => {
 		// 重名先挡（理由同 machines.mts）：进了队列才撞唯一索引的话，那条申请谁也批不动。
 		const taken = await firstSql<{ id: string }>(database, sql({ database, subjectRoles: null }).select({
 			table: 'sms_integration_clients', columns: { id: { column: 'id', cast: 'text' } },
-			where: [{ column: 'name', value: name }, tenantScope()], queued: 'all', limit: 1,
+			where: [{ column: 'name', value: name }, mine()], queued: 'all', limit: 1,
 		}));
 		if (taken) return apiMessage(c, 409, '接入方标识已存在');
 		try {
@@ -118,7 +125,7 @@ const handler: ApiHandler = async (c, next, params) => {
 	if (params.id && c.req.method === 'PUT') {
 		const body = await c.req.json<Record<string, unknown>>().catch(() => ({} as Record<string, unknown>));
 		const current = await firstSql<{ id: string }>(database, sql({ database }).select({
-			table: 'sms_integration_clients', columns: { id: { column: 'id', cast: 'text' } }, where: [{ column: 'id', value: params.id }],
+			table: 'sms_integration_clients', columns: { id: { column: 'id', cast: 'text' } }, where: [{ column: 'id', value: params.id }, mine()],
 		}));
 		if (!current) return apiMessage(c, 404, '接入方不存在');
 		const changed = getChangedFields(body, ['name', 'title', 'binding_scope', 'status']);
@@ -142,7 +149,7 @@ const handler: ApiHandler = async (c, next, params) => {
 		if (changed.has('status')) values.status = String(body.status ?? statusValues.enabled);
 		if (!Object.keys(values).length) return apiMessage(c, 400, '没有可修改的字段');
 		try {
-			await runOperation(c, database, [sql({ database }).update('sms_integration_clients', values, { id: params.id })]);
+			await runOperation(c, database, [sql({ database }).update('sms_integration_clients', values, [{ column: 'id', value: params.id }, mine()])]);
 			return apiMessage(c, 200, '接入方已保存');
 		} catch (error) {
 			if (error instanceof PendingApprovalError) throw error;
@@ -155,7 +162,7 @@ const handler: ApiHandler = async (c, next, params) => {
 		const body = await c.req.json<unknown>().catch(() => []);
 		const ids = params.id ? [params.id] : (Array.isArray(body) ? body.map((value) => String(value)).filter(Boolean) : []);
 		if (!ids.length) return apiMessage(c, 400, '请选择要删除的接入方');
-		await runOperation(c, database, ids.map((id) => sql({ database }).softDelete('sms_integration_clients', { id })));
+		await runOperation(c, database, ids.map((id) => sql({ database }).softDelete('sms_integration_clients', [{ column: 'id', value: id }, mine()])));
 		return apiMessage(c, 200, '删除成功，可在回收站找回或彻底删除');
 	}
 
