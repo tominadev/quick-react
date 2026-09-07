@@ -1,4 +1,4 @@
-import { getDeviceHeaders } from '../utils/common/device-fingerprint.js';
+import { getDeviceHeaders } from '@clients/browser/device-fingerprint.js';
 import type { ApiContext, ApiNextAction } from '@shared/types/api-response.mjs';
 
 export type PassportLoginOptions = {

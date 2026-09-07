@@ -36,7 +36,31 @@ npm run dev:restart
 npm run typecheck
 ```
 
-前端代码位于 `src/`，后端代码位于 `server/`。站点 API 和导航位于 `server/routes/<site_key>/`；`base` 是继承基础层，`global` 是控制面站点。新增后端模板或静态资源时，注意不要把服务端文件放入 `public/`。
+前端代码位于 `clients/`，后端代码位于 `server/`。`clients/` 下按**客户端**分：
+
+| 目录 | 是什么 | 产物 |
+| --- | --- | --- |
+| `clients/web/` | 浏览器主站，用 antd | `public/bundle.js` |
+| `clients/passport/` | 嵌进别的站点做弹窗登录的 SDK | `public/passport.js` |
+| `clients/browser/` | 浏览器专有的公共能力（设备指纹用到 canvas、localStorage、navigator） | 被上面两个引用 |
+
+将来加别的端（手机版、elementUI、小程序、桌面壳）在 `clients/` 下平级新建，各自一个
+esbuild 入口。
+
+**跨端共用的纯逻辑放项目级的 `shared/`——那是前后端共用的那一层**，服务端也在用它
+（`server/` 里到处 `import … from '@shared/…'`）。正因为它必须同时在 Node 与 Cloudflare
+Workers 上跑，才天然碰不了 DOM——它对小程序的兼容不是巧合，是这条约束的副产品。
+
+现在 `shared/` 里 19 个文件（7 个逻辑 + 12 个类型），只有 `device-key.mts` 用到宿主 API，
+而且只是其中的 `createDeviceKey`（要 `crypto.getRandomValues`；微信小程序没有，它是异步的
+`wx.getRandomValues`）。它留在那里是为了**和格式定义放在一起**——改格式时一眼看得到生成器，
+分开放迟早会改了一头忘了另一头。服务端只用同一个文件里的 `deviceKeyPattern` 与
+`normalizeDeviceKey`，那两个是纯逻辑。
+
+往 `shared/` 里加东西时的判据只有一条：**服务端也要能跑**。碰 DOM、localStorage、canvas 的
+一律放 `clients/browser/`。
+
+站点 API 和导航位于 `server/routes/<site_key>/`；`base` 是继承基础层，`global` 是控制面站点。新增后端模板或静态资源时，注意不要把服务端文件放入 `public/`。
 
 后续架构和工程优化事项请参阅[项目优化清单](requirements/optimization-checklist.md)。
 

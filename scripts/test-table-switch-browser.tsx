@@ -24,7 +24,7 @@ const React = await import('react');
 const { cleanup, render, screen, waitFor } = await import('@testing-library/react');
 const userEvent = (await import('@testing-library/user-event')).default;
 const { MemoryRouter } = await import('react-router-dom');
-const TableCRUD = (await import('../src/utils/antd/table_crud/index.js')).default;
+const TableCRUD = (await import('../clients/web/utils/antd/table_crud/index.js')).default;
 
 const queryFields = [{ dataIndex: 'table', label: '数据表', component: 'select', defaultValue: 'table_a', reloadSchema: true, options: [{ value: 'table_a', text: 'table_a' }, { value: 'table_b', text: 'table_b' }] }];
 // 第一张表：有行操作和工具栏批量删除。

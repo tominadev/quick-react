@@ -6,7 +6,7 @@ import { useRef, useState } from 'react';
 import type { ApiFeedback as SharedApiFeedback, ApiResponseBody } from '@shared/types/api-response.mjs';
 import { applyApiResponseContext } from '@/utils/common/response-action.js';
 import type { TableColumn, TableData, TableOption, TableResponse } from '@shared/types/table.mjs';
-import { getDeviceHeaders } from './device-fingerprint.js';
+import { getDeviceHeaders } from '@clients/browser/device-fingerprint.js';
 
 /* 前端类型定义开始 */
 export type DataType = TableData;

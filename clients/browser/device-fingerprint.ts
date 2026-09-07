@@ -1,3 +1,11 @@
+/**
+ * 设备指纹与设备键。**只能在浏览器里用**——canvas、localStorage、navigator 都是宿主 API。
+ *
+ * 放在 `clients/browser/` 而不是 `clients/shared/`：小程序、原生端进不来这里。真正
+ * 「所有客户端共用」的东西在项目级的 `shared/`，那里除了 `device-key.mts` 里的
+ * `createDeviceKey`（要 `crypto.getRandomValues`）之外全是纯逻辑与类型，任何 JS 运行时
+ * 都跑得动。
+ */
 import { createDeviceKey, deviceKeyPattern, normalizeDeviceKey } from '@shared/device-key.mjs';
 let fingerprintPromise: Promise<string> | undefined;
 let networkInfoPromise: Promise<string> | undefined;

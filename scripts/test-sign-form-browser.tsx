@@ -23,7 +23,7 @@ globalThis.ResizeObserver = class { observe() {} unobserve() {} disconnect() {} 
 const React = await import('react');
 const { render, screen, waitFor, cleanup } = await import('@testing-library/react');
 const userEvent = (await import('@testing-library/user-event')).default;
-const FormPage = (await import('../src/components/panel/FormPage.js')).default;
+const FormPage = (await import('../clients/web/components/panel/FormPage.js')).default;
 
 const signInForm = {
 	description: '输入邮箱后点下一步',

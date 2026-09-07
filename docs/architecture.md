@@ -5,7 +5,7 @@
 执行 `npm run build` 后：
 
 ```text
-src/index.tsx       -> public/bundle.js
+clients/web/index.tsx      -> public/bundle.js
 server/app.mts      -> dist/server.mjs
 server/templates/   -> 动态首页响应
 ```
@@ -36,13 +36,13 @@ Base 的 `base_session` 使用滑动过期策略：有效请求会把数据库 `
 
 `server/modules/base/page-context.mts` 在渲染文档前判断请求路径能否打开，并把结果写入 `initialData.pageStatus`：路径不存在返回 `404`，需要登录返回 `401`，角色不足返回 `403`；文档响应使用同一状态码，提示标题、说明和按钮全部由后端下发。页面后缀、尾斜杠和目录 `index` 由服务端解析为同一逻辑页面；目录无尾斜杠请求按常见 Web 服务器约定规范化到带尾斜杠地址，302 响应明确使用 `Cache-Control: no-store`，避免 CDN 缓存，带尾斜杠和 `index` 页面本身直接返回 `200`；例如 `/panel/admin/` 逻辑上对应 `/panel/admin/index.html`。
 
-前端在路由表末尾注册兜底路由 `src/components/common/StatusPage.tsx`，优先使用 `initialData.pageStatus`；前端路由跳转到未注册路径时改为请求 `/api/page-status` 获取同一份提示，避免出现空白页面。
+前端在路由表末尾注册兜底路由 `clients/web/components/common/StatusPage.tsx`，优先使用 `initialData.pageStatus`；前端路由跳转到未注册路径时改为请求 `/api/page-status` 获取同一份提示，避免出现空白页面。
 
 ## 后端驱动页面
 
 普通后台页面由后端提供导航、组件标识、表格列和数据接口；前端只负责通用布局、表格和表单渲染。新增常规 CRUD 页面时，在 `server/routes/<site_key>/navigation.mts` 增加导航，并在同一站点的 `api/` 下增加接口文件，无需手工修改路由表。
 
-公共请求和反馈层位于 `src/utils/common/`：`api.tsx` 负责请求加载状态、错误拦截和 `feedback` 展示，`feedback.ts` 负责跳转延迟计算；`src/utils/common/response-action.ts` 只执行后端下发的统一完成动作。认证切换使用 `navigate + refreshAuth`：登录、退出等响应由 Base 响应层自动附带认证上下文，应用用浏览器路由更新当前页面，不重新加载 `bundle.js`；需要主动读取上下文时，任意 API 追加 `include=auth`（可同时传 `path`）即可，响应中的 `context` 包含认证、导航和页面状态，不再维护独立的 `/api/auth` 接口。普通 `navigate` 仍按协议执行完整页面导航，`reload` 可带秒级 `delay` 以便先展示成功反馈；`src/components/common/Countdown.tsx` 提供登录和配置表单共用的倒计时组件。站点设置中的 `apiBootstrapEnabled` 默认关闭：关闭时服务端把认证和导航上下文注入 HTML，开启时只输出不含用户状态的公共页面壳；应用会根据当前页面选择首个数据 API（例如 `/panel/admin/global/dashboard.html` 请求 `/api/panel/admin/global/dashboard.php?include=auth,schema,data`），该响应同时提供页面数据、认证、导航和页面状态，并由对应的通用组件直接复用，避免先请求首页接口再请求当前页面接口。TableCRUD 请求必须显式携带资源：首次加载结构和数据时追加 `include=schema,data`，后续分页、搜索和刷新请求改用 `include=data`，公共响应层按 include 精确返回资源；`include=schema` 只返回结构，不带 include 不返回表资源。回收站使用 `include=deleted,schema,data` 首次加载和 `include=deleted,data` 后续加载，正常请求可用 `exclude=deleted` 明确表示排除删除记录。列、操作和查询配置由前端复用，切换表时重新加载完整结构。页面壳可交给 CDN 缓存。服务端响应输出统一由 `server/modules/base/api-response.mts` 负责，业务 API 不直接调用 `c.json()`。
+公共请求和反馈层位于 `clients/web/utils/common/`：`api.tsx` 负责请求加载状态、错误拦截和 `feedback` 展示，`feedback.ts` 负责跳转延迟计算；`clients/web/utils/common/response-action.ts` 只执行后端下发的统一完成动作。认证切换使用 `navigate + refreshAuth`：登录、退出等响应由 Base 响应层自动附带认证上下文，应用用浏览器路由更新当前页面，不重新加载 `bundle.js`；需要主动读取上下文时，任意 API 追加 `include=auth`（可同时传 `path`）即可，响应中的 `context` 包含认证、导航和页面状态，不再维护独立的 `/api/auth` 接口。普通 `navigate` 仍按协议执行完整页面导航，`reload` 可带秒级 `delay` 以便先展示成功反馈；`clients/web/components/common/Countdown.tsx` 提供登录和配置表单共用的倒计时组件。站点设置中的 `apiBootstrapEnabled` 默认关闭：关闭时服务端把认证和导航上下文注入 HTML，开启时只输出不含用户状态的公共页面壳；应用会根据当前页面选择首个数据 API（例如 `/panel/admin/global/dashboard.html` 请求 `/api/panel/admin/global/dashboard.php?include=auth,schema,data`），该响应同时提供页面数据、认证、导航和页面状态，并由对应的通用组件直接复用，避免先请求首页接口再请求当前页面接口。TableCRUD 请求必须显式携带资源：首次加载结构和数据时追加 `include=schema,data`，后续分页、搜索和刷新请求改用 `include=data`，公共响应层按 include 精确返回资源；`include=schema` 只返回结构，不带 include 不返回表资源。回收站使用 `include=deleted,schema,data` 首次加载和 `include=deleted,data` 后续加载，正常请求可用 `exclude=deleted` 明确表示排除删除记录。列、操作和查询配置由前端复用，切换表时重新加载完整结构。页面壳可交给 CDN 缓存。服务端响应输出统一由 `server/modules/base/api-response.mts` 负责，业务 API 不直接调用 `c.json()`。
 
 API 使用物理目录作为分层中间件链。构建阶段扫描 `server/routes/*/api`，生成 Worker 可静态打包的站点路由和模块注册表；运行时不扫描文件系统。每一层优先使用当前站点实现，缺少时沿继承链回退到 `base`。动态 ID 作为参数传给已匹配的叶子处理文件，例如 `/api/panel/admin/base/data/rows/row-1` 仍由 `rows.mts` 处理。
 

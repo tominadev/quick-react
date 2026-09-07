@@ -189,7 +189,7 @@ try {
 	 * `/panel/user/` 下面；服务端照常下发导航，从接口上一点看不出问题，只有在页面上才
 	 * 发现。`home` 与 `sign` 不包是另一回事：那两个是公开页，本来就没有面板导航。
 	 */
-	const appSource = await readFile(resolve(import.meta.dirname, '..', 'src/App.tsx'), 'utf8');
+	const appSource = await readFile(resolve(import.meta.dirname, '..', 'clients/web/App.tsx'), 'utf8');
 	const personalCenterRenderer = appSource.slice(appSource.indexOf('personalCenter: (page) =>'), appSource.indexOf('sign: (page) =>'));
 	assert.match(personalCenterRenderer, /<Panel[\s\S]*<PersonalCenter/, '个人中心要包在 Panel 里，否则左侧菜单不见了');
 	assert.match(personalCenterRenderer, /navigation=\{page\.navigation\}/, 'Panel 要拿到导航树');

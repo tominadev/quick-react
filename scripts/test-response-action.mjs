@@ -11,7 +11,7 @@ import { pathToFileURL } from 'node:url';
  * 嵌套容器每层再叠 100（上限十层）——不显式抬高的话遮罩落在所有弹窗底下：抽屉里点保存，
  * 转圈的圈圈在抽屉后面，看着像没反应。渲染要浏览器环境才测得到，这里守住写法。
  */
-const apiSource = await readFile(resolve(import.meta.dirname, '../src/utils/common/api.tsx'), 'utf8');
+const apiSource = await readFile(resolve(import.meta.dirname, '../clients/web/utils/common/api.tsx'), 'utf8');
 const zIndex = /zIndexPopupBase \+ (\d+)/.exec(apiSource);
 assert.ok(zIndex, '全局遮罩要按 zIndexPopupBase 算出自己的 z-index');
 assert.ok(Number(zIndex[1]) > 1000, '遮罩要高过容器叠加的上限（zIndexPopupBase + 1000）');
@@ -28,7 +28,7 @@ await build({
 	platform: 'node',
 	format: 'esm',
 	outfile: output,
-	alias: { '@': resolve(import.meta.dirname, '../src'), '@shared': resolve(import.meta.dirname, '../shared') },
+	alias: { '@': resolve(import.meta.dirname, '../clients/web'), '@clients': resolve(import.meta.dirname, '../clients'), '@shared': resolve(import.meta.dirname, '../shared') },
 	resolveExtensions: ['.tsx', '.ts', '.jsx', '.js', '.mts', '.mjs', '.json'],
 });
 await import(`${pathToFileURL(output)}?test=${Date.now()}`);

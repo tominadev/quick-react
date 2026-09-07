@@ -186,10 +186,10 @@ const main = async () => {
 		toolbox.attach();
 	}
 	generateWorkerRegistryFile();
-	const frontend = await createBuildContext('src/index.tsx', publicDir, 'bundle.js', {
+	const frontend = await createBuildContext('clients/web/index.tsx', publicDir, 'bundle.js', {
 		minify: true,
 	});
-	const passportSdk = await createBuildContext('src/passport/index.ts', publicDir, 'passport.js', {
+	const passportSdk = await createBuildContext('clients/passport/index.ts', publicDir, 'passport.js', {
 		bundle: true,
 		format: 'iife',
 		minify: true,
