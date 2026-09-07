@@ -1,7 +1,7 @@
 import type { ApiHandler } from '@server/modules/base/api-router.mjs';
 import { apiMessage, apiResponse } from '@server/modules/base/api-response.mjs';
-import { allSql, firstSql, ownerScope, sql } from '@server/database/sql.mjs';
-import { runOperation, runOperationSql } from '@server/modules/base/operation.mjs';
+import { allSql, firstSql, isUniqueViolation, ownerScope, sql } from '@server/database/sql.mjs';
+import { PendingApprovalError, runOperation, runOperationSql } from '@server/modules/base/operation.mjs';
 import { apiMessageData } from '@server/modules/base/api-response.mjs';
 import { createCloudStorageAdapter, loadCloudStorageTargetByPurpose } from '@server/modules/global/cloud/resolve.mjs';
 import { getChangedFields } from '@server/modules/base/changed-fields.mjs';
@@ -102,6 +102,22 @@ const handler: ApiHandler = async (c, next, params) => {
 			where: [{ column: 'number', value: number }, mine()], limit: 1,
 		}));
 		if (existing && existing.status !== 'revoked') return apiMessage(c, 409, '这个号码你已经绑定过了，在下面的列表里');
+		/**
+		 * **号码在租户内唯一**（`(owner_tid, number, deleted_at)`），因此别人绑过的号码这里
+		 * 也插不进去。先查一次给人话——不查的话会一路撞到唯一索引，抛出来的是裸的
+		 * `UNIQUE constraint failed`，接口回 500，而用户完全看不出发生了什么。
+		 *
+		 * 明说「已被其他账号绑定」而不是含糊其辞：文档 §4.3 要求「手机号已属于其他账号时
+		 * 拒绝，不自动迁移」，那就得让人知道为什么被拒、该去找谁。这确实泄露了「这个号在
+		 * 本站被绑过」，但同一个号本来就只有一个主人，而含糊的失败会让人反复重试、最后来
+		 * 提工单。**不说是谁绑的**——那才是真正会泄露的东西。
+		 */
+		const takenByOthers = await firstSql<{ id: string }>(database, sql({ database, subjectRoles: null }).select({
+			table: 'sms_phones', columns: { id: { column: 'id', cast: 'text' } },
+			where: [{ column: 'number', value: number }, { column: 'status', operator: '!=', value: 'revoked' }],
+			queued: 'all', limit: 1,
+		}));
+		if (takenByOthers) return apiMessage(c, 409, '这个号码已经被本站的其他账号绑定了。同一个号只能绑在一个账号下——如果那是你自己的另一个账号，请先在那边解绑。');
 
 		/**
 		 * **先领令牌，再建手机。** 反过来的话，池子空了会留下一部绑不上令牌的手机——它在
@@ -116,7 +132,14 @@ const handler: ApiHandler = async (c, next, params) => {
 		}));
 		if (!candidates.length) return apiMessage(c, 503, '令牌池空了，暂时不能绑定新手机。请联系管理员补充。');
 
-		await runOperationSql(c, database, sql({ database }).insert('sms_phones', { number, title, status: 'enabled', bound_at: Date.now() }));
+		// 先查后插之间仍可能被别人抢先（无事务），撞上了照样翻成人话，不让裸 UNIQUE 冒出去。
+		try {
+			await runOperationSql(c, database, sql({ database }).insert('sms_phones', { number, title, status: 'enabled', bound_at: Date.now() }));
+		} catch (error) {
+			if (error instanceof PendingApprovalError) throw error;
+			if (!isUniqueViolation(error)) throw error;
+			return apiMessage(c, 409, '这个号码刚被另一个账号绑走了，请确认号码是否填对');
+		}
 		const phone = await firstSql<{ id: string }>(database, sql({ database }).select({
 			table: 'sms_phones', columns: { id: { column: 'id', cast: 'text' } },
 			where: [{ column: 'number', value: number }, mine()], limit: 1,

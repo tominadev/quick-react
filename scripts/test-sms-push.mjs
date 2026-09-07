@@ -177,6 +177,36 @@ try {
 	assert.ok(Number(finished.prepare('SELECT last_success_at FROM sms_push_endpoints').get().last_success_at) > 0);
 	finished.close();
 
+	/**
+	 * **跨账号隔离**：另一个人绑不走同一个号码，也收不到别人的短信。
+	 *
+	 * 这是这套东西最要紧的一条边界——短信里是验证码。三层各自独立生效：号码在租户内唯一，
+	 * 别人根本绑不上；就算绑上了（跨租户），短信是从某一个令牌进来的、归属那个令牌的主人；
+	 * 推送匹配按 owner_uid，别人的地址匹配不到。
+	 */
+	await app.request('http://sms.test/api/panel/admin/base/users.php', { method: 'POST', headers: h, body: JSON.stringify({ user_name: 'pushother', password: 'push-password-1', roles: [], status: 'enabled' }) });
+	await approveAll();
+	const otherLogin = await app.request('http://sms.test/api/sign.php', { method: 'POST', headers, body: JSON.stringify({ user_name: 'pushother', password: 'push-password-1' }) });
+	const other = { ...headers, cookie: otherLogin.headers.get('set-cookie')?.split(';')[0] };
+
+	const grabbed = await app.request('http://sms.test/api/panel/user/sms/phones.php?action=bind', { method: 'POST', headers: other, body: JSON.stringify({ number: '13800138000', title: '我也想要' }) });
+	assert.equal(grabbed.status, 409, '别人绑不走同一个号码');
+	// 说清楚为什么被拒（文档 §4.3 要求「已属于其他账号时拒绝，不自动迁移」），但不说是谁绑的。
+	const grabbedMessage = String((await grabbed.json()).feedback?.message ?? '');
+	assert.match(grabbedMessage, /其他账号/);
+	assert.doesNotMatch(grabbedMessage, /pushadmin/, '不能说出是谁绑的');
+
+	// 另一个人配一条不限定手机的推送地址，短信仍然不该推给他。
+	await app.request('http://sms.test/api/panel/user/sms/push-endpoints.php', { method: 'POST', headers: other, body: JSON.stringify({ url: `http://127.0.0.1:${receiverPort}/other`, status: 'enabled' }) });
+	await app.request('http://sms.test/api/shortcut/message-receive.php', { method: 'POST', headers: { authorization: 'Bearer raw-token', 'content-type': 'application/json' }, body: JSON.stringify({ message_id: 'm-2', content: '第二条', sender: '10086' }) });
+	await runMaintenanceAction('dispatch-sms-push', {});
+	assert.equal(receiverRequests.filter((item) => String(item.headers[':path'] ?? '').includes('/other')).length, 0);
+	const isolated = new DatabaseSync(process.env.DEFAULT_DATABASE_FILE, { readOnly: true });
+	const otherId = isolated.prepare("SELECT id FROM base_users WHERE name = 'pushother'").get().id;
+	assert.equal(isolated.prepare('SELECT COUNT(*) AS n FROM sms_push_deliveries d JOIN sms_push_endpoints e ON e.id = d.push_endpoint_id WHERE e.owner_uid = ?').get(otherId).n, 0, '别人的地址不该收到任何投递');
+	assert.equal(isolated.prepare('SELECT COUNT(*) AS n FROM sms_phones WHERE owner_uid = ?').get(otherId).n, 0, '别人名下不该有这部手机');
+	isolated.close();
+
 	console.log('sms push test passed');
 } finally {
 	receiver.close();
