@@ -70,6 +70,31 @@ try {
 		await rm(temporaryDirectory, { recursive: true, force: true });
 	}
 
+	/**
+	 * **共用的部分不许各写一份。**
+	 *
+	 * 请求层与表格协议在 `clients/browser/`，两套 UI 引同一份。各写一遍的话，同一个后端
+	 * 会在两个前端上表现不同——`include` 算错就每次翻页重取一遍结构，`visibleWhen` 判错
+	 * 就把「回滚」显示在一条已经回滚过的记录上。这种漂移在复制代码的那一刻看不出来。
+	 */
+	const mobileSources = await Promise.all(['App.tsx', 'common-api.tsx', 'components/MobileTable.tsx', 'components/MobileForm.tsx']
+		.map((name) => readFile(resolve(projectDirectory, 'clients/antd-mobile', name), 'utf8')));
+	const mobileAll = mobileSources.join('\n');
+	assert.match(mobileAll, /@clients\/browser\/api\.js/, '手机版要用共用的请求层，不要自己写一个 fetch 封装');
+	assert.match(mobileAll, /@clients\/browser\/table-crud\.js/, '表格协议要用共用的那一份');
+	assert.match(mobileAll, /tableRequestQuery|actionVisibleForRow/, 'include 与行动作可见性走协议层，不要在手机版里重写');
+	// 协议层里已经有的东西，手机版不该再写一遍
+	assert.doesNotMatch(mobileAll, /includes\.add\(['"]schema['"]\)/, 'include 的算法只该有一份');
+	assert.doesNotMatch(mobileAll, /visibleWhen\.values\.includes/, '行动作可见性只该有一份');
+
+	/**
+	 * 两套 UI 的产物要彼此独立：手机版里混进桌面版的 antd，包会大一倍，而手机上流量与
+	 * 首屏时间都金贵——现在是 1.4 MB 对 0.5 MB。
+	 */
+	const mobileBundle = await readFile(resolve(projectDirectory, 'public/bundle-antd-mobile.js'), 'utf8');
+	assert.ok(mobileBundle.includes('adm-'), '手机版产物里应当有 antd-mobile 的类名前缀');
+	assert.doesNotMatch(mobileBundle, /\bant-btn\b|\bant-table\b/, '手机版不该打进桌面版 antd');
+
 	console.log('web clients test passed');
 } finally {
 	await rm(directory, { recursive: true, force: true });

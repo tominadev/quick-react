@@ -2,13 +2,14 @@ import type React from 'react';
 import { useEffect, useMemo, useState } from 'react';
 import { BrowserRouter as Router, Navigate, Route, Routes, useLocation, useNavigate } from 'react-router-dom';
 import { Button, ErrorBlock, List, NavBar, Result, TabBar } from 'antd-mobile';
-import type { InitialData } from '@shared/types/initial-data.mjs';
+import type { AuthState, InitialData } from '@shared/types/initial-data.mjs';
 import type { ApiContext } from '@shared/types/api-response.mjs';
 import type { NavigationItem } from '@shared/types/navigation.mjs';
 import { collectPageDefinitions, normalizePagePath, stripPageSuffix, type NavigationPageDefinition } from '@shared/navigation-tree.mjs';
 import { apiNavigationEvent, planApiNavigation, type ApiNavigationEventDetail } from '@clients/browser/response-action.js';
 import { useCommonApi } from './common-api.js';
 import MobileTable from './components/MobileTable.js';
+import MobileForm from './components/MobileForm.js';
 
 /**
  * 手机版应用壳。
@@ -64,7 +65,19 @@ const SectionList = ({ item }: { item: NavigationItem }) => {
 export const App = () => {
 	const [commonApi, contextHolder] = useCommonApi();
 	const [navigation, setNavigation] = useState<NavigationItem[]>(initialData.siteNavigation ?? []);
+	const [auth, setAuth] = useState<AuthState | undefined>(initialData.auth);
 	const pages = useMemo(() => collectPageDefinitions(navigation), [navigation]);
+	/**
+	 * 登录、注册这些页面来自**认证上下文**，不在导航树里——它们是否存在取决于站点开没开
+	 * 注册、绑没绑 Accounts，那是服务端按当前身份算出来的。
+	 */
+	const authPages = useMemo(() => (auth?.pages ?? []).map((page) => ({
+		path: normalizePagePath(page.path, initialData.pageSuffix),
+		title: page.title,
+		apiPath: page.apiPath,
+		submitMethod: page.submitMethod,
+		mode: page.mode,
+	})), [auth]);
 
 	// 认证上下文由响应层统一下发（与桌面版同一条路径），这里只管把导航换掉。
 	useEffect(() => {
@@ -72,6 +85,7 @@ export const App = () => {
 			const detail = (event as CustomEvent<ApiNavigationEventDetail>).detail;
 			const context = detail?.context as ApiContext | undefined;
 			if (context?.siteNavigation) setNavigation(context.siteNavigation);
+			if (context?.auth) setAuth(context.auth as AuthState);
 		};
 		window.addEventListener(apiNavigationEvent, onNavigation);
 		return () => window.removeEventListener(apiNavigationEvent, onNavigation);
@@ -81,6 +95,8 @@ export const App = () => {
 		// 分组节点（有子页、自己不渲染内容）在手机上变成一张列表。
 		const node = page.navigation?.find((item) => item.key === page.path);
 		if (page.component === 'table') return <MobileTable commonApi={commonApi} resourcePath={page.path} title={page.title} />;
+		// 个人中心与设置页在协议上都是 formPage，同一个组件渲染。
+		if (page.component === 'form' || page.component === 'personalCenter') return <MobileForm commonApi={commonApi} apiPath={page.path} title={page.title} submitMethod="PUT" />;
 		if (node?.children?.length) return <SectionList item={node} />;
 		return <Result status="info" title={page.title ?? '这一页还没有手机版'} description="桌面版里有完整功能，手机版正在逐步补齐。" />;
 	};
@@ -92,6 +108,11 @@ export const App = () => {
 				<Routes>
 					{pages.map((page) => (
 						<Route key={page.path} path={normalizePagePath(pageUrl(page.path))} element={renderPage(page)} />
+					))}
+					{authPages.map((page) => (
+						<Route key={page.path} path={page.path} element={
+							<MobileForm commonApi={commonApi} apiPath={page.apiPath.replace(/^\/api/, '').replace(new RegExp(`${initialData.apiSuffix}$`), '')} title={page.title} submitMethod={page.submitMethod === 'PUT' ? 'PUT' : 'POST'} />
+						} />
 					))}
 					<Route path="*" element={<ErrorBlock status="empty" title="页面不存在" description={<Button color="primary" fill="none" onClick={() => { window.location.href = '/'; }}>回首页</Button>} />} />
 				</Routes>
