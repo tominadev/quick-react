@@ -98,7 +98,11 @@ export type CloudStorageAdapter = {
 	listBuckets: () => Promise<CloudBucket[]>;
 	list: (prefix: string, continuationToken?: string, limit?: number, delimiter?: string) => Promise<CloudObjectPage>;
 	createUploadUrl: (key: string, contentType?: string) => Promise<string>;
-	createDownloadUrl: (key: string) => Promise<string>;
+	/**
+	 * 预签名下载地址。`filename` 让浏览器用一个看得懂的名字保存——对象键里是时间戳和随机
+	 * 后缀，直接下载拿到的就是那一串。它参与签名，不能事后往地址上拼。
+	 */
+	createDownloadUrl: (key: string, options?: { filename?: string }) => Promise<string>;
 	deleteObject: (key: string) => Promise<void>;
 	test: () => Promise<void>;
 };

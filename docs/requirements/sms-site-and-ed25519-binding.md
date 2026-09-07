@@ -500,7 +500,7 @@ WHERE id = ? AND status = 'available'
 | --- | --- |
 | `v` | 协议版本 |
 | `aud` | 固定为 `sms`，防止票据被其他站点接受 |
-| `client_id` | 对应 `sms_integration_clients.key` |
+| `client_id` | 对应 `sms_integration_clients.name`——**不是 `key`**：`key` 只装机器写的雪花号，人给的标识一律落在 `name` 上（见 §4.1 与 AGENTS.md 的命名约定） |
 | `kid` | 对应 `sms_integration_client_keys.kid`，唯一确定验签公钥 |
 | `base_user_id` | 目标账号，必须存在于当前 SMS 数据库的 `base_users` |
 | `phone` | 规范化后的 E.164 手机号，对应 `sms_phones.number` |

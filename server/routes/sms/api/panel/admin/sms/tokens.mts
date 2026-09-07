@@ -119,7 +119,10 @@ const handler: ApiHandler = async (c, next, params) => {
 		const storage = await loadCloudStorageTargetByPurpose(c.get('globalDatabase'), c.get('site').siteKey, 'sms-shortcut');
 		if (!storage) return apiMessage(c, 503, '没有为用途 sms-shortcut 配置对象存储绑定');
 		try {
-			return apiMessageData(c, 200, '下载地址创建成功', { downloadUrl: await createCloudStorageAdapter(storage).createDownloadUrl(String(artifact.object_key)), key: tokenId });
+			// 管理面下载的是「池子里的第几号令牌」，文件名带上 id 就够认——这一份是用来排查的，
+			// 不是发给客户的那一份（那一份在绑定时按项目命名，见 phones.mts）。
+			const filename = `shortcut-token-${tokenId}.shortcut`;
+			return apiMessageData(c, 200, '下载地址创建成功', { downloadUrl: await createCloudStorageAdapter(storage).createDownloadUrl(String(artifact.object_key), { filename }), key: tokenId });
 		} catch (error) { return apiMessage(c, 502, error instanceof Error ? error.message : '下载地址创建失败'); }
 	}
 

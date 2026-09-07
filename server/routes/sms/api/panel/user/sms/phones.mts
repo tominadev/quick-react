@@ -175,7 +175,16 @@ const handler: ApiHandler = async (c, next, params) => {
 			orderBy: [{ column: 'version', direction: 'DESC' }], limit: 1,
 		}));
 		const storage = artifact ? await loadCloudStorageTargetByPurpose(c.get('globalDatabase'), c.get('site').siteKey, 'sms-shortcut') : undefined;
-		const downloadUrl = storage && artifact ? await createCloudStorageAdapter(storage).createDownloadUrl(String(artifact.object_key)).catch(() => undefined) : undefined;
+		/**
+		 * 下载时用一个看得懂的文件名。对象键里是时间戳和随机后缀，直接下载拿到的是
+		 * `1788721695130-c6698636918564bf.shortcut`——发给客户之后，他在「文件」里根本
+		 * 认不出这是什么、更认不出装哪一个（同一个人可能同时收到好几个项目的）。
+		 */
+		const clientTitle = client.value === '0' ? '' : (await firstSql<{ title: string }>(database, sql({ database }).select({
+			table: 'sms_integration_clients', columns: { title: 'title' }, where: [{ column: 'id', value: client.value }], limit: 1,
+		})))?.title ?? '';
+		const filename = `${clientTitle || '短信转发'}-${number.slice(-4)}.shortcut`;
+		const downloadUrl = storage && artifact ? await createCloudStorageAdapter(storage).createDownloadUrl(String(artifact.object_key), { filename }).catch(() => undefined) : undefined;
 		return apiMessageData(c, 200,
 			downloadUrl
 				? `${number} 已绑定。请在**手机上**打开下面的地址下载并添加这个快捷指令，添加后运行一次即可开始转发短信：\n\n${downloadUrl}\n\n地址 15 分钟内有效，过期可以在列表里重新获取。`
