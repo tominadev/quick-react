@@ -1,7 +1,8 @@
 import type { ApiHandler } from '@server/modules/base/api-router.mjs';
 import { apiMessage } from '@server/modules/base/api-response.mjs';
 import { withDatabaseActors } from '@server/database/index.mjs';
-import { runSql, sql } from '@server/database/sql.mjs';
+import { firstSql, runSql, sql } from '@server/database/sql.mjs';
+import { enqueuePushDeliveries } from '@server/modules/sms/push.mjs';
 import { sha256 } from '@server/modules/passport/accounts/oidc.mjs';
 
 /**
@@ -76,6 +77,23 @@ const handler: ApiHandler = async (c, next) => {
 		payload_hash: payloadHash,
 	}));
 	await runSql(database, sql({ database, subjectRoles: null }).update('sms_shortcut_tokens', { last_used_at: receivedAt }, { phone_id: subject.deviceId }));
+
+	/**
+	 * 登记推送任务，**不在这里发出去**。
+	 *
+	 * 真正的 HTTP 由调度那一侧发（见 push.mts）：合在一起的话，这个接口要等一个外部请求
+	 * 走完才回，而对面那台服务器慢一秒，手机上的 Shortcut 就多等一秒、超时重发——同一条
+	 * 短信于是被重复提交。登记只是一次插入。
+	 *
+	 * 失败不影响回执：短信已经收下了，推送没登记上是另一件事，让它在日志里出现就好，
+	 * 回一句失败会让 Shortcut 一直重发同一条。
+	 */
+	const stored = await firstSql<{ id: string; phone_id: string; content: string; sender: string; recipients: string; received_at: string; owner_uid: string | null }>(database, sql({ database, subjectRoles: null }).select({
+		table: 'sms_messages',
+		columns: { id: { column: 'id', cast: 'text' }, phone_id: { column: 'phone_id', cast: 'text' }, content: 'content', sender: 'sender', recipients: 'recipients', received_at: 'received_at', owner_uid: { column: 'owner_uid', cast: 'text' } },
+		where: [{ column: 'phone_id', value: subject.deviceId }, { column: 'payload_hash', value: payloadHash }], limit: 1,
+	}));
+	if (stored) await enqueuePushDeliveries(database, stored).catch((error: unknown) => console.error('push enqueue failed', error));
 	return apiMessage(c, 200, '已接收');
 };
 

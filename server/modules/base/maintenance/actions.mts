@@ -6,6 +6,7 @@ import { hasCredential, setCredential } from '../credentials.mjs';
 import { accountsOidcConfigKey, defaultAccountsOidcConfig, normalizeAccountsOidcConfig } from '@server/modules/passport/accounts/client.mjs';
 import { userNameError } from '@shared/account-name.mjs';
 import { parseRoles, serializeRoles } from '@shared/types/role.mjs';
+import { dispatchPushDeliveries } from '@server/modules/sms/push.mjs';
 
 type MaintenanceInput = Record<string, unknown>;
 type AdminRow = { id: string | number | bigint; name: string; roles: string; status: string; deleted_at: string | number | bigint };
@@ -111,6 +112,14 @@ export const executeMaintenanceAction = async (database: DatabaseAdapter, action
 		case 'disable-accounts-oidc': return setAccountsOidcEnabled(database, false);
 		case 'enable-accounts-oidc': return setAccountsOidcEnabled(database, true);
 		case 'restore-accounts-oidc-defaults': return restoreAccountsOidcDefaults(database);
+		/**
+		 * 跑一轮短信推送投递。
+		 *
+		 * 常驻进程里由 app.mts 的 setInterval 每 30 秒调一次；**Workers 上没有常驻进程**，
+		 * 那边要靠 cron 触发器调这个动作——同一段逻辑两种调度方式，不必为运行时各写一份。
+		 * 出问题时运维也能手动催一轮，不用等下一个周期。
+		 */
+		case 'dispatch-sms-push': return dispatchPushDeliveries(database);
 		default: throw new Error(`未知维护动作：${action}`);
 	}
 };

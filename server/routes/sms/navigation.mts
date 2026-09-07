@@ -22,6 +22,9 @@ const navigation: MenuNode[] = [
 			children: [
 				{ label: '手机', key: 'phones', icon: 'appstore', component: 'table', title: '手机', description: '绑定、停收或解绑自己的手机' },
 				{ label: '短信', key: 'messages', icon: 'appstore', component: 'table', title: '短信', description: '查看已绑定手机收到的短信' },
+				// 推送地址由用户自己填（§4.9.1「投递到用户自己的服务端」）：接入方想收短信，
+				// 也得由用户把它的地址填进来——控制权留在短信的主人手里。
+				{ label: '推送地址', key: 'push-endpoints', icon: 'appstore', component: 'table', title: '推送地址', description: '把收到的短信转发到自己的服务端；每条推送都带 Ed25519 签名' },
 			],
 		}],
 	},
@@ -38,6 +41,8 @@ const navigation: MenuNode[] = [
 				// 公钥单独一页：轮换要新旧并存，一个接入方会同时有好几把（§4.2）。
 				// 从接入方那一页点「公钥」进来时带着 integration_client_id，只看那一家的。
 				{ label: '接入方公钥', key: 'client-keys', icon: 'appstore', component: 'table', title: '接入方公钥', description: '接入方用来签发绑定票据的 Ed25519 公钥；本站只存公钥，私钥始终留在接入方' },
+				// 与接入方公钥方向相反：那边私钥属于接入方，这边私钥是平台自己的、不出服务端。
+				{ label: '推送密钥', key: 'platform-keys', icon: 'appstore', component: 'table', title: '推送密钥', description: '平台给推送请求签名用的 Ed25519 密钥；接收方从 /api/push-key 取公钥验签' },
 				// 全站短信只读，管理员排查用——用户报「没收到验证码」时，这里是唯一能看出
 				// 短信到底进没进来的地方。代价是这一页看得到验证码，描述里说明白。
 				{ label: '短信', key: 'messages', icon: 'appstore', component: 'table', title: '短信', description: '全站收到的短信，用于排查「没收到」；能看到短信正文，包括验证码' },

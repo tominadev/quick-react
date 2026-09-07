@@ -1,0 +1,185 @@
+import assert from 'node:assert/strict';
+import { build } from 'esbuild';
+import { mkdtemp, rm, writeFile } from 'node:fs/promises';
+import { join, resolve } from 'node:path';
+import { tmpdir } from 'node:os';
+import { pathToFileURL } from 'node:url';
+import { createServer } from 'node:http';
+import { DatabaseSync } from 'node:sqlite';
+import { createHash } from 'node:crypto';
+
+/**
+ * 推送的两块纯逻辑：出站目标校验（SSRF）与 Ed25519 签名。
+ *
+ * 不连库、不起服务：这两块的正确性只取决于输入，而它们恰恰是最不该出错的两块——
+ * 前者拦的是「让服务器替人访问内网」，后者是接收方判断这条推送是不是真的来自本站的唯一依据。
+ */
+const directory = await mkdtemp(join(tmpdir(), 'quick-react-sms-push-'));
+try {
+	const result = await build({
+		stdin: { contents: "export * from './server/modules/sms/push-target.mts'; export * from './server/modules/sms/platform-key.mts';", resolveDir: resolve(import.meta.dirname, '..'), sourcefile: 'sms-push-entry.mts' },
+		bundle: true, format: 'esm', platform: 'node', write: false,
+		external: ['node:dns/promises'],
+	});
+	const file = join(directory, 'push.mjs');
+	await writeFile(file, result.outputFiles[0].contents);
+	const { isBlockedAddress, pushTargetError, resolvedTargetError, generatePlatformKey, platformKeyId, signWithPlatformKey } = await import(pathToFileURL(file));
+
+	// ---- SSRF：这些地址一个都不能放过（§4.9.1） ----
+	for (const address of ['127.0.0.1', '127.1.2.3', '10.0.0.1', '172.16.0.1', '172.31.255.255', '192.168.1.1', '169.254.169.254', '0.0.0.0', '::1', 'fc00::1', 'fd12:3456::1', 'fe80::1', '::ffff:127.0.0.1']) {
+		assert.equal(isBlockedAddress(address), true, `${address} 必须被拦下`);
+	}
+	// 云元数据地址是这类攻击的头号目标：拿到的往往是一整套实例凭证。
+	assert.equal(isBlockedAddress('169.254.169.254'), true);
+	// 这些是正常的公网地址，不能误伤——172.32 已经出了 172.16/12 的范围。
+	for (const address of ['8.8.8.8', '1.1.1.1', '172.32.0.1', '11.0.0.1', '2001:4860:4860::8888']) {
+		assert.equal(isBlockedAddress(address), false, `${address} 不该被拦`);
+	}
+
+	assert.match(pushTargetError('http://example.com/hook'), /https/, '必须是 https：请求里带着短信正文');
+	assert.match(pushTargetError('https://127.0.0.1/hook'), /内网|回环/);
+	assert.match(pushTargetError('https://localhost/hook'), /本机/);
+	assert.match(pushTargetError('https://[::1]/hook'), /内网|回环/);
+	assert.match(pushTargetError('不是地址'), /格式/);
+	assert.equal(pushTargetError('https://example.com/sms-hook'), '', '正常的 https 地址要放行');
+	// 解析后仍要判一次：写成域名的内网地址在保存那一步看不出来。
+	assert.match(await resolvedTargetError('https://127.0.0.1/hook'), /内网|回环/);
+
+	// ---- 签名：接收方据此判断这条推送是不是真的来自本站 ----
+	const generated = await generatePlatformKey();
+	assert.match(generated.publicKey, /^[A-Za-z0-9_-]{43}$/, '公钥是 32 字节的 Base64URL');
+	assert.equal(generated.kid, await platformKeyId(generated.publicKey), 'kid 由公钥算出，不另外指定');
+	assert.match(generated.kid, /^[0-9a-f]{16}$/);
+	const payload = `1788432000.${JSON.stringify({ content: '验证码 8848' })}`;
+	const signature = await signWithPlatformKey(generated.privateKey, payload);
+	assert.match(signature, /^[A-Za-z0-9_-]{86}$/, '签名是 64 字节的 Base64URL');
+	// 用公开出去的那把公钥验一遍——接收方走的就是这条路。
+	const verify = async (publicKeyBase64Url, signatureValue, signedPayload) => {
+		const raw = Uint8Array.from(atob(publicKeyBase64Url.replaceAll('-', '+').replaceAll('_', '/')), (character) => character.charCodeAt(0));
+		const key = await crypto.subtle.importKey('raw', raw, { name: 'Ed25519' }, false, ['verify']);
+		const bytes = Uint8Array.from(atob(signatureValue.replaceAll('-', '+').replaceAll('_', '/')), (character) => character.charCodeAt(0));
+		return crypto.subtle.verify({ name: 'Ed25519' }, key, bytes, new TextEncoder().encode(signedPayload));
+	};
+	assert.equal(await verify(generated.publicKey, signature, payload), true, '本站签的名，接收方要验得过');
+	assert.equal(await verify(generated.publicKey, signature, `1788432001.${JSON.stringify({ content: '验证码 8848' })}`), false, '改时间戳要验不过——否则重放窗口形同虚设');
+	assert.equal(await verify(generated.publicKey, signature, `1788432000.${JSON.stringify({ content: '验证码 0000' })}`), false, '改正文要验不过');
+	const other = await generatePlatformKey();
+	assert.equal(await verify(other.publicKey, signature, payload), false, '换一把公钥要验不过');
+
+	console.log('sms push unit checks passed');
+} finally {
+	await rm(directory, { recursive: true, force: true });
+}
+
+/**
+ * 端到端：短信进来 → 登记投递 → 发出去 → 接收方按公钥验签。
+ *
+ * 接收方跑在 127.0.0.1 上，因此要显式打开本地例外（§4.9.1「本地开发可显式配置例外」）。
+ * **先验证不开例外时它确实被拦下**——那个开关等于关掉 SSRF 防护，得先确认防护本身在工作，
+ * 再打开它去验后面的链路。
+ */
+const receiverRequests = [];
+const receiver = createServer((request, response) => {
+	let body = '';
+	request.on('data', (chunk) => { body += chunk; });
+	request.on('end', () => {
+		receiverRequests.push({ headers: request.headers, body });
+		response.writeHead(200);
+		response.end('ok');
+	});
+});
+await new Promise((resolve) => receiver.listen(0, '127.0.0.1', resolve));
+const receiverPort = receiver.address().port;
+const temporaryDirectory = await mkdtemp(join(tmpdir(), 'quick-react-sms-push-e2e-'));
+process.env.DEFAULT_DATABASE_FILE = join(temporaryDirectory, 'default.sqlite');
+process.env.SKIP_SERVER_LISTEN = '1';
+try {
+	const { app, runMaintenanceAction } = await import(`../dist/server.mjs?sms-push=${Date.now()}`);
+	const seed = new DatabaseSync(process.env.DEFAULT_DATABASE_FILE);
+	const now = Date.now();
+	seed.prepare("INSERT INTO global_site_hosts (key, hostname, site_key, status, created_at) VALUES (lower(hex(randomblob(16))), 'sms.test', 'sms', 'enabled', ?)").run(now);
+	seed.close();
+	await runMaintenanceAction('restore-admin', { user_name: 'pushadmin', password: 'push-password-1' });
+	const headers = {
+		'content-type': 'application/json',
+		'x-device-key': '00000000000040008000000000000001',
+		'x-device-fingerprint': JSON.stringify({ canvas_cyrb53: 'a', audio_cyrb53: 'b' }),
+	};
+	const login = await app.request('http://sms.test/api/sign.php', { method: 'POST', headers, body: JSON.stringify({ user_name: 'pushadmin', password: 'push-password-1' }) });
+	const h = { ...headers, cookie: login.headers.get('set-cookie')?.split(';')[0] };
+	const approveAll = async () => {
+		const pending = await (await app.request('http://sms.test/api/panel/admin/base/audit/records.php?include=data&review_status=pending', { headers: h })).json();
+		const ids = (pending.table?.dataSource ?? []).map((row) => String(row.id));
+		if (ids.length) await app.request('http://sms.test/api/panel/admin/base/audit/records.php?action=approve', { method: 'POST', headers: h, body: JSON.stringify(ids) });
+	};
+
+	// 没有签名密钥时，公钥端点要说清楚该去哪生成，而不是回一个空数组让接收方自己猜。
+	assert.match(String((await (await app.request('http://sms.test/api/push-key.php')).json()).feedback?.message), /还没有生成推送签名密钥/);
+	await app.request('http://sms.test/api/panel/admin/sms/platform-keys.php?action=generate', { method: 'POST', headers: h, body: JSON.stringify({ reason: '首次生成' }) });
+	await approveAll();
+
+	const database = new DatabaseSync(process.env.DEFAULT_DATABASE_FILE);
+	const ownerId = database.prepare("SELECT id FROM base_users WHERE name = 'pushadmin'").get().id;
+	database.prepare("INSERT INTO sms_phones (key, id, number, title, status, owner_uid, bound_at, created_at, updated_at) VALUES (lower(hex(randomblob(16))), 1, '+8613800138000', '主力机', 'enabled', ?, ?, ?, ?)").run(ownerId, now, now, now);
+	database.prepare("INSERT INTO sms_shortcut_tokens (key, id, token_sha256, status, phone_id, owner_uid, idempotency_token, created_at, updated_at) VALUES (lower(hex(randomblob(16))), 1, ?, 'bound', 1, ?, 'idem', ?, ?)").run(createHash('sha256').update('raw-token').digest('hex'), ownerId, now, now);
+	database.close();
+
+	// ---- 防护先于例外：这两条必须被拦 ----
+	const endpointsPath = 'http://sms.test/api/panel/user/sms/push-endpoints.php';
+	const post = async (body) => {
+		const response = await app.request(endpointsPath, { method: 'POST', headers: h, body: JSON.stringify(body) });
+		return { status: response.status, message: (await response.json()).feedback?.message ?? '' };
+	};
+	assert.match((await post({ url: `https://127.0.0.1:${receiverPort}/hook`, status: 'enabled' })).message, /内网|回环/, '内网地址要拦下——否则推送成了从服务器发起的任意内网请求');
+	assert.match((await post({ url: 'http://example.com/hook', status: 'enabled' })).message, /https/, '必须 https：请求里带着短信正文');
+
+	process.env.SMS_PUSH_ALLOW_LOCAL_TARGETS = '1';
+	assert.equal((await post({ url: `http://127.0.0.1:${receiverPort}/hook`, status: 'enabled' })).status, 201, '开了本地例外才收得下 127.0.0.1');
+
+	// ---- 短信进来：登记投递任务，但不在接收接口里发出去 ----
+	const received = await app.request('http://sms.test/api/shortcut/message-receive.php', { method: 'POST', headers: { authorization: 'Bearer raw-token', 'content-type': 'application/json' }, body: JSON.stringify({ message_id: 'm-1', content: '【测试】验证码 8848', sender: '10086' }) });
+	assert.equal(received.status, 200);
+	assert.equal(receiverRequests.length, 0, '接收接口不等外部请求：对面慢一秒，手机上的 Shortcut 就多等一秒、超时重发');
+	const queued = new DatabaseSync(process.env.DEFAULT_DATABASE_FILE, { readOnly: true });
+	assert.equal(queued.prepare("SELECT COUNT(*) AS n FROM sms_push_deliveries WHERE status = 'pending'").get().n, 1);
+	queued.close();
+
+	// ---- 跑一轮投递 ----
+	assert.deepEqual(await runMaintenanceAction('dispatch-sms-push', {}), { sent: 1, failed: 0 });
+	assert.equal(receiverRequests.length, 1, '接收方要收到一条');
+	const delivered = receiverRequests[0];
+	const payload = JSON.parse(delivered.body);
+	assert.equal(payload.content, '【测试】验证码 8848');
+	// 号码只给掩码：接收方要知道是哪一部手机收到的，不需要完整号码——完整号码进了别人的
+	// 日志就再也收不回来。
+	assert.equal(payload.phone, '+861380013****');
+	assert.ok(!delivered.body.includes('raw-token'), '推送里不得出现原始令牌');
+
+	// ---- 接收方按 /api/push-key 的公钥验签，走的就是这条路 ----
+	const published = await (await app.request('http://sms.test/api/push-key.php')).json();
+	const matched = published.keys.find((item) => item.kid === delivered.headers['x-sms-key-id']);
+	assert.ok(matched, '推送头里的 kid 要能在公钥端点里找到——找不到接收方就无从验签');
+	const verifyDelivered = async (publicKeyBase64Url, signedInput) => {
+		const raw = Uint8Array.from(atob(publicKeyBase64Url.replaceAll('-', '+').replaceAll('_', '/')), (character) => character.charCodeAt(0));
+		const key = await crypto.subtle.importKey('raw', raw, { name: 'Ed25519' }, false, ['verify']);
+		const value = String(delivered.headers['x-sms-signature']).replace('ed25519=', '');
+		const bytes = Uint8Array.from(atob(value.replaceAll('-', '+').replaceAll('_', '/')), (character) => character.charCodeAt(0));
+		return crypto.subtle.verify({ name: 'Ed25519' }, key, bytes, new TextEncoder().encode(signedInput));
+	};
+	assert.equal(await verifyDelivered(matched.public_key, `${delivered.headers['x-sms-timestamp']}.${delivered.body}`), true, '接收方要验得过');
+	assert.equal(await verifyDelivered(matched.public_key, `${Number(delivered.headers['x-sms-timestamp']) + 1}.${delivered.body}`), false, '改时间戳要验不过，否则重放窗口形同虚设');
+
+	// ---- 成功之后不再重投，地址上记下最近成功 ----
+	assert.deepEqual(await runMaintenanceAction('dispatch-sms-push', {}), { sent: 0, failed: 0 }, '成功的任务不该再发一次');
+	assert.equal(receiverRequests.length, 1);
+	const finished = new DatabaseSync(process.env.DEFAULT_DATABASE_FILE, { readOnly: true });
+	assert.equal(finished.prepare('SELECT status FROM sms_push_deliveries').get().status, 'succeeded');
+	assert.ok(Number(finished.prepare('SELECT last_success_at FROM sms_push_endpoints').get().last_success_at) > 0);
+	finished.close();
+
+	console.log('sms push test passed');
+} finally {
+	receiver.close();
+	delete process.env.SMS_PUSH_ALLOW_LOCAL_TARGETS;
+	await rm(temporaryDirectory, { recursive: true, force: true });
+}

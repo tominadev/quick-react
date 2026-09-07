@@ -26,6 +26,7 @@ import { SiteRouter } from './modules/base/site-router.mjs';
 import { workerCodeSites, workerSiteNavigations } from './.generated/worker-api-registry.mjs';
 import { executeMaintenanceAction } from './modules/base/maintenance/actions.mjs';
 import { purgeAuditRetention } from './modules/base/audit.mjs';
+import { dispatchPushDeliveries } from './modules/sms/push.mjs';
 import { primeSnowflake } from './modules/base/snowflake.mjs';
 import { readEnvValue, resolveWorkerId } from './modules/base/worker-id.mjs';
 
@@ -257,5 +258,22 @@ if (!skipStartupChecks) {
 	runAuditRetention();
 	setInterval(runAuditRetention, auditRetentionInterval).unref();
 }
+
+/**
+ * 短信推送投递。本进程里没有调度器，因此每 30 秒跑一轮，理由与上面的保留期清理相同；
+ * Workers 部署要改用 cron 触发器调用 dispatchPushDeliveries。
+ *
+ * **一轮有上限**，不把积压一次发完：投递是对外的 HTTP，几百个并发出去对面会把本站当成
+ * 攻击源。漏发的下一轮继续，`next_attempt_at` 记着该什么时候再试。
+ *
+ * 只扫默认库——与保留期清理一样的限制：多库部署时各站点库要各自调度。
+ */
+const pushDispatchInterval = 30 * 1000;
+const runPushDispatch = () => {
+	dispatchPushDeliveries(defaultDatabase)
+		.then((result) => { if (result.sent || result.failed) console.log(`sms push: sent ${result.sent}, failed ${result.failed}`); })
+		.catch((error) => console.error('sms push dispatch failed', error));
+};
+if (!skipStartupChecks) setInterval(runPushDispatch, pushDispatchInterval).unref();
 
 if (process.env.SKIP_SERVER_LISTEN !== '1') await listen();

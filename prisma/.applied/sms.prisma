@@ -45,6 +45,17 @@ enum SmsClientKeyStatus {
   retired
 }
 
+/// 平台推送密钥的三态。
+///
+/// `active` 是当前用来**签名**的那一把，全站同时只有一把；`retiring` 是刚被换下来的，
+/// 仍然公布给接收方——已经发出去、正在重试的请求是用它签的，不公布就会在接收方那边
+/// 突然验不过；`retired` 不再公布。
+enum SmsPlatformKeyStatus {
+  active
+  retiring
+  retired
+}
+
 /// 推送投递的状态机。
 enum SmsDeliveryStatus {
   pending
@@ -104,6 +115,42 @@ model sms_integration_client_keys {
   /// Ed25519 公钥，原始字节的 Base64URL 表示。私钥永远不写入 SMS。
   public_key   String
   status       SmsClientKeyStatus @default(active)
+  retired_at   BigInt?
+}
+
+/// 平台自己的推送签名密钥。
+///
+/// **私钥明文入库**，与 global_cloud_credentials.access_key_secret 同一待遇：能盗库就能
+/// 拿到密钥，再加一层可解密的加密只是把钥匙和锁放在同一个抽屉里。放环境变量的话，同一个
+/// 系统里两种密钥两套存法，维护的人得记住哪个在哪；而且轮换要改配置、要重启，没法在后台
+/// 点两下完成。
+///
+/// **私钥不出服务端**：不进任何接口响应，管理页面上也不显示——它只有一个用途，就是在投递
+/// 时签名，没有任何人需要看到它。这与接入方公钥那一侧相反：那边私钥属于接入方，本站从头
+/// 到尾只存公钥（见 sms_integration_client_keys）。
+model sms_platform_keys {
+  id           BigInt @id @default(autoincrement())
+  key          String @db.VarChar(36)
+  @@unique([key])
+  created_at   BigInt @default(0)
+  updated_at   BigInt @default(0)
+  deleted_at   BigInt @default(0)
+  queued_at    BigInt @default(0)
+  created_duid BigInt?
+  updated_duid BigInt?
+  owner_tid    BigInt @default(1)
+  owner_bid    BigInt @default(1)
+  owner_uid    BigInt?
+  /// 公钥的 SHA-256 前 16 位十六进制。接收方按它挑公钥，因此**由公钥算出、不另外指定**：
+  /// 换了公钥它自动跟着变，也就不存在「kid 与公钥对不上」这种配错。
+  /// 不带 deleted_at：一个用过的 kid 即便记录被删也不该能复活。
+  kid          String @db.VarChar(32)
+  @@unique([kid])
+  /// Ed25519 公钥，原始字节的 Base64URL，43 个字符。
+  public_key   String @db.VarChar(64)
+  /// Ed25519 私钥，PKCS#8 的 Base64。只在投递签名时读，不进任何响应。
+  private_key  String
+  status       SmsPlatformKeyStatus @default(active)
   retired_at   BigInt?
 }
 

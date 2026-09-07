@@ -49,4 +49,8 @@ export const nameColumnOf = (table: string) => NAME_COLUMNS[table] ?? 'name';
  */
 export const NON_REFERENCE_COLUMNS = new Set([
 	'sms_integration_client_keys.public_key',
+	// 平台自己的推送签名密钥对：公钥要发给接收方，私钥只在签名时读。两者都是数据本身，
+	// 没有任何查询会拿一段密钥去找行——真要按密钥找，那也说明它被当成凭证在用了。
+	'sms_platform_keys.public_key',
+	'sms_platform_keys.private_key',
 ]);
