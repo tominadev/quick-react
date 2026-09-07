@@ -19,6 +19,7 @@ import { mergeQueryValues, mergeSort, queryRequestValues, queryUrlValues, readTa
 import { describeFormAdditions, describeFormChanges } from '@/components/panel/form-changes.js';
 import { PENDING_FIELD, PENDING_LOCK_FIELD } from '@shared/types/table.mjs';
 import { NullableInput } from '../nullable-input.js';
+import { actionVisibleForRow, formatBytes, pageTotal, responseHasSchema, rowConfirmText, tableRequestQuery, withoutControlFields } from '@/utils/common/table-crud.js';
 
 // 定义TableCRUD的传参
 type TableCrudType = {
@@ -52,18 +53,7 @@ type UploadState = {
 	message?: string;
 };
 
-const formatBytes = (bytes: number): string => {
-	if (!Number.isFinite(bytes) || bytes <= 0) return '0 B';
-	const units = ['B', 'KB', 'MB', 'GB', 'TB'];
-	const index = Math.min(Math.floor(Math.log(bytes) / Math.log(1024)), units.length - 1);
-	return `${(bytes / (1024 ** index)).toFixed(index === 0 ? 0 : 2)} ${units[index]}`;
-};
 
-/** 后端确认文案可以引用当前行字段，例如 {provider_label}、{detail}。 */
-const rowConfirmText = (template: string, record: DataType) => template.replace(/\{([A-Za-z0-9_]+)\}/g, (placeholder, field: string) => {
-	const value = record[field];
-	return value === undefined || value === null || value === '' ? placeholder : String(value);
-});
 
 
 const TableCRUD = ({ commonApi, resourcePath, initialResponse, initialQueryValues, showRecycleBin = true, urlState = true }: TableCrudProps) => {
@@ -193,14 +183,7 @@ const TableCRUD = ({ commonApi, resourcePath, initialResponse, initialQueryValue
 		if (tableOptionRef.current.changeControl) return commonApi.modalConfirmWithReason(lines);
 		return await commonApi.modalConfirm(lines) ? { reason: '' } : undefined;
 	};
-	const withoutControls = (values: Record<string, unknown>) => {
-		const { [CHANGE_CONTROL_FIELD]: _control, ...rest } = values;
-		return rest;
-	};
-
-	/** 按行过滤互斥动作：撤回只对已生效的行有意义，恢复只对已撤回的行有意义。 */
-	const actionVisibleForRow = (action: TableAction, record: DataType) =>
-		!action.visibleWhen || action.visibleWhen.values.includes(String(record[action.visibleWhen.field] ?? ''));
+	const withoutControls = withoutControlFields;
 
 	const apiDelete = async (ids: unknown[], headers: Record<string, string> = {}) => {
 		// 向后段API发送删除指令
@@ -314,26 +297,14 @@ const TableCRUD = ({ commonApi, resourcePath, initialResponse, initialQueryValue
 			if (responseOverride) {
 				resJSON = responseOverride;
 			} else {
-				const query: Record<string, string> = {
-					pageNum: pagination.current?.toString() || '0',
-					pageSize: pagination.pageSize?.toString() || '0',
-					...(sortRef.current ? { sort: sortRef.current } : {}),
-				};
-				const currentCursor = cursorsByPage.current[currentPage];
-				if (currentCursor) query.cursor = currentCursor;
-				Object.assign(query, queryRequestValues(currentQueryValues()));
-				// `include` 是公共响应协议参数，优先级高于业务查询字段。
-				// 首次请求加载结构，之后只请求数据；回收站状态始终保留。
-				const includes = new Set((query.include ?? '').split(',').map((value) => value.trim()).filter(Boolean));
-				if (tableSchemaLoaded.current) {
-					includes.delete('schema');
-					includes.add('data');
-				} else {
-					includes.add('schema');
-					includes.add('data');
-				}
-				if (includes.size) query.include = [...includes].join(',');
-				else delete query.include;
+				const query = tableRequestQuery({
+					page: pagination.current ?? 0,
+					pageSize: pagination.pageSize ?? 0,
+					sort: sortRef.current,
+					cursor: cursorsByPage.current[currentPage],
+					queryValues: queryRequestValues(currentQueryValues()),
+					schemaLoaded: tableSchemaLoaded.current,
+				});
 				const queryString = new URLSearchParams(query).toString();
 				const response: Response = await commonApi.apiFetch(`${apiPath}?${queryString}`);
 				resJSON = await response.json() as ResJSON;
@@ -342,7 +313,7 @@ const TableCRUD = ({ commonApi, resourcePath, initialResponse, initialQueryValue
 			if (resJSON.table) {
 				const hasTableOption = 'option' in resJSON.table;
 				const hasTableColumns = 'columns' in resJSON.table;
-				if (hasTableOption || hasTableColumns) tableSchemaLoaded.current = true;
+				if (responseHasSchema(resJSON.table)) tableSchemaLoaded.current = true;
 				if (hasTableOption) {
 					// 首次响应完整替换配置；后续只返回数据时继续使用已缓存的配置。
 					const tableOption: ResJsonTableOption = resJSON.table.option ?? { rowKey: 'key' };
@@ -491,10 +462,7 @@ const TableCRUD = ({ commonApi, resourcePath, initialResponse, initialQueryValue
 				const current = prev.current ?? 1;
 				const pageSize = prev.pageSize ?? 10;
 				const currentCount = resJSON.table?.dataSource?.length ?? 0;
-				const cursorTotal = resJSON.table?.hasMore === undefined
-					? undefined
-					: (current - 1) * pageSize + currentCount + (resJSON.table.hasMore ? 1 : 0);
-				return { ...prev, total: cursorTotal ?? resJSON.table?.totalRecords };
+				return { ...prev, total: pageTotal({ page: current, pageSize, currentCount, hasMore: resJSON.table?.hasMore, totalRecords: resJSON.table?.totalRecords }) };
 			});
 
 		} catch (ex) {
