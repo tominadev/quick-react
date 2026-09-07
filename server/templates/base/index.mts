@@ -82,7 +82,7 @@ const failureScript = (contactEmail: string) => `
 
 export const renderIndexHtml = (data: IndexData) => {
 	const initialDataJson = JSON.stringify(data.initialData).replaceAll('<', '\\u003c');
-	const bundle = webClientFor(data.clientKey).bundle;
+	const client = webClientFor(data.clientKey);
 	return html`<!doctype html>
 <html lang="zh-CN">
 <head>
@@ -94,6 +94,7 @@ export const renderIndexHtml = (data: IndexData) => {
   <meta property="og:title" content="${data.title}">
   <meta property="og:description" content="${data.description}">
   <meta property="og:type" content="website">
+  ${client.stylesheet ? html`<link rel="stylesheet" href="/${client.stylesheet}">` : ''}
 </head>
 <body>
   <div id="root">
@@ -132,7 +133,7 @@ export const renderIndexHtml = (data: IndexData) => {
   </noscript>
   <script>window.__INITIAL_DATA__=${raw(initialDataJson)};</script>
   <script>${raw(failureScript(data.contactEmail?.trim() ?? '').replaceAll('<', '\\u003c'))}</script>
-  <script src="/${bundle}.nocache" defer onerror="window.__APP_LOAD_FAILED__ && window.__APP_LOAD_FAILED__()"></script>
+  <script src="/${client.bundle}.nocache" defer onerror="window.__APP_LOAD_FAILED__ && window.__APP_LOAD_FAILED__()"></script>
 </body>
 </html>`;
 };

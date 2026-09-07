@@ -15,13 +15,21 @@ export type WebClient = {
 	label: string;
 	/** 页面壳引用的脚本，位于 `public/` 下。 */
 	bundle: string;
+	/**
+	 * 要额外引的样式表，位于 `public/` 下；不需要就留空。
+	 *
+	 * antd 那套是 CSS-in-JS，组件自带样式；antd-mobile 的组件只输出类名，样式在单独的
+	 * CSS 里——不引的话页面是一堆裸 HTML，能点、数据也对，就是完全没有样子，而控制台里
+	 * 一个错都不报。
+	 */
+	stylesheet?: string;
 	/** 源码入口，esbuild 用它构建上面那个产物。 */
 	entry: string;
 };
 
 export const WEB_CLIENTS: readonly WebClient[] = [
 	{ key: 'antd', label: 'Ant Design（电脑版）', bundle: 'bundle.js', entry: 'clients/antd/index.tsx' },
-	{ key: 'antd-mobile', label: 'Ant Design Mobile（手机版）', bundle: 'bundle-antd-mobile.js', entry: 'clients/antd-mobile/index.tsx' },
+	{ key: 'antd-mobile', label: 'Ant Design Mobile（手机版）', bundle: 'bundle-antd-mobile.js', stylesheet: 'bundle-antd-mobile.css', entry: 'clients/antd-mobile/index.tsx' },
 ];
 
 /** 没配或者配了一个已经下线的 key 时用哪一套。 */

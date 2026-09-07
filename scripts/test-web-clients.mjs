@@ -95,6 +95,26 @@ try {
 	assert.ok(mobileBundle.includes('adm-'), '手机版产物里应当有 antd-mobile 的类名前缀');
 	assert.doesNotMatch(mobileBundle, /\bant-btn\b|\bant-table\b/, '手机版不该打进桌面版 antd');
 
+	/**
+	 * **声明了样式表就必须真的产出它。**
+	 *
+	 * antd-mobile 的组件只输出类名，样式在单独的 CSS 里。漏了这个文件，页面是一堆裸
+	 * HTML——能点、数据也对，就是完全没有样子，而**控制台里一个错都不报**：脚本加载成功、
+	 * 请求也成功，只有肉眼能看出不对。线上就这么出现过一次。
+	 */
+	for (const client of WEB_CLIENTS) {
+		if (!client.stylesheet) continue;
+		const stylesheet = await readFile(resolve(projectDirectory, 'public', client.stylesheet), 'utf8');
+		assert.ok(stylesheet.length > 1000, `${client.key} 声明了样式表，产物却是空的`);
+	}
+	// 反过来：产出了样式却没在清单里声明，页面壳就不会去引它，症状一模一样。
+	assert.ok(WEB_CLIENTS.find((client) => client.key === 'antd-mobile')?.stylesheet, 'antd-mobile 必须声明样式表');
+
+	// 页面壳要把声明的样式表引进 <head>——放 body 末尾会先渲染出没有样式的一屏再跳一下。
+	const templateSource = await readFile(resolve(projectDirectory, 'server/templates/base/index.mts'), 'utf8');
+	const headPart = templateSource.slice(templateSource.indexOf('<head>'), templateSource.indexOf('</head>'));
+	assert.match(headPart, /client\.stylesheet.*rel="stylesheet"/s, '样式表要引在 head 里');
+
 	console.log('web clients test passed');
 } finally {
 	await rm(directory, { recursive: true, force: true });
