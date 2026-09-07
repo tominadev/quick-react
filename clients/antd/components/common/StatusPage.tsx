@@ -3,12 +3,12 @@ import { useEffect, useState } from 'react';
 import { Button, Result, Space } from 'antd';
 import { useLocation, useNavigate } from 'react-router-dom';
 import { HomeOutlined, LoginOutlined, UserOutlined } from '@ant-design/icons';
-import type { CommonApi } from '@/utils/common/api.js';
+import type { CommonApi } from '@clients/browser/api.js';
 import type { HeaderAction, PageStatus } from '@shared/types/initial-data.mjs';
 import type { ApiContext, ApiNextAction } from '@shared/types/api-response.mjs';
-import { isSilentPassportError, loginWithAccountsPopup } from '@/utils/common/passport.js';
+import { isSilentPassportError, loginWithAccountsPopup } from '@clients/browser/passport.js';
 import LocalLoginModal from '@/components/auth/LocalLoginModal.js';
-import { runApiNextAction } from '@/utils/common/response-action.js';
+import { runApiNextAction } from '@clients/browser/response-action.js';
 
 type StatusPageProps = {
 	commonApi: CommonApi;

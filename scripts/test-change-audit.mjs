@@ -1425,7 +1425,7 @@ try {
 	// 「全部」是「不筛选」的第二种拼法，两种摆在一个控件里，看的人先得琢磨它们差在哪。
 	const auditRoute = await readFile(resolve(projectDirectory, 'server/routes/base/api/panel/admin/base/audit/records.mts'), 'utf8');
 	assert.doesNotMatch(auditRoute, /text: '全部'/, '审批页的下拉框不该再摆「全部」这一项');
-	const tableCrudSource = await readFile(resolve(projectDirectory, 'clients/web/utils/antd/table_crud/index.tsx'), 'utf8');
+	const tableCrudSource = await readFile(resolve(projectDirectory, 'clients/antd/utils/antd/table_crud/index.tsx'), 'utf8');
 	assert.match(tableCrudSource, /placeholder=\{field\.placeholder \?\? '未填写'\}/, '下拉框空着的时候要讲清楚那是「未填写」');
 	// 有默认值的下拉框是这一页运转所必需的（数据管理的「数据表」、对象存储的「Bucket 绑定」），
 	// 清空了页面就没东西可显示，那不是一种筛选状态；没有默认值的才给清。

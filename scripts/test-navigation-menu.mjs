@@ -70,7 +70,7 @@ try {
 	// 折叠起来的话，每次进来只有当前模块是展开的，想看看别的模块有什么得先点一下，
 	// 而那一下点开还什么都不做（有子菜单的项只展开不跳转）。渲染要浏览器环境才测得到，
 	// 这里守住生成菜单项的那段。
-	const layoutSource = await readFile(resolve(import.meta.dirname, '../clients/web/components/panel/PanelLayout.tsx'), 'utf8');
+	const layoutSource = await readFile(resolve(import.meta.dirname, '../clients/antd/components/panel/PanelLayout.tsx'), 'utf8');
 	assert.match(layoutSource, /if \(depth === 0 && children\?\.length && !initialData\?\.adminMenuFoldable\) \{/, '顶层默认成组，打开开关才折叠');
 	assert.match(layoutSource, /type: 'group', key: item\.key, label: item\.label, children/, '顶层渲染成分组而不是可折叠子菜单');
 	assert.match(layoutSource, /index > 0 \? \[\{ type: 'divider' \}/, '组与组之间要有分隔线');

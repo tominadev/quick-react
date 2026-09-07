@@ -40,7 +40,7 @@ const React = await import('react');
 const { render, screen, waitFor } = await import('@testing-library/react');
 const userEvent = (await import('@testing-library/user-event')).default;
 const { MemoryRouter } = await import('react-router-dom');
-const { App } = await import('../clients/web/App.js');
+const { App } = await import('../clients/antd/App.js');
 
 const table = (key: string) => ({
 	option: { rowKey: 'id' },

@@ -16,9 +16,9 @@ import { pathToFileURL } from 'node:url';
 const directory = await mkdtemp(join(tmpdir(), 'quick-react-table-crud-'));
 try {
 	const result = await build({
-		stdin: { contents: "export * from './clients/web/utils/common/table-crud.ts';", resolveDir: resolve(import.meta.dirname, '..'), sourcefile: 'table-crud-entry.ts' },
+		stdin: { contents: "export * from './clients/browser/table-crud.ts';", resolveDir: resolve(import.meta.dirname, '..'), sourcefile: 'table-crud-entry.ts' },
 		bundle: true, format: 'esm', platform: 'neutral', write: false,
-		alias: { '@': resolve(import.meta.dirname, '../clients/web'), '@clients': resolve(import.meta.dirname, '../clients'), '@shared': resolve(import.meta.dirname, '../shared') },
+		alias: { '@': resolve(import.meta.dirname, '../clients/antd'), '@clients': resolve(import.meta.dirname, '../clients'), '@shared': resolve(import.meta.dirname, '../shared') },
 	});
 	const file = join(directory, 'table-crud.mjs');
 	await writeFile(file, result.outputFiles[0].contents);

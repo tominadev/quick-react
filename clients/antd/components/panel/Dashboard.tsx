@@ -1,7 +1,7 @@
 import { useState, useEffect } from 'react';
 import { Card, Col, Row, Statistic, Table } from 'antd';
 import type { TableColumnsType } from 'antd';
-import type { CommonApi } from '@/utils/common/api.js';
+import type { CommonApi } from '@clients/browser/api.js';
 import type { DashboardData } from '@shared/types/dashboard.mjs';
 
 export default function Dashboard({ commonApi, apiPath, initialData }: { commonApi: CommonApi; apiPath: string; initialData?: DashboardData }) {

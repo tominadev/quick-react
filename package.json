@@ -85,6 +85,7 @@
     "@types/react": "^19.2.18",
     "@types/react-dom": "^19.2.4",
     "antd": "^6.6.0",
+    "antd-mobile": "^5.42.3",
     "esbuild": "^0.28.2",
     "jsdom": "^30.0.1",
     "prisma": "^6.19.3",

@@ -11,7 +11,7 @@ import { pathToFileURL } from 'node:url';
  * 地址栏里的状态覆盖掉——关掉弹窗后主表还停在原处，地址栏说的却是回收站那一套，
  * 一刷新就跳到别的地方去了。渲染要靠浏览器环境才测得到，这里守住调用点。
  */
-const tableSource = await readFile(resolve(import.meta.dirname, '../clients/web/utils/antd/table_crud/index.tsx'), 'utf8');
+const tableSource = await readFile(resolve(import.meta.dirname, '../clients/antd/utils/antd/table_crud/index.tsx'), 'utf8');
 assert.match(tableSource, /showRecycleBin=\{false\}\s*\n\s*urlState=\{false\}/, '弹窗里的 TableCRUD 必须带 urlState={false}');
 assert.match(tableSource, /if \(!urlState \|\| typeof window === 'undefined'\) return;/, 'rememberTableState 必须在 urlState 关闭时直接返回');
 
@@ -24,7 +24,7 @@ await build({
 	platform: 'node',
 	format: 'esm',
 	outfile: output,
-	alias: { '@': resolve(import.meta.dirname, '../clients/web'), '@clients': resolve(import.meta.dirname, '../clients'), '@shared': resolve(import.meta.dirname, '../shared') },
+	alias: { '@': resolve(import.meta.dirname, '../clients/antd'), '@clients': resolve(import.meta.dirname, '../clients'), '@shared': resolve(import.meta.dirname, '../shared') },
 	resolveExtensions: ['.tsx', '.ts', '.jsx', '.js', '.mts', '.mjs', '.json'],
 });
 await import(`${pathToFileURL(output)}?test=${Date.now()}`);

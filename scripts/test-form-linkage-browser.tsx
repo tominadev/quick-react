@@ -23,8 +23,8 @@ globalThis.ResizeObserver = class { observe() {} unobserve() {} disconnect() {} 
 const React = await import('react');
 const { render, screen, waitFor, cleanup } = await import('@testing-library/react');
 const userEvent = (await import('@testing-library/user-event')).default;
-const FormPage = (await import('../clients/web/components/panel/FormPage.js')).default;
-const DrawerForm = (await import('../clients/web/utils/antd/table_crud/drawer.js')).default;
+const FormPage = (await import('../clients/antd/components/panel/FormPage.js')).default;
+const DrawerForm = (await import('../clients/antd/utils/antd/table_crud/drawer.js')).default;
 
 const response = {
 	currentValues: { enabled: false, issuerSource: '__custom__', issuer: '', clientId: '', clientSecret: '' },

@@ -2,7 +2,7 @@ import type React from 'react';
 import { Input, Modal, ModalFuncProps, Spin, theme, message } from 'antd';
 import { ExclamationCircleOutlined } from '@ant-design/icons';
 import { useRef, useState } from 'react';
-import { createApiClient, type ApiFeedback, type ApiPresenter, type ChangeControlValues, type CommonApi } from '@/utils/common/api.js';
+import { createApiClient, type ApiFeedback, type ApiPresenter, type ChangeControlValues, type CommonApi } from '@clients/browser/api.js';
 
 /**
  * 把请求层接到 antd 上。**这一层是可替换的**：换 elementUI、做手机版或小程序时另写一份

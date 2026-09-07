@@ -2,9 +2,9 @@ import type React from 'react';
 import type { FilterValue } from 'antd/es/table/interface.js';
 import type { TableProps, TablePaginationConfig } from 'antd';
 import type { TableColumnsType } from 'antd';
-import type { ChangeControlValues, DataType, ResJSON, ResJsonTable } from '@/utils/common/api.js';
-import type { ResJsonTableOption } from '@/utils/common/api.js';
-import type { CommonApi, ResJsonTableColumn } from '@/utils/common/api.js';
+import type { ChangeControlValues, DataType, ResJSON, ResJsonTable } from '@clients/browser/api.js';
+import type { ResJsonTableOption } from '@clients/browser/api.js';
+import type { CommonApi, ResJsonTableColumn } from '@clients/browser/api.js';
 import type { TableAction, TableQueryField } from '@shared/types/table.mjs';
 import { CHANGE_CONTROL_FIELD, changeControlHeaders, resolveTableFormColumns } from '@shared/table-form.mjs';
 
@@ -13,13 +13,13 @@ import { Table, Avatar, Button, Flex, Input, Space, Tag, Select, Progress, Typog
 import FormPage from '@/components/panel/FormPage.js';
 import { useNavigate } from 'react-router-dom';
 import { PlusOutlined, DeleteOutlined, SearchOutlined, UploadOutlined, DownloadOutlined } from '@ant-design/icons';
-import { useDrawer } from '@/utils/common/drawer.js';
+import { useDrawer } from '@/utils/antd/drawer.js';
 import dayjs from 'dayjs';
-import { mergeQueryValues, mergeSort, queryRequestValues, queryUrlValues, readTableUrlState, sortOrderFor, writeTableUrlState, type TableQueryValues } from './url-state.js';
+import { mergeQueryValues, mergeSort, queryRequestValues, queryUrlValues, readTableUrlState, sortOrderFor, writeTableUrlState, type TableQueryValues } from '@clients/browser/table-url-state.js';
 import { describeFormAdditions, describeFormChanges } from '@/components/panel/form-changes.js';
 import { PENDING_FIELD, PENDING_LOCK_FIELD } from '@shared/types/table.mjs';
 import { NullableInput } from '../nullable-input.js';
-import { actionVisibleForRow, formatBytes, pageTotal, responseHasSchema, rowConfirmText, tableRequestQuery, withoutControlFields } from '@/utils/common/table-crud.js';
+import { actionVisibleForRow, formatBytes, pageTotal, responseHasSchema, rowConfirmText, tableRequestQuery, withoutControlFields } from '@clients/browser/table-crud.js';
 
 // 定义TableCRUD的传参
 type TableCrudType = {

@@ -1,5 +1,5 @@
-import type { DataType, ResJsonTableColumn } from '@/utils/common/api.js';
-import type { CommonApi } from '@/utils/common/api.js';
+import type { DataType, ResJsonTableColumn } from '@clients/browser/api.js';
+import type { CommonApi } from '@clients/browser/api.js';
 import type { UploadProps } from 'antd';
 import { NullableInput } from '@/utils/antd/nullable-input.js';
 import type { TableSelectOption } from '@shared/types/table.mjs';

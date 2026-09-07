@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react';
-import type { CommonApi } from '@/utils/common/api.js';
+import type { CommonApi } from '@clients/browser/api.js';
 
 type CallbackResult = { ok: boolean; result: Record<string, any> };
 const callbackRequests = new Map<string, Promise<CallbackResult>>();

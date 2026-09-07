@@ -1,12 +1,12 @@
-import type { CommonApi } from '@/utils/common/api.js';
+import type { CommonApi } from '@clients/browser/api.js';
 import type { AuthState, HeaderAction } from '@shared/types/initial-data.mjs';
 import { Avatar, Button, Dropdown, Space } from 'antd';
 import { LoginOutlined, LogoutOutlined, UserAddOutlined, UserOutlined } from '@ant-design/icons';
 import { useLocation, useNavigate } from 'react-router-dom';
-import { isSilentPassportError, loginWithAccountsPopup, logoutWithAccounts } from '@/utils/common/passport.js';
+import { isSilentPassportError, loginWithAccountsPopup, logoutWithAccounts } from '@clients/browser/passport.js';
 import { useState } from 'react';
 import LocalLoginModal from '@/components/auth/LocalLoginModal.js';
-import { runApiNextAction } from '@/utils/common/response-action.js';
+import { runApiNextAction } from '@clients/browser/response-action.js';
 import type { ApiContext, ApiNextAction } from '@shared/types/api-response.mjs';
 
 type AuthActionsProps = {

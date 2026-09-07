@@ -12,8 +12,8 @@ import { pathToFileURL } from 'node:url';
  * 转圈的圈圈在抽屉后面，看着像没反应。渲染要浏览器环境才测得到，这里守住写法。
  */
 // 遮罩与弹窗在 antd 渲染层；请求与协议处理在 utils/common/api.ts，那一层不碰 UI。
-const apiSource = await readFile(resolve(import.meta.dirname, '../clients/web/utils/antd/common-api.tsx'), 'utf8');
-const clientSource = await readFile(resolve(import.meta.dirname, '../clients/web/utils/common/api.ts'), 'utf8');
+const apiSource = await readFile(resolve(import.meta.dirname, '../clients/antd/utils/antd/common-api.tsx'), 'utf8');
+const clientSource = await readFile(resolve(import.meta.dirname, '../clients/browser/api.ts'), 'utf8');
 // 请求层不许再依赖任何 UI 框架——绑上去的话，第二套 UI 就得把请求逻辑重写一遍。
 // 只看**行首的 import**：注释里引用那句 `import … from 'antd'` 来解释为什么要拆，
 // 按出现过 antd 就判失败的话，写清楚理由反而会把测试弄挂。
@@ -34,7 +34,7 @@ await build({
 	platform: 'node',
 	format: 'esm',
 	outfile: output,
-	alias: { '@': resolve(import.meta.dirname, '../clients/web'), '@clients': resolve(import.meta.dirname, '../clients'), '@shared': resolve(import.meta.dirname, '../shared') },
+	alias: { '@': resolve(import.meta.dirname, '../clients/antd'), '@clients': resolve(import.meta.dirname, '../clients'), '@shared': resolve(import.meta.dirname, '../shared') },
 	resolveExtensions: ['.tsx', '.ts', '.jsx', '.js', '.mts', '.mjs', '.json'],
 });
 await import(`${pathToFileURL(output)}?test=${Date.now()}`);

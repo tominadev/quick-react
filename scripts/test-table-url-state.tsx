@@ -1,5 +1,5 @@
 import assert from 'node:assert/strict';
-import { readTableUrlState, writeTableUrlState, sortOrderFor, parseSort, formatSort, mergeSort, mergeQueryValues, queryRequestValues, queryUrlValues, tableRequestParams, defaultTableUrlState } from '@/utils/antd/table_crud/url-state.js';
+import { readTableUrlState, writeTableUrlState, sortOrderFor, parseSort, formatSort, mergeSort, mergeQueryValues, queryRequestValues, queryUrlValues, tableRequestParams, defaultTableUrlState } from '@clients/browser/table-url-state.js';
 
 // —— 读 ——
 assert.deepEqual(readTableUrlState(''), { ...defaultTableUrlState, query: {} });

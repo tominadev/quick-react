@@ -1,5 +1,5 @@
 import type { ApiFeedback as SharedApiFeedback, ApiResponseBody } from '@shared/types/api-response.mjs';
-import { applyApiResponseContext } from '@/utils/common/response-action.js';
+import { applyApiResponseContext } from '@clients/browser/response-action.js';
 import type { TableColumn, TableData, TableOption, TableResponse } from '@shared/types/table.mjs';
 import { getDeviceHeaders } from '@clients/browser/device-fingerprint.js';
 

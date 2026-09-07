@@ -1,5 +1,5 @@
 import { Modal } from 'antd';
-import type { CommonApi } from '@/utils/common/api.js';
+import type { CommonApi } from '@clients/browser/api.js';
 import FormPage from '@/components/panel/FormPage.js';
 
 type LocalLoginModalProps = {

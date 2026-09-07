@@ -1,6 +1,6 @@
 import type React from 'react';
 import type { MenuProps } from 'antd';
-import type { CommonApi } from '@/utils/common/api.js';
+import type { CommonApi } from '@clients/browser/api.js';
 import type { NavigationItem } from '@shared/types/navigation.mjs';
 import { useState, useEffect, useMemo } from 'react';
 import { useNavigate, useLocation } from 'react-router-dom';

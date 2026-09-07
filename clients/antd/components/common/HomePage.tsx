@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'react';
 import { Card, Space, Typography } from 'antd';
-import type { CommonApi } from '@/utils/common/api.js';
+import type { CommonApi } from '@clients/browser/api.js';
 import type { HomePageData } from '@shared/types/home.mjs';
 
 type HomePageProps = { commonApi: CommonApi; apiSuffix: string; initialData?: HomePageData };

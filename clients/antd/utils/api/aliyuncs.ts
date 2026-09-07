@@ -1,4 +1,4 @@
-import { signHmacSha1ToBase64 } from '@/utils/common/crypto.js';
+import { signHmacSha1ToBase64 } from '@clients/browser/crypto.js';
 import { createDeviceKey } from '@shared/device-key.mjs';
 
 // 生成签名

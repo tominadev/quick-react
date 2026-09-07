@@ -1,4 +1,4 @@
-import type { DataType, ResJsonTable } from '@/utils/common/api.js';
+import type { DataType, ResJsonTable } from '@clients/browser/api.js';
 import type { TableAction } from '@shared/types/table.mjs';
 import { CHANGE_CONTROL_FIELD } from '@shared/table-form.mjs';
 

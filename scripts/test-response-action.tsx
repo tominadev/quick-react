@@ -5,7 +5,7 @@ const dom = new JSDOM('<!doctype html><html><body></body></html>', { url: 'https
 Object.assign(globalThis, { window: dom.window, document: dom.window.document, CustomEvent: dom.window.CustomEvent });
 
 
-const { applyApiResponseContext, apiNavigationEvent, planApiNavigation } = await import('@/utils/common/response-action.js');
+const { applyApiResponseContext, apiNavigationEvent, planApiNavigation } = await import('@clients/browser/response-action.js');
 
 const patch = { auth: { currentUser: { profile_nickname: '管理员123' } } };
 

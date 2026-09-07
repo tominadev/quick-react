@@ -1,6 +1,6 @@
 import { Alert, Button, Card, Descriptions } from 'antd';
 import { useEffect, useState } from 'react';
-import type { CommonApi } from '@/utils/common/api.js';
+import type { CommonApi } from '@clients/browser/api.js';
 import type { AccountCenterLink, UserIdentity } from '@shared/types/user.mjs';
 import { roleLabel } from '@shared/types/role.mjs';
 import type { FormPageResponse } from '@shared/types/form-page.mjs';

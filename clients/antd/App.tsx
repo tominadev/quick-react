@@ -1,6 +1,6 @@
 import type React from 'react';
 import type { MenuProps } from 'antd';
-import type { CommonApi } from '@/utils/common/api.js';
+import type { CommonApi } from '@clients/browser/api.js';
 import type { InitialData } from '@shared/types/initial-data.mjs';
 import type { AuthState } from '@shared/types/initial-data.mjs';
 import type { ApiContext, ApiContextPatch } from '@shared/types/api-response.mjs';
@@ -26,7 +26,7 @@ import PersonalCenter from './components/panel/PersonalCenter.js';
 import ExternalCallback from './components/accounts/ExternalCallback.js';
 import StatusPage from './components/common/StatusPage.js';
 import HomePage from './components/common/HomePage.js';
-import { apiNavigationEvent, planApiNavigation, type ApiNavigationEventDetail } from '@/utils/common/response-action.js';
+import { apiNavigationEvent, planApiNavigation, type ApiNavigationEventDetail } from '@clients/browser/response-action.js';
 const { Content } = Layout;
 
 type MenuItem = Required<MenuProps>['items'][number];
@@ -292,7 +292,7 @@ export const App = ({ commonApi }: AppType) => {
 };
 
 import { useCommonApi } from '@/utils/antd/common-api.js'
-import { tableRequestParams } from '@/utils/antd/table_crud/url-state.js';
+import { tableRequestParams } from '@clients/browser/table-url-state.js';
 
 const AppRoot = () => {
 	const [commonApi, contextHolder] = useCommonApi();
