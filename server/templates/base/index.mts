@@ -1,5 +1,6 @@
 import { html, raw } from 'hono/html';
 import type { InitialData } from '@shared/types/initial-data.mjs';
+import { webClientFor } from '@shared/web-clients.mjs';
 
 interface IndexData {
 	title: string;
@@ -8,6 +9,11 @@ interface IndexData {
 	/** 加载失败时给用户的联系方式；没配置就只提示刷新。 */
 	contactEmail?: string;
 	initialData: InitialData;
+	/**
+	 * 这个域名用哪一套前端（`shared/web-clients.mts` 的 key）。空串或认不出的值回落到默认
+	 * 那一套——这一步一旦拿不到结果，整个域名就打不开。
+	 */
+	clientKey?: string;
 }
 
 /**
@@ -76,6 +82,7 @@ const failureScript = (contactEmail: string) => `
 
 export const renderIndexHtml = (data: IndexData) => {
 	const initialDataJson = JSON.stringify(data.initialData).replaceAll('<', '\\u003c');
+	const bundle = webClientFor(data.clientKey).bundle;
 	return html`<!doctype html>
 <html lang="zh-CN">
 <head>
@@ -125,7 +132,7 @@ export const renderIndexHtml = (data: IndexData) => {
   </noscript>
   <script>window.__INITIAL_DATA__=${raw(initialDataJson)};</script>
   <script>${raw(failureScript(data.contactEmail?.trim() ?? '').replaceAll('<', '\\u003c'))}</script>
-  <script src="/bundle.js.nocache" defer onerror="window.__APP_LOAD_FAILED__ && window.__APP_LOAD_FAILED__()"></script>
+  <script src="/${bundle}.nocache" defer onerror="window.__APP_LOAD_FAILED__ && window.__APP_LOAD_FAILED__()"></script>
 </body>
 </html>`;
 };

@@ -53,4 +53,7 @@ export const NON_REFERENCE_COLUMNS = new Set([
 	// 没有任何查询会拿一段密钥去找行——真要按密钥找，那也说明它被当成凭证在用了。
 	'sms_platform_keys.public_key',
 	'sms_platform_keys.private_key',
+	// 这个域名用哪一套前端。它引用的是**代码里的清单**（shared/web-clients.mts），不是
+	// 另一张表——加索引没有对象可指。同一行上的 site_key 才是真外键，那个有索引。
+	'global_site_hosts.client_key',
 ]);

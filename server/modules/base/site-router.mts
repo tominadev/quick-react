@@ -19,7 +19,16 @@ export type SiteRequestContext = SiteRecord & {
 	hostname: string;
 	codeSiteChain: string[];
 	databaseTarget: DatabaseTarget;
+	/**
+	 * 这个域名用哪一套前端（`shared/web-clients.mts` 的 key）。空串表示默认那一套。
+	 *
+	 * 跟着**域名**走而不是站点：`m.example.com` 与 `www.example.com` 指向同一个站点、
+	 * 同一批数据，只是 UI 不同。
+	 */
+	clientKey: string;
 };
+
+type HostBinding = { siteKey: string; clientKey: string };
 
 type SiteRow = {
 	site_key: string;
@@ -33,13 +42,13 @@ type SiteRow = {
 	is_system: number;
 };
 
-type HostRow = { hostname: string; site_key: string };
+type HostRow = { hostname: string; site_key: string; client_key: string | null };
 
 type RouteSnapshot = {
 	loadedAt: number;
 	sites: Map<string, SiteRecord>;
-	exactHosts: Map<string, string>;
-	wildcardHosts: Array<{ suffix: string; siteKey: string }>;
+	exactHosts: Map<string, HostBinding>;
+	wildcardHosts: Array<{ suffix: string } & HostBinding>;
 	defaultSiteKey?: string;
 };
 
@@ -106,15 +115,16 @@ export class SiteRouter {
 		const sites = new Map(siteRows.filter((row) => siteKeyPattern.test(row.site_key)).map((row) => [row.site_key, createSiteRecord(row)]));
 		for (const site of sites.values()) buildSiteChain(site, sites);
 
-		const hostRows = await allSql<HostRow>(this.database, sql({ database: this.database }).select({ table: 'global_site_hosts', columns: { hostname: 'hostname', site_key: 'site_key' }, where: [{ column: 'status', value: 'enabled' }] }));
-		const exactHosts = new Map<string, string>();
-		const wildcardHosts: Array<{ suffix: string; siteKey: string }> = [];
+		const hostRows = await allSql<HostRow>(this.database, sql({ database: this.database }).select({ table: 'global_site_hosts', columns: { hostname: 'hostname', site_key: 'site_key', client_key: 'client_key' }, where: [{ column: 'status', value: 'enabled' }] }));
+		const exactHosts = new Map<string, HostBinding>();
+		const wildcardHosts: Array<{ suffix: string } & HostBinding> = [];
 		for (const row of hostRows) {
 			if (!sites.has(row.site_key)) continue;
 			const hostname = normalizeStoredHostname(row.hostname);
 			if (!hostname) continue;
-			if (hostname.startsWith('*.')) wildcardHosts.push({ suffix: hostname.slice(1), siteKey: row.site_key });
-			else exactHosts.set(hostname, row.site_key);
+			const binding: HostBinding = { siteKey: row.site_key, clientKey: String(row.client_key ?? '') };
+			if (hostname.startsWith('*.')) wildcardHosts.push({ suffix: hostname.slice(1), ...binding });
+			else exactHosts.set(hostname, binding);
 		}
 		wildcardHosts.sort((left, right) => right.suffix.length - left.suffix.length);
 		const defaultSiteKey = [...sites.values()].find((site) => site.isDefault)?.siteKey;
@@ -135,24 +145,25 @@ export class SiteRouter {
 	async resolve(request: Request): Promise<SiteRequestContext | undefined> {
 		const snapshot = await this.currentSnapshot();
 		const hostname = normalizeHostname(new URL(request.url).hostname);
-		let siteKey = snapshot.exactHosts.get(hostname);
-		if (!siteKey) {
+		let binding = snapshot.exactHosts.get(hostname);
+		if (!binding) {
 			for (const wildcard of snapshot.wildcardHosts) {
 				if (!hostname.endsWith(wildcard.suffix)) continue;
 				const prefix = hostname.slice(0, -wildcard.suffix.length);
 				if (prefix && !prefix.includes('.')) {
-					siteKey = wildcard.siteKey;
+					binding = { siteKey: wildcard.siteKey, clientKey: wildcard.clientKey };
 					break;
 				}
 			}
 		}
-		siteKey ??= snapshot.defaultSiteKey;
+		// 兜底到默认站点时**不带前端选择**：那条路径上没有域名记录，谈不上「这个域名用哪一套」。
+		const siteKey = binding?.siteKey ?? snapshot.defaultSiteKey;
 		const site = siteKey ? snapshot.sites.get(siteKey) : undefined;
 		if (!site) return undefined;
 		const databaseTarget: DatabaseTarget = site.databaseBinding
 			? { kind: 'binding', value: site.databaseBinding }
 			: site.dsn ? { kind: 'dsn', value: site.dsn } : { kind: 'default', value: '' };
-		return { ...site, hostname, codeSiteChain: buildSiteChain(site, snapshot.sites), databaseTarget };
+		return { ...site, hostname, codeSiteChain: buildSiteChain(site, snapshot.sites), databaseTarget, clientKey: binding?.clientKey ?? '' };
 	}
 
 	/** 找出提供某个接口的站点，例如身份中心就是提供 Accounts 身份登录接口的那个站点。 */
@@ -164,7 +175,7 @@ export class SiteRouter {
 			const databaseTarget: DatabaseTarget = site.databaseBinding
 				? { kind: 'binding', value: site.databaseBinding }
 				: site.dsn ? { kind: 'dsn', value: site.dsn } : { kind: 'default', value: '' };
-			return { ...site, hostname, codeSiteChain, databaseTarget };
+			return { ...site, hostname, codeSiteChain, databaseTarget, clientKey: '' };
 		}
 		return undefined;
 	}

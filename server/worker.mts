@@ -307,6 +307,9 @@ const renderDocument = async (c: Context<WorkerEnv>) => {
 		title,
 		canonical,
 		contactEmail: c.get('siteSettings').contactEmail,
+		// 前端跟着**域名**走：m.example.com 与 www.example.com 是同一个站点、同一批数据，
+		// 只是 UI 不同（见 global_site_hosts.client_key）。
+		clientKey: c.get('site').clientKey,
 		initialData: {
 			debug: systemConfig.debug,
 			bootstrapMode: apiBootstrap ? 'api' : 'server',

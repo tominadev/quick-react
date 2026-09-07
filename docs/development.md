@@ -40,12 +40,21 @@ npm run typecheck
 
 | 目录 | 是什么 | 产物 |
 | --- | --- | --- |
-| `clients/web/` | 浏览器主站，用 antd | `public/bundle.js` |
+| `clients/antd/` | 浏览器主站，Ant Design（电脑版） | `public/bundle.js` |
+| `clients/antd-mobile/` | 手机版，Ant Design Mobile | `public/bundle-antd-mobile.js` |
 | `clients/passport/` | 嵌进别的站点做弹窗登录的 SDK | `public/passport.js` |
-| `clients/browser/` | 浏览器专有的公共能力（设备指纹用到 canvas、localStorage、navigator） | 被上面两个引用 |
+| `clients/browser/` | 所有 web 客户端共用：请求层、表格协议、URL 状态、设备指纹 | 被上面几个引用 |
 
-将来加别的端（手机版、elementUI、小程序、桌面壳）在 `clients/` 下平级新建，各自一个
-esbuild 入口。
+**每个域名各自选一套前端**（域名管理页上的「前端」一列，存在 `global_site_hosts.client_key`）：
+`m.example.com` 与 `www.example.com` 往往指向同一个站点、同一批数据，只是 UI 不同。可选项来自
+`shared/web-clients.mts`，那份清单与 esbuild 的构建入口一一对应，由 `test:web-clients` 守住
+——清单里有而没构建出来的话，那个域名会去请求一个 404 的脚本，页面停在加载动画上，而后台
+看着一切正常。认不出的 key 回落到默认那一套：这一步拿不到结果，整个域名就打不开。
+
+加一套新的 UI：在 `clients/` 下平级新建目录、往清单里加一项、在 `esbuild.cjs` 的
+`webClients` 里加一个入口。**共用的部分不要复制**——请求与协议在 `clients/browser/`，
+各写一遍的话同一个后端会在两个前端上表现不同（`include` 算错就每次翻页重取结构，
+`visibleWhen` 判错就把「回滚」显示在已经回滚过的记录上），而那种漂移要等用户报障才发现。
 
 **跨端共用的纯逻辑放项目级的 `shared/`——那是前后端共用的那一层**，服务端也在用它
 （`server/` 里到处 `import … from '@shared/…'`）。正因为它必须同时在 Node 与 Cloudflare

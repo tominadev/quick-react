@@ -62,7 +62,8 @@
     "test:agent-claim": "node scripts/test-agent-claim.mjs",
     "test:object-browser": "node scripts/test-object-browser.mjs",
     "test:sms-push": "node scripts/test-sms-push.mjs",
-    "test:table-crud-protocol": "node scripts/test-table-crud-protocol.mjs"
+    "test:table-crud-protocol": "node scripts/test-table-crud-protocol.mjs",
+    "test:web-clients": "node scripts/test-web-clients.mjs"
   },
   "repository": {
     "type": "git",

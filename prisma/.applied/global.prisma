@@ -63,6 +63,12 @@ model global_site_hosts {
   hostname     String
   @@unique([hostname])
   site_key     String
+  /// 这个域名用哪一套前端（`shared/web-clients.mts` 里的 key）。**空串表示用默认那一套。**
+  ///
+  /// 配在**域名**上而不是站点上：`m.example.com` 与 `www.example.com` 往往指向同一个站点、
+  /// 同一批数据，只是 UI 不同。认不出的 key 回落到默认那一套而不是报错——这一列一旦拿不到
+  /// 结果，整个域名就打不开，回落至少让人还能进后台把它改回来。
+  client_key   String @default("")
   status       GlobalEnabledStatus @default(enabled)
   @@unique([key])
   @@index([site_key])

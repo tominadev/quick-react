@@ -186,9 +186,19 @@ const main = async () => {
 		toolbox.attach();
 	}
 	generateWorkerRegistryFile();
-	const frontend = await createBuildContext('clients/antd/index.tsx', publicDir, 'bundle.js', {
-		minify: true,
-	});
+	/**
+	 * 每套前端一个产物。清单在 `shared/web-clients.mts`，域名按 `client_key` 选用哪一个——
+	 * 两处必须对得上，由 `test:web-clients` 守住：清单里有而这里没建，那个域名会去请求一个
+	 * 404 的脚本，页面停在加载动画上。
+	 */
+	const webClients = [
+		{ entry: 'clients/antd/index.tsx', bundle: 'bundle.js' },
+		{ entry: 'clients/antd-mobile/index.tsx', bundle: 'bundle-antd-mobile.js' },
+	];
+	const frontends = [];
+	for (const client of webClients) {
+		frontends.push(await createBuildContext(client.entry, publicDir, client.bundle, { minify: true }));
+	}
 	const passportSdk = await createBuildContext('clients/passport/index.ts', publicDir, 'passport.js', {
 		bundle: true,
 		format: 'iife',
@@ -205,7 +215,7 @@ const main = async () => {
 		format: 'esm',
 		target: 'es2022',
 	});
-	const builds = [frontend, passportSdk, backend, worker];
+	const builds = [...frontends, passportSdk, backend, worker];
 	const contexts = builds.map(({ context }) => context);
 	if (watch) {
 		await Promise.all(contexts.map((context) => context.watch()));
