@@ -175,20 +175,28 @@ model sms_phones {
   owner_tid    BigInt @default(1)
   owner_bid    BigInt @default(1)
   owner_uid    BigInt?
+  /// 属于哪个接入方（用户注册的一个项目）。**0 表示不属于任何项目**——用户在控制台自己
+  /// 绑的那一部。
+  ///
+  /// **用 0 而不是 NULL**，因为它要进唯一索引：SQL 里 `NULL != NULL`，可空列上的唯一索引
+  /// 拦不住多行 NULL，于是「不属于任何项目」的同一个号能被同一个人绑上无数次。
+  integration_client_id BigInt @default(0)
+  @@index([integration_client_id])
   /// 规范化后的 E.164 手机号。**这是本表的名字列**（登记在 shared/system-fields.mts 的
   /// NAME_COLUMNS 里），因此唯一索引带 `deleted_at`——解绑之后同一个号能重新绑回来，
   /// 而那正是 status=revoked 的语义所要求的。票据中的协议字段名是 `phone`。
   ///
-  /// **手机不挂在接入方名下，一个号在一个账号下只有一行。** 曾经想过把接入方也放进这条
-  /// 索引，让同一个号在每个项目下各绑一次——那样项目之间倒是完全隔离了，代价却是**同一部
-  /// 手机要装好几个快捷指令**，同一条短信被转发好几次，手机端跑好几次网络请求：为了服务端
-  /// 少一张关系表，把成本推给了用户的手机。
+  /// **索引到「账号 + 项目」这一层，同一个号可以被不同的人、不同的项目各绑一次。**
   ///
-  /// 而那张关系表根本不需要：`sms_push_endpoints` 上同时有 `integration_client_id` 和
-  /// `phone_id`，用户为某个项目配一条限定这部手机的推送地址，这个动作本身就是授权。
-  /// 一部手机、一个令牌、一份 Shortcut，短信进来一次，服务端再分发给各个项目。
+  /// 因为**手机往往不是本站用户自己的，而是他客户的**：甲、乙两家服务商可能服务同一位
+  /// 客户，各自给那部手机装自己的快捷指令。号码在租户内唯一的话，先绑的那家把号占死，
+  /// 后来的一家连登记都做不到——而他们本来就该互不相干。
+  ///
+  /// **这不构成越权。** 绑定只是登记意图，短信是从**某一个令牌**进来的、归属那个令牌的
+  /// 主人；要真的收到短信，得有人把你的快捷指令装到那部手机上——那是物理接触，不是这里
+  /// 插一行就能得到的。绑一个不属于自己的号码，得到的是一部永远收不到短信的手机。
   number       String @db.VarChar(32)
-  @@unique([owner_tid, number, deleted_at])
+  @@unique([owner_tid, owner_uid, integration_client_id, number, deleted_at])
   /// 用户可修改的设备名称。
   title        String @default("")
   status       SmsPhoneStatus @default(enabled)

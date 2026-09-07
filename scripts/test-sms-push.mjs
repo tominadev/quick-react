@@ -122,6 +122,8 @@ try {
 	const ownerId = database.prepare("SELECT id FROM base_users WHERE name = 'pushadmin'").get().id;
 	database.prepare("INSERT INTO sms_phones (key, id, number, title, status, owner_uid, bound_at, created_at, updated_at) VALUES (lower(hex(randomblob(16))), 1, '+8613800138000', '主力机', 'enabled', ?, ?, ?, ?)").run(ownerId, now, now, now);
 	database.prepare("INSERT INTO sms_shortcut_tokens (key, id, token_sha256, status, phone_id, owner_uid, idempotency_token, created_at, updated_at) VALUES (lower(hex(randomblob(16))), 1, ?, 'bound', 1, ?, 'idem', ?, ?)").run(createHash('sha256').update('raw-token').digest('hex'), ownerId, now, now);
+	// 池子里再留一个：后面另一个人也要登记同一个号码，绑定要从池子里领一把。
+	database.prepare("INSERT INTO sms_shortcut_tokens (key, id, token_sha256, status, idempotency_token, created_at, updated_at) VALUES (lower(hex(randomblob(16))), 2, ?, 'available', 'idem-spare', ?, ?)").run(createHash('sha256').update('spare-token').digest('hex'), now, now);
 	database.close();
 
 	// ---- 防护先于例外：这两条必须被拦 ----
@@ -189,12 +191,19 @@ try {
 	const otherLogin = await app.request('http://sms.test/api/sign.php', { method: 'POST', headers, body: JSON.stringify({ user_name: 'pushother', password: 'push-password-1' }) });
 	const other = { ...headers, cookie: otherLogin.headers.get('set-cookie')?.split(';')[0] };
 
+	/**
+	 * **别人可以登记同一个号码**——手机往往是本站用户的客户的，两家服务商服务同一位客户
+	 * 是常事，各自给那部手机装自己的快捷指令。
+	 *
+	 * 登记之后他确实拿到了自己的一行手机、自己的令牌、自己那份 `.shortcut` 文件。但那份
+	 * 文件**有没有被装进那部手机是物理动作**——系统管不了，也不需要管：装得上说明手机的
+	 * 主人同意了，那本来就是授权；装不上，他手里就只是一部永远收不到短信的记录。
+	 *
+	 * 所以这里验的不是「他拿不到令牌」，而是**一条短信都不会记到他名下**：短信从哪个令牌
+	 * 进来就归属谁，而客户手机上装的是先来那家的快捷指令。
+	 */
 	const grabbed = await app.request('http://sms.test/api/panel/user/sms/phones.php?action=bind', { method: 'POST', headers: other, body: JSON.stringify({ number: '13800138000', title: '我也想要' }) });
-	assert.equal(grabbed.status, 409, '别人绑不走同一个号码');
-	// 说清楚为什么被拒（文档 §4.3 要求「已属于其他账号时拒绝，不自动迁移」），但不说是谁绑的。
-	const grabbedMessage = String((await grabbed.json()).feedback?.message ?? '');
-	assert.match(grabbedMessage, /其他账号/);
-	assert.doesNotMatch(grabbedMessage, /pushadmin/, '不能说出是谁绑的');
+	assert.equal(grabbed.status, 200, '别人可以登记同一个号码——那是他自己的一行，不是抢走');
 
 	// 另一个人配一条不限定手机的推送地址，短信仍然不该推给他。
 	await app.request('http://sms.test/api/panel/user/sms/push-endpoints.php', { method: 'POST', headers: other, body: JSON.stringify({ url: `http://127.0.0.1:${receiverPort}/other`, status: 'enabled' }) });
@@ -204,7 +213,11 @@ try {
 	const isolated = new DatabaseSync(process.env.DEFAULT_DATABASE_FILE, { readOnly: true });
 	const otherId = isolated.prepare("SELECT id FROM base_users WHERE name = 'pushother'").get().id;
 	assert.equal(isolated.prepare('SELECT COUNT(*) AS n FROM sms_push_deliveries d JOIN sms_push_endpoints e ON e.id = d.push_endpoint_id WHERE e.owner_uid = ?').get(otherId).n, 0, '别人的地址不该收到任何投递');
-	assert.equal(isolated.prepare('SELECT COUNT(*) AS n FROM sms_phones WHERE owner_uid = ?').get(otherId).n, 0, '别人名下不该有这部手机');
+	// 他名下确实多了一行手机，但那一行没有令牌、收不到任何短信。
+	assert.equal(isolated.prepare('SELECT COUNT(*) AS n FROM sms_phones WHERE owner_uid = ?').get(otherId).n, 1);
+	// 他领到了自己的令牌（绑定本来就会发一份快捷指令给他），但那份没装进客户的手机。
+	assert.equal(isolated.prepare('SELECT COUNT(*) AS n FROM sms_shortcut_tokens t JOIN sms_phones p ON p.id = t.phone_id WHERE p.owner_uid = ?').get(otherId).n, 1);
+	assert.equal(isolated.prepare('SELECT COUNT(*) AS n FROM sms_messages WHERE owner_uid = ?').get(otherId).n, 0, '一条短信都不该记到他名下——短信从哪个令牌进来就归属谁');
 	isolated.close();
 
 	console.log('sms push test passed');

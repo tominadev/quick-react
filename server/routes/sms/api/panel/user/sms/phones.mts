@@ -52,6 +52,7 @@ const columns = [
 	// 手机号是本表的名字列（NAME_COLUMNS 里登记成 number）。它由绑定流程写入，改不得：
 	// 改掉就成了「把这部手机的短信记到另一个号上」。
 	{ dataIndex: 'number', title: '手机号', form: { create: false as const, edit: false as const } },
+	{ dataIndex: 'client_title', title: '所属项目', emptyText: '未挂项目', form: { create: false as const, edit: false as const } },
 	{ dataIndex: 'title', title: '设备名称', component: 'textbox' as const, emptyText: '未命名', placeholder: '给自己看的名字，如「备用机」' },
 	{ dataIndex: 'status', title: '状态', component: 'select' as const, options: STATUS_OPTIONS,
 		// 解绑不可逆，选项里给出来但配了确认文案；下拉里没有别的路径能改回 revoked。
@@ -62,12 +63,13 @@ const columns = [
 export const tableCrud: TableCrudDefinition = { table: 'sms_phones', rowKey: 'id' };
 
 const listColumns = {
-	id: { column: 'id', cast: 'text' as const }, number: 'number', title: 'title', status: 'status',
-	bound_at: 'bound_at', revoked_at: 'revoked_at', created_at: 'created_at',
+	id: { column: 'p.id', cast: 'text' as const }, number: 'p.number', title: 'p.title', status: 'p.status',
+	client_title: 'c.title', bound_at: 'p.bound_at', revoked_at: 'p.revoked_at', created_at: 'p.created_at',
 } as const;
+const listJoins = [{ type: 'LEFT' as const, table: 'sms_integration_clients', alias: 'c', left: 'c.id', right: 'p.integration_client_id' }];
 
 const publicPhone = (row: Record<string, unknown>) => ({
-	id: row.id, number: row.number, title: row.title || null, status: row.status,
+	id: row.id, number: row.number, title: row.title || null, client_title: row.client_title ?? null, status: row.status,
 	bound_at: Number(row.bound_at ?? 0) || null,
 	revoked_at: Number(row.revoked_at ?? 0) || null,
 });
@@ -81,7 +83,18 @@ const handler: ApiHandler = async (c, next, params) => {
 	 */
 	const currentUser = c.get('currentUser');
 	if (!currentUser) return apiMessage(c, 401, '请先登录');
-	const mine = () => ownerScope('owner_uid', currentUser.id);
+	/** 选中的项目必须是自己注册的：带别人的接入方 id，等于把手机挂到别人的项目下。 */
+	const ownedClient = async (value: unknown) => {
+		const clientId = String(value ?? '').trim();
+		// 空与 '0' 都念作「不属于任何项目」，落库统一写 0（见 prisma 那一列的注释）。
+		if (!clientId || clientId === '0') return { value: '0' };
+		const row = await firstSql<{ id: string }>(database, sql({ database }).select({
+			table: 'sms_integration_clients', columns: { id: { column: 'id', cast: 'text' } },
+			where: [{ column: 'id', value: clientId }, ownerScope('owner_uid', currentUser.id)], limit: 1,
+		}));
+		return row ? { value: String(row.id) } : { error: '选中的项目不存在，或者不属于你' };
+	};
+	const mine = (column = 'owner_uid') => ownerScope(column, currentUser.id);
 
 	/**
 	 * 绑定一部手机（§6.1）。
@@ -93,31 +106,21 @@ const handler: ApiHandler = async (c, next, params) => {
 		const number = normalizePhoneNumber(body.number);
 		if (!number) return apiMessage(c, 400, '手机号格式不对：请填国际格式（如 +8613800138000），或直接填 11 位手机号');
 		const title = String(body.title ?? '').trim().slice(0, 64);
+		const client = await ownedClient(body.integration_client_id);
+		if (client.error) return apiMessage(c, 400, client.error);
 		/**
 		 * 同一个号码重复绑定要幂等（§4.3）：直接告诉他已经绑过，不再建一行。
 		 * 解绑过的（`revoked`）不算——那条关系已经终止，重新绑定正是要走这一遍。
 		 */
+		/**
+		 * 幂等只看**自己在这个项目下**有没有绑过（§4.3）。别人绑过同一个号不算冲突——
+		 * 手机往往是客户的，两家服务商服务同一位客户是常事，各自装各自的快捷指令。
+		 */
 		const existing = await firstSql<{ id: string; status: string }>(database, sql({ database }).select({
 			table: 'sms_phones', columns: { id: { column: 'id', cast: 'text' }, status: 'status' },
-			where: [{ column: 'number', value: number }, mine()], limit: 1,
+			where: [{ column: 'number', value: number }, { column: 'integration_client_id', value: client.value }, mine()], limit: 1,
 		}));
-		if (existing && existing.status !== 'revoked') return apiMessage(c, 409, '这个号码你已经绑定过了，在下面的列表里');
-		/**
-		 * **号码在租户内唯一**（`(owner_tid, number, deleted_at)`），因此别人绑过的号码这里
-		 * 也插不进去。先查一次给人话——不查的话会一路撞到唯一索引，抛出来的是裸的
-		 * `UNIQUE constraint failed`，接口回 500，而用户完全看不出发生了什么。
-		 *
-		 * 明说「已被其他账号绑定」而不是含糊其辞：文档 §4.3 要求「手机号已属于其他账号时
-		 * 拒绝，不自动迁移」，那就得让人知道为什么被拒、该去找谁。这确实泄露了「这个号在
-		 * 本站被绑过」，但同一个号本来就只有一个主人，而含糊的失败会让人反复重试、最后来
-		 * 提工单。**不说是谁绑的**——那才是真正会泄露的东西。
-		 */
-		const takenByOthers = await firstSql<{ id: string }>(database, sql({ database, subjectRoles: null }).select({
-			table: 'sms_phones', columns: { id: { column: 'id', cast: 'text' } },
-			where: [{ column: 'number', value: number }, { column: 'status', operator: '!=', value: 'revoked' }],
-			queued: 'all', limit: 1,
-		}));
-		if (takenByOthers) return apiMessage(c, 409, '这个号码已经被本站的其他账号绑定了。同一个号只能绑在一个账号下——如果那是你自己的另一个账号，请先在那边解绑。');
+		if (existing && existing.status !== 'revoked') return apiMessage(c, 409, '这个号码你在这个项目下已经绑定过了，在下面的列表里');
 
 		/**
 		 * **先领令牌，再建手机。** 反过来的话，池子空了会留下一部绑不上令牌的手机——它在
@@ -134,15 +137,15 @@ const handler: ApiHandler = async (c, next, params) => {
 
 		// 先查后插之间仍可能被别人抢先（无事务），撞上了照样翻成人话，不让裸 UNIQUE 冒出去。
 		try {
-			await runOperationSql(c, database, sql({ database }).insert('sms_phones', { number, title, status: 'enabled', bound_at: Date.now() }));
+			await runOperationSql(c, database, sql({ database }).insert('sms_phones', { number, title, status: 'enabled', bound_at: Date.now(), integration_client_id: client.value }));
 		} catch (error) {
 			if (error instanceof PendingApprovalError) throw error;
 			if (!isUniqueViolation(error)) throw error;
-			return apiMessage(c, 409, '这个号码刚被另一个账号绑走了，请确认号码是否填对');
+			return apiMessage(c, 409, '这个号码刚在这个项目下被绑上了，刷新看看');
 		}
 		const phone = await firstSql<{ id: string }>(database, sql({ database }).select({
 			table: 'sms_phones', columns: { id: { column: 'id', cast: 'text' } },
-			where: [{ column: 'number', value: number }, mine()], limit: 1,
+			where: [{ column: 'number', value: number }, { column: 'integration_client_id', value: client.value }, mine()], limit: 1,
 		}));
 		if (!phone) return apiMessage(c, 500, '手机记录创建后读不回来，请重试');
 
@@ -182,9 +185,13 @@ const handler: ApiHandler = async (c, next, params) => {
 	}
 
 	if (c.req.method === 'GET' && !params.id) {
+		const clients = (await allSql<{ id: string; name: string; title: string }>(database, sql({ database }).select({
+			table: 'sms_integration_clients', columns: { id: { column: 'id', cast: 'text' }, name: 'name', title: 'title' },
+			where: [ownerScope('owner_uid', currentUser.id)], orderBy: [{ column: 'id' }],
+		}))).map((row) => ({ value: String(row.id), text: `${row.title}（${row.name}）` }));
 		const rows = await allSql<Record<string, unknown>>(database, sql({ database }).select({
-			table: 'sms_phones', columns: listColumns, where: [mine()],
-			sort: tableSort(c), orderBy: [{ column: 'id', direction: 'DESC' }],
+			table: 'sms_phones', alias: 'p', columns: listColumns, joins: listJoins, where: [mine('p.owner_uid')],
+			sort: tableSort(c), orderBy: [{ column: 'p.id', direction: 'DESC' }],
 		}));
 		return apiResponse(c, 200, { table: {
 			option: { rowKey: 'id', actions: {
@@ -194,6 +201,9 @@ const handler: ApiHandler = async (c, next, params) => {
 				toolbar: [{ key: 'bind', label: '绑定手机', form: { columns: [
 					{ dataIndex: 'number', title: '手机号', component: 'textbox' as const, placeholder: '如 +8613800138000，或直接填 11 位', rules: [{ required: true, message: '请输入手机号' }] },
 					{ dataIndex: 'title', title: '设备名称', component: 'textbox' as const, placeholder: '给自己看的名字，如「备用机」' },
+					// 同一个号可以在不同项目下各绑一次，各自领一份快捷指令——手机往往是客户的，
+					// 而同一位客户可能同时用着你的好几个项目。
+					{ dataIndex: 'integration_client_id', title: '所属项目', component: 'select' as const, options: clients, nullable: true, placeholder: '不选就是不挂在任何项目下' },
 				] } }],
 				row: [{ key: 'edit', label: '编辑' }],
 			} },
@@ -203,7 +213,7 @@ const handler: ApiHandler = async (c, next, params) => {
 
 	if (params.id && c.req.method === 'GET') {
 		const row = await firstSql<Record<string, unknown>>(database, sql({ database }).select({
-			table: 'sms_phones', columns: listColumns, where: [{ column: 'id', value: params.id }, mine()],
+			table: 'sms_phones', alias: 'p', columns: listColumns, joins: listJoins, where: [{ column: 'p.id', value: params.id }, mine('p.owner_uid')],
 		}));
 		return row ? apiResponse(c, 200, publicPhone(row)) : apiMessage(c, 404, '手机不存在');
 	}

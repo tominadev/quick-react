@@ -78,6 +78,13 @@ for (const file of (await readdir(prismaDirectory)).filter((name) => name.endsWi
 		 * 两张顶层表例外，用 `[name, deleted_at]`：`base_tenants` 的租户名必须全库唯一
 		 * （加 owner_tid 反而会允许两个同名租户），`passport_users` 在独立的账号中心库里，
 		 * 登录名同样是全局的。
+		 *
+		 * **中间允许更细的归属维度**，两端必须钉死。`sms_phones` 是
+		 * `[owner_tid, owner_uid, integration_client_id, number, deleted_at]`：手机往往是
+		 * 本站用户的**客户**的，两家服务商服务同一位客户是常事，各自给那部手机装自己的
+		 * 快捷指令；号码在租户内唯一的话，先绑的那家把号占死。放宽的只是「唯一到哪一层」，
+		 * `owner_tid` 打头与 `<名字列>, deleted_at` 收尾这两条不动——前者保证名字不跨租户
+		 * 相通，后者保证软删之后同一个名字还能再用。
 		 */
 		const topLevel = new Set(['base_tenants', 'passport_users']);
 		const nameColumn = nameColumnOf(name);
@@ -85,8 +92,12 @@ for (const file of (await readdir(prismaDirectory)).filter((name) => name.endsWi
 		if (nameColumn !== 'name' && columns.includes('name')) problems.push(`${name} 的名字列登记成了 ${nameColumn}，就不该再有一列叫 name`);
 		if (columns.includes(nameColumn)) {
 			const wanted = topLevel.has(name) ? [nameColumn, 'deleted_at'] : ['owner_tid', nameColumn, 'deleted_at'];
-			if (!uniqueIndexes.some((unique) => unique.join(',') === wanted.join(','))) {
-				problems.push(`${name}.${nameColumn} 要有 @@unique([${wanted.join(', ')}])，现有：${uniqueIndexes.map((unique) => `[${unique.join(', ')}]`).join(' ') || '（无）'}`);
+			const matches = (unique) => (topLevel.has(name)
+				? unique.join(',') === wanted.join(',')
+				// 打头是 owner_tid、收尾是 <名字列>, deleted_at，中间随业务需要放归属维度。
+				: unique[0] === 'owner_tid' && unique.at(-2) === nameColumn && unique.at(-1) === 'deleted_at');
+			if (!uniqueIndexes.some(matches)) {
+				problems.push(`${name}.${nameColumn} 要有 @@unique([${wanted.join(', ')}])（中间可以插归属维度），现有：${uniqueIndexes.map((unique) => `[${unique.join(', ')}]`).join(' ') || '（无）'}`);
 			}
 		}
 		/**
