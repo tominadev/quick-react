@@ -7,7 +7,7 @@ import { loadCloudStorageTargetByPurpose, createCloudStorageAdapter } from '@ser
  * 生成器用的四个动作，全在一个文件里按 `?action=` 分派。
  *
  * ```text
- * config          拉短信接收地址（必须在生成文件之前调用）
+ * config          拉短信接收地址与池子余量（必须在生成文件之前调用）
  * prepare-upload  申请对象键与预签名 PUT 地址
  * commit          校验对象后按四步收敛写入令牌与文件元数据
  * abort           放弃上传，删掉临时对象
@@ -59,9 +59,25 @@ const handler: ApiHandler = async (c, next) => {
 	if (c.req.method === 'GET' && action === 'config') {
 		const suffix = c.get('techStackConfig').apiSuffix;
 		const origin = new URL(c.req.url).origin;
+		/**
+		 * **池子里还剩几个能领的**，生成器据此「补足到目标数」而不是「再造 N 个」。
+		 *
+		 * 只数 `available`：绑定过的已经属于某部手机，删除的进了回收站，都不能再发给新用户。
+		 * 生成器那边输入 10、这里回 4，就补 6 个——池子被领走多少补多少，不会越堆越多。
+		 *
+		 * `pending` 另报：那是 commit 做到一半的，多半是生成器自己上一次中断留下的。生成器
+		 * 要先把本地未完成的那一批续完（它们会变成 available），**再**来取这个数，否则会把
+		 * 正在补的那几个又补一遍。
+		 *
+		 * 这是一个快照：取完之后仍可能有人领走令牌，补出来的会略少于目标，下次再补就是；
+		 * 两台 Mac 同时补则可能略多——都只是池子大小的偏差，不影响正确性。
+		 */
+		const builder = sql({ database, subjectRoles: null });
+		const countOf = async (status: string) => Number((await firstSql<{ count: number | string }>(database, builder.count('sms_shortcut_tokens', [{ column: 'status', value: status }])))?.count ?? 0);
 		return apiMessageData(c, 200, '配置已下发', {
 			message_receive_url: `${origin}/api/shortcut/message-receive${suffix}`,
 			machine: machine.name,
+			pool: { available: await countOf('available'), pending: await countOf('pending') },
 		});
 	}
 

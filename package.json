@@ -64,7 +64,8 @@
 		"test:sms-push": "node scripts/test-sms-push.mjs",
 		"test:table-crud-protocol": "node scripts/test-table-crud-protocol.mjs",
 		"test:web-clients": "node scripts/test-web-clients.mjs",
-		"test:sms-ticket-bind": "node scripts/test-sms-ticket-bind.mjs"
+		"test:sms-ticket-bind": "node scripts/test-sms-ticket-bind.mjs",
+		"test:sms-generator-pool": "node scripts/test-sms-generator-pool.mjs"
 	},
 	"repository": {
 		"type": "git",
