@@ -16,11 +16,13 @@ import type { TableCrudDefinition } from '@server/modules/base/table-crud.mjs';
  * 闭环就成了。反过来做不成：先装 Shortcut 再运行的话，那个令牌还是 `available`，接收接口
  * 认不出它属于哪部手机，只会回一句「这个令牌还没有绑定手机」。
  *
- * 能做的是**改名、停收、解绑**：
+ * 能做的是**改名、停收、解绑、删除**：
  *
  * - 停收（`disabled`）是临时的，关系保留，用户自己能恢复；
- * - 解绑（`revoked`）终止关系，不可恢复，只能重新走一次绑定。重新绑同一个号码之所以
- *   可行，靠的是 `number` 那条带 `deleted_at` 的唯一索引（见 sms_phones.number）。
+ * - 解绑（`revoked`）终止关系，在这一页改不回来，只能重新走一次绑定。解绑**不是删除**，
+ *   那一行仍占着唯一索引，所以重新绑定是复用这一行、换一个新令牌（见 modules/sms/binding.mts），
+ *   而不是新建一行；
+ * - 删除是软删，快捷指令即刻停用。唯一索引带 `deleted_at`，同一个号码可以马上重新绑。
  *
  * 都不走审批：这一层在 `/api/panel/user/` 下，`operationScope` 判成自助，立即生效。
  * 手机绑定要是排进队列，那一行会带着非 0 的 `queued_at` 对正常查询不可见，而 Shortcut
@@ -193,7 +195,7 @@ const handler: ApiHandler = async (c, next, params) => {
 					// 同一个号可以在不同项目下各绑一次，各自领一份快捷指令——手机往往是客户的，
 					// 而同一位客户可能同时用着你的好几个项目。
 					{ dataIndex: 'integration_client_id', title: '所属项目', component: 'select' as const, options: clients, nullable: true, placeholder: '不选就是不挂在任何项目下' },
-				] } }],
+				] } }, { key: 'delete', label: '删除' }],
 				row: [{ key: 'edit', label: '编辑' }],
 			} },
 			columns, dataSource: rows.map((row) => ({ ...publicPhone(row), push_hint: pushHint(row) })), totalRecords: rows.length,
@@ -237,8 +239,13 @@ const handler: ApiHandler = async (c, next, params) => {
 		const body = await c.req.json<unknown>().catch(() => []);
 		const ids = params.id ? [params.id] : (Array.isArray(body) ? body.map((value) => String(value)).filter(Boolean) : []);
 		if (!ids.length) return apiMessage(c, 400, '请选择要删除的手机');
+		/**
+		 * 删除之后，这部手机上的快捷指令**立即停用**：接收接口按令牌找手机，删掉的手机
+		 * 查不到，回「手机记录已经不存在」。唯一索引带 `deleted_at`，所以同一个号码可以
+		 * 马上重新绑定，拿到的是一份全新的快捷指令。
+		 */
 		await runOperation(c, database, ids.map((id) => sql({ database }).softDelete('sms_phones', [{ column: 'id', value: id }, mine()])));
-		return apiMessage(c, 200, '删除成功，可在回收站找回或彻底删除');
+		return apiMessage(c, 200, '已删除，这些手机上的快捷指令即刻停用。同一个号码可以重新绑定；删掉的记录可在回收站找回。');
 	}
 
 	return next();

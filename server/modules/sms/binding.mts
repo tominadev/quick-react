@@ -126,7 +126,36 @@ export const bindPhone = async (options: {
 		table: 'sms_phones', columns: { id: { column: 'id', cast: 'text' }, status: 'status' },
 		where: [{ column: 'number', value: number }, { column: 'integration_client_id', value: clientId }, mine()], limit: 1,
 	}));
-	if (existing && existing.status !== 'revoked') {
+	/**
+	 * **已解绑的号码重新绑定：复用那一行。**
+	 *
+	 * 解绑只是把状态改成 `revoked`，不是删除——那一行仍占着唯一索引（账号 + 项目 + 号码 +
+	 * `deleted_at`）。照常新建就会撞索引，而撞了之后找回来的恰恰是这条已解绑的记录，下载
+	 * 地址为空，用户又没了出路。§4.3 说的「解绑之后只能重新绑定」，指的就是这里。
+	 *
+	 * 复用而不是删掉重建：同一个人、同一个项目、同一个号码，历史短信本来就是它的。
+	 */
+	if (existing && existing.status === 'revoked') {
+		const phoneId = String(existing.id);
+		const candidates = await poolCandidates(database);
+		if (!candidates.length) return { ok: false, status: 503, message: '令牌池空了，暂时不能绑定新手机。请联系管理员补充。' };
+		/**
+		 * **先作废它名下的旧令牌。** 解绑时令牌并没有被撤销——接收接口是看手机状态拒收的。
+		 * 手机一改回「正常接收」，旧令牌就跟着复活，手机上装着的旧快捷指令又能用了——而那
+		 * 可能是解绑时就想让它停掉的一份。
+		 */
+		await options.runWrite(sql({ database, subjectRoles: null }).update('sms_shortcut_tokens', { status: 'revoked' },
+			[{ column: 'phone_id', value: phoneId }, { column: 'status', value: 'bound' }]) as never);
+		// 带着原状态做条件：两个请求同时重绑同一个号，只有一个会真的把它改回来。
+		const revived = await options.runWrite(sql({ database }).update('sms_phones',
+			{ status: 'enabled', bound_at: Date.now(), revoked_at: null, ...(title ? { title } : {}) },
+			[{ column: 'id', value: phoneId }, { column: 'status', value: 'revoked' }, mine()]) as never);
+		if (Number(revived?.meta?.changes ?? 0) === 0) return { ok: false, status: 409, message: '这个号码刚被重新绑定，请刷新确认' };
+		if (!await claimToken(options, candidates, phoneId)) return { ok: false, status: 503, message: '刚好有别人同时在领取，请再试一次' };
+		return { ok: true, alreadyBound: false, reissued: false, number, phoneId, downloadUrl: await downloadUrlForPhone(context, phoneId) };
+	}
+
+	if (existing) {
 		const phoneId = String(existing.id);
 		/**
 		 * 幂等（§7.2）说的是「**保证这个号有一份能用的快捷指令**」，不是「记录在就算完」。

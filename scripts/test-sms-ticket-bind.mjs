@@ -102,7 +102,7 @@ try {
 	const database = new DatabaseSync(process.env.DEFAULT_DATABASE_FILE);
 	const ownerId = database.prepare("SELECT id FROM base_users WHERE name = 'ticketadmin'").get().id;
 	const otherId = database.prepare("SELECT id FROM base_users WHERE name = 'ticketother'").get().id;
-	for (let index = 1; index <= 5; index += 1) {
+	for (let index = 1; index <= 8; index += 1) {
 		database.prepare("INSERT INTO sms_shortcut_tokens (key, token_sha256, status, idempotency_token, created_at, updated_at) VALUES (lower(hex(randomblob(16))), ?, 'available', ?, ?, ?)")
 			.run(createHash('sha256').update(`pool-${index}`).digest('hex'), `idem-${index}`, now, now);
 	}
@@ -153,7 +153,10 @@ try {
 	assert.equal(preflight.headers.get('access-control-allow-credentials'), null);
 
 	// ---- 失败规则（§7.2）：每一条都得回确定性错误，而不是内部异常 ----
-	assert.match((await bind(makeTicket(), { headers: { cookie: h.cookie } })).message, /cookie/, '带 cookie 要拒：浏览器会自动附带它，认了就等于任何网页都能借用户身份来打');
+	// 用一个一次性会话测：会话层看到只带 cookie、不带设备头的请求会当成盗用，把会话吊销——
+	// 拿主会话测的话，后面所有用它的请求都会变成「请先登录」。
+	const burner = await signIn('ticketadmin');
+	assert.match((await bind(makeTicket(), { headers: { cookie: burner.cookie } })).message, /cookie/, '带 cookie 要拒：浏览器会自动附带它，认了就等于任何网页都能借用户身份来打');
 	assert.match((await bind('不是票据')).message, /格式/);
 	assert.match((await bind(makeTicket({ aud: 'other' }))).message, /受众/);
 	assert.match((await bind(makeTicket({ v: 2 }))).message, /版本/);
@@ -249,6 +252,40 @@ try {
 	assert.equal(liveTokens(), 1);
 
 	/**
+	 * ---- 解绑之后重新绑定：复用那一行 ----
+	 *
+	 * 解绑不是删除，那一行还占着唯一索引。以前照常新建、撞索引、落进「刚被抢先」那条分支，
+	 * 找回来的正是这条已解绑的记录，下载地址为空——线上实际发生过。
+	 */
+	const phonesUrl = 'http://sms.test/api/panel/user/sms/phones.php';
+	const unbound = await app.request(`${phonesUrl}/${phone.id}`, { method: 'PUT', headers: h, body: JSON.stringify({ status: 'revoked' }) });
+	assert.equal(unbound.status, 200, '解绑');
+	const readPhone = (sql, ...args) => { const read = new DatabaseSync(process.env.DEFAULT_DATABASE_FILE, { readOnly: true }); const row = read.prepare(sql).get(...args); read.close(); return row; };
+	const oldTokenId = readPhone("SELECT id FROM sms_shortcut_tokens WHERE phone_id = ? AND status = 'bound' AND deleted_at = 0", phone.id).id;
+	const rebound = await bind(makeTicket());
+	assert.equal(rebound.status, 200, rebound.message);
+	assert.equal(rebound.data.already_bound, false, '解绑之后重绑就是一次新的绑定');
+	assert.equal(readPhone('SELECT status FROM sms_phones WHERE id = ?', phone.id).status, 'enabled', '复用原来那一行，改回正常接收');
+	assert.equal(readPhone("SELECT COUNT(*) AS n FROM sms_phones WHERE number = '+8613800138000' AND owner_uid = ? AND deleted_at = 0", ownerId).n, 1, '不新建一行');
+	// 旧令牌要作废：手机一改回正常接收，旧的快捷指令不能跟着复活
+	assert.equal(readPhone('SELECT status FROM sms_shortcut_tokens WHERE id = ?', oldTokenId).status, 'revoked', '旧令牌要作废');
+	assert.equal(liveTokens(), 1, '挂上了一个新令牌');
+
+	/**
+	 * ---- 删除之后重新绑定：新的一行 ----
+	 *
+	 * 唯一索引带 deleted_at，删掉的那一行不再占着号码。
+	 */
+	const removed = await app.request(`${phonesUrl}/${phone.id}`, { method: 'DELETE', headers: h });
+	assert.equal(removed.status, 200, '删除');
+	const fresh = await bind(makeTicket());
+	assert.equal(fresh.status, 200, fresh.message);
+	assert.equal(fresh.data.already_bound, false);
+	const freshPhone = readPhone("SELECT id FROM sms_phones WHERE number = '+8613800138000' AND owner_uid = ? AND deleted_at = 0", ownerId);
+	assert.notEqual(String(freshPhone.id), String(phone.id), '删掉之后重绑是新的一行');
+	assert.equal(readPhone("SELECT COUNT(*) AS n FROM sms_shortcut_tokens WHERE phone_id = ? AND status = 'bound' AND deleted_at = 0", freshPhone.id).n, 1);
+
+	/**
 	 * ---- 归属由公钥决定 ----
 	 *
 	 * 这是整套简化的立足点：以前 `base_user_id` 由调用方填，于是要额外查一道「这个账号是不是
@@ -269,7 +306,7 @@ try {
 	assert.equal(otherBound.data.already_bound, false, '另一家是全新的一行，不是幂等命中');
 
 	const isolated = new DatabaseSync(process.env.DEFAULT_DATABASE_FILE, { readOnly: true });
-	const rows = isolated.prepare("SELECT owner_uid, integration_client_id FROM sms_phones WHERE number = '+8613800138000' ORDER BY id").all();
+	const rows = isolated.prepare("SELECT owner_uid, integration_client_id FROM sms_phones WHERE number = '+8613800138000' AND deleted_at = 0 ORDER BY id").all();
 	assert.equal(rows.length, 2, '两个人各一行');
 	assert.equal(String(rows[0].owner_uid), String(ownerId));
 	assert.equal(String(rows[0].integration_client_id), String(client.id));
