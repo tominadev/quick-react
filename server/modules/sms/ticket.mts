@@ -4,8 +4,15 @@ import { firstSql, runSql, sql } from '@server/database/sql.mjs';
 /**
  * 绑定票据的解析与校验（绑定文档 §7）。
  *
- * 接入方用自己的 Ed25519 私钥签一张一次性票据，代表某个用户绑定一个手机号。本站只存公钥，
+ * 接入方用自己的 Ed25519 私钥签一张一次性票据，代表自己的账号绑定一个手机号。本站只存公钥，
  * 因此**能签票据就等于持有私钥**——这是整条链的信任根。
+ *
+ * **身份就是公钥本身，同 GitHub 的 SSH。** 票据里带着公钥，服务端据此反查出是哪个接入方、
+ * 归属哪个账号——调用方不必再填 `client_id`、`kid`、`base_user_id` 三个值，也就不会填错。
+ *
+ * 有人会问：公钥是调用方自己给的，那换一把不就冒充了？换不了。**换成谁的公钥，就得拿谁的
+ * 私钥来签**——而私钥从不出签发方的门。拿自己的公钥来签，反查到的就是自己的账号，什么也
+ * 越不了权；拿别人的公钥来签，第一步验签就过不去。
  */
 
 const fromBase64Url = (value: string): Uint8Array<ArrayBuffer> => {
@@ -18,9 +25,7 @@ const fromBase64Url = (value: string): Uint8Array<ArrayBuffer> => {
 export type TicketPayload = {
 	v?: number;
 	aud?: string;
-	client_id?: string;
-	kid?: string;
-	base_user_id?: string;
+	public_key?: string;
 	phone?: string;
 	iat?: number;
 	exp?: number;
@@ -30,19 +35,30 @@ export type TicketPayload = {
 export type TicketFailure = { status: number; message: string };
 export type TicketResult =
 	| { ok: false; failure: TicketFailure }
-	| { ok: true; payload: TicketPayload & { client_id: string; base_user_id: string; phone: string; nonce: string }; clientRowId: string };
+	| {
+		ok: true;
+		/** 这把公钥属于哪个接入方，以及那个接入方属于谁——两个值都由服务端查出来，不由调用方给。 */
+		clientRowId: string;
+		ownerUid: string;
+		phone: string;
+		nonce: string;
+		expiresAt: number;
+	};
 
 /**
- * 查不到可用公钥时的统一回话。四种成因共用它，理由见下面查 client 那一段。
+ * 查不到可用公钥时的统一回话。
  *
- * `client_id` 对应控制台「接入方」页的**标识**那一列，不是名称——这是对接时最常踩的一脚：
- * 照着文档示例填了 `shop`，而自己建的那个叫别的。
+ * 这里没有枚举风险——公钥是 32 字节随机值，猜不出来，所以话可以说得很直白：能拿到一把
+ * 公钥的人，本来就知道这把公钥长什么样。
  */
-const refuseMessage = '签名接入方无效：client_id 与 kid 没有匹配到一把启用中的公钥（client_id 是接入方的「标识」，不是名称）';
+const unknownKeyMessage = '这把公钥没有登记，或者已经退役——到控制台「接入方公钥」里登记一把';
 
 /** 有效期最长 5 分钟，允许 60 秒时钟偏差（§7.1）。 */
 const MAX_LIFETIME_SECONDS = 300;
 const CLOCK_SKEW_SECONDS = 60;
+
+/** 32 字节 Ed25519 公钥的 Base64URL 表示，43 个字符（不含补位的 =）。 */
+const publicKeyPattern = /^[A-Za-z0-9_-]{43}$/;
 
 /**
  * 验一张票据。
@@ -50,8 +66,8 @@ const CLOCK_SKEW_SECONDS = 60;
  * **失败一律是确定性错误**（§7.2），不把内部异常冒出去：接入方拿到「绑定票据签名无效」
  * 能去查自己的私钥，拿到一段堆栈只能去提工单。
  *
- * 顺序有讲究：先解析、再找公钥、最后验签。反过来先验签的话，`kid` 不存在时得先编一把
- * 公钥出来才验得动。
+ * 顺序有讲究：先解析、再按公钥查身份、最后验签。反过来先验签的话，公钥没登记时得先编一个
+ * 身份出来才验得动。
  */
 export const verifyBindingTicket = async (database: DatabaseAdapter, ticket: string): Promise<TicketResult> => {
 	const fail = (status: number, message: string): TicketResult => ({ ok: false, failure: { status, message } });
@@ -68,57 +84,62 @@ export const verifyBindingTicket = async (database: DatabaseAdapter, ticket: str
 	// aud 不是形式：没有它，一张签给别的系统的票据可以拿来换这里的绑定。
 	if (payload.aud !== 'sms') return fail(400, '绑定票据受众不匹配');
 	if (payload.v !== 1) return fail(400, '绑定票据版本不支持');
-	const clientId = String(payload.client_id ?? '').trim();
-	const kid = String(payload.kid ?? '').trim();
+	const publicKey = String(payload.public_key ?? '').trim();
 	const nonce = String(payload.nonce ?? '').trim();
-	const baseUserId = String(payload.base_user_id ?? '').trim();
-	if (!clientId || !kid || !nonce || !baseUserId) return fail(400, '绑定票据缺少必要字段');
+	// 老协议用 client_id + kid 指认身份。照着旧文档写的代码撞上来时，说清改成了什么，
+	// 省掉一轮「缺少必要字段」是指哪个字段的来回。
+	if (!publicKey && (payload as { client_id?: unknown }).client_id) {
+		return fail(400, '票据格式已简化：不再需要 client_id、kid、base_user_id，改成带一个 public_key 字段（值就是你登记的那把公钥）');
+	}
+	if (!publicKeyPattern.test(publicKey)) return fail(400, '票据里的 public_key 必须是 Ed25519 原始字节的 Base64URL，43 个字符');
+	if (!nonce) return fail(400, '绑定票据缺少 nonce');
 
 	const now = Math.floor(Date.now() / 1000);
 	const issuedAt = Number(payload.iat ?? 0);
 	const expiresAt = Number(payload.exp ?? 0);
 	if (!Number.isFinite(issuedAt) || !Number.isFinite(expiresAt) || expiresAt <= issuedAt) return fail(400, '绑定票据已过期或尚未生效');
 	// 有效期上限由本站定，而不是随接入方填——不然签一张十年有效的票据就成了长期凭证。
-	if (expiresAt - issuedAt > MAX_LIFETIME_SECONDS) return fail(400, '绑定票据有效期过长');
+	if (expiresAt - issuedAt > MAX_LIFETIME_SECONDS) return fail(400, '绑定票据有效期过长：exp - iat 不得超过 300 秒');
 	if (now + CLOCK_SKEW_SECONDS < issuedAt || now - CLOCK_SKEW_SECONDS > expiresAt) return fail(400, '绑定票据已过期或尚未生效');
 
 	/**
-	 * `client_id` 对应 `sms_integration_clients.name`——**不是 `key`**：`key` 只装机器写的
-	 * 雪花号，人给的标识一律落在 `name` 上。
+	 * **公钥反查身份。** `public_key` 全库唯一，因此这一查就定死了是哪个接入方；接入方的
+	 * `owner_uid` 就是手机要登记到的账号。
+	 *
+	 * `retired` 的公钥立即拒绝新票据（§4.2）——轮换的意义就在这一句。
 	 */
+	const keyRow = await firstSql<{ integration_client_id: string; status: string }>(database, sql({ database, subjectRoles: null }).select({
+		table: 'sms_integration_client_keys',
+		columns: { integration_client_id: { column: 'integration_client_id', cast: 'text' }, status: 'status' },
+		where: [{ column: 'public_key', value: publicKey }], limit: 1,
+	}));
+	if (!keyRow || keyRow.status !== 'active') return fail(401, unknownKeyMessage);
+
 	const client = await firstSql<{ id: string; owner_uid: string | null; status: string; binding_scope: string }>(database, sql({ database, subjectRoles: null }).select({
 		table: 'sms_integration_clients',
 		columns: { id: { column: 'id', cast: 'text' }, owner_uid: { column: 'owner_uid', cast: 'text' }, status: 'status', binding_scope: 'binding_scope' },
-		where: [{ column: 'name', value: clientId }], limit: 1,
+		where: [{ column: 'id', value: keyRow.integration_client_id }], limit: 1,
 	}));
-	/**
-	 * 接入方不存在、已停用、kid 不存在、kid 已退役——**四种情况回同一句话**，因为验签发生在
-	 * 这之后，此刻的调用方还是未经认证的：分开回答等于给了一个可以枚举「这个平台上有哪些
-	 * 接入方」的探测器。
-	 *
-	 * 但话要说得能照着查：不点破是哪一个不对，只点明**该看哪两个字段**。不然接入方拿到一句
-	 * 「无效」，手里有四个可能，只能一个个试。
-	 */
-	if (!client || client.status !== 'enabled') return fail(401, refuseMessage);
+	if (!client || client.status !== 'enabled') return fail(401, '这把公钥所属的接入方已停用');
+	if (!client.owner_uid) return fail(401, '这把公钥所属的接入方没有归属账号，请在控制台重新登记');
 	if (!String(client.binding_scope ?? '').split(',').map((item) => item.trim()).includes('phone:bind')) return fail(403, '这个接入方没有绑定手机的权限');
-
-	const keyRow = await firstSql<{ public_key: string; status: string }>(database, sql({ database, subjectRoles: null }).select({
-		table: 'sms_integration_client_keys',
-		columns: { public_key: 'public_key', status: 'status' },
-		where: [{ column: 'integration_client_id', value: client.id }, { column: 'kid', value: kid }], limit: 1,
-	}));
-	// `retired` 的公钥立即拒绝新票据（§4.2）——轮换的意义就在这一句。
-	if (!keyRow || keyRow.status !== 'active') return fail(401, refuseMessage);
 
 	let verified = false;
 	try {
-		const key = await crypto.subtle.importKey('raw', fromBase64Url(String(keyRow.public_key)), { name: 'Ed25519' }, false, ['verify']);
+		const key = await crypto.subtle.importKey('raw', fromBase64Url(publicKey), { name: 'Ed25519' }, false, ['verify']);
 		// **验的是票据里那串原始字节**，不是重新序列化一遍的 JSON：键序或空格差一点就验不过。
 		verified = await crypto.subtle.verify({ name: 'Ed25519' }, key, fromBase64Url(signaturePart), payloadBytes);
 	} catch { verified = false; }
-	if (!verified) return fail(401, '绑定票据签名无效');
+	if (!verified) return fail(401, '绑定票据签名无效：签的字节和发出去的字节必须是同一串');
 
-	return { ok: true, payload: { ...payload, client_id: clientId, base_user_id: baseUserId, phone: String(payload.phone ?? ''), nonce }, clientRowId: String(client.id) };
+	return {
+		ok: true,
+		clientRowId: String(client.id),
+		ownerUid: String(client.owner_uid),
+		phone: String(payload.phone ?? ''),
+		nonce,
+		expiresAt,
+	};
 };
 
 /**

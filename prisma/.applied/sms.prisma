@@ -112,12 +112,21 @@ model sms_integration_client_keys {
   owner_uid    BigInt?
   integration_client_id BigInt
   @@index([integration_client_id])
-  /// 密钥标识，票据中携带。**协议只认 kid，不存在 key_version 这个协议字段。**
-  /// 不带 deleted_at：一个用过的 kid 即便记录被删掉也不该能重新启用。
+  /// 这把钥匙的名字，给人看的（「生产服务器」「2026-09 轮换」）。**不进协议**——
+  /// 票据里带的是公钥本身，服务端不需要调用方再告诉它用的是哪一把。
+  /// 不带 deleted_at：一个用过的名字即便记录被删掉也不该能重新启用。
   kid          String @db.VarChar(64)
   @@unique([integration_client_id, kid])
   /// Ed25519 公钥，原始字节的 Base64URL 表示。私钥永远不写入 SMS。
+  ///
+  /// **这一列就是身份**（同 GitHub 的 SSH 公钥）：票据里带着它，服务端据此反查出接入方
+  /// 与归属账号——所以它必须**全库唯一**，否则同一把公钥被两家登记时，这次绑定该算谁的
+  /// 就说不清了。
+  ///
+  /// 不带 deleted_at，理由同 sms_shortcut_tokens.token_sha256：一把退役或删除过的公钥
+  /// 不该能借尸还魂。要换钥匙就登记新的一把——本来也该这么做。
   public_key   String
+  @@unique([public_key])
   status       SmsClientKeyStatus @default(active)
   retired_at   BigInt?
 }

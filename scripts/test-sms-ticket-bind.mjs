@@ -7,11 +7,15 @@ import { createHash, generateKeyPairSync, sign as nodeSign } from 'node:crypto';
 
 /**
  * 票据路径端到端（绑定文档 §6.2、§7.2）：接入方用自己的 Ed25519 私钥签一张一次性票据，
- * 代表自己名下的账号绑一个手机号。
+ * 代表自己的账号绑一个手机号。
  *
- * 这条路径上没有本站会话——**票据本身就是凭证**，因此每一条失败规则都要守得住：
- * 验签、受众、时间窗、公钥退役、权限范围、目标账号归属、nonce 一次性。少守一条，
- * 拿到一张过期票据或一个被退役的 kid 就能往别人账号里插手机。
+ * **身份就是公钥**（同 GitHub 的 SSH）：票据里带着公钥，服务端反查出接入方与归属账号。
+ * 因此这里最要紧的一条是「换成谁的公钥就得拿谁的私钥来签」——下面用两个账号各自的钥匙
+ * 各绑一次，验手机落在各自名下。
+ *
+ * 这条路径上没有本站会话，票据本身就是凭证，每一条失败规则都要守得住：验签、受众、
+ * 时间窗、公钥退役、权限范围、nonce 一次性。少守一条，一张过期票据或一把退役公钥就能
+ * 往别人账号里插手机。
  */
 const base64url = (buffer) => Buffer.from(buffer).toString('base64url');
 
@@ -67,20 +71,29 @@ try {
 		const raw = pair.publicKey.export({ format: 'der', type: 'spki' }).subarray(-32);
 		return { privateKey: pair.privateKey, publicKey: base64url(raw) };
 	};
-	const registerKey = async (clientId, kid, publicKey) => {
-		const created = await app.request('http://sms.test/api/panel/user/sms/client-keys.php', { method: 'POST', headers: h, body: JSON.stringify({ integration_client_id: String(clientId), kid, public_key: publicKey, status: 'active' }) });
-		assert.equal(created.status, 201, `${kid} 要登记得上`);
-		const list = await (await app.request('http://sms.test/api/panel/user/sms/client-keys.php?include=data', { headers: h })).json();
-		return list.table.dataSource.find((row) => row.kid === kid);
+	const registerKey = async (clientId, kid, publicKey, session = h) => {
+		const created = await app.request('http://sms.test/api/panel/user/sms/client-keys.php', { method: 'POST', headers: session, body: JSON.stringify({ integration_client_id: String(clientId), kid, public_key: publicKey, status: 'active' }) });
+		const message = (await created.json().catch(() => ({}))).feedback?.message ?? '';
+		if (created.status !== 201) return { status: created.status, message };
+		const list = await (await app.request('http://sms.test/api/panel/user/sms/client-keys.php?include=data', { headers: session })).json();
+		return { status: 201, message, row: list.table.dataSource.find((row) => row.kid === kid) };
 	};
 	const live = keypair();
 	const retired = keypair();
 	const readOnly = keypair();
-	await registerKey(client.id, 'k-live', live.publicKey);
-	const retiredRow = await registerKey(client.id, 'k-retired', retired.publicKey);
-	await registerKey(readOnlyClient.id, 'k-readonly', readOnly.publicKey);
+	assert.equal((await registerKey(client.id, 'k-live', live.publicKey)).status, 201);
+	const retiredRow = (await registerKey(client.id, 'k-retired', retired.publicKey)).row;
+	assert.equal((await registerKey(readOnlyClient.id, 'k-readonly', readOnly.publicKey)).status, 201);
 	const retireResponse = await app.request(`http://sms.test/api/panel/user/sms/client-keys.php/${retiredRow.id}`, { method: 'PUT', headers: h, body: JSON.stringify({ status: 'retired' }) });
 	assert.equal(retireResponse.status, 200, '退役要生效——轮换的意义全在这一句');
+
+	/**
+	 * **同一把公钥全库只能登记一次。** 公钥就是身份，同一把被两家登记，绑定该算谁的就
+	 * 说不清了——服务端会在两个身份里挑一个，而挑哪个取决于行序，那是最难查的一类 bug。
+	 */
+	const duplicate = await registerKey(readOnlyClient.id, 'k-dup', live.publicKey);
+	assert.equal(duplicate.status, 409, '同一把公钥不能登记两次');
+	assert.match(duplicate.message, /已经登记过/);
 
 	// ---- 令牌池：绑定要从池子里领一把，池子空了绑不了 ----
 	const database = new DatabaseSync(process.env.DEFAULT_DATABASE_FILE);
@@ -94,11 +107,15 @@ try {
 
 	// ---- 签票据 ----
 	let nonceCounter = 0;
+	/**
+	 * 票据里只有一个身份字段：`public_key`。接入方与归属账号都由服务端反查。
+	 *
+	 * 默认拿 `live` 那一对签——公钥填 live 的、私钥也用 live 的，两者必须配对。
+	 */
 	const makeTicket = (overrides = {}, options = {}) => {
 		const issuedAt = Math.floor(Date.now() / 1000);
 		const payload = {
-			v: 1, aud: 'sms', client_id: 'ticketclient', kid: 'k-live',
-			base_user_id: String(ownerId), phone: '+8613800138000',
+			v: 1, aud: 'sms', public_key: live.publicKey, phone: '+8613800138000',
 			iat: issuedAt, exp: issuedAt + 120, nonce: `n-${++nonceCounter}`,
 			...overrides,
 		};
@@ -137,16 +154,20 @@ try {
 	assert.match((await bind('不是票据')).message, /格式/);
 	assert.match((await bind(makeTicket({ aud: 'other' }))).message, /受众/);
 	assert.match((await bind(makeTicket({ v: 2 }))).message, /版本/);
-	assert.match((await bind(makeTicket({ client_id: '不存在' }))).message, /接入方无效/);
-	assert.match((await bind(makeTicket({ kid: 'k-retired' }, { privateKey: retired.privateKey }))).message, /接入方无效/, '退役的公钥要立刻拒新票据');
-	assert.match((await bind(makeTicket({ client_id: 'readonlyclient', kid: 'k-readonly' }, { privateKey: readOnly.privateKey }))).message, /权限/, '没有 phone:bind 的接入方绑不了');
-	assert.match((await bind(makeTicket({}, { privateKey: keypair().privateKey }))).message, /签名无效/, '换一把私钥签要验不过');
+	const stranger = keypair();
+	assert.match((await bind(makeTicket({ public_key: stranger.publicKey }, { privateKey: stranger.privateKey }))).message, /没有登记/, '没登记过的公钥，签名再正确也不认');
+	assert.match((await bind(makeTicket({ public_key: retired.publicKey }, { privateKey: retired.privateKey }))).message, /没有登记|退役/, '退役的公钥要立刻拒新票据');
+	assert.match((await bind(makeTicket({ public_key: readOnly.publicKey }, { privateKey: readOnly.privateKey }))).message, /权限/, '没有 phone:bind 的接入方绑不了');
+	// **冒充的唯一形态**：填别人的公钥。填了就得拿别人的私钥来签，而私钥不出签发方的门。
+	assert.match((await bind(makeTicket({}, { privateKey: keypair().privateKey }))).message, /签名无效/, '公钥与私钥对不上要验不过');
+	assert.match((await bind(makeTicket({ public_key: '短了' }))).message, /public_key/);
+	// 照着旧文档写的代码撞上来时，直接说改成了什么，省掉一轮「缺哪个字段」的来回。
+	const legacy = await bind(makeTicket({ public_key: undefined, client_id: 'ticketclient', kid: 'k-live', base_user_id: String(ownerId) }));
+	assert.match(legacy.message, /public_key/, '老协议要给出迁移提示');
 	const expired = Math.floor(Date.now() / 1000) - 600;
 	assert.match((await bind(makeTicket({ iat: expired, exp: expired + 120 }))).message, /过期|生效/);
 	assert.match((await bind(makeTicket({ iat: Math.floor(Date.now() / 1000), exp: Math.floor(Date.now() / 1000) + 86400 }))).message, /有效期过长/, '有效期上限由本站定：不然签一张十年有效的就成了长期凭证');
 	assert.match((await bind(makeTicket({ phone: '不是号码' }))).message, /号码格式/);
-	assert.match((await bind(makeTicket({ base_user_id: String(otherId) }))).message, /目标身份无权/, '别人的账号：甲的接入方不能把手机绑进乙的账号、而短信推给甲配的地址');
-	assert.match((await bind(makeTicket({ base_user_id: '999999' }))).message, /目标身份无权/, '不存在与不允许回同一句话，不给一个可枚举的用户名单');
 
 	// 前面这些全失败了，不该有任何一张票据被记成「已使用」——否则一次探测就能把 nonce 表灌满。
 	const afterFailures = new DatabaseSync(process.env.DEFAULT_DATABASE_FILE, { readOnly: true });
@@ -192,6 +213,36 @@ try {
 	// ---- 号码归一：11 位裸号与 +86 形态是同一部手机 ----
 	const bare = await bind(makeTicket({ phone: '13800138000' }));
 	assert.equal(bare.data.already_bound, true, '裸 11 位要归一成 +86，否则同一个号会绑成两部手机、短信各进各的');
+
+	/**
+	 * ---- 归属由公钥决定 ----
+	 *
+	 * 这是整套简化的立足点：以前 `base_user_id` 由调用方填，于是要额外查一道「这个账号是不是
+	 * 你名下的」；现在账号从公钥反查出来，**填错和越权都不再是可能的形态**。
+	 *
+	 * 另一个人用自己的钥匙绑同一个号码：拿到的是**他自己名下**的一行，与前面那一行互不相干
+	 * （手机往往是客户的，两家服务商服务同一位客户是常事）。
+	 */
+	const otherSession = await signIn('ticketother');
+	const otherCreated = await app.request('http://sms.test/api/panel/user/sms/integration-clients.php', { method: 'POST', headers: otherSession, body: JSON.stringify({ name: 'otherclient', title: '另一家', binding_scope: ['phone:bind'], status: 'enabled' }) });
+	assert.equal(otherCreated.status, 201);
+	const otherClient = (await (await app.request('http://sms.test/api/panel/user/sms/integration-clients.php?include=data', { headers: otherSession })).json()).table.dataSource.find((row) => row.name === 'otherclient');
+	const otherKey = keypair();
+	assert.equal((await registerKey(otherClient.id, 'k-other', otherKey.publicKey, otherSession)).status, 201);
+
+	const otherBound = await bind(makeTicket({ public_key: otherKey.publicKey }, { privateKey: otherKey.privateKey }));
+	assert.equal(otherBound.status, 200, otherBound.message);
+	assert.equal(otherBound.data.already_bound, false, '另一家是全新的一行，不是幂等命中');
+
+	const isolated = new DatabaseSync(process.env.DEFAULT_DATABASE_FILE, { readOnly: true });
+	const rows = isolated.prepare("SELECT owner_uid, integration_client_id FROM sms_phones WHERE number = '+8613800138000' ORDER BY id").all();
+	assert.equal(rows.length, 2, '两个人各一行');
+	assert.equal(String(rows[0].owner_uid), String(ownerId));
+	assert.equal(String(rows[0].integration_client_id), String(client.id));
+	// 归属**没有**跟着第一家走：它是从第二把公钥反查出来的。
+	assert.equal(String(rows[1].owner_uid), String(otherId), '手机要落在这把公钥的主人名下');
+	assert.equal(String(rows[1].integration_client_id), String(otherClient.id));
+	isolated.close();
 
 	console.log('sms ticket bind test passed');
 } finally {

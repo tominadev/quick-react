@@ -37,13 +37,15 @@ const columns = [
 	{ dataIndex: 'id', title: 'ID', dataType: 'int' as const },
 	{ dataIndex: 'created_at', title: '登记时间', dataType: 'js_timestamp' as const, dayjsFormat: 'YYYY-MM-DD HH:mm:ss', form: { create: false as const, edit: false as const } },
 	{ dataIndex: 'integration_client_id', title: '接入方', component: 'select' as const, rules: [{ required: true, message: '请选择接入方' }], form: { edit: false as const } },
-	{ dataIndex: 'kid', title: '密钥标识', component: 'textbox' as const, maxLength: 64,
-		placeholder: '票据里的 kid，建议用启用日期，如 2026-09-01',
-		// 改不得：票据里带的就是它，改掉等于让所有在途票据验不过。
+	{ dataIndex: 'kid', title: '名称', component: 'textbox' as const, maxLength: 64,
+		placeholder: '给这把钥匙起个名，如「生产服务器」或 2026-09-01',
+		// **不进协议**：票据里带的是公钥本身，这一列只是给人看的名字（同 GitHub 给 SSH
+		// 公钥起的标题）。不让改是因为它参与唯一索引，改名要额外处理重名——而换名字没有
+		// 业务意义，真要换钥匙就登记新的一把。
 		form: { edit: false as const },
-		rules: [{ required: true, message: '请输入密钥标识' }] },
+		rules: [{ required: true, message: '请给这把钥匙起个名' }] },
 	{ dataIndex: 'public_key', title: '公钥', component: 'ed25519_public_key' as const,
-		placeholder: 'Ed25519 公钥，Base64URL、43 个字符。点下面的按钮当场生成，或在接入方那台机器上用命令生成：\nopenssl genpkey -algorithm ed25519 -out private.pem\nopenssl pkey -in private.pem -pubout -outform DER | tail -c 32 | basenc --base64url | tr -d "="',
+		placeholder: '票据里唯一要填的身份字段就是它——接入方与账号都由它反查。Ed25519 公钥，Base64URL、43 个字符。点下面的按钮当场生成，或在接入方那台机器上用命令生成：\nopenssl genpkey -algorithm ed25519 -out private.pem\nopenssl pkey -in private.pem -pubout -outform DER | tail -c 32 | basenc --base64url | tr -d "="',
 		form: { edit: false as const },
 		rules: [{ required: true, message: '请粘贴公钥' }] },
 	{ dataIndex: 'status', title: '状态', component: 'select' as const, options: STATUS_OPTIONS },
@@ -129,10 +131,10 @@ const handler: ApiHandler = async (c, next, params) => {
 		// 粘贴时常带上换行与首尾空白，去掉再校验——否则「明明复制对了」却一直报格式错。
 		const publicKeyValue = String(body.public_key ?? '').replace(/\s+/g, '');
 		if (!clientId) return apiMessage(c, 400, '请选择接入方');
-		if (!kid) return apiMessage(c, 400, '请输入密钥标识');
+		if (!kid) return apiMessage(c, 400, '请给这把钥匙起个名');
 		if (!publicKeyPattern.test(publicKeyValue)) return apiMessage(c, 400, '公钥格式不对：应当是 Ed25519 原始字节的 Base64URL，43 个字符（不含补位的 =）');
-		const client = await firstSql<{ id: string; name: string }>(database, sql({ database }).select({
-			table: 'sms_integration_clients', columns: { id: { column: 'id', cast: 'text' }, name: 'name' }, where: [{ column: 'id', value: clientId }, ownerScope('owner_uid', currentUser.id)], limit: 1,
+		const client = await firstSql<{ id: string }>(database, sql({ database }).select({
+			table: 'sms_integration_clients', columns: { id: { column: 'id', cast: 'text' } }, where: [{ column: 'id', value: clientId }, ownerScope('owner_uid', currentUser.id)], limit: 1,
 		}));
 		if (!client) return apiMessage(c, 400, '接入方不存在，或者不属于你');
 		// kid 重复要在**记录之前**挡掉：审批是先记录后应用，等撞唯一索引才失败的话，
@@ -142,31 +144,43 @@ const handler: ApiHandler = async (c, next, params) => {
 			where: [{ column: 'integration_client_id', value: clientId }, { column: 'kid', value: kid }],
 			deleted: 'all', queued: 'all', limit: 1,
 		}));
-		if (taken) return apiMessage(c, 409, '这个接入方下已经有同名的密钥标识了。kid 一旦用过就不再重复使用，换一个（例如换成今天的日期）。');
+		if (taken) return apiMessage(c, 409, '这个接入方下已经有同名的钥匙了，换一个名字（例如换成今天的日期）。');
+		/**
+		 * **同一把公钥全库只能登记一次。**
+		 *
+		 * 公钥就是身份：票据里带着它反查接入方。同一把被两家登记，这次绑定该算谁的就说不清了。
+		 * 在记录之前挡掉，理由同上面那条 kid——审批是先记录后应用，等撞唯一索引才失败的话，
+		 * 队列里会留下一条谁也批不动的申请。
+		 *
+		 * 查的时候不限归属：别人登记过的也算占用，但**不能说出是谁登记的**——那会把「这把
+		 * 公钥属于本平台的哪个账号」变成一个可查询的事实。
+		 */
+		const registered = await firstSql<{ id: string }>(database, sql({ database, subjectRoles: null }).select({
+			table: 'sms_integration_client_keys', columns: { id: { column: 'id', cast: 'text' } },
+			where: [{ column: 'public_key', value: publicKeyValue }], deleted: 'all', queued: 'all', limit: 1,
+		}));
+		if (registered) return apiMessage(c, 409, '这把公钥已经登记过了。一把公钥只能对应一个接入方——换一个接入方用，就再生成一对新密钥。');
 		try {
 			await runOperationSql(c, database, sql({ database }).insert('sms_integration_client_keys', {
 				integration_client_id: clientId, kid, public_key: publicKeyValue, status: String(body.status ?? 'active'),
 			}));
 			/**
-			 * **把票据里要填的三个值一起报出来。**
+			 * 报出公钥本身：**票据里唯一要填的身份字段就是它**（`public_key`）。
 			 *
-			 * `client_id` 与 `base_user_id` 在别处都看不到——前者容易被当成「名称」，后者在
-			 * 界面上根本没露过面。照着对接文档的示例值填是对接时最常踩的两脚，而两次都只会
-			 * 得到一句笼统的拒绝。登记公钥恰好是写签名代码之前的最后一步，报在这里正好。
+			 * 接入方、账号都由服务端从这把公钥反查，不用调用方再填——以前要填三个值，
+			 * 三个都在界面别处看不到，填错只得到一句笼统的拒绝。
 			 */
 			return apiMessage(c, 201, [
-				'公钥已登记。票据里这三个值照着填：',
+				'公钥已登记。票据里带上这一个字段就行，接入方与账号由它反查：',
 				'',
-				`  "client_id": "${client.name}"`,
-				`  "kid": "${kid}"`,
-				`  "base_user_id": "${currentUser.id}"`,
+				`  "public_key": "${publicKeyValue}"`,
 				'',
-				'接入方切换到这个 kid 之后，记得把旧的那把改成「已退役」。',
+				'换钥匙时登记新的一把，两把并存一段时间，再把旧的那把改成「已退役」——退役之后它签的新票据立刻失效。',
 			].join('\n'), { component: 'modal', showIcon: true, title: '公钥已登记' });
 		} catch (error) {
 			if (error instanceof PendingApprovalError) throw error;
 			if (!isUniqueViolation(error)) throw error;
-			return apiMessage(c, 409, '这个接入方下已经有同名的密钥标识了');
+			return apiMessage(c, 409, '这个接入方下已经有同名的钥匙了');
 		}
 	}
 
