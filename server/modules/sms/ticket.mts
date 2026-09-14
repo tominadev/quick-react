@@ -32,6 +32,14 @@ export type TicketResult =
 	| { ok: false; failure: TicketFailure }
 	| { ok: true; payload: TicketPayload & { client_id: string; base_user_id: string; phone: string; nonce: string }; clientRowId: string };
 
+/**
+ * 查不到可用公钥时的统一回话。四种成因共用它，理由见下面查 client 那一段。
+ *
+ * `client_id` 对应控制台「接入方」页的**标识**那一列，不是名称——这是对接时最常踩的一脚：
+ * 照着文档示例填了 `shop`，而自己建的那个叫别的。
+ */
+const refuseMessage = '签名接入方无效：client_id 与 kid 没有匹配到一把启用中的公钥（client_id 是接入方的「标识」，不是名称）';
+
 /** 有效期最长 5 分钟，允许 60 秒时钟偏差（§7.1）。 */
 const MAX_LIFETIME_SECONDS = 300;
 const CLOCK_SKEW_SECONDS = 60;
@@ -83,8 +91,15 @@ export const verifyBindingTicket = async (database: DatabaseAdapter, ticket: str
 		columns: { id: { column: 'id', cast: 'text' }, owner_uid: { column: 'owner_uid', cast: 'text' }, status: 'status', binding_scope: 'binding_scope' },
 		where: [{ column: 'name', value: clientId }], limit: 1,
 	}));
-	// 接入方不存在与已停用回同一句话：能拿到 client_id 的人不该再多得到一个「这家是不是被停了」的答案。
-	if (!client || client.status !== 'enabled') return fail(401, '签名接入方无效');
+	/**
+	 * 接入方不存在、已停用、kid 不存在、kid 已退役——**四种情况回同一句话**，因为验签发生在
+	 * 这之后，此刻的调用方还是未经认证的：分开回答等于给了一个可以枚举「这个平台上有哪些
+	 * 接入方」的探测器。
+	 *
+	 * 但话要说得能照着查：不点破是哪一个不对，只点明**该看哪两个字段**。不然接入方拿到一句
+	 * 「无效」，手里有四个可能，只能一个个试。
+	 */
+	if (!client || client.status !== 'enabled') return fail(401, refuseMessage);
 	if (!String(client.binding_scope ?? '').split(',').map((item) => item.trim()).includes('phone:bind')) return fail(403, '这个接入方没有绑定手机的权限');
 
 	const keyRow = await firstSql<{ public_key: string; status: string }>(database, sql({ database, subjectRoles: null }).select({
@@ -93,7 +108,7 @@ export const verifyBindingTicket = async (database: DatabaseAdapter, ticket: str
 		where: [{ column: 'integration_client_id', value: client.id }, { column: 'kid', value: kid }], limit: 1,
 	}));
 	// `retired` 的公钥立即拒绝新票据（§4.2）——轮换的意义就在这一句。
-	if (!keyRow || keyRow.status !== 'active') return fail(401, '签名接入方无效');
+	if (!keyRow || keyRow.status !== 'active') return fail(401, refuseMessage);
 
 	let verified = false;
 	try {
