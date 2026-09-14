@@ -114,7 +114,7 @@ const handler: ApiHandler = async (c, next, params) => {
 			await runOperationSql(c, database, sql({ database }).insert('sms_integration_clients', {
 				name, title, binding_scope: scope.value, status: String(body.status ?? statusValues.enabled),
 			}));
-			return apiMessage(c, 201, '接入方已登记。公钥要等 /api/client/ 那条链做好后再登记，在此之前它签的票据一律验不过');
+			return apiMessage(c, 201, '接入方已登记。接着到「接入方公钥」登记一把 Ed25519 公钥，之后就能用私钥签票据调 /api/client/phone-bind 代客户绑手机了。');
 		} catch (error) {
 			if (error instanceof PendingApprovalError) throw error;
 			if (!isUniqueViolation(error)) throw error;

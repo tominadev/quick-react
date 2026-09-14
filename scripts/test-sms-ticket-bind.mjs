@@ -1,0 +1,199 @@
+import assert from 'node:assert/strict';
+import { mkdtemp, rm } from 'node:fs/promises';
+import { join } from 'node:path';
+import { tmpdir } from 'node:os';
+import { DatabaseSync } from 'node:sqlite';
+import { createHash, generateKeyPairSync, sign as nodeSign } from 'node:crypto';
+
+/**
+ * 票据路径端到端（绑定文档 §6.2、§7.2）：接入方用自己的 Ed25519 私钥签一张一次性票据，
+ * 代表自己名下的账号绑一个手机号。
+ *
+ * 这条路径上没有本站会话——**票据本身就是凭证**，因此每一条失败规则都要守得住：
+ * 验签、受众、时间窗、公钥退役、权限范围、目标账号归属、nonce 一次性。少守一条，
+ * 拿到一张过期票据或一个被退役的 kid 就能往别人账号里插手机。
+ */
+const base64url = (buffer) => Buffer.from(buffer).toString('base64url');
+
+const temporaryDirectory = await mkdtemp(join(tmpdir(), 'quick-react-sms-ticket-'));
+process.env.DEFAULT_DATABASE_FILE = join(temporaryDirectory, 'default.sqlite');
+process.env.SKIP_SERVER_LISTEN = '1';
+try {
+	const { app, runMaintenanceAction } = await import(`../dist/server.mjs?sms-ticket=${Date.now()}`);
+	const now = Date.now();
+	const seed = new DatabaseSync(process.env.DEFAULT_DATABASE_FILE);
+	seed.prepare("INSERT INTO global_site_hosts (key, hostname, site_key, status, created_at) VALUES (lower(hex(randomblob(16))), 'sms.test', 'sms', 'enabled', ?)").run(now);
+	seed.close();
+	await runMaintenanceAction('restore-admin', { user_name: 'ticketadmin', password: 'ticket-password-1' });
+
+	const headers = {
+		'content-type': 'application/json',
+		'x-device-key': '00000000000040008000000000000002',
+		'x-device-fingerprint': JSON.stringify({ canvas_cyrb53: 'a', audio_cyrb53: 'b' }),
+	};
+	const signIn = async (userName) => {
+		const login = await app.request('http://sms.test/api/sign.php', { method: 'POST', headers, body: JSON.stringify({ user_name: userName, password: 'ticket-password-1' }) });
+		assert.equal(login.status, 200, `${userName} 要能登录`);
+		return { ...headers, cookie: login.headers.get('set-cookie')?.split(';')[0] };
+	};
+	const h = await signIn('ticketadmin');
+	const approveAll = async () => {
+		const pending = await (await app.request('http://sms.test/api/panel/admin/base/audit/records.php?include=data&review_status=pending', { headers: h })).json();
+		const ids = (pending.table?.dataSource ?? []).map((row) => String(row.id));
+		if (ids.length) await app.request('http://sms.test/api/panel/admin/base/audit/records.php?action=approve', { method: 'POST', headers: h, body: JSON.stringify(ids) });
+	};
+
+	// 第二个账号：用来验「不是自己名下的账号，签了票据也绑不了」。
+	await app.request('http://sms.test/api/panel/admin/base/users.php', { method: 'POST', headers: h, body: JSON.stringify({ user_name: 'ticketother', password: 'ticket-password-1', roles: [], status: 'enabled' }) });
+	await approveAll();
+
+	// ---- 接入方与它的公钥 ----
+	const createClient = async (name, title, scope) => {
+		const created = await app.request('http://sms.test/api/panel/user/sms/integration-clients.php', { method: 'POST', headers: h, body: JSON.stringify({ name, title, binding_scope: scope, status: 'enabled' }) });
+		assert.equal(created.status, 201, `${name} 要建得起来`);
+		const list = await (await app.request('http://sms.test/api/panel/user/sms/integration-clients.php?include=data', { headers: h })).json();
+		return list.table.dataSource.find((row) => row.name === name);
+	};
+	const client = await createClient('ticketclient', '票据接入方', ['phone:bind']);
+	// 没有 phone:bind 的那家：能力范围不是摆设，它得真的拦住。登记接口不收空能力，
+	// 所以直接把这一行的能力清掉——模拟的是「将来有了别的能力，而这家没勾绑定手机」。
+	const readOnlyClient = await createClient('readonlyclient', '只读接入方', ['phone:bind']);
+	const scopeDatabase = new DatabaseSync(process.env.DEFAULT_DATABASE_FILE);
+	scopeDatabase.prepare("UPDATE sms_integration_clients SET binding_scope = '' WHERE name = 'readonlyclient'").run();
+	scopeDatabase.close();
+
+	const keypair = () => {
+		const pair = generateKeyPairSync('ed25519');
+		const raw = pair.publicKey.export({ format: 'der', type: 'spki' }).subarray(-32);
+		return { privateKey: pair.privateKey, publicKey: base64url(raw) };
+	};
+	const registerKey = async (clientId, kid, publicKey) => {
+		const created = await app.request('http://sms.test/api/panel/user/sms/client-keys.php', { method: 'POST', headers: h, body: JSON.stringify({ integration_client_id: String(clientId), kid, public_key: publicKey, status: 'active' }) });
+		assert.equal(created.status, 201, `${kid} 要登记得上`);
+		const list = await (await app.request('http://sms.test/api/panel/user/sms/client-keys.php?include=data', { headers: h })).json();
+		return list.table.dataSource.find((row) => row.kid === kid);
+	};
+	const live = keypair();
+	const retired = keypair();
+	const readOnly = keypair();
+	await registerKey(client.id, 'k-live', live.publicKey);
+	const retiredRow = await registerKey(client.id, 'k-retired', retired.publicKey);
+	await registerKey(readOnlyClient.id, 'k-readonly', readOnly.publicKey);
+	const retireResponse = await app.request(`http://sms.test/api/panel/user/sms/client-keys.php/${retiredRow.id}`, { method: 'PUT', headers: h, body: JSON.stringify({ status: 'retired' }) });
+	assert.equal(retireResponse.status, 200, '退役要生效——轮换的意义全在这一句');
+
+	// ---- 令牌池：绑定要从池子里领一把，池子空了绑不了 ----
+	const database = new DatabaseSync(process.env.DEFAULT_DATABASE_FILE);
+	const ownerId = database.prepare("SELECT id FROM base_users WHERE name = 'ticketadmin'").get().id;
+	const otherId = database.prepare("SELECT id FROM base_users WHERE name = 'ticketother'").get().id;
+	for (let index = 1; index <= 3; index += 1) {
+		database.prepare("INSERT INTO sms_shortcut_tokens (key, token_sha256, status, idempotency_token, created_at, updated_at) VALUES (lower(hex(randomblob(16))), ?, 'available', ?, ?, ?)")
+			.run(createHash('sha256').update(`pool-${index}`).digest('hex'), `idem-${index}`, now, now);
+	}
+	database.close();
+
+	// ---- 签票据 ----
+	let nonceCounter = 0;
+	const makeTicket = (overrides = {}, options = {}) => {
+		const issuedAt = Math.floor(Date.now() / 1000);
+		const payload = {
+			v: 1, aud: 'sms', client_id: 'ticketclient', kid: 'k-live',
+			base_user_id: String(ownerId), phone: '+8613800138000',
+			iat: issuedAt, exp: issuedAt + 120, nonce: `n-${++nonceCounter}`,
+			...overrides,
+		};
+		const payloadBytes = Buffer.from(JSON.stringify(payload), 'utf8');
+		const signature = nodeSign(null, payloadBytes, options.privateKey ?? live.privateKey);
+		return `${base64url(payloadBytes)}.${base64url(signature)}`;
+	};
+	const bind = async (ticket, extra = {}) => {
+		const response = await app.request('http://sms.test/api/client/phone-bind.php', {
+			method: 'POST',
+			headers: { 'content-type': 'application/json', ...(extra.headers ?? {}) },
+			body: JSON.stringify({ ticket, ...(extra.body ?? {}) }),
+		});
+		const json = await response.json().catch(() => ({}));
+		return { status: response.status, message: json.feedback?.message ?? '', data: json };
+	};
+
+	/**
+	 * ---- 跨源：接入方从自己的页面提交票据 ----
+	 *
+	 * 预检过不了的话，浏览器根本不会把真正那一发请求送出来——接入方在控制台看到的是
+	 * 一句 CORS 错误，而服务端日志里一片空白，最难查的一类问题。
+	 */
+	const preflight = await app.request('http://sms.test/api/client/phone-bind.php', {
+		method: 'OPTIONS',
+		headers: { origin: 'https://client.example.com', 'access-control-request-method': 'POST', 'access-control-request-headers': 'content-type' },
+	});
+	assert.equal(preflight.status, 204);
+	assert.equal(preflight.headers.get('access-control-allow-origin'), '*');
+	assert.match(String(preflight.headers.get('access-control-allow-headers')), /content-type/);
+	// 带凭证的跨源请求一律不放行：放行了浏览器就会附带 cookie，而这条链的凭证只能是票据。
+	assert.equal(preflight.headers.get('access-control-allow-credentials'), null);
+
+	// ---- 失败规则（§7.2）：每一条都得回确定性错误，而不是内部异常 ----
+	assert.match((await bind(makeTicket(), { headers: { cookie: h.cookie } })).message, /cookie/, '带 cookie 要拒：浏览器会自动附带它，认了就等于任何网页都能借用户身份来打');
+	assert.match((await bind('不是票据')).message, /格式/);
+	assert.match((await bind(makeTicket({ aud: 'other' }))).message, /受众/);
+	assert.match((await bind(makeTicket({ v: 2 }))).message, /版本/);
+	assert.match((await bind(makeTicket({ client_id: '不存在' }))).message, /接入方无效/);
+	assert.match((await bind(makeTicket({ kid: 'k-retired' }, { privateKey: retired.privateKey }))).message, /接入方无效/, '退役的公钥要立刻拒新票据');
+	assert.match((await bind(makeTicket({ client_id: 'readonlyclient', kid: 'k-readonly' }, { privateKey: readOnly.privateKey }))).message, /权限/, '没有 phone:bind 的接入方绑不了');
+	assert.match((await bind(makeTicket({}, { privateKey: keypair().privateKey }))).message, /签名无效/, '换一把私钥签要验不过');
+	const expired = Math.floor(Date.now() / 1000) - 600;
+	assert.match((await bind(makeTicket({ iat: expired, exp: expired + 120 }))).message, /过期|生效/);
+	assert.match((await bind(makeTicket({ iat: Math.floor(Date.now() / 1000), exp: Math.floor(Date.now() / 1000) + 86400 }))).message, /有效期过长/, '有效期上限由本站定：不然签一张十年有效的就成了长期凭证');
+	assert.match((await bind(makeTicket({ phone: '不是号码' }))).message, /号码格式/);
+	assert.match((await bind(makeTicket({ base_user_id: String(otherId) }))).message, /目标身份无权/, '别人的账号：甲的接入方不能把手机绑进乙的账号、而短信推给甲配的地址');
+	assert.match((await bind(makeTicket({ base_user_id: '999999' }))).message, /目标身份无权/, '不存在与不允许回同一句话，不给一个可枚举的用户名单');
+
+	// 前面这些全失败了，不该有任何一张票据被记成「已使用」——否则一次探测就能把 nonce 表灌满。
+	const afterFailures = new DatabaseSync(process.env.DEFAULT_DATABASE_FILE, { readOnly: true });
+	assert.equal(afterFailures.prepare('SELECT COUNT(*) AS n FROM sms_ticket_nonces').get().n, 0, '验不过的票据不消费 nonce');
+	assert.equal(afterFailures.prepare('SELECT COUNT(*) AS n FROM sms_phones').get().n, 0, '一部手机都不该建出来');
+	afterFailures.close();
+
+	// ---- 正常绑定 ----
+	const ticket = makeTicket();
+	const bound = await bind(ticket, { body: { title: '客户的机器' } });
+	assert.equal(bound.status, 200, bound.message);
+	assert.equal(bound.data.already_bound, false);
+	assert.equal(bound.data.number, '+8613800138000');
+
+	const afterBind = new DatabaseSync(process.env.DEFAULT_DATABASE_FILE, { readOnly: true });
+	const phone = afterBind.prepare("SELECT * FROM sms_phones WHERE number = '+8613800138000'").get();
+	assert.ok(phone, '手机要建出来');
+	// 归属必须显式绑上：这条路径没有本站会话，不绑的话 owner_uid 会是 NULL，
+	// 而 NULL 归属的行普通账号一律看不见——用户自己看不到自己刚绑的手机。
+	assert.equal(String(phone.owner_uid), String(ownerId), 'owner_uid 要落成票据里的账号');
+	// 关联的项目由服务端从票据的 client_id 写入，不由调用方指定——它决定了短信将来推给谁。
+	assert.equal(String(phone.integration_client_id), String(client.id));
+	assert.equal(phone.title, '客户的机器');
+	assert.equal(phone.status, 'enabled');
+	assert.equal(afterBind.prepare("SELECT COUNT(*) AS n FROM sms_shortcut_tokens WHERE status = 'bound' AND phone_id = ?").get(phone.id).n, 1, '要领到一把令牌——没有令牌的手机一条短信也收不到');
+	assert.equal(afterBind.prepare('SELECT COUNT(*) AS n FROM sms_ticket_nonces').get().n, 1);
+	afterBind.close();
+
+	// ---- nonce 一次性：同一张票据再来一次要拒 ----
+	const replayed = await bind(ticket);
+	assert.equal(replayed.status, 409, '重放要拒');
+	assert.match(replayed.message, /已使用/);
+
+	// ---- 幂等：换一张新票据绑同一个号码，回成功但不新建记录 ----
+	const again = await bind(makeTicket());
+	assert.equal(again.status, 200, again.message);
+	assert.equal(again.data.already_bound, true, '已经绑过了要回幂等成功，而不是报错');
+	const afterRepeat = new DatabaseSync(process.env.DEFAULT_DATABASE_FILE, { readOnly: true });
+	assert.equal(afterRepeat.prepare("SELECT COUNT(*) AS n FROM sms_phones WHERE number = '+8613800138000'").get().n, 1, '不产生重复记录');
+	assert.equal(afterRepeat.prepare("SELECT COUNT(*) AS n FROM sms_shortcut_tokens WHERE status = 'bound'").get().n, 1, '也不该再领一把令牌');
+	afterRepeat.close();
+
+	// ---- 号码归一：11 位裸号与 +86 形态是同一部手机 ----
+	const bare = await bind(makeTicket({ phone: '13800138000' }));
+	assert.equal(bare.data.already_bound, true, '裸 11 位要归一成 +86，否则同一个号会绑成两部手机、短信各进各的');
+
+	console.log('sms ticket bind test passed');
+} finally {
+	await rm(temporaryDirectory, { recursive: true, force: true });
+}
