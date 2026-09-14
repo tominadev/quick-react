@@ -167,6 +167,41 @@ try {
 	assert.equal(afterCheck.prepare('SELECT COUNT(*) AS n FROM sms_messages').get().n, 0, '自检不进短信表');
 	assert.equal(afterCheck.prepare('SELECT COUNT(*) AS n FROM sms_push_deliveries').get().n, 0, '自检也不推送：接入方的服务器不该收到一条空短信');
 	afterCheck.close();
+	/**
+	 * ---- 接收日志：到底收到了什么 ----
+	 *
+	 * 快捷指令跑在别人手机上，出了问题原来一点痕迹不留。三件事要守住：失败的记完整请求体，
+	 * 成功的不在日志里再存一份正文，原始令牌任何情况下都不出现。
+	 */
+	const receiveLogs = [];
+	const originalLog = console.log;
+	console.log = (...args) => {
+		const line = args.join(' ');
+		if (line.startsWith('[sms-receive] ')) receiveLogs.push({ line, entry: JSON.parse(line.slice('[sms-receive] '.length)) });
+		else originalLog(...args);
+	};
+	await receive({});
+	await receive({ content: '', sender: '10086', message_id: 'm-empty-2' });
+	await app.request('http://sms.test/api/shortcut/message-receive.php', { method: 'POST', headers: { authorization: 'Bearer not-a-real-token', 'content-type': 'application/json' }, body: JSON.stringify({ content: '随便谁写的东西' }) });
+	console.log = originalLog;
+	const [okLog, failedLog, unknownLog] = receiveLogs.map((item) => item.entry);
+	assert.equal(receiveLogs.length, 3, '每一次提交都要留一行');
+	assert.equal(okLog.status, 200);
+	assert.equal(okLog.token.id, '1', '记令牌在库里的编号');
+	assert.equal(okLog.phone_id, '1');
+	assert.equal(okLog.body, undefined, '成功的不记请求体');
+	assert.equal(failedLog.status, 400);
+	assert.equal(failedLog.body.sender, '10086', '失败的记完整请求体——那正是要查的');
+	assert.match(failedLog.message, /没有取到正文/);
+	assert.equal(unknownLog.status, 401);
+	assert.equal(unknownLog.token, null);
+	assert.ok(!unknownLog.line?.includes('随便谁写的东西') && !receiveLogs[2].line.includes('随便谁写的东西'), '认不出的令牌只记字段名与长度');
+	assert.deepEqual(unknownLog.fields, ['content']);
+	for (const { line } of receiveLogs) {
+		assert.ok(!line.includes('raw-token') && !line.includes('not-a-real-token'), '原始令牌任何情况下都不进日志');
+		assert.ok(!line.includes(createHash('sha256').update('raw-token').digest('hex')), '令牌摘要同样不进日志');
+	}
+
 	const myPhones = await (await app.request('http://sms.test/api/panel/user/sms/phones.php?include=data', { headers: h })).json();
 	const mainPhone = myPhones.table.dataSource.find((row) => String(row.id) === '1');
 	assert.ok(Number(mainPhone.last_check_at) > 0, '后台「我的手机」要看得到最近自检');

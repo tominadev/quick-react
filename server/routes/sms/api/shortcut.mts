@@ -36,7 +36,64 @@ const timingSafeEqual = (left: string, right: string) => {
 	return diff === 0;
 };
 
+type ReceiveTrace = { token?: { id: string; status: string; deleted: boolean }; phoneId?: string };
+
+/**
+ * **记下每一次提交到底收到了什么**，一行 JSON 写进服务日志（PM2 的 out 日志）。
+ *
+ * 为什么要有：快捷指令跑在别人手机上，出了问题服务端原来一点痕迹都不留——被拒的提交
+ * 不入库，于是「收到短信却没写入」只能靠推断是自动化指向了旧快捷指令、还是读不到正文、
+ * 还是压根没发过来。有了这一行，三种情况一眼分得清：没有日志就是没发过来。
+ *
+ * 记什么、不记什么：
+ * - **原始令牌与它的摘要一概不记**，只记令牌在库里的编号与状态（生成器文档：摘要与令牌
+ *   敏感级别相同）。
+ * - **失败的记完整请求体**——那正是要查的；**成功的只记字段名与正文长度**，正文已经在
+ *   短信表里，不必在日志文件里再存一份验证码。
+ * - **认不出的令牌只记字段名与长度**：那可能是任何人发来的任何东西，照单全收等于让人
+ *   往日志里随便写。
+ */
+const describeBody = (raw: string, detailed: boolean) => {
+	let parsed: unknown;
+	try { parsed = JSON.parse(raw); } catch { parsed = undefined; }
+	if (!parsed || typeof parsed !== 'object' || Array.isArray(parsed)) {
+		return detailed ? { raw: raw.slice(0, 2000), raw_length: raw.length } : { raw_length: raw.length, json: false };
+	}
+	const fields = parsed as Record<string, unknown>;
+	if (detailed) return { body: JSON.parse(JSON.stringify(fields, (_key, value) => (typeof value === 'string' ? value.slice(0, 1000) : value))) };
+	return {
+		fields: Object.keys(fields),
+		lengths: Object.fromEntries(Object.entries(fields).map(([key, value]) => [key, typeof value === 'string' ? value.length : typeof value])),
+	};
+};
+
+const recordReceive = async (c: Parameters<ApiHandler>[0], response: Response, raw: string, trace: ReceiveTrace) => {
+	const message = await response.clone().json().then((json: { feedback?: { message?: string } }) => json?.feedback?.message).catch(() => undefined);
+	const succeeded = response.status >= 200 && response.status < 300;
+	console.log(`[sms-receive] ${JSON.stringify({
+		at: new Date().toISOString(),
+		path: new URL(c.req.url).pathname,
+		status: response.status,
+		message,
+		token: trace.token ?? null,
+		phone_id: trace.phoneId ?? null,
+		user_agent: (c.req.header('user-agent') ?? '').slice(0, 200),
+		content_type: (c.req.header('content-type') ?? '').slice(0, 100),
+		...describeBody(raw, Boolean(trace.token) && !succeeded),
+	})}`);
+};
+
 const handler: ApiHandler = async (c, next) => {
+	// 先把请求体读成文本：叶子之后再读 JSON 走的是缓存，被拒的请求也照样记得下来。
+	const raw = await c.req.text().catch(() => '');
+	const trace: ReceiveTrace = {};
+	const result = await authorize(c, next, trace);
+	const response = result instanceof Response ? result : c.res;
+	await recordReceive(c, response, raw, trace).catch((error: unknown) => console.error('sms receive log failed', error));
+	return result;
+};
+
+const authorize = async (c: Parameters<ApiHandler>[0], next: Parameters<ApiHandler>[1], trace: ReceiveTrace) => {
 	/**
 	 * 不接受 cookie 认证。浏览器会对跨站请求自动附带 cookie；这里若也认会话，任何网页都能
 	 * 借用户已登录的身份往这些接口打。协议接口的身份跟随请求，不跟随浏览器。
@@ -66,13 +123,24 @@ const handler: ApiHandler = async (c, next) => {
 	const refuse = () => apiMessage(c, 401, '凭证无效：这个令牌不存在，或者与服务端记录的对不上');
 
 	const digest = await sha256(token);
-	const found = await firstSql<{ token_sha256: string; phone_id: string | null; status: string }>(database, sql({ database, subjectRoles: null }).select({
+	const found = await firstSql<{ id: string; token_sha256: string; phone_id: string | null; status: string }>(database, sql({ database, subjectRoles: null }).select({
 		table: 'sms_shortcut_tokens',
-		columns: { token_sha256: 'token_sha256', phone_id: { column: 'phone_id', cast: 'text' }, status: 'status' },
+		columns: { id: { column: 'id', cast: 'text' }, token_sha256: 'token_sha256', phone_id: { column: 'phone_id', cast: 'text' }, status: 'status' },
 		where: [{ column: 'token_sha256', value: digest }],
 		limit: 1,
 	}));
-	if (!found || !timingSafeEqual(String(found.token_sha256), digest)) return refuse();
+	if (!found || !timingSafeEqual(String(found.token_sha256), digest)) {
+		// 只为日志认一认是不是被删掉的旧令牌（清空令牌池之后，手机上装着的旧快捷指令就是
+		// 这种）。回话不变：删掉的与从没存在过的，对外仍是同一句。
+		const removed = await firstSql<{ id: string; phone_id: string | null; status: string }>(database, sql({ database, subjectRoles: null }).select({
+			table: 'sms_shortcut_tokens',
+			columns: { id: { column: 'id', cast: 'text' }, phone_id: { column: 'phone_id', cast: 'text' }, status: 'status' },
+			where: [{ column: 'token_sha256', value: digest }], deleted: 'all', limit: 1,
+		})).catch(() => undefined);
+		if (removed) Object.assign(trace, { token: { id: String(removed.id), status: String(removed.status), deleted: true }, phoneId: removed.phone_id ?? undefined });
+		return refuse();
+	}
+	Object.assign(trace, { token: { id: String(found.id), status: String(found.status), deleted: false }, phoneId: found.phone_id ?? undefined });
 	if (found.status === 'revoked') return apiMessage(c, 403, '这个令牌已被撤销，不能再提交短信。请重新领取一份 Shortcut 文件。');
 	if (found.status === 'pending') return apiMessage(c, 403, '这个令牌还没有完成入库，暂时不能使用。这通常表示生成器那一步中断了，请联系管理员重新生成。');
 	if (found.status !== 'bound' || !found.phone_id) return apiMessage(c, 403, '这个令牌还没有绑定手机。请先在「我的手机」页面用这份 Shortcut 完成绑定，再回来运行它。');
