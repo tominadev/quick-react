@@ -94,6 +94,9 @@ try {
 	const duplicate = await registerKey(readOnlyClient.id, 'k-dup', live.publicKey);
 	assert.equal(duplicate.status, 409, '同一把公钥不能登记两次');
 	assert.match(duplicate.message, /已经登记过/);
+	// 退役过的也不能登记回来（唯一索引不带 deleted_at，查重也不看归属与软删）：
+	// 一把退役过的钥匙，退役的理由多半还在。要「换回去」只能再生成一对新的。
+	assert.equal((await registerKey(client.id, 'k-revive', retired.publicKey)).status, 409, '退役过的公钥不能借尸还魂');
 
 	// ---- 令牌池：绑定要从池子里领一把，池子空了绑不了 ----
 	const database = new DatabaseSync(process.env.DEFAULT_DATABASE_FILE);
