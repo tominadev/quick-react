@@ -211,6 +211,12 @@ model sms_phones {
   status       SmsPhoneStatus @default(enabled)
   bound_at     BigInt @default(0)
   revoked_at   BigInt?
+  /// 最近一次自检的时间。手机的主人手动运行一次快捷指令（没有短信、正文为空）就刷新它。
+  ///
+  /// **与「最近收到短信」分开记**：那两件事是两个问题——「这部手机通不通」和「有没有真
+  /// 短信进来」。合成一格的话，点完测试只看到一个时间在动，分不清是自己点的还是刚好来了
+  /// 条短信；分开之后这一格只会因为自检而变，手机死了它就不动，前后对照一眼看得出。
+  last_check_at BigInt?
 }
 
 /// Shortcut 令牌的服务端摘要。原始令牌只存在于 Shortcut 文件与用户手机。

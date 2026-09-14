@@ -27,6 +27,11 @@ import type { TableCrudDefinition } from '@server/modules/base/table-crud.mjs';
  * 发来的短信正要靠查它认领归属——排队期间短信会被拒收。
  */
 
+const PUSH_HINT_OPTIONS = [
+	{ value: 'configured', text: '已配置', color: 'green' },
+	{ value: 'none', text: '未配置：短信只存在平台上', color: 'gold' },
+];
+
 const STATUS_OPTIONS = [
 	{ value: 'enabled', text: '正常接收', color: 'green' },
 	{ value: 'disabled', text: '已停收', color: 'gold' },
@@ -44,20 +49,43 @@ const columns = [
 		// 解绑不可逆，选项里给出来但配了确认文案；下拉里没有别的路径能改回 revoked。
 		placeholder: '停收可以自行恢复；解绑不可恢复' },
 	{ dataIndex: 'bound_at', title: '绑定时间', dataType: 'js_timestamp' as const, dayjsFormat: 'YYYY-MM-DD HH:mm:ss', form: { create: false as const, edit: false as const } },
-	{ dataIndex: 'revoked_at', title: '解绑时间', dataType: 'js_timestamp' as const, dayjsFormat: 'YYYY-MM-DD HH:mm:ss', emptyText: '未解绑', form: { create: false as const, edit: false as const } }];
+	{ dataIndex: 'revoked_at', title: '解绑时间', dataType: 'js_timestamp' as const, dayjsFormat: 'YYYY-MM-DD HH:mm:ss', emptyText: '未解绑', form: { create: false as const, edit: false as const } },
+	/**
+	 * **「通不通」与「有没有短信」分两列**：手机的主人手动运行一次快捷指令只刷新前一格。
+	 * 合成一格的话，点完测试看到时间在动，分不清是自己点的还是刚好来了条短信。
+	 */
+	{ dataIndex: 'last_check_at', title: '最近自检', dataType: 'js_timestamp' as const, dayjsFormat: 'YYYY-MM-DD HH:mm:ss', emptyText: '从未', form: { create: false as const, edit: false as const } },
+	{ dataIndex: 'last_message_at', title: '最近收到短信', dataType: 'js_timestamp' as const, dayjsFormat: 'YYYY-MM-DD HH:mm:ss', emptyText: '从未', form: { create: false as const, edit: false as const } },
+	/**
+	 * 短信会不会转发到你的服务器。这件事手机上的回执**不说**——读回执的是手机的主人，他不
+	 * 知道什么是推送地址。但平台用户要知道：没配的话短信只躺在平台上，而在不发真短信的
+	 * 前提下，这是唯一能提前发现的地方。
+	 */
+	{ dataIndex: 'push_hint', title: '转发到服务器', options: PUSH_HINT_OPTIONS, form: { create: false as const, edit: false as const } }];
 
 export const tableCrud: TableCrudDefinition = { table: 'sms_phones', rowKey: 'id' };
 
 const listColumns = {
 	id: { column: 'p.id', cast: 'text' as const }, number: 'p.number', title: 'p.title', status: 'p.status',
 	client_title: 'c.title', bound_at: 'p.bound_at', revoked_at: 'p.revoked_at', created_at: 'p.created_at',
+	integration_client_id: { column: 'p.integration_client_id', cast: 'text' as const },
+	last_check_at: 'p.last_check_at', last_message_at: 't.last_used_at',
 } as const;
-const listJoins = [{ type: 'LEFT' as const, table: 'sms_integration_clients', alias: 'c', left: 'c.id', right: 'p.integration_client_id' }];
+/**
+ * 「最近收到短信」取令牌的 `last_used_at`：接收接口只在真短信入账时刷新它，自检不碰。
+ * 一部手机只领过一个令牌（绑定时领一次，见 modules/sms/binding.mts），这个连接不会把行翻倍。
+ */
+const listJoins = [
+	{ type: 'LEFT' as const, table: 'sms_integration_clients', alias: 'c', left: 'c.id', right: 'p.integration_client_id' },
+	{ type: 'LEFT' as const, table: 'sms_shortcut_tokens', alias: 't', left: 't.phone_id', right: 'p.id' },
+];
 
 const publicPhone = (row: Record<string, unknown>) => ({
 	id: row.id, number: row.number, title: row.title || null, client_title: row.client_title ?? null, status: row.status,
 	bound_at: Number(row.bound_at ?? 0) || null,
 	revoked_at: Number(row.revoked_at ?? 0) || null,
+	last_check_at: Number(row.last_check_at ?? 0) || null,
+	last_message_at: Number(row.last_message_at ?? 0) || null,
 });
 
 const handler: ApiHandler = async (c, next, params) => {
@@ -132,6 +160,20 @@ const handler: ApiHandler = async (c, next, params) => {
 			table: 'sms_phones', alias: 'p', columns: listColumns, joins: listJoins, where: [mine('p.owner_uid')],
 			sort: tableSort(c), orderBy: [{ column: 'p.id', direction: 'DESC' }],
 		}));
+		/**
+		 * 会不会转发：与投递时的匹配**同一条规则**（modules/sms/push.mts）——同一个人、同一个
+		 * 项目、启用中，限定了手机的只算那一部。两处规则不一致的话，这一列说「已配置」而
+		 * 短信其实推不出去，比不提示还糟。
+		 *
+		 * 一次取回这个人的全部地址在应用层配对，不按行查：一个人的推送地址就那么几条。
+		 */
+		const endpoints = await allSql<{ integration_client_id: string; phone_id: string | null }>(database, sql({ database }).select({
+			table: 'sms_push_endpoints',
+			columns: { integration_client_id: { column: 'integration_client_id', cast: 'text' }, phone_id: { column: 'phone_id', cast: 'text' } },
+			where: [ownerScope('owner_uid', currentUser.id), { column: 'status', value: 'enabled' }],
+		}));
+		const pushHint = (row: Record<string, unknown>) => (endpoints.some((endpoint) => String(endpoint.integration_client_id ?? '0') === String(row.integration_client_id ?? '0')
+			&& (!endpoint.phone_id || String(endpoint.phone_id) === String(row.id))) ? 'configured' : 'none');
 		return apiResponse(c, 200, { table: {
 			option: { rowKey: 'id', actions: {
 				query: [{ key: 'search', label: '搜索' }],
@@ -146,7 +188,7 @@ const handler: ApiHandler = async (c, next, params) => {
 				] } }],
 				row: [{ key: 'edit', label: '编辑' }],
 			} },
-			columns, dataSource: rows.map(publicPhone), totalRecords: rows.length,
+			columns, dataSource: rows.map((row) => ({ ...publicPhone(row), push_hint: pushHint(row) })), totalRecords: rows.length,
 		} });
 	}
 

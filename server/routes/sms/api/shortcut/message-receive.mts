@@ -23,6 +23,32 @@ import { sha256 } from '@server/modules/passport/accounts/oidc.mjs';
 
 const textField = (value: unknown, limit: number) => (typeof value === 'string' ? value : '').slice(0, limit);
 
+/**
+ * 自检：告诉运行它的人，**这份快捷指令绑的是哪个号码**。
+ *
+ * 读这句话的是**手机的主人**，不是平台用户——「推送地址」「所属项目」对他都是黑话，所以
+ * 只说号码、他给这部手机起的名字、以及往后会发生什么。推送有没有配是平台用户关心的事，
+ * 放在后台「我的手机」里提示。
+ *
+ * **号码完整回显，不打码。** 能走到这里的人已经持有一个有效令牌，本来就能收到这部手机的
+ * 每一条短信，号码比短信轻得多（理由同 shortcut.mts 那段）。推送里打的是后四位，而后四位
+ * 恰恰是分辨「这是哪一部」的那几位，打了码这句话就失去意义。
+ *
+ * 回执写成一行：快捷指令把响应当字典显示，字符串里的换行会原样露出 `\n`。
+ */
+const selfCheck = async (c: Parameters<ApiHandler>[0], phoneId: string) => {
+	const database = c.get('database');
+	const builder = sql({ database, subjectRoles: null });
+	const phone = await firstSql<{ number: string; title: string }>(database, builder.select({
+		table: 'sms_phones', columns: { number: 'number', title: 'title' }, where: [{ column: 'id', value: phoneId }], limit: 1,
+	}));
+	// 只刷新自检时间，**不碰令牌的 last_used_at**：那一格是「最近收到短信」，两件事分开记，
+	// 手机死了「最近自检」就不动，前后对照一眼看得出。
+	await runSql(database, builder.update('sms_phones', { last_check_at: Date.now() }, { id: phoneId }));
+	const named = phone?.title ? `${phone.number}（${phone.title}）` : String(phone?.number ?? '');
+	return apiMessage(c, 200, `测试成功：这个快捷指令绑定的手机号码是 ${named}，以后这部手机收到的短信会自动转发。`);
+};
+
 const handler: ApiHandler = async (c, next) => {
 	if (c.req.method !== 'POST') return next();
 	const subject = c.get('protocolSubject');
@@ -33,7 +59,6 @@ const handler: ApiHandler = async (c, next) => {
 
 	const body = await c.req.json<Record<string, unknown>>().catch(() => ({} as Record<string, unknown>));
 	const content = textField(body.content, 4000);
-	if (!content) return apiMessage(c, 400, '短信正文不能为空');
 	/**
 	 * **去重靠手机侧给的稳定标识，不靠服务端时间。**
 	 *
@@ -52,6 +77,21 @@ const handler: ApiHandler = async (c, next) => {
 	const recipients = Array.isArray(body.recipients)
 		? body.recipients.map((item) => textField(item, 64)).filter(Boolean).join(',').slice(0, 512)
 		: textField(body.recipients, 512);
+
+	if (!content) {
+		/**
+		 * **三个字段都空，才是手机的主人在手动运行快捷指令**——没有短信触发，取不到任何东西。
+		 *
+		 * 不能只看正文空：哪天 iOS 改版、快捷指令取不到正文了，每一条真短信都会变成空正文，
+		 * 若一律当自检收下，就全都不入账、不推送，而后台看着「最近自检：刚刚」一切正常——
+		 * 最难查的那一类故障。真短信总带着发送人，所以「正文空但有发送人」照旧报错，
+		 * 而且要说清是哪一种错。
+		 */
+		if (messageId || sender || recipients) {
+			return apiMessage(c, 400, '收到了一条短信，但没有取到正文。这通常是系统更新后快捷指令读不到短信内容了，请联系服务方重新获取一份快捷指令。');
+		}
+		return selfCheck(c, subject.deviceId);
+	}
 	const payloadHash = await sha256([subject.deviceId, messageId, content, sender, recipients].join('\n'));
 
 	/**

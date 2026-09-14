@@ -138,6 +138,37 @@ try {
 	process.env.SMS_PUSH_ALLOW_LOCAL_TARGETS = '1';
 	assert.equal((await post({ url: `http://127.0.0.1:${receiverPort}/hook`, status: 'enabled' })).status, 201, '开了本地例外才收得下 127.0.0.1');
 
+	/**
+	 * ---- 自检：手机的主人手动运行一次快捷指令 ----
+	 *
+	 * 没有短信触发，三个字段都是空的。以前回的是「短信正文不能为空」——每一条坏路径都会说
+	 * 人话，唯独一切正常的这一条说的像报错。
+	 */
+	const receive = (body) => app.request('http://sms.test/api/shortcut/message-receive.php', { method: 'POST', headers: { authorization: 'Bearer raw-token', 'content-type': 'application/json' }, body: JSON.stringify(body) });
+	const checked = await receive({});
+	assert.equal(checked.status, 200, '手动运行快捷指令要回成功');
+	const checkedMessage = String((await checked.json()).feedback?.message);
+	assert.match(checkedMessage, /测试成功/);
+	assert.match(checkedMessage, /\+8613800138000（主力机）/, '要告诉手机的主人这份快捷指令绑的是哪个号码——完整号码，打码就分不清是哪一部');
+	assert.doesNotMatch(checkedMessage, /推送|项目/, '读回执的是手机的主人，推送地址、项目对他是黑话');
+	assert.ok(!checkedMessage.includes('\n'), '回执写成一行：快捷指令把响应当字典显示，换行会原样露出');
+	// 正文空但带着发送人：是真短信没取到正文（例如系统更新后读不到了），不能当自检咽下去——
+	// 否则每条真短信都静默丢掉，后台还显示「最近自检：刚刚」。
+	const broken = await receive({ content: '', sender: '10086', message_id: 'm-empty' });
+	assert.equal(broken.status, 400);
+	assert.match(String((await broken.json()).feedback?.message), /没有取到正文/);
+	const afterCheck = new DatabaseSync(process.env.DEFAULT_DATABASE_FILE, { readOnly: true });
+	assert.ok(Number(afterCheck.prepare('SELECT last_check_at FROM sms_phones WHERE id = 1').get().last_check_at) > 0, '自检要记下时间');
+	assert.equal(afterCheck.prepare('SELECT last_used_at FROM sms_shortcut_tokens WHERE id = 1').get().last_used_at, null, '自检不刷新「最近收到短信」：两件事分开记');
+	assert.equal(afterCheck.prepare('SELECT COUNT(*) AS n FROM sms_messages').get().n, 0, '自检不进短信表');
+	assert.equal(afterCheck.prepare('SELECT COUNT(*) AS n FROM sms_push_deliveries').get().n, 0, '自检也不推送：接入方的服务器不该收到一条空短信');
+	afterCheck.close();
+	const myPhones = await (await app.request('http://sms.test/api/panel/user/sms/phones.php?include=data', { headers: h })).json();
+	const mainPhone = myPhones.table.dataSource.find((row) => String(row.id) === '1');
+	assert.ok(Number(mainPhone.last_check_at) > 0, '后台「我的手机」要看得到最近自检');
+	assert.equal(mainPhone.last_message_at, null, '还没来过真短信');
+	assert.equal(mainPhone.push_hint, 'configured', '配了一条不限项目的地址，这部手机的短信会转发出去');
+
 	// ---- 短信进来：登记投递任务，但不在接收接口里发出去 ----
 	const received = await app.request('http://sms.test/api/shortcut/message-receive.php', { method: 'POST', headers: { authorization: 'Bearer raw-token', 'content-type': 'application/json' }, body: JSON.stringify({ message_id: 'm-1', content: '【测试】验证码 8848', sender: '10086' }) });
 	assert.equal(received.status, 200);
@@ -204,6 +235,10 @@ try {
 	 */
 	const grabbed = await app.request('http://sms.test/api/panel/user/sms/phones.php?action=bind', { method: 'POST', headers: other, body: JSON.stringify({ number: '13800138000', title: '我也想要' }) });
 	assert.equal(grabbed.status, 200, '别人可以登记同一个号码——那是他自己的一行，不是抢走');
+	// 他还没配推送地址：后台要提示短信只躺在平台上——手机上的回执不说这件事，这里是唯一
+	// 能在不发真短信的前提下提前发现的地方。
+	const otherPhones = await (await app.request('http://sms.test/api/panel/user/sms/phones.php?include=data', { headers: other })).json();
+	assert.equal(otherPhones.table.dataSource[0].push_hint, 'none', '没配推送地址要提示');
 
 	// 另一个人配一条不限定手机的推送地址，短信仍然不该推给他。
 	await app.request('http://sms.test/api/panel/user/sms/push-endpoints.php', { method: 'POST', headers: other, body: JSON.stringify({ url: `http://127.0.0.1:${receiverPort}/other`, status: 'enabled' }) });
