@@ -65,11 +65,15 @@ const handler: ApiHandler = async (c, next) => {
 		runWrite: (statement) => runSql(ownedDatabase, statement),
 	});
 	if (!outcome.ok) return apiMessage(c, outcome.status, outcome.message);
-	return apiMessageData(c, 200, outcome.alreadyBound ? '这个号码已经绑定过了' : '绑定成功', {
+	const message = outcome.reissued ? '这个号码原来的快捷指令已经失效，已换发一份新的'
+		: outcome.alreadyBound ? '这个号码已经绑定过了' : '绑定成功';
+	return apiMessageData(c, 200, message, {
 		number: outcome.number,
 		// 让接入方把它交给手机的主人：在**那部手机上**打开才有意义。
 		download_url: outcome.downloadUrl ?? null,
 		already_bound: outcome.alreadyBound,
+		// 为真时手机上装着的旧快捷指令已经不能用了，要让手机的主人换装这一份（并把自动化指向它）。
+		reissued: outcome.reissued,
 		expires_in: 900,
 	});
 };

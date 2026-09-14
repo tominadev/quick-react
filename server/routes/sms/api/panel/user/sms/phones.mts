@@ -73,11 +73,14 @@ const listColumns = {
 } as const;
 /**
  * 「最近收到短信」取令牌的 `last_used_at`：接收接口只在真短信入账时刷新它，自检不碰。
- * 一部手机只领过一个令牌（绑定时领一次，见 modules/sms/binding.mts），这个连接不会把行翻倍。
+ *
+ * **只连 `bound` 的那个。** 原令牌被删或被撤销后重绑会换发一个新的（modules/sms/binding.mts），
+ * 于是一部手机可能挂着新旧好几个令牌；不限定的话列表里同一部手机会出现好几行。被删的
+ * 连接层自己会排除，被撤销的不会，所以条件要写明。
  */
 const listJoins = [
 	{ type: 'LEFT' as const, table: 'sms_integration_clients', alias: 'c', left: 'c.id', right: 'p.integration_client_id' },
-	{ type: 'LEFT' as const, table: 'sms_shortcut_tokens', alias: 't', left: 't.phone_id', right: 'p.id' },
+	{ type: 'LEFT' as const, table: 'sms_shortcut_tokens', alias: 't', left: 't.phone_id', right: 'p.id', on: [{ column: 't.status', value: 'bound' }] },
 ];
 
 const publicPhone = (row: Record<string, unknown>) => ({
@@ -142,7 +145,8 @@ const handler: ApiHandler = async (c, next, params) => {
 		});
 		if (!outcome.ok) return apiMessage(c, outcome.status, outcome.message);
 		const downloadUrl = outcome.downloadUrl;
-		const bound = outcome.alreadyBound ? '这个号码之前就绑过了' : `${number} 已绑定`;
+		const bound = outcome.reissued ? '这个号码原来的快捷指令已经失效，给你换了一份新的（手机上旧的那份请删掉）'
+			: outcome.alreadyBound ? '这个号码之前就绑过了' : `${number} 已绑定`;
 		return apiMessageData(c, 200,
 			downloadUrl
 				? `${bound}。请在**手机上**打开下面的地址，下载并添加这个快捷指令：\n\n${downloadUrl}\n\n`
@@ -152,7 +156,7 @@ const handler: ApiHandler = async (c, next, params) => {
 					+ '地址 15 分钟内有效，过期了**再绑一次同一个号码**就会重新给你一个。'
 				: `${bound}，但取回快捷指令文件失败——请联系管理员检查 sms-shortcut 用途的对象存储绑定。`,
 			{ number, download_url: downloadUrl ?? null },
-			{ component: 'modal', showIcon: true, title: outcome.alreadyBound ? '已经绑定过' : '绑定成功' });
+			{ component: 'modal', showIcon: true, title: outcome.reissued ? '已换发快捷指令' : outcome.alreadyBound ? '已经绑定过' : '绑定成功' });
 	}
 
 	if (c.req.method === 'GET' && !params.id) {

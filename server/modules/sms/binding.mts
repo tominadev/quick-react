@@ -26,10 +26,44 @@ export const normalizePhoneNumber = (value: unknown) => {
 
 export type BindOutcome =
 	| { ok: false; status: number; message: string }
-	/** `alreadyBound` 为真表示这次没新建关系，只是把现有那部手机的下载地址又取了一遍。 */
-	| { ok: true; alreadyBound: boolean; number: string; phoneId: string; downloadUrl?: string };
+	/**
+	 * `alreadyBound` 为真表示这次没新建手机记录。`reissued` 为真表示那部手机原来的快捷指令
+	 * 已经失效（令牌被删或被撤销），这次换发了一份新的——手机上装着的旧的那份不能再用了。
+	 */
+	| { ok: true; alreadyBound: boolean; reissued: boolean; number: string; phoneId: string; downloadUrl?: string };
+
+type BindWrite = (statement: ReturnType<ReturnType<typeof sql>['insert']>) => Promise<{ meta?: { changes?: number } } | undefined>;
 
 type BindContext = { database: DatabaseAdapter; globalDatabase: DatabaseAdapter; siteKey: string; clientId: string; number: string };
+
+/** 池子里能领的令牌。取十个候选够了——真同时有十个人在领，池子本来也该补货。 */
+const poolCandidates = (database: DatabaseAdapter) => allSql<{ id: string }>(database, sql({ database, subjectRoles: null }).select({
+	table: 'sms_shortcut_tokens', columns: { id: { column: 'id', cast: 'text' } },
+	where: [{ column: 'status', value: 'available' }], orderBy: [{ column: 'id' }], limit: 10,
+}));
+
+/** 这部手机现在有没有一个能用的令牌。被删的默认查不到，被撤销的状态不是 bound，都算没有。 */
+const hasLiveToken = async (database: DatabaseAdapter, phoneId: string) => Boolean(await firstSql<{ id: string }>(database, sql({ database, subjectRoles: null }).select({
+	table: 'sms_shortcut_tokens', columns: { id: { column: 'id', cast: 'text' } },
+	where: [{ column: 'phone_id', value: phoneId }, { column: 'status', value: 'bound' }], limit: 1,
+})));
+
+/**
+ * 从候选里领一个挂到这部手机上。
+ *
+ * 领取用条件更新（§5.2）：`WHERE id = ? AND status = 'available'`，影响 0 行就说明被别人
+ * 抢先了，换下一个。
+ */
+const claimToken = async (options: { database: DatabaseAdapter; ownerUid: string; runWrite: BindWrite }, candidates: Array<{ id: string }>, phoneId: string) => {
+	const { database } = options;
+	for (const candidate of candidates) {
+		const result = await options.runWrite(sql({ database, subjectRoles: null }).update('sms_shortcut_tokens',
+			{ owner_uid: options.ownerUid, phone_id: phoneId, status: 'bound' },
+			[{ column: 'id', value: candidate.id }, { column: 'status', value: 'available' }]) as never);
+		if (Number(result?.meta?.changes ?? 0) > 0) return candidate.id;
+	}
+	return undefined;
+};
 
 /**
  * 取这部手机当前令牌的短期下载地址。
@@ -77,7 +111,7 @@ export const bindPhone = async (options: {
 	number: string;
 	title: string;
 	/** 执行一条写入。会话路径走 runOperation，票据路径走绑好归属的 runSql。 */
-	runWrite: (statement: ReturnType<ReturnType<typeof sql>['insert']>) => Promise<{ meta?: { changes?: number } } | undefined>;
+	runWrite: BindWrite;
 }): Promise<BindOutcome> => {
 	const { database, ownerUid, clientId, number, title } = options;
 	const mine = () => ownerScope('owner_uid', ownerUid);
@@ -93,18 +127,32 @@ export const bindPhone = async (options: {
 		where: [{ column: 'number', value: number }, { column: 'integration_client_id', value: clientId }, mine()], limit: 1,
 	}));
 	if (existing && existing.status !== 'revoked') {
-		// 幂等（§7.2）：不新建关系，但**要把下载地址再给一次**——理由见 downloadUrlForPhone。
-		return { ok: true, alreadyBound: true, number, phoneId: String(existing.id), downloadUrl: await downloadUrlForPhone(context, String(existing.id)) };
+		const phoneId = String(existing.id);
+		/**
+		 * 幂等（§7.2）说的是「**保证这个号有一份能用的快捷指令**」，不是「记录在就算完」。
+		 *
+		 * 原来的令牌被删了或被撤销了（例如管理员清空令牌池重新生成），这部手机就只剩一条
+		 * 收不到短信的记录。这时只回「已经绑过了」、下载地址为空，用户手里就没有任何出路
+		 * ——重绑被幂等挡住，而解绑重来要他先知道问题出在哪。所以就地换发一份。
+		 *
+		 * 两个请求同时换发同一部手机会各领一个，手机上挂两个令牌：都能用，下载地址取较新
+		 * 的那个，只是池子多用了一个。
+		 */
+		if (!await hasLiveToken(database, phoneId)) {
+			const candidates = await poolCandidates(database);
+			if (!candidates.length) return { ok: false, status: 503, message: '这个号码原来的快捷指令已经失效，但令牌池空了，暂时换发不了。请联系管理员补充。' };
+			if (!await claimToken(options, candidates, phoneId)) return { ok: false, status: 503, message: '刚好有别人同时在领取，请再试一次' };
+			return { ok: true, alreadyBound: true, reissued: true, number, phoneId, downloadUrl: await downloadUrlForPhone(context, phoneId) };
+		}
+		// 令牌还在：不新建关系，但**要把下载地址再给一次**——理由见 downloadUrlForPhone。
+		return { ok: true, alreadyBound: true, reissued: false, number, phoneId, downloadUrl: await downloadUrlForPhone(context, phoneId) };
 	}
 
 	/**
 	 * **先领令牌，再建手机。** 反过来的话，池子空了会留下一部绑不上令牌的手机——它在列表里
 	 * 看着正常，却永远收不到短信，而用户唯一能做的是把它删掉重来。
 	 */
-	const candidates = await allSql<{ id: string }>(database, sql({ database, subjectRoles: null }).select({
-		table: 'sms_shortcut_tokens', columns: { id: { column: 'id', cast: 'text' } },
-		where: [{ column: 'status', value: 'available' }], orderBy: [{ column: 'id' }], limit: 10,
-	}));
+	const candidates = await poolCandidates(database);
 	if (!candidates.length) return { ok: false, status: 503, message: '令牌池空了，暂时不能绑定新手机。请联系管理员补充。' };
 
 	try {
@@ -118,7 +166,7 @@ export const bindPhone = async (options: {
 			where: [{ column: 'number', value: number }, { column: 'integration_client_id', value: clientId }, mine()], limit: 1,
 		}));
 		if (!raced) return { ok: false, status: 409, message: '这个号码刚被占用，请刷新确认' };
-		return { ok: true, alreadyBound: true, number, phoneId: String(raced.id), downloadUrl: await downloadUrlForPhone(context, String(raced.id)) };
+		return { ok: true, alreadyBound: true, reissued: false, number, phoneId: String(raced.id), downloadUrl: await downloadUrlForPhone(context, String(raced.id)) };
 	}
 	const phone = await firstSql<{ id: string }>(database, sql({ database, subjectRoles: null }).select({
 		table: 'sms_phones', columns: { id: { column: 'id', cast: 'text' } },
@@ -126,22 +174,12 @@ export const bindPhone = async (options: {
 	}));
 	if (!phone) return { ok: false, status: 500, message: '手机记录创建后读不回来，请重试' };
 
-	/**
-	 * 领取用条件更新（§5.2）：`WHERE id = ? AND status = 'available'`，影响 0 行就说明被
-	 * 别人抢先了，换下一个。取十个候选够了——真同时有十个人在领，池子本来也该补货。
-	 */
-	let claimed: string | undefined;
-	for (const candidate of candidates) {
-		const result = await options.runWrite(sql({ database, subjectRoles: null }).update('sms_shortcut_tokens',
-			{ owner_uid: ownerUid, phone_id: phone.id, status: 'bound' },
-			[{ column: 'id', value: candidate.id }, { column: 'status', value: 'available' }]) as never);
-		if (Number(result?.meta?.changes ?? 0) > 0) { claimed = candidate.id; break; }
-	}
+	const claimed = await claimToken(options, candidates, String(phone.id));
 	if (!claimed) return { ok: false, status: 503, message: '刚好有别人同时在领取，请再试一次' };
 
 	/**
 	 * 回一个下载地址，用户在**手机上**打开它装 Shortcut。地址短期有效，文件始终在私有
 	 * Bucket 里——`.shortcut` 里就装着那个令牌，能下载就等于能收这部手机的短信。
 	 */
-	return { ok: true, alreadyBound: false, number, phoneId: String(phone.id), downloadUrl: await downloadUrlForPhone(context, String(phone.id)) };
+	return { ok: true, alreadyBound: false, reissued: false, number, phoneId: String(phone.id), downloadUrl: await downloadUrlForPhone(context, String(phone.id)) };
 };

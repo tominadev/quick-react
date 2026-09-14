@@ -102,7 +102,7 @@ try {
 	const database = new DatabaseSync(process.env.DEFAULT_DATABASE_FILE);
 	const ownerId = database.prepare("SELECT id FROM base_users WHERE name = 'ticketadmin'").get().id;
 	const otherId = database.prepare("SELECT id FROM base_users WHERE name = 'ticketother'").get().id;
-	for (let index = 1; index <= 3; index += 1) {
+	for (let index = 1; index <= 5; index += 1) {
 		database.prepare("INSERT INTO sms_shortcut_tokens (key, token_sha256, status, idempotency_token, created_at, updated_at) VALUES (lower(hex(randomblob(16))), ?, 'available', ?, ?, ?)")
 			.run(createHash('sha256').update(`pool-${index}`).digest('hex'), `idem-${index}`, now, now);
 	}
@@ -216,6 +216,37 @@ try {
 	// ---- 号码归一：11 位裸号与 +86 形态是同一部手机 ----
 	const bare = await bind(makeTicket({ phone: '13800138000' }));
 	assert.equal(bare.data.already_bound, true, '裸 11 位要归一成 +86，否则同一个号会绑成两部手机、短信各进各的');
+
+	/**
+	 * ---- 换发：原来的快捷指令失效之后重绑 ----
+	 *
+	 * 幂等说的是「保证这个号有一份能用的快捷指令」，不是「记录在就算完」。管理员清空令牌池
+	 * 重新生成之后，手机记录还在、令牌没了——这时只回「已经绑过了」、下载地址为空，用户
+	 * 手里就没有任何出路（重绑被幂等挡住）。实际发生过。
+	 */
+	const liveTokens = () => {
+		const read = new DatabaseSync(process.env.DEFAULT_DATABASE_FILE, { readOnly: true });
+		const count = read.prepare("SELECT COUNT(*) AS n FROM sms_shortcut_tokens WHERE phone_id = ? AND status = 'bound' AND deleted_at = 0").get(phone.id).n;
+		read.close();
+		return count;
+	};
+	const tamper = (statement) => { const write = new DatabaseSync(process.env.DEFAULT_DATABASE_FILE); write.prepare(statement).run(Date.now()); write.close(); };
+	tamper(`UPDATE sms_shortcut_tokens SET deleted_at = ? WHERE phone_id = ${phone.id}`);
+	assert.equal(liveTokens(), 0);
+	const reissued = await bind(makeTicket());
+	assert.equal(reissued.status, 200, reissued.message);
+	assert.equal(reissued.data.already_bound, true, '手机记录还是原来那条，不新建');
+	assert.equal(reissued.data.reissued, true, '令牌被删了要换发一份，不能只回「已经绑过了」');
+	assert.match(reissued.message, /失效/);
+	assert.equal(liveTokens(), 1, '同一部手机挂上了新令牌');
+	// 令牌已经在了：再绑只是重取下载地址，不再换发、不再从池子里领
+	const steady = await bind(makeTicket());
+	assert.equal(steady.data.reissued, false, '令牌还在就不换发');
+	assert.equal(liveTokens(), 1);
+	// 被撤销（没删）同样算失效：撤销的令牌接收接口会拒，装着它的快捷指令一样用不了
+	tamper(`UPDATE sms_shortcut_tokens SET status = 'revoked', updated_at = ? WHERE phone_id = ${phone.id} AND deleted_at = 0`);
+	assert.equal((await bind(makeTicket())).data.reissued, true, '被撤销的也要换发');
+	assert.equal(liveTokens(), 1);
 
 	/**
 	 * ---- 归属由公钥决定 ----

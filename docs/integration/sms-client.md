@@ -181,12 +181,15 @@ https://sms.example.com/panel/user/sms/bind#<ticket>
   "number": "+8613800138000",
   "download_url": "https://…/shortcuts/…?X-Amz-Signature=…",
   "already_bound": false,
+  "reissued": false,
   "expires_in": 900,
   "feedback": { "component": "modal", "type": "success", "message": "绑定成功" }
 }
 ```
 
-`already_bound` 为 `true` 表示这个号码之前就在你的项目下绑过了——这时**不会**新建记录，但仍然照常回一个新的下载地址。链接发出去客户没点、15 分钟过期了，**换一张新票据再绑一次同一个号码**就是重新取链接的办法。
+`already_bound` 为 `true` 表示这个号码之前就在你的项目下绑过了——这时**不会**新建记录，但仍然照常回一个新的下载地址。
+
+`reissued` 为 `true` 表示那部手机**原来的快捷指令已经失效**（平台清理或撤销了它的令牌），这次换发了一份新的。手机上装着的旧快捷指令不能再用了：请让手机的主人删掉旧的、装上这一份，并把「自动化」改成运行新的这个。链接发出去客户没点、15 分钟过期了，**换一张新票据再绑一次同一个号码**就是重新取链接的办法。
 
 ### 1.4 失败了怎么办
 
