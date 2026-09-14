@@ -17,6 +17,9 @@
 
 1. **控制台 → 短信 → 接入方**，新增一个。`标识` 就是协议里的 `client_id`（例如 `shop`），`名称`给人看。
 2. 在那一行点**公钥**，登记一把 Ed25519 公钥。`kid` 建议用启用日期（`2026-09-01`），换钥匙时换一个新的。
+
+   **登记成功的弹窗里会把票据要填的 `client_id`、`kid`、`base_user_id` 三个值一起报出来，照着抄。** 这三个值在界面别处看不到，而填错只会得到一句笼统的拒绝。
+
    - 页面上有「在这台电脑上生成密钥对」，密钥对在**你的浏览器里**生成，私钥只显示一次、不上传。
    - 也可以在自己的机器上生成，只把公钥贴进去：
 
@@ -45,7 +48,7 @@
   "aud": "sms",
   "client_id": "shop",
   "kid": "2026-09-01",
-  "base_user_id": "1000000000000000001",
+  "base_user_id": "<你的账号 id>",
   "phone": "+8613800138000",
   "iat": 1788432000,
   "exp": 1788432300,
@@ -57,9 +60,9 @@
 | --- | --- |
 | `v` | 协议版本，固定 `1` |
 | `aud` | 固定 `"sms"`。**这不是形式**：没有它，一张签给别的系统的票据可以拿来换你这里的绑定 |
-| `client_id` | 你的接入方标识 |
+| `client_id` | 你的接入方**标识**——控制台「接入方」页那一列，不是「名称」。填错只会得到一句「签名接入方无效」 |
 | `kid` | 这张票用哪把私钥签的，SMS 据此找公钥 |
-| `base_user_id` | 手机要登记到谁名下，必须是 SMS 里已存在的账号 |
+| `base_user_id` | 手机要登记到谁名下。**必须是你自己名下的账号**——你只能给自己注册的账号绑手机，填别人的会得到「目标身份无权绑定手机」 |
 | `phone` | **规范化后的 E.164**，例如 `+8613800138000`。不要传 `13800138000` |
 | `iat` / `exp` | Unix 秒。**有效期不超过 5 分钟**，允许的时钟偏差 60 秒 |
 | `nonce` | 高熵随机串。同一个接入方内不得重复——SMS 按它挡重放 |
@@ -78,12 +81,17 @@ PHP（`ext-sodium`，PHP 7.2+ 自带）：
 
 ```php
 <?php
+// 这三个值照抄「公钥已登记」弹窗里报的那三行（见 §0 第 2 步）
+$clientId = 'shop';                 // 控制台「接入方」页那一列「标识」
+$kid = '2026-09-01';
+$baseUserId = '1';                  // 你自己的账号 id
+
 $payload = json_encode([
     'v' => 1,
     'aud' => 'sms',
-    'client_id' => 'shop',
-    'kid' => '2026-09-01',
-    'base_user_id' => '1000000000000000001',
+    'client_id' => $clientId,
+    'kid' => $kid,
+    'base_user_id' => $baseUserId,
     'phone' => '+8613800138000',
     'iat' => time(),
     'exp' => time() + 300,
@@ -108,13 +116,18 @@ Node.js（无需依赖）：
 import { createPrivateKey, sign, randomBytes } from 'node:crypto';
 import { readFileSync } from 'node:fs';
 
+// 这三个值照抄「公钥已登记」弹窗里报的那三行（见 §0 第 2 步）
+const clientId = 'shop';        // 控制台「接入方」页那一列「标识」
+const kid = '2026-09-01';
+const baseUserId = '1';         // 你自己的账号 id
+
 const b64url = (buffer) => buffer.toString('base64url');
 const payload = JSON.stringify({
   v: 1,
   aud: 'sms',
-  client_id: 'shop',
-  kid: '2026-09-01',
-  base_user_id: '1000000000000000001',
+  client_id: clientId,
+  kid,
+  base_user_id: baseUserId,
   phone: '+8613800138000',
   iat: Math.floor(Date.now() / 1000),
   exp: Math.floor(Date.now() / 1000) + 300,

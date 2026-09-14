@@ -131,8 +131,8 @@ const handler: ApiHandler = async (c, next, params) => {
 		if (!clientId) return apiMessage(c, 400, '请选择接入方');
 		if (!kid) return apiMessage(c, 400, '请输入密钥标识');
 		if (!publicKeyPattern.test(publicKeyValue)) return apiMessage(c, 400, '公钥格式不对：应当是 Ed25519 原始字节的 Base64URL，43 个字符（不含补位的 =）');
-		const client = await firstSql<{ id: string }>(database, sql({ database }).select({
-			table: 'sms_integration_clients', columns: { id: { column: 'id', cast: 'text' } }, where: [{ column: 'id', value: clientId }, ownerScope('owner_uid', currentUser.id)], limit: 1,
+		const client = await firstSql<{ id: string; name: string }>(database, sql({ database }).select({
+			table: 'sms_integration_clients', columns: { id: { column: 'id', cast: 'text' }, name: 'name' }, where: [{ column: 'id', value: clientId }, ownerScope('owner_uid', currentUser.id)], limit: 1,
 		}));
 		if (!client) return apiMessage(c, 400, '接入方不存在，或者不属于你');
 		// kid 重复要在**记录之前**挡掉：审批是先记录后应用，等撞唯一索引才失败的话，
@@ -147,7 +147,22 @@ const handler: ApiHandler = async (c, next, params) => {
 			await runOperationSql(c, database, sql({ database }).insert('sms_integration_client_keys', {
 				integration_client_id: clientId, kid, public_key: publicKeyValue, status: String(body.status ?? 'active'),
 			}));
-			return apiMessage(c, 201, '公钥已登记。接入方切换到这个 kid 之后，记得把旧的那把改成「已退役」。');
+			/**
+			 * **把票据里要填的三个值一起报出来。**
+			 *
+			 * `client_id` 与 `base_user_id` 在别处都看不到——前者容易被当成「名称」，后者在
+			 * 界面上根本没露过面。照着对接文档的示例值填是对接时最常踩的两脚，而两次都只会
+			 * 得到一句笼统的拒绝。登记公钥恰好是写签名代码之前的最后一步，报在这里正好。
+			 */
+			return apiMessage(c, 201, [
+				'公钥已登记。票据里这三个值照着填：',
+				'',
+				`  "client_id": "${client.name}"`,
+				`  "kid": "${kid}"`,
+				`  "base_user_id": "${currentUser.id}"`,
+				'',
+				'接入方切换到这个 kid 之后，记得把旧的那把改成「已退役」。',
+			].join('\n'), { component: 'modal', showIcon: true, title: '公钥已登记' });
 		} catch (error) {
 			if (error instanceof PendingApprovalError) throw error;
 			if (!isUniqueViolation(error)) throw error;
