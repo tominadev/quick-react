@@ -27,7 +27,7 @@ const textField = (value: unknown, limit: number) => (typeof value === 'string' 
  * 自检：告诉运行它的人，**这份快捷指令绑的是哪个号码**。
  *
  * 读这句话的是**手机的主人**，不是平台用户——「推送地址」「所属项目」对他都是黑话，所以
- * 只说号码、他给这部手机起的名字、以及往后会发生什么。推送有没有配是平台用户关心的事，
+ * 只说号码、他给这部手机起的名字、以及还差哪一步（自动化）。推送有没有配是平台用户关心的事，
  * 放在后台「我的手机」里提示。
  *
  * **号码完整回显，不打码。** 能走到这里的人已经持有一个有效令牌，本来就能收到这部手机的
@@ -46,7 +46,12 @@ const selfCheck = async (c: Parameters<ApiHandler>[0], phoneId: string) => {
 	// 手机死了「最近自检」就不动，前后对照一眼看得出。
 	await runSql(database, builder.update('sms_phones', { last_check_at: Date.now() }, { id: phoneId }));
 	const named = phone?.title ? `${phone.number}（${phone.title}）` : String(phone?.number ?? '');
-	return apiMessage(c, 200, `测试成功：这个快捷指令绑定的手机号码是 ${named}，以后这部手机收到的短信会自动转发。`);
+	/**
+	 * **不能说「以后会自动转发」**：iOS 的快捷指令不会自己在收到短信时运行，要在「自动化」
+	 * 里建一条「收到信息时运行」。而这里判断不出建没建——手动运行时，配没配自动化看起来
+	 * 一模一样。所以每次都提醒，宁可多说一句，也不能让人以为设好了、实际一条都不转。
+	 */
+	return apiMessage(c, 200, `测试成功：这个快捷指令绑定的手机号码是 ${named}。要在收到短信时自动转发，还需要在「快捷指令」App 的「自动化」里新建一条：收到信息时，立即运行这个快捷指令。`);
 };
 
 const handler: ApiHandler = async (c, next) => {

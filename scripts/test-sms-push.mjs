@@ -151,6 +151,10 @@ try {
 	assert.match(checkedMessage, /测试成功/);
 	assert.match(checkedMessage, /\+8613800138000（主力机）/, '要告诉手机的主人这份快捷指令绑的是哪个号码——完整号码，打码就分不清是哪一部');
 	assert.doesNotMatch(checkedMessage, /推送|项目/, '读回执的是手机的主人，推送地址、项目对他是黑话');
+	// 快捷指令不会自己在收到短信时运行。自检判断不出自动化建没建，所以必须每次提醒——
+	// 说成「以后会自动转发」的话，没建自动化的人会以为设好了，实际一条都不转。
+	assert.match(checkedMessage, /自动化/, '要提醒建一条「收到信息时运行」的自动化');
+	assert.doesNotMatch(checkedMessage, /以后这部手机收到的短信会自动转发/);
 	assert.ok(!checkedMessage.includes('\n'), '回执写成一行：快捷指令把响应当字典显示，换行会原样露出');
 	// 正文空但带着发送人：是真短信没取到正文（例如系统更新后读不到了），不能当自检咽下去——
 	// 否则每条真短信都静默丢掉，后台还显示「最近自检：刚刚」。

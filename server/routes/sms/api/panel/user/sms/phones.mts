@@ -145,7 +145,11 @@ const handler: ApiHandler = async (c, next, params) => {
 		const bound = outcome.alreadyBound ? '这个号码之前就绑过了' : `${number} 已绑定`;
 		return apiMessageData(c, 200,
 			downloadUrl
-				? `${bound}。请在**手机上**打开下面的地址下载并添加这个快捷指令，添加后运行一次即可开始转发短信：\n\n${downloadUrl}\n\n地址 15 分钟内有效，过期了**再绑一次同一个号码**就会重新给你一个。`
+				? `${bound}。请在**手机上**打开下面的地址，下载并添加这个快捷指令：\n\n${downloadUrl}\n\n`
+					// 快捷指令不会自己在收到短信时运行，这一步不做就一条都不转——而且没有任何报错。
+					+ '添加之后**还要设一条自动化**，否则不会自动转发：打开「快捷指令」App →「自动化」→ 新建「信息」自动化，选「立即运行」，动作选这个快捷指令。'
+					+ '设好之后手动运行一次，看到「测试成功」和你的号码就说明通了。\n\n'
+					+ '地址 15 分钟内有效，过期了**再绑一次同一个号码**就会重新给你一个。'
 				: `${bound}，但取回快捷指令文件失败——请联系管理员检查 sms-shortcut 用途的对象存储绑定。`,
 			{ number, download_url: downloadUrl ?? null },
 			{ component: 'modal', showIcon: true, title: outcome.alreadyBound ? '已经绑定过' : '绑定成功' });
