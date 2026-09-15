@@ -16,6 +16,13 @@ import type { TableCrudDefinition } from '@server/modules/base/table-crud.mjs';
  * 而这是本站唯一会持续膨胀的表。
  */
 
+const PUSH_STATUS_OPTIONS = [
+	{ value: 'succeeded', text: '已推送', color: 'green' },
+	{ value: 'pending', text: '重试中', color: 'gold' },
+	{ value: 'failed', text: '推送失败', color: 'red' },
+	{ value: 'unmatched', text: '未匹配推送地址', color: 'default' },
+];
+
 const columns = [
 	{ dataIndex: 'id', title: 'ID', dataType: 'int' as const },
 	{ dataIndex: 'phone_number', title: '接收手机', emptyText: '手机已删除' },
@@ -23,7 +30,17 @@ const columns = [
 	{ dataIndex: 'content', title: '内容', tableDisplay: 'multiline' as const },
 	{ dataIndex: 'recipients', title: '收件人', emptyText: '未提供' },
 	{ dataIndex: 'sender', title: '发送人', emptyText: '未知' },
-	{ dataIndex: 'received_at', title: '接收时间', dataType: 'js_timestamp' as const, dayjsFormat: 'YYYY-MM-DD HH:mm:ss' }];
+	{ dataIndex: 'received_at', title: '接收时间', dataType: 'js_timestamp' as const, dayjsFormat: 'YYYY-MM-DD HH:mm:ss' },
+	/**
+	 * **短信记录与投递记录原来是两张互不相通的表**：这一页只显示短信内容，「推送地址」页
+	 * 只有端点级别的「最近成功/最近错误」——看不出**这一条具体的短信**推没推、成没成功，
+	 * 用户只能去问管理员或者猜。这一列把 `sms_push_deliveries` 卷进来，按每条短信显示。
+	 *
+	 * 一条短信可能匹配好几个推送地址（虽然目前多数账号只配一个），这里显示**最差的那个
+	 * 状态**：只要有一个地址还没成功，就不该让用户以为"已经推送"。
+	 */
+	{ dataIndex: 'push_status', title: '推送状态', options: PUSH_STATUS_OPTIONS, form: { create: false as const, edit: false as const } },
+	{ dataIndex: 'push_error', title: '推送错误', emptyText: '无', ellipsis: true, form: { create: false as const, edit: false as const } }];
 
 export const tableCrud: TableCrudDefinition = { table: 'sms_messages', rowKey: 'id' };
 
@@ -42,6 +59,18 @@ const publicMessage = (row: Record<string, unknown>) => ({
 	received_at: row.received_at,
 });
 
+/**
+ * 按「最差状态优先」合并一条短信名下的多条投递记录。`failed`（重试次数用尽）最要紧，
+ * 其次是还在排队/重试中的 `pending`/`sending`，全部 `succeeded` 才算真的推送成功。
+ * 没有任何投递记录（例如短信到达时还没配推送地址）算 `unmatched`。
+ */
+const PUSH_RANK: Record<string, number> = { failed: 3, sending: 2, pending: 2, succeeded: 1 };
+const worstDelivery = (deliveries: Array<{ status: string; last_error: string }>) => {
+	if (!deliveries.length) return { push_status: 'unmatched', push_error: null };
+	const worst = deliveries.reduce((a, b) => (PUSH_RANK[b.status] > PUSH_RANK[a.status] ? b : a));
+	return { push_status: worst.status === 'sending' ? 'pending' : worst.status, push_error: worst.last_error || null };
+};
+
 const handler: ApiHandler = async (c, next, params) => {
 	const database = c.get('database');
 	const currentUser = c.get('currentUser');
@@ -54,13 +83,25 @@ const handler: ApiHandler = async (c, next, params) => {
 			table: 'sms_messages', alias: 'm', columns: listColumns, joins: listJoins, where: [mine()],
 			sort: tableSort(c), orderBy: [{ column: 'm.received_at', direction: 'DESC' }],
 		}));
+		// 一次取回这个人名下全部投递记录，按 message_id 分组配对——同「我的手机」那一列
+		// 「转发到服务器」同样的做法：一个人的投递记录量级不大，不必逐行查。
+		const deliveries = await allSql<{ message_id: string; status: string; last_error: string }>(database, sql({ database }).select({
+			table: 'sms_push_deliveries', columns: { message_id: { column: 'message_id', cast: 'text' }, status: 'status', last_error: 'last_error' },
+			where: [ownerScope('owner_uid', currentUser.id)],
+		}));
+		const deliveriesByMessage = new Map<string, Array<{ status: string; last_error: string }>>();
+		for (const delivery of deliveries) {
+			const list = deliveriesByMessage.get(delivery.message_id) ?? [];
+			list.push(delivery);
+			deliveriesByMessage.set(delivery.message_id, list);
+		}
 		return apiResponse(c, 200, { table: {
 			option: { rowKey: 'id', actions: {
 				query: [{ key: 'search', label: '搜索' }],
 				toolbar: [{ key: 'delete', label: '删除' }],
 				row: [{ key: 'delete', label: '删除' }],
 			} },
-			columns, dataSource: rows.map(publicMessage), totalRecords: rows.length,
+			columns, dataSource: rows.map((row) => ({ ...publicMessage(row), ...worstDelivery(deliveriesByMessage.get(String(row.id)) ?? []) })), totalRecords: rows.length,
 		} });
 	}
 
@@ -69,7 +110,12 @@ const handler: ApiHandler = async (c, next, params) => {
 			table: 'sms_messages', alias: 'm', columns: listColumns, joins: listJoins,
 			where: [{ column: 'm.id', value: params.id }, mine()],
 		}));
-		return row ? apiResponse(c, 200, publicMessage(row)) : apiMessage(c, 404, '短信不存在');
+		if (!row) return apiMessage(c, 404, '短信不存在');
+		const deliveries = await allSql<{ status: string; last_error: string }>(database, sql({ database }).select({
+			table: 'sms_push_deliveries', columns: { status: 'status', last_error: 'last_error' },
+			where: [{ column: 'message_id', value: params.id }, ownerScope('owner_uid', currentUser.id)],
+		}));
+		return apiResponse(c, 200, { ...publicMessage(row), ...worstDelivery(deliveries) });
 	}
 
 	if (c.req.method === 'DELETE') {

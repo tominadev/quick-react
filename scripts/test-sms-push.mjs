@@ -251,6 +251,42 @@ try {
 	finished.close();
 
 	/**
+	 * ---- 「我的短信」列表要看得到推送成没成功 ----
+	 *
+	 * 短信记录与投递记录原来是两张互不相通的表：这一页只显示短信内容，「推送地址」页只有
+	 * 端点级别的「最近成功/最近错误」——看不出**这一条具体的短信**推没推、成没成功。
+	 */
+	const myMessages = await (await app.request('http://sms.test/api/panel/user/sms/messages.php?include=data', { headers: h })).json();
+	const succeededRow = myMessages.table.dataSource.find((row) => row.content === '【测试】验证码 8848');
+	assert.equal(succeededRow.push_status, 'succeeded', '已经推送成功的短信要显示成功');
+	assert.equal(succeededRow.push_error, null);
+
+	// 停用推送地址之后再来一条短信：这条完全匹配不到任何投递目标，要显示「未匹配推送地址」，
+	// 而不是显示成「推送失败」——两者原因不同，处理方式也不同。
+	await app.request('http://sms.test/api/panel/user/sms/push-endpoints.php/1', { method: 'PUT', headers: h, body: JSON.stringify({ status: 'disabled' }) });
+	await app.request('http://sms.test/api/shortcut/message-receive.php', { method: 'POST', headers: { authorization: 'Bearer raw-token', 'content-type': 'application/json' }, body: JSON.stringify({ message_id: 'm-unmatched', content: '没有地址接得住', sender: '10086' }) });
+	const afterUnmatched = await (await app.request('http://sms.test/api/panel/user/sms/messages.php?include=data', { headers: h })).json();
+	const unmatchedRow = afterUnmatched.table.dataSource.find((row) => row.content === '没有地址接得住');
+	assert.equal(unmatchedRow.push_status, 'unmatched', '停用推送地址之后到的短信，匹配不到任何投递目标');
+	await app.request('http://sms.test/api/panel/user/sms/push-endpoints.php/1', { method: 'PUT', headers: h, body: JSON.stringify({ status: 'enabled' }) });
+
+	// 推送失败也要在列表上看得出来，并带上最近一次的错误摘要。指向一个保证没人监听的端口
+	// 制造连接失败，而不是关掉共享的 receiver——后面的隔离测试还要用它。
+	const deadServer = createServer();
+	await new Promise((resolve) => deadServer.listen(0, '127.0.0.1', resolve));
+	const deadPort = deadServer.address().port;
+	await new Promise((resolve) => deadServer.close(resolve));
+	await app.request('http://sms.test/api/panel/user/sms/push-endpoints.php/1', { method: 'PUT', headers: h, body: JSON.stringify({ url: `http://127.0.0.1:${deadPort}/hook` }) });
+	await app.request('http://sms.test/api/shortcut/message-receive.php', { method: 'POST', headers: { authorization: 'Bearer raw-token', 'content-type': 'application/json' }, body: JSON.stringify({ message_id: 'm-failed', content: '这条推不出去', sender: '10086' }) });
+	await runMaintenanceAction('dispatch-sms-push', {});
+	const afterFailed = await (await app.request('http://sms.test/api/panel/user/sms/messages.php?include=data', { headers: h })).json();
+	const failedRow = afterFailed.table.dataSource.find((row) => row.content === '这条推不出去');
+	assert.equal(failedRow.push_status, 'pending', '还在重试计划内，不是终态失败');
+	assert.ok(failedRow.push_error, '要带上最近一次失败的原因');
+	// 恢复成能用的地址，不影响后面的测试。
+	await app.request('http://sms.test/api/panel/user/sms/push-endpoints.php/1', { method: 'PUT', headers: h, body: JSON.stringify({ url: `http://127.0.0.1:${receiverPort}/hook` }) });
+
+	/**
 	 * **跨账号隔离**：另一个人绑不走同一个号码，也收不到别人的短信。
 	 *
 	 * 这是这套东西最要紧的一条边界——短信里是验证码。三层各自独立生效：号码在租户内唯一，
@@ -310,6 +346,26 @@ try {
 	await app.request('http://sms.test/api/shortcut/message-receive.php', { method: 'POST', headers: { authorization: 'Bearer raw-token', 'content-type': 'application/json' }, body: JSON.stringify({ message_id: 'm-3', content: '第三条', sender: '10086' }) });
 	await runMaintenanceAction('dispatch-sms-push', {});
 	assert.equal(receiverRequests.filter((item) => item.url === '/side').length, 0, '手机没登记在那个项目下，它就收不到——客户把手机交给一个项目用，不等于同意另一个也读');
+
+	/**
+	 * ---- 一条短信匹配好几个推送地址：显示最差的那个状态 ----
+	 *
+	 * 直接在库里造两条投递记录（一条成功、一条还在重试），不经过真实的匹配流程——那条
+	 * 流程本身已经在别处测过，这里只测聚合函数本身：`reduce` 从空数组开始会抛异常，
+	 * 排名权重给错了会悄悄选到错的那一行，两种坏法都不会在页面上表现成明显的报错。
+	 */
+	const mixedSetup = new DatabaseSync(process.env.DEFAULT_DATABASE_FILE);
+	const mixedOwnerId = mixedSetup.prepare("SELECT id FROM base_users WHERE name = 'pushadmin'").get().id;
+	mixedSetup.prepare("INSERT INTO sms_messages (key, id, phone_id, content, sender, received_at, owner_uid, payload_hash, created_at, updated_at) VALUES (lower(hex(randomblob(16))), 999, 1, '两个地址', '10086', ?, ?, 'mixed-hash', ?, ?)").run(Date.now(), mixedOwnerId, Date.now(), Date.now());
+	mixedSetup.prepare("INSERT INTO sms_push_endpoints (key, id, url, status, owner_uid, integration_client_id, created_at, updated_at) VALUES (lower(hex(randomblob(16))), 998, 'https://example.invalid/a', 'enabled', ?, '0', ?, ?)").run(mixedOwnerId, Date.now(), Date.now());
+	mixedSetup.prepare("INSERT INTO sms_push_endpoints (key, id, url, status, owner_uid, integration_client_id, created_at, updated_at) VALUES (lower(hex(randomblob(16))), 997, 'https://example.invalid/b', 'enabled', ?, '0', ?, ?)").run(mixedOwnerId, Date.now(), Date.now());
+	mixedSetup.prepare("INSERT INTO sms_push_deliveries (key, message_id, push_endpoint_id, delivery_id, status, owner_uid, created_at, updated_at) VALUES (lower(hex(randomblob(16))), 999, 998, 'mixed-a', 'succeeded', ?, ?, ?)").run(mixedOwnerId, Date.now(), Date.now());
+	mixedSetup.prepare("INSERT INTO sms_push_deliveries (key, message_id, push_endpoint_id, delivery_id, status, last_error, owner_uid, created_at, updated_at) VALUES (lower(hex(randomblob(16))), 999, 997, 'mixed-b', 'failed', '目标返回 500', ?, ?, ?)").run(mixedOwnerId, Date.now(), Date.now());
+	mixedSetup.close();
+	const mixedList = await (await app.request('http://sms.test/api/panel/user/sms/messages.php?include=data', { headers: h })).json();
+	const mixedRow = mixedList.table.dataSource.find((row) => row.content === '两个地址');
+	assert.equal(mixedRow.push_status, 'failed', '一成一败要显示失败那个——只要有一个地址没成功，就不该让人以为已经推送');
+	assert.equal(mixedRow.push_error, '目标返回 500');
 
 	console.log('sms push test passed');
 } finally {
