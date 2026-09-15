@@ -22,6 +22,12 @@ const fromBase64Url = (value: string): Uint8Array<ArrayBuffer> => {
 	return bytes;
 };
 
+/**
+ * **请求体只有一个字段：`ticket`。** 除了固定的协议字段（`v`/`aud`/`public_key`/`iat`/`exp`/
+ * `nonce`），其余所有业务字段（`phone`、`key`、`client_ref`、`title`……）都在这段签名 JSON
+ * 里，不设"票据外层"这个口子——不然每加一个新字段都要重新判断它该不该进签名，判断错了
+ * 就是一个安全问题（该签的没签，被人篡改也验不出来）。统一进签名，规则永远只有一条。
+ */
 export type TicketPayload = {
 	v?: number;
 	aud?: string;
@@ -30,6 +36,12 @@ export type TicketPayload = {
 	iat?: number;
 	exp?: number;
 	nonce?: string;
+	/** 接入方自己指定的行标识，驱动去重；不传就照常按号码去重。格式与长度校验在 binding.mts。 */
+	key?: string;
+	/** 接入方自己的引用串，推送时原样带回；不参与去重。 */
+	client_ref?: string;
+	/** 给手机起的名字。 */
+	title?: string;
 };
 
 export type TicketFailure = { status: number; message: string };
@@ -43,6 +55,10 @@ export type TicketResult =
 		phone: string;
 		nonce: string;
 		expiresAt: number;
+		/** 原样带出，未做格式校验——那是调用方（binding.mts）的事，这里只管验签与协议字段。 */
+		key: string;
+		clientRef: string;
+		title: string;
 	};
 
 /**
@@ -139,6 +155,9 @@ export const verifyBindingTicket = async (database: DatabaseAdapter, ticket: str
 		phone: String(payload.phone ?? ''),
 		nonce,
 		expiresAt,
+		key: String(payload.key ?? '').trim(),
+		clientRef: String(payload.client_ref ?? ''),
+		title: String(payload.title ?? ''),
 	};
 };
 

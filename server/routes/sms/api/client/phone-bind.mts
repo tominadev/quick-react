@@ -10,11 +10,12 @@ import { consumeTicketNonce, verifyBindingTicket } from '@server/modules/sms/tic
  *
  * ```http
  * POST /api/client/phone-bind
- * { "ticket": "<...>", "key": "<接入方自己的标识，可选>", "client_ref": "<接入方自己的引用，可选>" }
+ * { "ticket": "<base64url(payload)>.<base64url(signature)>" }
  * ```
  *
- * `key`、`client_ref`、`title` 都在票据**外面**，不进签名——不是授权的一部分，只是随请求
- * 带来的元数据。
+ * **请求体只有 `ticket` 一个字段。** `key`、`client_ref`、`title` 都在签名里面（见
+ * modules/sms/ticket.mts 的 `TicketPayload`），不是外层的裸字段——统一进签名只有一条
+ * 规则，不用每加一个新字段就重新判断它该不该签。
  *
  * **`key` 决定去重**：传相同的 `key` 命中同一行，直接给原来那份快捷指令，不提示重复；
  * 同一个 `key` 被**别的**接入方占用则拒绝。不传 `key` 时退回按号码去重（同一账号 + 项目
@@ -47,7 +48,7 @@ const handler: ApiHandler = async (c, next) => {
 	if (!owner) return apiMessage(c, 403, '这把公钥的归属账号已停用或不存在');
 
 	// 空字符串等同不传：接入方可能传了个空串占位，按"没给"处理，走号码去重那一支。
-	const key = String(body.key ?? '').trim() || undefined;
+	const key = verified.key || undefined;
 
 	/**
 	 * **消费 nonce 必须排在绑定之前**（§6.2 第 5 步）。
@@ -73,8 +74,8 @@ const handler: ApiHandler = async (c, next) => {
 		ownerUid,
 		clientId: clientRowId,
 		number,
-		title: String(body.title ?? '').trim().slice(0, 64),
-		clientRef: normalizeClientRef(body.client_ref),
+		title: verified.title.trim().slice(0, 64),
+		clientRef: normalizeClientRef(verified.clientRef),
 		key,
 		runWrite: (statement) => runSql(ownedDatabase, statement),
 	});

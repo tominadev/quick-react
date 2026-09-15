@@ -126,11 +126,12 @@ try {
 		const signature = nodeSign(null, payloadBytes, options.privateKey ?? live.privateKey);
 		return `${base64url(payloadBytes)}.${base64url(signature)}`;
 	};
+	// 请求体只有 ticket 一个字段——key/client_ref/title 都在签过名的票据里面。
 	const bind = async (ticket, extra = {}) => {
 		const response = await app.request('http://sms.test/api/client/phone-bind.php', {
 			method: 'POST',
 			headers: { 'content-type': 'application/json', ...(extra.headers ?? {}) },
-			body: JSON.stringify({ ticket, ...(extra.body ?? {}) }),
+			body: JSON.stringify({ ticket }),
 		});
 		const json = await response.json().catch(() => ({}));
 		return { status: response.status, message: json.feedback?.message ?? '', data: json };
@@ -182,8 +183,8 @@ try {
 	afterFailures.close();
 
 	// ---- 正常绑定 ----
-	const ticket = makeTicket();
-	const bound = await bind(ticket, { body: { title: '客户的机器' } });
+	const ticket = makeTicket({ title: '客户的机器' });
+	const bound = await bind(ticket);
 	assert.equal(bound.status, 200, bound.message);
 	assert.equal(bound.data.already_bound, false);
 	assert.equal(bound.data.number, '+8613800138000');
@@ -335,7 +336,7 @@ try {
 	 * 名下开出好几行，只要 key 不同。
 	 */
 	const keyedPhone = '+8613900000002';
-	const keyed = await bind(makeTicket({ phone: keyedPhone }), { body: { key: 'order-A', client_ref: 'ref-A' } });
+	const keyed = await bind(makeTicket({ phone: keyedPhone, key: 'order-A', client_ref: 'ref-A' }));
 	assert.equal(keyed.status, 200, keyed.message);
 	assert.equal(keyed.data.already_bound, false, '新 key，全新一行');
 	assert.equal(keyed.data.client_ref, 'ref-A');
@@ -344,25 +345,25 @@ try {
 	assert.equal(readPhone("SELECT COUNT(*) AS n FROM sms_phones WHERE number = ? AND deleted_at = 0", refPhone).n, 1, '号码驱动那一行没受影响');
 
 	// 同一个 key 再绑一次：幂等，直接给原来那份快捷指令，不提示重复——「反正就是他的」。
-	const keyedRepeat = await bind(makeTicket({ phone: keyedPhone }), { body: { key: 'order-A' } });
+	const keyedRepeat = await bind(makeTicket({ phone: keyedPhone, key: 'order-A' }));
 	assert.equal(keyedRepeat.data.already_bound, true, '同一个 key 重复绑定要幂等');
 	// download_url 这份测试文件没配对象存储，恒为 null——那条路径由 test-sms-push.mjs 覆盖。
 	assert.equal(readPhone("SELECT COUNT(*) AS n FROM sms_phones WHERE key = 'order-A'").n, 1, '幂等命中不新建行');
 
 	// 同一个 key，换一个号码再绑：命中同一行，号码要跟着更新（同一个身份，号码是它的属性）。
 	const rebindNumber = '+8613900000003';
-	const keyedRebound = await bind(makeTicket({ phone: rebindNumber }), { body: { key: 'order-A' } });
+	const keyedRebound = await bind(makeTicket({ phone: rebindNumber, key: 'order-A' }));
 	assert.equal(keyedRebound.status, 200, keyedRebound.message);
 	assert.equal(readPhone("SELECT number FROM sms_phones WHERE key = 'order-A'").number, rebindNumber, '同一个 key，号码要同步成最新提交的那个');
 
 	// 跨接入方撞 key：不是自己的，拒绝——且不透露占用者的任何信息。
-	const crossTenantKey = await bind(makeTicket({ phone: '+8613900000004', public_key: otherKey.publicKey }, { privateKey: otherKey.privateKey }), { body: { key: 'order-A' } });
+	const crossTenantKey = await bind(makeTicket({ phone: '+8613900000004', public_key: otherKey.publicKey, key: 'order-A' }, { privateKey: otherKey.privateKey }));
 	assert.equal(crossTenantKey.status, 409);
 	assert.match(crossTenantKey.message, /已经被占用/);
 	assert.equal(String(readPhone("SELECT owner_uid FROM sms_phones WHERE key = 'order-A'").owner_uid), String(ownerId), '归属没有被跨接入方的请求改动');
 
 	// key 格式不对：直接拒绝，不让它撞进数据库层的裸错误。
-	const badKey = await bind(makeTicket({ phone: '+8613900000005' }), { body: { key: '带着空格和中文的 key' } });
+	const badKey = await bind(makeTicket({ phone: '+8613900000005', key: '带着空格和中文的 key' }));
 	assert.equal(badKey.status, 400);
 	assert.match(badKey.message, /标识格式不对/);
 

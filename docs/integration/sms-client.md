@@ -65,7 +65,10 @@
 
 ### 1.1 票据长什么样
 
-对一段**固定字段顺序**的 UTF-8 JSON 签名：
+**这次绑定要用到的所有信息都在一段 JSON 里签名，请求体不再有第二个字段。** 早前的版本
+把 `title`、`key`、`client_ref` 这类字段放在签名外面，随 HTTP 请求体一起提交；现在统一
+收进签名——不用每加一个新字段就判断一次"这个该不该签"，规则永远只有一条：**要发给 SMS
+的，都在这段 JSON 里**。
 
 ```json
 {
@@ -75,7 +78,10 @@
   "phone": "+8613800138000",
   "iat": 1788432000,
   "exp": 1788432300,
-  "nonce": "8Xr2mQ..."
+  "nonce": "8Xr2mQ...",
+  "key": "order-8842",
+  "client_ref": "order-8842",
+  "title": "客户的机器"
 }
 ```
 
@@ -87,6 +93,9 @@
 | `phone` | **规范化后的 E.164**，例如 `+8613800138000`。不要传 `13800138000` |
 | `iat` / `exp` | Unix 秒。**有效期不超过 5 分钟**，允许的时钟偏差 60 秒 |
 | `nonce` | 高熵随机串。同一个接入方内不得重复——SMS 按它挡重放 |
+| `key` | 可选。**你自己给这次绑定起的标识，决定去重**——传相同的 `key` 幂等命中同一行，直接给你原来那份快捷指令；不传就退回按号码去重。只能是字母数字下划线连字符，最长 36 位。详见 §1.3 |
+| `client_ref` | 可选。**你自己的引用串**，不参与去重，短信推给你时原样带回（见 §2.1）——不用靠手机号反查是哪个客户 |
+| `title` | 可选。给手机起的名字，用户在自己的列表里看得到 |
 
 传输格式是两段 Base64URL 用点连接：
 
@@ -113,6 +122,10 @@ $payload = json_encode([
     'iat' => time(),
     'exp' => time() + 300,
     'nonce' => rtrim(strtr(base64_encode(random_bytes(18)), '+/', '-_'), '='),
+    // 这三个都可选，一起签进去——去重靠 key、推送回显靠 client_ref、手机名字靠 title。
+    'key' => 'order-8842',
+    'client_ref' => 'order-8842',
+    'title' => '客户的机器',
 ], JSON_UNESCAPED_SLASHES | JSON_UNESCAPED_UNICODE);
 
 // private.pem 里是 PKCS#8；sodium 要的是 64 字节的原始私钥
@@ -145,6 +158,10 @@ const payload = JSON.stringify({
   iat: Math.floor(Date.now() / 1000),
   exp: Math.floor(Date.now() / 1000) + 300,
   nonce: b64url(randomBytes(18)),
+  // 这三个都可选，一起签进去——去重靠 key、推送回显靠 client_ref、手机名字靠 title。
+  key: 'order-8842',
+  client_ref: 'order-8842',
+  title: '客户的机器',
 });
 const privateKey = createPrivateKey(readFileSync('private.pem'));
 // Ed25519 的第一个参数固定传 null：算法本身已经定死了摘要
@@ -157,12 +174,13 @@ const ticket = `${b64url(Buffer.from(payload))}.${b64url(sign(null, Buffer.from(
 POST https://sms.example.com/api/client/phone-bind.php
 Content-Type: application/json
 
-{ "ticket": "<base64url(票据 JSON)>.<base64url(签名)>", "key": "order-8842", "title": "客户的机器", "client_ref": "order-8842" }
+{ "ticket": "<base64url(票据 JSON)>.<base64url(签名)>" }
 ```
 
-**路径末尾的 `.php` 是站点的 API 后缀**，由站点配置决定（后台 → 技术栈）。你对接的那个站点若配的是空后缀，路径就是 `/api/client/phone-bind`。拿不准就问一句，别猜——猜错拿到的是 404。
+**请求体只有 `ticket` 一个字段。** `key`、`title`、`client_ref` 都已经签在票据里了（见
+§1.1），这里不用也不该再传一遍——传了也没用，服务端只认票据里的那份。
 
-`key`、`title`、`client_ref` 都可选，都在票据**外面**，不参与签名——它们不是授权的一部分，只是随请求带来的信息。
+**路径末尾的 `.php` 是站点的 API 后缀**，由站点配置决定（后台 → 技术栈）。你对接的那个站点若配的是空后缀，路径就是 `/api/client/phone-bind`。拿不准就问一句，别猜——猜错拿到的是 404。
 
 #### `key`：你自己给这次绑定起的标识，决定去重
 
