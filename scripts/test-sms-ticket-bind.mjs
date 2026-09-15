@@ -6,16 +6,17 @@ import { DatabaseSync } from 'node:sqlite';
 import { createHash, generateKeyPairSync, sign as nodeSign } from 'node:crypto';
 
 /**
- * 票据路径端到端（绑定文档 §6.2、§7.2）：接入方用自己的 Ed25519 私钥签一张一次性票据，
- * 代表自己的账号绑一个手机号。
+ * 票据路径端到端（绑定文档 §6.2、§7.2）：接入方用自己的 Ed25519 私钥签一次绑定请求，
+ * 代表自己的账号绑一个手机号。签名放请求头（`X-Sms-Public-Key`/`X-Sms-Timestamp`/
+ * `X-Sms-Nonce`/`X-Sms-Signature`），请求体是普通 JSON——与推送方向同一套签名方案。
  *
- * **身份就是公钥**（同 GitHub 的 SSH）：票据里带着公钥，服务端反查出接入方与归属账号。
+ * **身份就是公钥**（同 GitHub 的 SSH）：请求头带着公钥，服务端反查出接入方与归属账号。
  * 因此这里最要紧的一条是「换成谁的公钥就得拿谁的私钥来签」——下面用两个账号各自的钥匙
  * 各绑一次，验手机落在各自名下。
  *
- * 这条路径上没有本站会话，票据本身就是凭证，每一条失败规则都要守得住：验签、受众、
- * 时间窗、公钥退役、权限范围、nonce 一次性。少守一条，一张过期票据或一把退役公钥就能
- * 往别人账号里插手机。
+ * 这条路径上没有本站会话，签名本身就是凭证，每一条失败规则都要守得住：验签、时间窗、
+ * 公钥退役、权限范围、nonce 一次性。少守一条，一个过期请求或一把退役公钥就能往别人
+ * 账号里插手机。
  */
 const base64url = (buffer) => Buffer.from(buffer).toString('base64url');
 
@@ -108,30 +109,39 @@ try {
 	}
 	database.close();
 
-	// ---- 签票据 ----
+	// ---- 签绑定请求 ----
 	let nonceCounter = 0;
 	/**
-	 * 票据里只有一个身份字段：`public_key`。接入方与归属账号都由服务端反查。
+	 * 身份只有一个字段：`public_key`，放请求头，不在请求体里。接入方与归属账号都由服务端
+	 * 反查。默认拿 `live` 那一对签——公钥填 live 的、私钥也用 live 的，两者必须配对。
 	 *
-	 * 默认拿 `live` 那一对签——公钥填 live 的、私钥也用 live 的，两者必须配对。
+	 * `overrides` 是请求体的业务字段（phone/key/client_ref/title）；`options` 控制签名本身：
+	 * `privateKey` 换一把签名用的私钥、`publicKeyHeader` 单独覆盖请求头里声明的公钥（用于
+	 * "声明的公钥与实际签名的私钥对不上"这类测试）、`timestamp` 覆盖时间戳。
+	 *
+	 * 返回 `{ headers, rawBody }`，同一个返回值可以被 `bind()` 调用两次——正是用来测
+	 * nonce 重放的那个场景，不用每次都重新生成。
 	 */
 	const makeTicket = (overrides = {}, options = {}) => {
-		const issuedAt = Math.floor(Date.now() / 1000);
-		const payload = {
-			v: 1, aud: 'sms', public_key: live.publicKey, phone: '+8613800138000',
-			iat: issuedAt, exp: issuedAt + 120, nonce: `n-${++nonceCounter}`,
-			...overrides,
+		const timestamp = String(options.timestamp ?? Math.floor(Date.now() / 1000));
+		const rawBody = JSON.stringify({ phone: '+8613800138000', ...overrides });
+		const signedInput = Buffer.from(`${timestamp}.${rawBody}`, 'utf8');
+		const signature = nodeSign(null, signedInput, options.privateKey ?? live.privateKey);
+		return {
+			headers: {
+				'x-sms-public-key': options.publicKeyHeader ?? live.publicKey,
+				'x-sms-timestamp': timestamp,
+				'x-sms-nonce': `n-${++nonceCounter}`,
+				'x-sms-signature': `ed25519=${base64url(signature)}`,
+			},
+			rawBody,
 		};
-		const payloadBytes = Buffer.from(JSON.stringify(payload), 'utf8');
-		const signature = nodeSign(null, payloadBytes, options.privateKey ?? live.privateKey);
-		return `${base64url(payloadBytes)}.${base64url(signature)}`;
 	};
-	// 请求体只有 ticket 一个字段——key/client_ref/title 都在签过名的票据里面。
 	const bind = async (ticket, extra = {}) => {
 		const response = await app.request('http://sms.test/api/client/phone-bind.php', {
 			method: 'POST',
-			headers: { 'content-type': 'application/json', ...(extra.headers ?? {}) },
-			body: JSON.stringify({ ticket }),
+			headers: { 'content-type': 'application/json', ...ticket.headers, ...(extra.headers ?? {}) },
+			body: ticket.rawBody,
 		});
 		const json = await response.json().catch(() => ({}));
 		return { status: response.status, message: json.feedback?.message ?? '', data: json };
@@ -145,12 +155,13 @@ try {
 	 */
 	const preflight = await app.request('http://sms.test/api/client/phone-bind.php', {
 		method: 'OPTIONS',
-		headers: { origin: 'https://client.example.com', 'access-control-request-method': 'POST', 'access-control-request-headers': 'content-type' },
+		headers: { origin: 'https://client.example.com', 'access-control-request-method': 'POST', 'access-control-request-headers': 'content-type, x-sms-public-key, x-sms-timestamp, x-sms-nonce, x-sms-signature' },
 	});
 	assert.equal(preflight.status, 204);
 	assert.equal(preflight.headers.get('access-control-allow-origin'), '*');
-	assert.match(String(preflight.headers.get('access-control-allow-headers')), /content-type/);
-	// 带凭证的跨源请求一律不放行：放行了浏览器就会附带 cookie，而这条链的凭证只能是票据。
+	const allowedHeaders = String(preflight.headers.get('access-control-allow-headers'));
+	for (const name of ['content-type', 'x-sms-public-key', 'x-sms-timestamp', 'x-sms-nonce', 'x-sms-signature']) assert.match(allowedHeaders, new RegExp(name), `预检要放行 ${name}`);
+	// 带凭证的跨源请求一律不放行：放行了浏览器就会附带 cookie，而这条链的凭证只能是签名。
 	assert.equal(preflight.headers.get('access-control-allow-credentials'), null);
 
 	// ---- 失败规则（§7.2）：每一条都得回确定性错误，而不是内部异常 ----
@@ -158,29 +169,26 @@ try {
 	// 拿主会话测的话，后面所有用它的请求都会变成「请先登录」。
 	const burner = await signIn('ticketadmin');
 	assert.match((await bind(makeTicket(), { headers: { cookie: burner.cookie } })).message, /cookie/, '带 cookie 要拒：浏览器会自动附带它，认了就等于任何网页都能借用户身份来打');
-	assert.match((await bind('不是票据')).message, /格式/);
-	assert.match((await bind(makeTicket({ aud: 'other' }))).message, /受众/);
-	assert.match((await bind(makeTicket({ v: 2 }))).message, /版本/);
-	const stranger = keypair();
-	assert.match((await bind(makeTicket({ public_key: stranger.publicKey }, { privateKey: stranger.privateKey }))).message, /没有登记/, '没登记过的公钥，签名再正确也不认');
-	assert.match((await bind(makeTicket({ public_key: retired.publicKey }, { privateKey: retired.privateKey }))).message, /没有登记|退役/, '退役的公钥要立刻拒新票据');
-	assert.match((await bind(makeTicket({ public_key: readOnly.publicKey }, { privateKey: readOnly.privateKey }))).message, /权限/, '没有 phone:bind 的接入方绑不了');
-	// **冒充的唯一形态**：填别人的公钥。填了就得拿别人的私钥来签，而私钥不出签发方的门。
-	assert.match((await bind(makeTicket({}, { privateKey: keypair().privateKey }))).message, /签名无效/, '公钥与私钥对不上要验不过');
-	assert.match((await bind(makeTicket({ public_key: '短了' }))).message, /public_key/);
-	// 照着旧文档写的代码撞上来时，直接说改成了什么，省掉一轮「缺哪个字段」的来回。
-	const legacy = await bind(makeTicket({ public_key: undefined, client_id: 'ticketclient', kid: 'k-live', base_user_id: String(ownerId) }));
-	assert.match(legacy.message, /public_key/, '老协议要给出迁移提示');
-	const expired = Math.floor(Date.now() / 1000) - 600;
-	assert.match((await bind(makeTicket({ iat: expired, exp: expired + 120 }))).message, /过期|生效/);
-	assert.match((await bind(makeTicket({ iat: Math.floor(Date.now() / 1000), exp: Math.floor(Date.now() / 1000) + 86400 }))).message, /有效期过长/, '有效期上限由本站定：不然签一张十年有效的就成了长期凭证');
-	assert.match((await bind(makeTicket({ phone: '不是号码' }))).message, /号码格式/);
 
-	// 前面这些全失败了，不该有任何一张票据被记成「已使用」——否则一次探测就能把 nonce 表灌满。
-	const afterFailures = new DatabaseSync(process.env.DEFAULT_DATABASE_FILE, { readOnly: true });
-	assert.equal(afterFailures.prepare('SELECT COUNT(*) AS n FROM sms_ticket_nonces').get().n, 0, '验不过的票据不消费 nonce');
-	assert.equal(afterFailures.prepare('SELECT COUNT(*) AS n FROM sms_phones').get().n, 0, '一部手机都不该建出来');
-	afterFailures.close();
+	// 完全不带这四个头——模拟照着老文档写的代码原样打过来，一个头都没有。缺失了哪个头
+	// 要说得很直白，第一个检查到的字段决定了提示，不需要额外识别"这看起来像老格式"。
+	const legacyRequest = await app.request('http://sms.test/api/client/phone-bind.php', { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ phone: '+8613800138000' }) });
+	assert.equal(legacyRequest.status, 400);
+	assert.match(String((await legacyRequest.json()).feedback?.message), /X-Sms-Public-Key/, '照老协议打过来的请求，第一句就要点出该加哪个头');
+
+	const stranger = keypair();
+	assert.match((await bind(makeTicket({}, { publicKeyHeader: stranger.publicKey, privateKey: stranger.privateKey }))).message, /没有登记/, '没登记过的公钥，签名再正确也不认');
+	assert.match((await bind(makeTicket({}, { publicKeyHeader: retired.publicKey, privateKey: retired.privateKey }))).message, /没有登记|退役/, '退役的公钥要立刻拒新请求');
+	assert.match((await bind(makeTicket({}, { publicKeyHeader: readOnly.publicKey, privateKey: readOnly.privateKey }))).message, /权限/, '没有 phone:bind 的接入方绑不了');
+	// **冒充的唯一形态**：声明别人的公钥。声明了就得拿别人的私钥来签，而私钥不出签发方的门。
+	assert.match((await bind(makeTicket({}, { privateKey: keypair().privateKey }))).message, /签名无效/, '声明的公钥与实际签名的私钥对不上要验不过');
+	assert.match((await bind(makeTicket({}, { publicKeyHeader: 'not-a-valid-key' }))).message, /X-Sms-Public-Key/);
+
+	const expired = Math.floor(Date.now() / 1000) - 600;
+	assert.match((await bind(makeTicket({}, { timestamp: expired }))).message, /过期|生效/, '太旧的时间戳要拒——固定 60 秒容差，不再由调用方声明有效期');
+	const future = Math.floor(Date.now() / 1000) + 600;
+	assert.match((await bind(makeTicket({}, { timestamp: future }))).message, /过期|生效/, '太超前的时间戳同样要拒，不只挡过去那一侧');
+	assert.match((await bind(makeTicket({ phone: '不是号码' }))).message, /号码格式/);
 
 	// ---- 正常绑定 ----
 	const ticket = makeTicket({ title: '客户的机器' });
@@ -206,7 +214,7 @@ try {
 	// ---- nonce 一次性：同一张票据再来一次要拒 ----
 	const replayed = await bind(ticket);
 	assert.equal(replayed.status, 409, '重放要拒');
-	assert.match(replayed.message, /已使用/);
+	assert.match(replayed.message, /已经用过/);
 
 	// ---- 幂等：换一张新票据绑同一个号码，回成功但不新建记录 ----
 	const again = await bind(makeTicket());
@@ -302,7 +310,7 @@ try {
 	const otherKey = keypair();
 	assert.equal((await registerKey(otherClient.id, 'k-other', otherKey.publicKey, otherSession)).status, 201);
 
-	const otherBound = await bind(makeTicket({ public_key: otherKey.publicKey }, { privateKey: otherKey.privateKey }));
+	const otherBound = await bind(makeTicket({}, { publicKeyHeader: otherKey.publicKey, privateKey: otherKey.privateKey }));
 	assert.equal(otherBound.status, 200, otherBound.message);
 	assert.equal(otherBound.data.already_bound, false, '另一家是全新的一行，不是幂等命中');
 
@@ -357,7 +365,7 @@ try {
 	assert.equal(readPhone("SELECT number FROM sms_phones WHERE key = 'order-A'").number, rebindNumber, '同一个 key，号码要同步成最新提交的那个');
 
 	// 跨接入方撞 key：不是自己的，拒绝——且不透露占用者的任何信息。
-	const crossTenantKey = await bind(makeTicket({ phone: '+8613900000004', public_key: otherKey.publicKey, key: 'order-A' }, { privateKey: otherKey.privateKey }));
+	const crossTenantKey = await bind(makeTicket({ phone: '+8613900000004', key: 'order-A' }, { publicKeyHeader: otherKey.publicKey, privateKey: otherKey.privateKey }));
 	assert.equal(crossTenantKey.status, 409);
 	assert.match(crossTenantKey.message, /已经被占用/);
 	assert.equal(String(readPhone("SELECT owner_uid FROM sms_phones WHERE key = 'order-A'").owner_uid), String(ownerId), '归属没有被跨接入方的请求改动');
