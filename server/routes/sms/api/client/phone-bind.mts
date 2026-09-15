@@ -2,7 +2,7 @@ import type { ApiHandler } from '@server/modules/base/api-router.mjs';
 import { apiMessage, apiMessageData } from '@server/modules/base/api-response.mjs';
 import { withDatabaseActors } from '@server/database/index.mjs';
 import { firstSql, runSql, sql } from '@server/database/sql.mjs';
-import { bindPhone, normalizePhoneNumber } from '@server/modules/sms/binding.mjs';
+import { bindPhone, normalizeClientRef, normalizePhoneNumber } from '@server/modules/sms/binding.mjs';
 import { consumeTicketNonce, verifyBindingTicket } from '@server/modules/sms/ticket.mjs';
 
 /**
@@ -10,8 +10,17 @@ import { consumeTicketNonce, verifyBindingTicket } from '@server/modules/sms/tic
  *
  * ```http
  * POST /api/client/phone-bind
- * { "ticket": "<base64url(payload)>.<base64url(signature)>" }
+ * { "ticket": "<...>", "key": "<接入方自己的标识，可选>", "client_ref": "<接入方自己的引用，可选>" }
  * ```
+ *
+ * `key`、`client_ref`、`title` 都在票据**外面**，不进签名——不是授权的一部分，只是随请求
+ * 带来的元数据。
+ *
+ * **`key` 决定去重**：传相同的 `key` 命中同一行，直接给原来那份快捷指令，不提示重复；
+ * 同一个 `key` 被**别的**接入方占用则拒绝。不传 `key` 时退回按号码去重（同一账号 + 项目
+ * 下同一个号码只保留一行），行为与没有这个字段之前一样。
+ *
+ * `client_ref` 只是原样存、原样在推送时带回去的引用串，不参与去重（见 modules/sms/binding.mts）。
  *
  * 步骤与文档一字对应：验票据（顺带定出身份）→ 校验号码 → **消费 nonce** → 建绑定 →
  * 领令牌 → 回下载地址。
@@ -36,6 +45,9 @@ const handler: ApiHandler = async (c, next) => {
 		where: [{ column: 'id', value: ownerUid }, { column: 'status', value: 'enabled' }], limit: 1,
 	}));
 	if (!owner) return apiMessage(c, 403, '这把公钥的归属账号已停用或不存在');
+
+	// 空字符串等同不传：接入方可能传了个空串占位，按"没给"处理，走号码去重那一支。
+	const key = String(body.key ?? '').trim() || undefined;
 
 	/**
 	 * **消费 nonce 必须排在绑定之前**（§6.2 第 5 步）。
@@ -62,6 +74,8 @@ const handler: ApiHandler = async (c, next) => {
 		clientId: clientRowId,
 		number,
 		title: String(body.title ?? '').trim().slice(0, 64),
+		clientRef: normalizeClientRef(body.client_ref),
+		key,
 		runWrite: (statement) => runSql(ownedDatabase, statement),
 	});
 	if (!outcome.ok) return apiMessage(c, outcome.status, outcome.message);
@@ -74,6 +88,8 @@ const handler: ApiHandler = async (c, next) => {
 		already_bound: outcome.alreadyBound,
 		// 为真时手机上装着的旧快捷指令已经不能用了，要让手机的主人换装这一份（并把自动化指向它）。
 		reissued: outcome.reissued,
+		// 原样带回去，方便接入方核对自己传的是哪一个——不解析、不用于任何判定。
+		client_ref: outcome.clientRef || null,
 		expires_in: 900,
 	});
 };

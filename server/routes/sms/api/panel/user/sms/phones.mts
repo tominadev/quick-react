@@ -143,6 +143,9 @@ const handler: ApiHandler = async (c, next, params) => {
 			clientId: client.value,
 			number,
 			title,
+			// 控制台是人在填表，不是程序在对接，没有 client_ref 这个概念——固定传空串，
+			// 落在同一条默认幂等分支上，行为与这次改动之前完全一样。
+			clientRef: '',
 			runWrite: (statement) => runOperationSql(c, database, statement),
 		});
 		if (!outcome.ok) return apiMessage(c, outcome.status, outcome.message);

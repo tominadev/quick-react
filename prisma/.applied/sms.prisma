@@ -173,6 +173,12 @@ model sms_platform_keys {
 /// ——双向外键在无事务环境下必然出现单边不一致。查询手机的当前令牌用 phone_id 反查。
 model sms_phones {
   id           BigInt @id @default(autoincrement())
+  /// **这张表的 key 允许接入方通过票据自己指定值**（不指定就照常自动生成雪花号）——本项目
+  /// 里除 `global_sites` 外唯一的例外，"key 只装机器写的雪花号"这条通用约定在这张表不适用。
+  ///
+  /// 这是接入方去重的落点：传相同的 key 命中同一行，直接拿回原来那份快捷指令，不新建、
+  /// 不提示重复；同一个 key 被**别的**接入方占用则拒绝（见 modules/sms/binding.mts）。
+  /// 详见绑定文档 §4.3、票据文档 §7。
   key          String @db.VarChar(36)
   @@unique([key])
   created_at   BigInt @default(0)
@@ -185,27 +191,34 @@ model sms_phones {
   owner_bid    BigInt @default(1)
   owner_uid    BigInt?
   /// 属于哪个接入方（用户注册的一个项目）。**0 表示不属于任何项目**——用户在控制台自己
-  /// 绑的那一部。
-  ///
-  /// **用 0 而不是 NULL**，因为它要进唯一索引：SQL 里 `NULL != NULL`，可空列上的唯一索引
-  /// 拦不住多行 NULL，于是「不属于任何项目」的同一个号能被同一个人绑上无数次。
+  /// 绑的那一部。用 0 而不是 NULL：控制台路径仍靠 `(owner_tid, owner_uid, integration_client_id,
+  /// number, deleted_at)` 做应用层查重（见下），可空列上 `NULL != NULL` 会挡不住重复。
   integration_client_id BigInt @default(0)
   @@index([integration_client_id])
-  /// 规范化后的 E.164 手机号。**这是本表的名字列**（登记在 shared/system-fields.mts 的
-  /// NAME_COLUMNS 里），因此唯一索引带 `deleted_at`——解绑之后同一个号能重新绑回来，
-  /// 而那正是 status=revoked 的语义所要求的。票据中的协议字段名是 `phone`。
+  /// 接入方自己的引用串（Stripe 那种 `client_reference_id`），**票据里可选传入**。不透明、
+  /// 不解析、**不参与任何唯一性判断**，原样存、原样在推送 payload 里带回去——接入方不一定
+  /// 按手机号存自己的客户，短信到达时单靠一个手机号，未必能对回是哪个客户。
+  client_ref   String @default("")
+  /// 规范化后的 E.164 手机号。票据中的协议字段名为 `phone`。
   ///
-  /// **索引到「账号 + 项目」这一层，同一个号可以被不同的人、不同的项目各绑一次。**
+  /// **不再是这张表的名字列**（已从 shared/system-fields.mts 的 NAME_COLUMNS 除名），
+  /// **没有唯一索引，允许重复**：同一个号码可以在同一个接入方名下绑出好几行。去重不再靠
+  /// 号码，靠上面的 `key`——接入方传相同的 key 就是"这是同一次绑定"，不传就总是新建一行。
   ///
   /// 因为**手机往往不是本站用户自己的，而是他客户的**：甲、乙两家服务商可能服务同一位
-  /// 客户，各自给那部手机装自己的快捷指令。号码在租户内唯一的话，先绑的那家把号占死，
-  /// 后来的一家连登记都做不到——而他们本来就该互不相干。
+  /// 客户，各自给那部手机装自己的快捷指令；同一家服务商名下也可能有好几个客户/订单共用
+  /// 同一个号码（例如同一间办公室的座机），接入方用不同的 key 各开一行、各自追踪。
   ///
   /// **这不构成越权。** 绑定只是登记意图，短信是从**某一个令牌**进来的、归属那个令牌的
   /// 主人；要真的收到短信，得有人把你的快捷指令装到那部手机上——那是物理接触，不是这里
   /// 插一行就能得到的。绑一个不属于自己的号码，得到的是一部永远收不到短信的手机。
+  ///
+  /// **控制台自助绑定（没有 key 的那条路径）仍然按号码去重**：应用层查
+  /// `(owner_tid, owner_uid, integration_client_id, number, deleted_at)`，不新建、复用原行、
+  /// 解绑后可重新绑定——这段行为没有数据库唯一索引兜底（DB 层允许重复），靠代码在插入前
+  /// 先查；人在控制台点两下"绑定"不该绑出两部一样的手机，这与接入方要的"同号可重复绑定"
+  /// 并不冲突：两条路径的默认行为本来就不同，一条给程序对接、一条给人手动操作。
   number       String @db.VarChar(32)
-  @@unique([owner_tid, owner_uid, integration_client_id, number, deleted_at])
   /// 用户可修改的设备名称。
   title        String @default("")
   status       SmsPhoneStatus @default(enabled)

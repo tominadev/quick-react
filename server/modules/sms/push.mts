@@ -14,12 +14,6 @@ import { resolvedTargetError } from './push-target.mjs';
 /** 重试退避：1 分钟、5 分钟、30 分钟、2 小时、6 小时，之后放弃。 */
 const RETRY_DELAYS = [60_000, 300_000, 1_800_000, 7_200_000, 21_600_000];
 
-/**
- * 号码只给掩码（§4.9.2 要求不含原始令牌等敏感值，号码同理）：接收方需要知道「是哪一部
- * 手机收到的」，不需要完整号码——而完整号码一旦进了别人的日志就再也收不回来。
- */
-const maskNumber = (value: string) => (value.length <= 4 ? value : `${value.slice(0, Math.max(3, value.length - 4))}****`);
-
 type MessageRow = { id: string; phone_id: string; content: string; sender: string; recipients: string; received_at: string; owner_uid: string | null };
 
 /**
@@ -126,7 +120,7 @@ export const dispatchPushDeliveries = async (database: DatabaseAdapter, limit = 
 		const [message, endpoint] = await Promise.all([
 			firstSql<Record<string, unknown>>(database, builder.select({
 				table: 'sms_messages', alias: 'm',
-				columns: { content: 'm.content', sender: 'm.sender', recipients: 'm.recipients', received_at: 'm.received_at', number: 'p.number' },
+				columns: { content: 'm.content', sender: 'm.sender', recipients: 'm.recipients', received_at: 'm.received_at', number: 'p.number', client_ref: 'p.client_ref' },
 				joins: [{ type: 'LEFT', table: 'sms_phones', alias: 'p', left: 'p.id', right: 'm.phone_id' }],
 				where: [{ column: 'm.id', value: delivery.message_id }], limit: 1,
 			})),
@@ -149,7 +143,12 @@ export const dispatchPushDeliveries = async (database: DatabaseAdapter, limit = 
 		}
 		const payload = JSON.stringify({
 			delivery_id: delivery.delivery_id,
-			phone: maskNumber(String(message.number ?? '')),
+			// **完整号码，不再打码**：接入方要按号码认出自己的客户，只给后四位的话，他没有
+			// 别的办法把这条短信对回自己那边的记录（除非提前传了 client_ref）。这条链路本来
+			// 就要求 HTTPS、Ed25519 验签，接收方与短信内容一样对这条数据负安全责任。
+			phone: String(message.number ?? ''),
+			// 接入方自己的引用串，绑定时传的那个原样带回去——没传就是空，落地为 null。
+			client_ref: message.client_ref || null,
 			content: message.content,
 			sender: message.sender || null,
 			recipients: message.recipients || null,

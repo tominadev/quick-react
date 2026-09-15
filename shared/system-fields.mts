@@ -30,8 +30,18 @@ export const isSystemField = (name: string): name is SystemFieldName => (SYSTEM_
  *
  * 登记是个显式动作，因此规则不会漂：今天加 `number`，明天有人想用 `code`，得先在这里写一行。
  */
+/**
+ * `sms_phones` 曾经登记过 `number`，因为手机号一度是这张表唯一性的落点：同一账号 + 项目下
+ * 只能绑一次，解绑之后同一个号能重新绑回来。
+ *
+ * **现在改成允许同一个号码在同一接入方名下重复绑定**（接入方自己控制去重，用的是这张表的
+ * `key`——SMS 绑定文档 §4.3、票据文档 §7 有详细说明；`key` 允许接入方指定值，是本项目里
+ * 除 `global_sites` 之外唯一一处偏离"key 只装机器写的雪花号"的例外，登记在那两份文档而不是
+ * 这里，因为这份文件只管"名字列"这一件事，不管 key 例外）。`number` 因此不再满足名字列的
+ * 定义——它不再租户内唯一，重复是设计如此，不是遗漏——所以从这张登记表里删掉，
+ * `test:naming` 也就不再要求它带 `(owner_tid, number, deleted_at)` 那条唯一索引。
+ */
 export const NAME_COLUMNS: Record<string, string> = {
-	sms_phones: 'number',
 };
 
 /** 这张表的名字列；没登记过的就是 `name`。 */

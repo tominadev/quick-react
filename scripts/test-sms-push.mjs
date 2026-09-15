@@ -222,9 +222,10 @@ try {
 	const delivered = receiverRequests[0];
 	const payload = JSON.parse(delivered.body);
 	assert.equal(payload.content, '【测试】验证码 8848');
-	// 号码只给掩码：接收方要知道是哪一部手机收到的，不需要完整号码——完整号码进了别人的
-	// 日志就再也收不回来。
-	assert.equal(payload.phone, '+861380013****');
+	// 号码不打码：接入方要按号码认出自己的客户，只给后四位的话，没传 client_ref 时他没有
+	// 别的办法把这条短信对回自己的记录。
+	assert.equal(payload.phone, '+8613800138000');
+	assert.equal(payload.client_ref, null, '这部手机绑定时没传 client_ref');
 	assert.ok(!delivered.body.includes('raw-token'), '推送里不得出现原始令牌');
 
 	// ---- 接收方按 /api/push-key 的公钥验签，走的就是这条路 ----

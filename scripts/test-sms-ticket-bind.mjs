@@ -102,7 +102,7 @@ try {
 	const database = new DatabaseSync(process.env.DEFAULT_DATABASE_FILE);
 	const ownerId = database.prepare("SELECT id FROM base_users WHERE name = 'ticketadmin'").get().id;
 	const otherId = database.prepare("SELECT id FROM base_users WHERE name = 'ticketother'").get().id;
-	for (let index = 1; index <= 8; index += 1) {
+	for (let index = 1; index <= 24; index += 1) {
 		database.prepare("INSERT INTO sms_shortcut_tokens (key, token_sha256, status, idempotency_token, created_at, updated_at) VALUES (lower(hex(randomblob(16))), ?, 'available', ?, ?, ?)")
 			.run(createHash('sha256').update(`pool-${index}`).digest('hex'), `idem-${index}`, now, now);
 	}
@@ -314,6 +314,68 @@ try {
 	assert.equal(String(rows[1].owner_uid), String(otherId), '手机要落在这把公钥的主人名下');
 	assert.equal(String(rows[1].integration_client_id), String(otherClient.id));
 	isolated.close();
+
+	/**
+	 * ---- key：接入方自己指定行标识，驱动去重（不传 key 时退回按号码去重） ----
+	 *
+	 * 用一批全新号码测，避免和前面那部手机复杂的绑定/换发/删除历史状态搅在一起。
+	 */
+	const refPhone = '+8613900000001';
+	const bare1 = await bind(makeTicket({ phone: refPhone }));
+	assert.equal(bare1.status, 200, bare1.message);
+	assert.equal(bare1.data.client_ref, null, '不传 client_ref，回显也是 null');
+
+	// 不传 key：退回按号码去重，行为与这次改动之前完全一样——重复绑同一个号是幂等。
+	const bareAgain = await bind(makeTicket({ phone: refPhone }));
+	assert.equal(bareAgain.data.already_bound, true, '不传 key 时仍然按号码去重');
+	assert.equal(readPhone("SELECT COUNT(*) AS n FROM sms_phones WHERE number = ? AND owner_uid = ? AND integration_client_id = ? AND deleted_at = 0", refPhone, ownerId, client.id).n, 1);
+
+	/**
+	 * 传了 key：**完全走另一套去重**，只认 key，不看号码——同一个号码可以在同一个接入方
+	 * 名下开出好几行，只要 key 不同。
+	 */
+	const keyedPhone = '+8613900000002';
+	const keyed = await bind(makeTicket({ phone: keyedPhone }), { body: { key: 'order-A', client_ref: 'ref-A' } });
+	assert.equal(keyed.status, 200, keyed.message);
+	assert.equal(keyed.data.already_bound, false, '新 key，全新一行');
+	assert.equal(keyed.data.client_ref, 'ref-A');
+	// 号码路径那条查重没受影响：refPhone 依旧只有一行，keyedPhone 是另一部手机、另一行。
+	assert.equal(readPhone("SELECT COUNT(*) AS n FROM sms_phones WHERE key = 'order-A'").n, 1);
+	assert.equal(readPhone("SELECT COUNT(*) AS n FROM sms_phones WHERE number = ? AND deleted_at = 0", refPhone).n, 1, '号码驱动那一行没受影响');
+
+	// 同一个 key 再绑一次：幂等，直接给原来那份快捷指令，不提示重复——「反正就是他的」。
+	const keyedRepeat = await bind(makeTicket({ phone: keyedPhone }), { body: { key: 'order-A' } });
+	assert.equal(keyedRepeat.data.already_bound, true, '同一个 key 重复绑定要幂等');
+	// download_url 这份测试文件没配对象存储，恒为 null——那条路径由 test-sms-push.mjs 覆盖。
+	assert.equal(readPhone("SELECT COUNT(*) AS n FROM sms_phones WHERE key = 'order-A'").n, 1, '幂等命中不新建行');
+
+	// 同一个 key，换一个号码再绑：命中同一行，号码要跟着更新（同一个身份，号码是它的属性）。
+	const rebindNumber = '+8613900000003';
+	const keyedRebound = await bind(makeTicket({ phone: rebindNumber }), { body: { key: 'order-A' } });
+	assert.equal(keyedRebound.status, 200, keyedRebound.message);
+	assert.equal(readPhone("SELECT number FROM sms_phones WHERE key = 'order-A'").number, rebindNumber, '同一个 key，号码要同步成最新提交的那个');
+
+	// 跨接入方撞 key：不是自己的，拒绝——且不透露占用者的任何信息。
+	const crossTenantKey = await bind(makeTicket({ phone: '+8613900000004', public_key: otherKey.publicKey }, { privateKey: otherKey.privateKey }), { body: { key: 'order-A' } });
+	assert.equal(crossTenantKey.status, 409);
+	assert.match(crossTenantKey.message, /已经被占用/);
+	assert.equal(String(readPhone("SELECT owner_uid FROM sms_phones WHERE key = 'order-A'").owner_uid), String(ownerId), '归属没有被跨接入方的请求改动');
+
+	// key 格式不对：直接拒绝，不让它撞进数据库层的裸错误。
+	const badKey = await bind(makeTicket({ phone: '+8613900000005' }), { body: { key: '带着空格和中文的 key' } });
+	assert.equal(badKey.status, 400);
+	assert.match(badKey.message, /标识格式不对/);
+
+	/**
+	 * ---- 推送时把 client_ref 原样带回（不管走的是哪条去重路径） ----
+	 *
+	 * 这是 client_ref 这个字段存在的目的：接入方不一定按手机号存自己的客户，短信到达时
+	 * 要靠这个值对回自己那边的记录，而不是靠手机号。
+	 */
+	const keyedPhoneId = readPhone("SELECT id FROM sms_phones WHERE key = 'order-A'").id;
+	const keyedToken = readPhone("SELECT token_sha256 FROM sms_shortcut_tokens WHERE phone_id = ? AND status = 'bound'", keyedPhoneId).token_sha256;
+	assert.ok(keyedToken, '要能查到这部手机挂着的令牌');
+	assert.equal(readPhone("SELECT client_ref FROM sms_phones WHERE id = ?", keyedPhoneId).client_ref, 'ref-A');
 
 	console.log('sms ticket bind test passed');
 } finally {
