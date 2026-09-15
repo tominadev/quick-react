@@ -67,19 +67,10 @@
 		"test:sms-ticket-bind": "node scripts/test-sms-ticket-bind.mjs",
 		"test:sms-generator-pool": "node scripts/test-sms-generator-pool.mjs"
 	},
-	"repository": {
-		"type": "git",
-		"url": "git+https://github.com/anonymous/quick-react.git"
-	},
 	"keywords": [
 		"react"
 	],
-	"author": "anonymous",
 	"license": "ISC",
-	"bugs": {
-		"url": "https://github.com/anonymous/quick-react/issues"
-	},
-	"homepage": "https://github.com/anonymous/quick-react#readme",
 	"devDependencies": {
 		"@testing-library/react": "^16.3.2",
 		"@testing-library/user-event": "^14.6.6",

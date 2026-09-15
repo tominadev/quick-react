@@ -8,6 +8,10 @@ package-lock.json
 dist/
 public/bundle.js
 public/bundle.js.map
+public/bundle-antd-mobile.js
+public/bundle-antd-mobile.js.map
+public/bundle-antd-mobile.css
+public/bundle-antd-mobile.css.map
 public/passport.js
 public/passport.js.map
 /server/worker-api-registry.mts

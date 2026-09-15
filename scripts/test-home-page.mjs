@@ -36,7 +36,7 @@ try {
 	assert.match(accounts.home.summary, /统一账号服务/);
 	assert.deepEqual(accounts.home.sections.map((section) => section.key), ['sign-in', 'account', 'sso', 'privacy', 'contact']);
 	assert.match(accounts.home.sections.find((section) => section.key === 'privacy').body, /Google API 服务用户数据政策/);
-	assert.match(accounts.home.sections.find((section) => section.key === 'contact').body, /anonymous@gmail\.com/);
+	assert.match(accounts.home.sections.find((section) => section.key === 'contact').body, /contact@example\.com/);
 
 	// 登录入口统一由页头弹窗提供，首页不再保留整页登录链接。
 	assert.deepEqual(accounts.home.links.map((link) => [link.key, link.url]), [

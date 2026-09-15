@@ -24,7 +24,7 @@ try {
 	assert.match(home.headers.get('content-type') ?? '', /text\/html/);
 	const homeBody = await home.text();
 	assert.match(homeBody, /<h1>示例账户中心<\/h1>/);
-	assert.match(homeBody, /lh3\.googleusercontent\.com/);
+	assert.match(homeBody, /data:image\/svg\+xml/);
 	assert.match(homeBody, /\/page\/privacy\.html/);
 	assert.equal(homeBody.includes('__INITIAL_DATA__'), false, '静态首页不应该再渲染应用');
 
