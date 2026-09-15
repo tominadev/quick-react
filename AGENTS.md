@@ -66,4 +66,6 @@
 
 - 常规验证：`npm run typecheck`、`npm run build:worker`、`npm run smoke:multi-site`、`git diff --check`。
 - 不提交已知无法通过验证的代码。
+- **提交必须匿名**：commit message 和 PR 描述里不出现任何 AI 工具署名（如 `Co-Authored-By: ...`）或"由 AI 生成"之类的生成标记，也不出现具体工具或产品名称；author/committer 统一用 `anonymous <anonymous@localhost>`（本仓库已在本地 git 配置里设好；其他环境按需用 `git -c user.name=anonymous -c user.email=anonymous@localhost commit ...`）；commit message、代码注释、PR 内容不写真实姓名、邮箱、本机路径、用户名、主机名等个人或公司信息。
+- **改动涉及超过 10KB 的文件时先确认它该不该进版本库**：是不是构建产物、生成文件、误加的二进制或数据库导出；确实需要提交的正常源码和文档不受影响，构建产物一律加进 `.gitignore`，不提交。
 - 提交信息使用简洁的英文 conventional commit 格式。
