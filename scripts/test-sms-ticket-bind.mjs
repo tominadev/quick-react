@@ -386,6 +386,11 @@ try {
 	assert.ok(keyedToken, '要能查到这部手机挂着的令牌');
 	assert.equal(readPhone("SELECT client_ref FROM sms_phones WHERE id = ?", keyedPhoneId).client_ref, 'ref-A');
 
+	// 「我的手机」页面也要看得到这个引用——不用只查数据库才知道哪部手机对应哪个客户。
+	const myPhonesList = await (await app.request('http://sms.test/api/panel/user/sms/phones.php?include=data', { headers: h })).json();
+	const keyedPhoneRow = myPhonesList.table.dataSource.find((row) => String(row.id) === String(keyedPhoneId));
+	assert.equal(keyedPhoneRow.client_ref, 'ref-A');
+
 	console.log('sms ticket bind test passed');
 } finally {
 	await rm(temporaryDirectory, { recursive: true, force: true });

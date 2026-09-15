@@ -21,6 +21,10 @@ const columns = [
 	{ dataIndex: 'id', title: 'ID', dataType: 'int' as const },
 	{ dataIndex: 'created_at', title: '入库时间', dataType: 'js_timestamp' as const, dayjsFormat: 'YYYY-MM-DD HH:mm:ss' },
 	{ dataIndex: 'phone_number', title: '接收手机', emptyText: '手机已删除' },
+	// 接入方通过票据绑定这部手机时传的引用串，原样存在 sms_phones.client_ref 上，推送时
+	// 也是原样带给接入方的那个值。管理员排查「用户说没收到，但接入方说也没推送」这类问题时，
+	// 这一列能直接对上接入方那边日志里记的是哪个引用。
+	{ dataIndex: 'client_ref', title: '接入方引用', emptyText: '未设置' },
 	{ dataIndex: 'owner_name', title: '归属账号', emptyText: '无归属' },
 	// 正文多行显示：通知类短信经常两三行，截断了就得逐条点开看。
 	{ dataIndex: 'content', title: '内容', tableDisplay: 'multiline' as const },
@@ -32,7 +36,7 @@ export const tableCrud: TableCrudDefinition = { table: 'sms_messages', rowKey: '
 
 const listColumns = {
 	id: { column: 'm.id', cast: 'text' as const }, created_at: 'm.created_at',
-	phone_number: 'p.number', owner_name: 'u.name',
+	phone_number: 'p.number', client_ref: 'p.client_ref', owner_name: 'u.name',
 	content: 'm.content', recipients: 'm.recipients', sender: 'm.sender', received_at: 'm.received_at',
 } as const;
 const listJoins = [
@@ -51,6 +55,7 @@ const publicMessage = (row: Record<string, unknown>) => ({
 	id: row.id,
 	created_at: row.created_at,
 	phone_number: row.phone_number ?? null,
+	client_ref: row.client_ref || null,
 	owner_name: row.owner_name ?? null,
 	content: row.content,
 	recipients: row.recipients || null,

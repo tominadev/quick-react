@@ -42,6 +42,9 @@ const STATUS_OPTIONS = [
 
 const columns = [
 	{ dataIndex: 'id', title: 'ID', dataType: 'int' as const },
+	// 接入方通过票据传的 key 绑定时一起带的引用串，原样存在这一行上；推送短信给接入方时
+	// 也是原样带回去的那个值。只读——这是接入方自己的标签，不该被手机的主人在这里改动。
+	{ dataIndex: 'client_ref', title: '接入方引用', emptyText: '未设置', form: { create: false as const, edit: false as const } },
 	// 手机号是本表的名字列（NAME_COLUMNS 里登记成 number）。它由绑定流程写入，改不得：
 	// 改掉就成了「把这部手机的短信记到另一个号上」。
 	{ dataIndex: 'number', title: '手机号', form: { create: false as const, edit: false as const } },
@@ -69,7 +72,7 @@ export const tableCrud: TableCrudDefinition = { table: 'sms_phones', rowKey: 'id
 
 const listColumns = {
 	id: { column: 'p.id', cast: 'text' as const }, number: 'p.number', title: 'p.title', status: 'p.status',
-	client_title: 'c.title', bound_at: 'p.bound_at', revoked_at: 'p.revoked_at', created_at: 'p.created_at',
+	client_title: 'c.title', client_ref: 'p.client_ref', bound_at: 'p.bound_at', revoked_at: 'p.revoked_at', created_at: 'p.created_at',
 	integration_client_id: { column: 'p.integration_client_id', cast: 'text' as const },
 	last_check_at: 'p.last_check_at', last_message_at: 't.last_used_at',
 } as const;
@@ -86,7 +89,7 @@ const listJoins = [
 ];
 
 const publicPhone = (row: Record<string, unknown>) => ({
-	id: row.id, number: row.number, title: row.title || null, client_title: row.client_title ?? null, status: row.status,
+	id: row.id, number: row.number, title: row.title || null, client_title: row.client_title ?? null, client_ref: row.client_ref || null, status: row.status,
 	bound_at: Number(row.bound_at ?? 0) || null,
 	revoked_at: Number(row.revoked_at ?? 0) || null,
 	last_check_at: Number(row.last_check_at ?? 0) || null,

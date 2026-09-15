@@ -31,6 +31,9 @@ const columns = [
 	{ dataIndex: 'recipients', title: '收件人', emptyText: '未提供' },
 	{ dataIndex: 'sender', title: '发送人', emptyText: '未知' },
 	{ dataIndex: 'received_at', title: '接收时间', dataType: 'js_timestamp' as const, dayjsFormat: 'YYYY-MM-DD HH:mm:ss' },
+	// 绑定这部手机时接入方传的引用串（原样存在 sms_phones.client_ref 上），推送给接入方
+	// 时也是原样带回去的那个值——这里显示出来，方便用户自己核对"这部手机对应的是哪个客户"。
+	{ dataIndex: 'client_ref', title: '接入方引用', emptyText: '未设置' },
 	/**
 	 * **短信记录与投递记录原来是两张互不相通的表**：这一页只显示短信内容，「推送地址」页
 	 * 只有端点级别的「最近成功/最近错误」——看不出**这一条具体的短信**推没推、成没成功，
@@ -45,7 +48,7 @@ const columns = [
 export const tableCrud: TableCrudDefinition = { table: 'sms_messages', rowKey: 'id' };
 
 const listColumns = {
-	id: { column: 'm.id', cast: 'text' as const }, phone_number: 'p.number',
+	id: { column: 'm.id', cast: 'text' as const }, phone_number: 'p.number', client_ref: 'p.client_ref',
 	sender: 'm.sender', content: 'm.content', recipients: 'm.recipients', received_at: 'm.received_at',
 } as const;
 const listJoins = [{ type: 'LEFT' as const, table: 'sms_phones', alias: 'p', left: 'p.id', right: 'm.phone_id' }];
@@ -53,6 +56,7 @@ const listJoins = [{ type: 'LEFT' as const, table: 'sms_phones', alias: 'p', lef
 const publicMessage = (row: Record<string, unknown>) => ({
 	id: row.id,
 	phone_number: row.phone_number ?? null,
+	client_ref: row.client_ref || null,
 	sender: row.sender || null,
 	content: row.content,
 	recipients: row.recipients || null,
