@@ -4,7 +4,7 @@ import type { CommonApi } from '@clients/browser/api.js';
 import type { FormPageConfig, FormPageField, FormPageResponse, FormPageSection } from '@shared/types/form-page.mjs';
 import { SECTION_FIELD } from '@shared/types/form-page.mjs';
 import { changeControlHeaders } from '@shared/table-form.mjs';
-import { applyApiResponseContext, planApiNavigation } from '@clients/browser/response-action.js';
+import { applyApiResponseContext, runApiNextAction } from '@clients/browser/response-action.js';
 import { isFieldReadOnly } from '@shared/field-linkage.mjs';
 
 /**
@@ -66,9 +66,8 @@ const SectionForm = ({ section, config, commonApi, apiPath, submitMethod, onComp
 			const body = await response.json() as FormPageResponse;
 			// 完成后的去向由服务端说了算（next），前端不按接口路径自己猜该跳哪。
 			if (!body.next) applyApiResponseContext(body.context);
-			const plan = planApiNavigation(body.next);
-			if (plan?.kind === 'navigate') window.location.href = plan.path;
-			else if (plan?.kind === 'reload') window.setTimeout(() => window.location.reload(), plan.delayMs);
+			// 统一协议执行器负责把 action 映射成界面行为，前端不自己解释 next 的内容。
+			if (body.next) runApiNextAction(body.next, body.context);
 			else onCompleted();
 		} catch { /* 失败的提示由请求层统一弹出 */ }
 		finally { setSubmitting(false); }
