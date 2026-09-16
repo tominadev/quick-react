@@ -15,7 +15,7 @@ import type { TableCrudDefinition } from '@server/modules/base/table-crud.mjs';
 
 export const tableCrud: TableCrudDefinition = { table: 'global_cloud_email_channels', rowKey: 'id' };
 import { allSql, firstSql, runSql, sql } from '@server/database/sql.mjs';
-import { PendingApprovalError, runOperationSql } from '@server/modules/base/operation.mjs';
+import { runOperationSql } from '@server/modules/base/operation.mjs';
 import { tableSort } from '@server/modules/base/query-options.mjs';
 
 const columns = [
@@ -95,10 +95,7 @@ const handler: ApiHandler = async (c, next, params) => {
 		const body = await parseBody(c);
 		const credentialId = Number(body.cloud_credential_id), region = text(body.region), accountName = text(body.account_name), fromAlias = text(body.from_alias);
 		if (!Number.isInteger(credentialId) || !await validCredential(database, credentialId, region) || !emailPattern.test(accountName) || !fromAlias) return apiMessage(c, 400, '云凭据、Region 或发信身份不合法');
-		try {
-			const now = Date.now();
-			await runOperationSql(c, database, sql({ database }).insert('global_cloud_email_channels', { cloud_credential_id: credentialId, region, account_name: accountName, from_alias: fromAlias, reply_to_enabled: booleanValue(body.reply_to_enabled), status: body.status === statusValues.disabled ? statusValues.disabled : statusValues.enabled }));
-		} catch (error) { if (error instanceof PendingApprovalError) throw error; return apiMessage(c, 409, '该凭据、Region 和发信地址已经存在'); }
+		await runOperationSql(c, database, sql({ database }).insert('global_cloud_email_channels', { cloud_credential_id: credentialId, region, account_name: accountName, from_alias: fromAlias, reply_to_enabled: booleanValue(body.reply_to_enabled), status: body.status === statusValues.disabled ? statusValues.disabled : statusValues.enabled }), { conflict: '该凭据、Region 和发信地址已经存在' });
 		return apiMessageData(c, 201, '邮件通道创建成功', {});
 	}
 	if (!params.id && c.req.method === 'DELETE') {
@@ -163,9 +160,7 @@ const handler: ApiHandler = async (c, next, params) => {
 			const binding = await firstSql(database, sql({ database }).select({ table: 'global_cloud_email_bindings', columns: { channel_id: 'channel_id' }, where: [{ column: 'channel_id', value: Number(params.id) }], limit: 1 }));
 			if (binding) return apiMessage(c, 409, '邮件通道已有站点绑定，不能修改凭据、Region 或发信地址');
 		}
-		try {
-			await runOperationSql(c, database, sql({ database }).update('global_cloud_email_channels', { cloud_credential_id: credentialId, region, account_name: accountName, from_alias: fromAlias, reply_to_enabled: changed.has('reply_to_enabled') ? booleanValue(body.reply_to_enabled) : current.reply_to_enabled, status: changed.has('status') && body.status === statusValues.disabled ? statusValues.disabled : changed.has('status') ? statusValues.enabled : current.status }, { id: Number(params.id) }));
-		} catch { return apiMessage(c, 409, '该凭据、Region 和发信地址已经存在'); }
+		await runOperationSql(c, database, sql({ database }).update('global_cloud_email_channels', { cloud_credential_id: credentialId, region, account_name: accountName, from_alias: fromAlias, reply_to_enabled: changed.has('reply_to_enabled') ? booleanValue(body.reply_to_enabled) : current.reply_to_enabled, status: changed.has('status') && body.status === statusValues.disabled ? statusValues.disabled : changed.has('status') ? statusValues.enabled : current.status }, { id: Number(params.id) }), { conflict: '该凭据、Region 和发信地址已经存在' });
 		return apiMessage(c, 200, '保存成功');
 	}
 	if (params.id && c.req.method === 'DELETE') {

@@ -17,6 +17,16 @@ import { submitterIdsOf, submitterNames } from './super-users.mjs';
  * 机器写是噪音，管理员吊销设备时人工写是证据（见需求文档 §3.0）。
  */
 export type OperationOptions = {
+	/**
+	 * 撞上唯一索引时回给用户的话，例如「凭据名称已经存在」。
+	 *
+	 * **给了它，路由就不该再自己写 try/catch。** 那个 catch 是一整类 bug 的唯一来源：
+	 * 待审批是靠抛 {@link PendingApprovalError} 实现的，裸的 `catch` 会把它一并吞掉，
+	 * 于是同一件事在不同页面走出两条路径、下发两种反馈形态（见 worker.mts 的 onError）。
+	 * 12 个调用点里曾有 6 个漏写重新抛出——这不是粗心，是这个模式本身要求每个人都记得
+	 * 一件与本地逻辑无关的事。收进公共层之后就没有东西需要记了。
+	 */
+	conflict?: string;
 	/** 操作原因；缺省时从请求头 X-Change-Reason 里取。 */
 	reason?: string;
 	/** 跳过审批直接生效；缺省时从请求头 X-Change-Immediate 里取，且只对管理员生效。 */
@@ -93,6 +103,18 @@ export class QueuedRowError extends Error {
 	constructor(readonly table: string) {
 		super('这条记录正在等待审批、还没有生效，暂时不能修改——改了也不会生效');
 		this.name = 'QueuedRowError';
+	}
+}
+
+/**
+ * 唯一索引冲突翻译成的人话，由公共层统一转成 409。
+ *
+ * 和 {@link PendingLockError} 同属「请求本身没错，只是当下写不进去」，因此共用同一个状态码。
+ */
+export class ConflictError extends Error {
+	constructor(message: string) {
+		super(message);
+		this.name = 'ConflictError';
 	}
 }
 
@@ -573,7 +595,7 @@ const recordStatement = async (database: DatabaseAdapter, metadata: SqlAuditMeta
  * 可被发现和核对，"做了但没记"则事后无法察觉（见需求文档 §6.2）。
  * 记录失败时整个操作失败：不允许"审计写不进去就跳过"。
  */
-export const runOperation = async (
+const executeOperation = async (
 	c: Context<AppEnv>,
 	database: DatabaseAdapter,
 	statements: readonly SqlQuery[],
@@ -704,6 +726,29 @@ export const runOperation = async (
 		}
 	}
 	return results;
+};
+
+/**
+ * 执行一组写入。
+ *
+ * `conflict` 只翻译唯一索引冲突，别的异常原样穿过去——待审批、行锁、未生效行都是
+ * 控制流，不是失败，压在这里会让上层看不见。调用方因此不需要写 catch，也就不可能忘记
+ * 把它们重新抛出去。
+ *
+ * 注意它比原先各处的裸 `catch` **更保守**：那种写法把任意异常（连不上库、语法错）
+ * 都说成「已经存在」，这里只认真正的唯一索引冲突，其余照常上抛。
+ */
+export const runOperation = async (
+	c: Context<AppEnv>,
+	database: DatabaseAdapter,
+	statements: readonly SqlQuery[],
+	options: OperationOptions = {},
+): Promise<DatabaseRunResult[]> => {
+	try { return await executeOperation(c, database, statements, options); }
+	catch (error) {
+		if (options.conflict && isUniqueViolation(error)) throw new ConflictError(options.conflict);
+		throw error;
+	}
 };
 
 /** 单条语句的简写，与 runSql 的调用形状一一对应。 */

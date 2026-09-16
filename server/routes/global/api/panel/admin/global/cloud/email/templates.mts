@@ -15,7 +15,7 @@ import type { TableCrudDefinition } from '@server/modules/base/table-crud.mjs';
 export const tableCrud: TableCrudDefinition = { table: 'global_cloud_email_templates', rowKey: 'id' };
 import { cloudProviderOptions, getCloudEmailRegionLabel, getCloudEmailRegionOptions, getCloudEmailRegions, providerSupportsEmailPush } from '@server/modules/global/cloud/catalog.mjs';
 import { allSql, firstSql, runSql, sql } from '@server/database/sql.mjs';
-import { PendingApprovalError, runOperationSql } from '@server/modules/base/operation.mjs';
+import { runOperationSql } from '@server/modules/base/operation.mjs';
 import { tableSort } from '@server/modules/base/query-options.mjs';
 
 const columns = [
@@ -174,10 +174,7 @@ const handler: ApiHandler = async (c, next, params) => {
 		if (!keyPattern.test(templateKey) || !cloudEmailPurposeKeys.has(templateType) || !name || !subject || !bodyText || !bodyHtml) return apiMessage(c, 400, '模板 Key、类型、名称、主题和正文不合法');
 		const variableError = validateCloudEmailTemplateVariables(templateType, { subject, body_text: bodyText, body_html: bodyHtml });
 		if (variableError) return apiMessage(c, 400, variableError);
-		try {
-			const now = Date.now();
-			await runOperationSql(c, database, sql({ database }).insert('global_cloud_email_templates', { key: templateKey, type: templateType, title: name, subject, body_text: bodyText, body_html: bodyHtml, status: body.status === statusValues.disabled ? statusValues.disabled : statusValues.enabled }));
-		} catch (error) { if (error instanceof PendingApprovalError) throw error; return apiMessage(c, 409, '模板 Key 已经存在'); }
+		await runOperationSql(c, database, sql({ database }).insert('global_cloud_email_templates', { key: templateKey, type: templateType, title: name, subject, body_text: bodyText, body_html: bodyHtml, status: body.status === statusValues.disabled ? statusValues.disabled : statusValues.enabled }), { conflict: '模板 Key 已经存在' });
 		const template = await firstSql<CloudEmailTemplate>(database, sql({ database }).select({ table: 'global_cloud_email_templates', columns: templateColumns, where: [{ column: 'key', value: templateKey }] }));
 		if (!template) return apiMessage(c, 500, '模板创建后无法读取');
 		return apiMessageData(c, 201, '邮件模板创建成功，请选择云凭据和 Region 发布', { id: template.id });
@@ -248,9 +245,7 @@ const handler: ApiHandler = async (c, next, params) => {
 			const binding = await firstSql(database, sql({ database }).select({ table: 'global_cloud_email_bindings', columns: { template_id: 'template_id' }, where: [{ column: 'template_id', value: current.id }], limit: 1 }));
 			if (binding) return apiMessage(c, 409, '模板已有站点绑定，不能修改类型');
 		}
-		try {
-			await runOperationSql(c, database, sql({ database }).update('global_cloud_email_templates', { key: templateKey, type: templateType, title: name, subject, body_text: bodyText, body_html: bodyHtml, status }, { id: current.id }));
-		} catch { return apiMessage(c, 409, '模板 Key 已经存在'); }
+		await runOperationSql(c, database, sql({ database }).update('global_cloud_email_templates', { key: templateKey, type: templateType, title: name, subject, body_text: bodyText, body_html: bodyHtml, status }, { id: current.id }), { conflict: '模板 Key 已经存在' });
 		return apiMessage(c, 200, '保存成功，请按需选择云凭据和 Region 发布更新');
 	}
 	if (params.id && c.req.method === 'DELETE') {

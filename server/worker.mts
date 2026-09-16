@@ -16,7 +16,7 @@ import { primeSnowflake } from './modules/base/snowflake.mjs';
 import { SiteRouter } from './modules/base/site-router.mjs';
 import { baseSessionMaxAge, createSessionCookie, loadBaseDeviceUserId, loadCurrentUser, readSessionId, sessionUsesAccountsOidc } from './modules/base/auth/index.mjs';
 import { loadAccountsOidcConfig, resolveAccountsLoginMode } from './modules/passport/accounts/client.mjs';
-import { QueuedRowError, PendingApprovalError, PendingLockError } from './modules/base/operation.mjs';
+import { ConflictError, QueuedRowError, PendingApprovalError, PendingLockError } from './modules/base/operation.mjs';
 import { clearPassportSessionCookie, loadPassportDeviceUserId, loadPassportSession, readPassportSessionId } from './modules/passport/session.mjs';
 import { loadSystemConfigFromStore } from './modules/base/system-config.mjs';
 import { applyTechStackHeaders, loadTechStackConfigFromStore } from './modules/base/tech-stack.mjs';
@@ -339,6 +339,9 @@ app.onError((error, c) => {
 		// 东西和刚出现的待审批提示一起没了。提交审批不是需要用户决策的事，一条轻提示就够。
 		return apiMessage(c, 202, error.message, { component: 'message', type: 'warning', title: '已提交审批' });
 	}
+	// 撞了唯一索引（见 ConflictError）。409：请求本身没错，只是已经有一条一样的了——
+	// 用户输入的正常结果，不是服务端故障，所以不打错误日志。
+	if (error instanceof ConflictError) return apiMessage(c, 409, error.message);
 	// 这一行的去留还没定下来，不接受别的申请（见 PendingLockError）。409：请求本身没错，
 	// 只是当下这一行的状态不允许——和撞唯一索引同一类。
 	if (error instanceof PendingLockError) return apiMessage(c, 409, error.message);
@@ -359,8 +362,11 @@ app.use('*', async (c, next) => {
 		// 数据就一定没动，任何别的响应都是错的。
 		// 必须直接改写 c.res：响应已经被下游 finalize 了，此时 return 出去的新响应会被
 		// compose 丢弃（它只在 finalized === false 时才采用返回值）。
+		// 反馈形态与上面的 onError 保持一致：同一件事不该因为走了哪条路径而长得不一样。
+		// modal 的「确定」是整页跳转（见 FormPage 的 modalFeedback），点一下就把正在填的
+		// 东西和这条提示一起刷掉；提交审批不需要用户决策，一条轻提示就够。
 		if (c.get('pendingApproval') && c.res.status !== 202) {
-			c.res = await apiMessage(c, 202, '修改已提交审批，通过后才会生效', { component: 'modal', showIcon: true, title: '已提交审批' });
+			c.res = await apiMessage(c, 202, '修改已提交审批，通过后才会生效', { component: 'message', type: 'warning', title: '已提交审批' });
 		}
 		applyTechStackHeaders(c.res.headers, c.req.path, c.get('techStackConfig'));
 		return undefined;
@@ -368,7 +374,7 @@ app.use('*', async (c, next) => {
 		// 待审批不是错误：操作已经记下来了，只是还没生效。抛异常是为了让业务路由后面
 		// 那句「已保存」不会执行——它一行都不用改（见需求文档 §11.5）。
 		if (error instanceof PendingApprovalError) {
-			return apiMessage(c, 202, error.message, { component: 'modal', showIcon: true, title: '已提交审批' });
+			return apiMessage(c, 202, error.message, { component: 'message', type: 'warning', title: '已提交审批' });
 		}
 		console.error(error);
 		return apiMessage(c, 503, 'Service configuration unavailable');

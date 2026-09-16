@@ -179,18 +179,16 @@ const handler: ApiHandler = async (c, next, params) => {
 			profileWrite = 'statement' in result ? result.statement : result.clear;
 		}
 		if (!Object.keys(values).length && !changingPassword && !profileWrite) return apiMessage(c, 400, '没有可修改的字段');
-		try {
-			// 资料与凭证分表，一次操作里两条写入——operation_id 会把它们归到同一组。
-			const statements = [
-				...(Object.keys(values).length ? [sql({ database }).update('base_users', values, { id: params.id })] : []),
-				...(changingPassword ? [await credentialStatement(database, params.id, password)] : []),
-				...(profileWrite ? [profileWrite] : []),
-			];
-			// 账号那一行是这条记录的身份：别人挂在它上面的申请要拦住这里的每一种修改，
-			// 哪怕这次只动了资料表（见 OperationOptions.lockRows）。
-			await runOperation(c, database, statements, { lockRows: [{ table: 'base_users', rowId: params.id }] });
-			return apiMessage(c, 200, '用户已保存');
-		} catch (error) { if (error instanceof PendingApprovalError) throw error; if (!isUniqueViolation(error)) throw error; return apiMessage(c, 409, '用户名或昵称已被占用'); }
+		// 资料与凭证分表，一次操作里两条写入——operation_id 会把它们归到同一组。
+		const statements = [
+			...(Object.keys(values).length ? [sql({ database }).update('base_users', values, { id: params.id })] : []),
+			...(changingPassword ? [await credentialStatement(database, params.id, password)] : []),
+			...(profileWrite ? [profileWrite] : []),
+		];
+		// 账号那一行是这条记录的身份：别人挂在它上面的申请要拦住这里的每一种修改，
+		// 哪怕这次只动了资料表（见 OperationOptions.lockRows）。
+		await runOperation(c, database, statements, { lockRows: [{ table: 'base_users', rowId: params.id }], conflict: '用户名或昵称已被占用' });
+		return apiMessage(c, 200, '用户已保存');
 	}
 	// 界面上的删除（单条与批量）一律发到集合地址、id 放在请求体里，两种形态都要接。
 	if (c.req.method === 'DELETE') {

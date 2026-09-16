@@ -12,7 +12,7 @@ import type { TableCrudDefinition } from '@server/modules/base/table-crud.mjs';
 
 export const tableCrud: TableCrudDefinition = { table: 'global_cloud_object_storage_buckets', rowKey: 'id' };
 import { allSql, firstSql, runSql, sql } from '@server/database/sql.mjs';
-import { PendingApprovalError, runOperation, runOperationSql } from '@server/modules/base/operation.mjs';
+import { runOperation, runOperationSql } from '@server/modules/base/operation.mjs';
 import { tableSort } from '@server/modules/base/query-options.mjs';
 
 const baseColumns = [
@@ -94,16 +94,12 @@ const handler: ApiHandler = async (c, next, params) => {
 		if (!credential || !providerSupportsObjectStorage(credential.provider) || !isCloudEndpointValid(endpoint) || !bucket) return apiMessage(c, 400, '凭据或 Bucket 配置不合法');
 		const extra = parseExtra(body.extra_config);
 		if (extra === null) return apiMessage(c, 400, '扩展配置必须是有效 JSON');
-		try {
-			const now = Date.now();
-			await runOperationSql(c, database, sql({ database }).insert('global_cloud_object_storage_buckets', { cloud_credential_id: credentialId, endpoint, region: text(body.region), bucket, path_style: booleanValue(body.path_style) ? true : false, public_base_url: text(body.public_base_url), extra_config: extra, status: body.status === statusValues.disabled ? statusValues.disabled : statusValues.enabled }));
-		} catch (error) { if (error instanceof PendingApprovalError) throw error; return apiMessage(c, 409, '该凭据、Endpoint 和 Bucket 已经存在'); }
+		await runOperationSql(c, database, sql({ database }).insert('global_cloud_object_storage_buckets', { cloud_credential_id: credentialId, endpoint, region: text(body.region), bucket, path_style: booleanValue(body.path_style) ? true : false, public_base_url: text(body.public_base_url), extra_config: extra, status: body.status === statusValues.disabled ? statusValues.disabled : statusValues.enabled }), { conflict: '该凭据、Endpoint 和 Bucket 已经存在' });
 		return apiMessageData(c, 201, 'Bucket 创建成功', {});
 	}
 	if (!params.id && c.req.method === 'DELETE') {
 		const ids = await c.req.json<unknown>().catch(() => []);
-		try { await runOperation(c, database, (Array.isArray(ids) ? ids : []).map((id) => sql({ database }).softDelete('global_cloud_object_storage_buckets', { id: Number(id) }))); }
-		catch (error) { if (error instanceof PendingApprovalError) throw error; return apiMessage(c, 409, 'Bucket 已绑定到站点，不能删除'); }
+		await runOperation(c, database, (Array.isArray(ids) ? ids : []).map((id) => sql({ database }).softDelete('global_cloud_object_storage_buckets', { id: Number(id) })), { conflict: 'Bucket 已绑定到站点，不能删除' });
 		return apiMessage(c, 200, '删除成功，可在回收站找回或彻底删除');
 	}
 	if (params.id && c.req.method === 'GET') {
@@ -129,14 +125,11 @@ const handler: ApiHandler = async (c, next, params) => {
 		if (!credential || !providerSupportsObjectStorage(credential.provider) || !isCloudEndpointValid(endpoint) || !bucket) return apiMessage(c, 400, '凭据或 Bucket 配置不合法');
 		const extra = changed.has('extra_config') ? parseExtra(body.extra_config) : String(current.extra_config);
 		if (extra === null) return apiMessage(c, 400, '扩展配置必须是有效 JSON');
-		try {
-			await runOperationSql(c, database, sql({ database }).update('global_cloud_object_storage_buckets', { cloud_credential_id: credentialId, endpoint, region: changed.has('region') ? text(body.region) : current.region, bucket, path_style: changed.has('path_style') ? booleanValue(body.path_style) : current.path_style, public_base_url: changed.has('public_base_url') ? text(body.public_base_url) : current.public_base_url, extra_config: extra, status: changed.has('status') && body.status === statusValues.disabled ? statusValues.disabled : changed.has('status') ? statusValues.enabled : current.status }, { id: Number(params.id) }));
-		} catch { return apiMessage(c, 409, '该凭据、Endpoint 和 Bucket 已经存在'); }
+		await runOperationSql(c, database, sql({ database }).update('global_cloud_object_storage_buckets', { cloud_credential_id: credentialId, endpoint, region: changed.has('region') ? text(body.region) : current.region, bucket, path_style: changed.has('path_style') ? booleanValue(body.path_style) : current.path_style, public_base_url: changed.has('public_base_url') ? text(body.public_base_url) : current.public_base_url, extra_config: extra, status: changed.has('status') && body.status === statusValues.disabled ? statusValues.disabled : changed.has('status') ? statusValues.enabled : current.status }, { id: Number(params.id) }), { conflict: '该凭据、Endpoint 和 Bucket 已经存在' });
 		return apiMessage(c, 200, '保存成功');
 	}
 	if (params.id && c.req.method === 'DELETE') {
-		try { await runOperationSql(c, database, sql({ database }).softDelete('global_cloud_object_storage_buckets', { id: Number(params.id) })); }
-		catch { return apiMessage(c, 409, 'Bucket 已绑定到站点，不能删除'); }
+		await runOperationSql(c, database, sql({ database }).softDelete('global_cloud_object_storage_buckets', { id: Number(params.id) }), { conflict: 'Bucket 已绑定到站点，不能删除' });
 		return apiMessage(c, 200, '删除成功，可在回收站找回或彻底删除');
 	}
 	return next();

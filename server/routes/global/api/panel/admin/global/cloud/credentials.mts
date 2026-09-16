@@ -67,10 +67,7 @@ const handler: ApiHandler = async (c, next, params) => {
 		if (!name || !cloudProviderKeys.has(provider) || !accessKeyId || !accessKeySecret) return apiMessage(c, 400, '名称、供应商和访问密钥必填');
 		if (!isCredentialContextValid(provider, accountId)) return apiMessage(c, 400, 'Cloudflare Account ID 必须是 32 位十六进制字符串');
 		if (endpointProviderKeys.includes(provider) && !isCloudEndpointValid(endpoint)) return apiMessage(c, 400, 'Endpoint 必须带 http:// 或 https://，只填协议、主机和端口，不含 Bucket 和路径');
-		try {
-			const now = Date.now();
-			await runOperationSql(c, database, sql({ database }).insert('global_cloud_credentials', { title: name, provider, account_id: accountId, endpoint, access_key_id: accessKeyId, access_key_secret: accessKeySecret, status: body.status === statusValues.disabled ? statusValues.disabled : statusValues.enabled }));
-		} catch (error) { if (error instanceof PendingApprovalError) throw error; return apiMessage(c, 409, '凭据名称已经存在'); }
+		await runOperationSql(c, database, sql({ database }).insert('global_cloud_credentials', { title: name, provider, account_id: accountId, endpoint, access_key_id: accessKeyId, access_key_secret: accessKeySecret, status: body.status === statusValues.disabled ? statusValues.disabled : statusValues.enabled }), { conflict: '凭据名称已经存在' });
 		return apiMessageData(c, 201, '云凭据创建成功', {});
 	}
 	if (!params.id && c.req.method === 'DELETE') {
@@ -128,9 +125,7 @@ const handler: ApiHandler = async (c, next, params) => {
 			if (inUse) return apiMessage(c, 409, '凭据已被 Bucket、邮件通道或云端模板使用，不能修改供应商');
 		}
 		const secret = changed.has('access_key_secret') && text(body.access_key_secret) ? text(body.access_key_secret) : String(current.access_key_secret ?? '');
-		try {
-			await runOperationSql(c, database, sql({ database }).update('global_cloud_credentials', { title: name, provider, account_id: accountId, endpoint, access_key_id: accessKeyId, access_key_secret: secret, status: changed.has('status') && body.status === statusValues.disabled ? statusValues.disabled : changed.has('status') ? statusValues.enabled : current.status }, { id: Number(params.id) }));
-		} catch { return apiMessage(c, 409, '凭据名称已经存在'); }
+		await runOperationSql(c, database, sql({ database }).update('global_cloud_credentials', { title: name, provider, account_id: accountId, endpoint, access_key_id: accessKeyId, access_key_secret: secret, status: changed.has('status') && body.status === statusValues.disabled ? statusValues.disabled : changed.has('status') ? statusValues.enabled : current.status }, { id: Number(params.id) }), { conflict: '凭据名称已经存在' });
 		return apiMessage(c, 200, '保存成功');
 	}
 	if (params.id && c.req.method === 'DELETE') {
