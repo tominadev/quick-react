@@ -49,6 +49,7 @@
 		"test:form-changes": "node scripts/test-form-changes.mjs",
 		"test:audit-scope": "node scripts/test-audit-scope.mjs",
 		"test:column-order": "node scripts/test-column-order.mjs",
+		"test:table-schema-once": "node scripts/test-table-schema-once.mjs",
 		"test:change-audit": "node scripts/test-change-audit.mjs",
 		"import:legacy-passport": "node scripts/import-legacy-passport.mjs",
 		"migrate:sqlite": "node scripts/migrate-sqlite.mjs",
