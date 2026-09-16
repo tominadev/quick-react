@@ -5,6 +5,13 @@ const path = require('node:path');
 
 const DEFAULT_LOG_LINES = 50;
 const APP_NAME_PATTERN = /^[A-Za-z0-9_.:][A-Za-z0-9_.:-]{0,127}$/;
+const PM2_INSTALL_COMMAND = 'npm install -g pm2';
+/**
+ * 必须以「未找到 pm2」开头：detect() 靠这个前缀区分「没装」和「装了但出错」。
+ * 带上安装命令是因为这条消息出现的场合——启动服务、开发启动器自检——正是需要立刻
+ * 把 PM2 装上的时候，只说「请先安装」等于还要再查一次文档。
+ */
+const PM2_MISSING_MESSAGE = `未找到 pm2，请先安装 PM2：${PM2_INSTALL_COMMAND}（已安装则确认 pm2 在当前 PATH 中）`;
 
 const toText = (value) => String(value ?? '').trim();
 
@@ -34,7 +41,7 @@ const runPm2 = (args, { timeoutMs = 20_000 } = {}) => new Promise((resolve, reje
 	child.stdout.on('data', (chunk) => { stdout += chunk.toString(); });
 	child.stderr.on('data', (chunk) => { stderr += chunk.toString(); });
 	child.once('error', (error) => {
-		if (error.code === 'ENOENT') finish(reject, new Error('未找到 pm2，请先安装 PM2 或配置 PM2 可执行文件路径'));
+		if (error.code === 'ENOENT') finish(reject, new Error(PM2_MISSING_MESSAGE));
 		else finish(reject, error);
 	});
 	child.once('close', (code, signal) => {
@@ -212,6 +219,18 @@ const createPm2Service = () => {
 			for (const id of ids) outputs.push((await execute(['stop', id])).output);
 			return outputs.filter(Boolean).join('\n') || `PM2 已请求停止 ${target.name} 的 ${ids.length} 个实例`;
 		},
+		/**
+		 * 卸载与停止的区别：停止只把实例置为 stopped，注册还在，开机自启和 pm2 resurrect
+		 * 仍会把它拉起来；卸载要连注册一起删掉，所以删完必须 save 覆盖已保存的进程清单，
+		 * 否则下次开机它又回来了。
+		 */
+		async uninstall(target) {
+			const ids = targetArgs(target);
+			const outputs = [];
+			for (const id of ids) outputs.push((await execute(['delete', id])).output);
+			await execute(['save']);
+			return outputs.filter(Boolean).join('\n') || `PM2 已卸载 ${target.name} 的 ${ids.length} 个实例`;
+		},
 		async scale(target, instances) {
 			targetArgs(target);
 			const count = numericInstances(instances);
@@ -240,4 +259,4 @@ const createPm2Service = () => {
 	};
 };
 
-module.exports = { createPm2Service, validateAppName, DEFAULT_LOG_LINES };
+module.exports = { createPm2Service, validateAppName, DEFAULT_LOG_LINES, PM2_INSTALL_COMMAND, PM2_MISSING_MESSAGE };

@@ -257,6 +257,21 @@ const createMaintenanceActions = ({
 				},
 			},
 			{
+				key: 'pm2-uninstall',
+				label: '卸载服务（从 PM2 移除）',
+				description: '停止并从 PM2 删除当前项目的全部 Cluster 实例，同时更新开机自启清单',
+				run: async ({ ask } = {}) => {
+					const target = await ownService();
+					// 比停止多一层说明：停止还能再启动回来，卸载之后连注册都没了，而且开发进程
+					// 早在启动 PM2 时就让出了端口，不会自己重新监听——不说清楚就会出现「卸载完
+					// 站点全白」而找不到原因。
+					if (!await confirmRescue(ask, `将通过 PM2 卸载“${describeTarget(target)}”：实例先停止，再从 PM2 进程列表和开机自启清单中删除。卸载后该服务不再对外提供，也不会自动恢复开发进程的端口监听。`)) return '已取消';
+					const result = await service.uninstall(target);
+					stopPm2Logs?.();
+					return result;
+				},
+			},
+			{
 				key: 'pm2-logs',
 				label: '查看服务日志',
 				description: `显示当前项目全部 Cluster 实例最近 ${DEFAULT_LOG_LINES} 行日志`,

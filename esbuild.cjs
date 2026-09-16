@@ -6,7 +6,7 @@ const esbuild = require('esbuild');
 const { generate: generateWorkerRegistryFile } = require('./scripts/generate-worker-registry.cjs');
 const { createMaintenanceToolbox, createOutputGate } = require('./scripts/maintenance-toolbox.cjs');
 const { createMaintenanceActions } = require('./scripts/maintenance-actions.cjs');
-const { createPm2Service } = require('./scripts/maintenance-service-pm2.cjs');
+const { createPm2Service, PM2_INSTALL_COMMAND } = require('./scripts/maintenance-service-pm2.cjs');
 
 const projectDir = __dirname;
 const distDir = path.join(projectDir, 'dist');
@@ -115,7 +115,7 @@ const main = async () => {
 			console.warn('检测到同一项目已有在线 PM2 服务，npm run dev 将只构建和监听文件变化，不再监听 HTTP 端口。');
 			if (externalPm2Target) await followPm2Logs(externalPm2Target);
 		} else if (!pm2State.installed) {
-			console.warn('未检测到 PM2，保留当前监听设置；服务控制菜单需要安装 PM2 后才能使用。');
+			console.warn(`未检测到 PM2，保留当前监听设置；服务控制菜单需要先安装 PM2：${PM2_INSTALL_COMMAND}`);
 		} else if (pm2State.error && pm2State.installed) {
 			console.warn(`PM2 状态检测失败，保留当前监听设置：${pm2State.error}`);
 		}
