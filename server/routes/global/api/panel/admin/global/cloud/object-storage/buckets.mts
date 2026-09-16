@@ -1,7 +1,7 @@
 import type { ApiHandler } from '@server/modules/base/api-router.mjs';
 import { apiMessage, apiMessageData, apiResponse } from '@server/modules/base/api-response.mjs';
 import type { DatabaseAdapter } from '@server/database/index.mjs';
-import { cloudProviderOptions, getCloudBucketFieldValues, getCloudDiscoveryDefaults, getCloudStorageProduct, providerSupportsObjectStorage } from '@server/modules/global/cloud/catalog.mjs';
+import { cloudProviderOptions, getCloudBucketFieldValues, getCloudDiscoveryDefaults, getCloudStorageProduct, isCloudEndpointValid, providerSupportsObjectStorage } from '@server/modules/global/cloud/catalog.mjs';
 import { createCloudStorageAdapter } from '@server/modules/global/cloud/resolve.mjs';
 import type { CloudCredential, CloudStorageTarget } from '@server/modules/global/cloud/index.mjs';
 import { listAliyunOssBuckets } from '@server/modules/global/cloud/providers/aliyun-oss.mjs';
@@ -30,24 +30,21 @@ const baseColumns = [
 
 const parseBody = async (c: Parameters<ApiHandler>[0]): Promise<Record<string, unknown>> => c.req.json<Record<string, unknown>>().catch(() => ({}));
 const text = (value: unknown) => typeof value === 'string' ? value.trim() : '';
-const validEndpoint = (value: string) => {
-	try { return ['http:', 'https:'].includes(new URL(value).protocol); } catch { return false; }
-};
 const credentialOptions = async (database: DatabaseAdapter) => {
-	const rows = await allSql<{ id: number; title: string; provider: string }>(database, sql({ database }).select({ table: 'global_cloud_credentials', columns: { id: 'id', title: 'title', provider: 'provider' }, where: [{ column: 'status', value: 'enabled' }], orderBy: [{ column: 'provider' }, { column: 'title' }] }));
+	const rows = await allSql<{ id: number; title: string; provider: string; endpoint: string }>(database, sql({ database }).select({ table: 'global_cloud_credentials', columns: { id: 'id', title: 'title', provider: 'provider', endpoint: 'endpoint' }, where: [{ column: 'status', value: 'enabled' }], orderBy: [{ column: 'provider' }, { column: 'title' }] }));
 	const providerNames = new Map<string, string>(cloudProviderOptions.map((item) => [item.value, item.text]));
 	// 选中凭据就把该 Provider 的默认值带下去。remoteOptions 的 clearFields 会先清空 endpoint、
 	// region、path_style，这里的 fieldValues 紧接着盖回默认值——rc-field-form 先派发值更新
 	// （触发清空）再调子组件 onChange（套用 fieldValues），顺序天然正确。
 	// 少了这一步，自建 S3（MinIO 等）的 path_style 会一直停在关闭，而它们只支持 path style。
 	return rows.filter((item) => providerSupportsObjectStorage(item.provider))
-		.map((item) => ({ value: String(item.id), text: `${item.title} (${providerNames.get(item.provider) ?? item.provider})`, fieldValues: getCloudBucketFieldValues(item.provider) }));
+		.map((item) => ({ value: String(item.id), text: `${item.title} (${providerNames.get(item.provider) ?? item.provider})`, fieldValues: getCloudBucketFieldValues(item.provider, '', item.endpoint) }));
 };
 const columnsWithCredentials = async (database: DatabaseAdapter) => {
 	const options = await credentialOptions(database);
 	return baseColumns.map((column) => column.dataIndex === 'cloud_credential_id' ? { ...column, options } : column);
 };
-const loadCredential = (database: DatabaseAdapter, credentialId: number) => firstSql<CloudCredential>(database, sql({ database }).select({ table: 'global_cloud_credentials', columns: { id: 'id', title: 'title', provider: 'provider', account_id: 'account_id', access_key_id: 'access_key_id', access_key_secret: 'access_key_secret', status: 'status' }, where: [{ column: 'id', value: credentialId }, { column: 'status', value: 'enabled' }] }));
+const loadCredential = (database: DatabaseAdapter, credentialId: number) => firstSql<CloudCredential>(database, sql({ database }).select({ table: 'global_cloud_credentials', columns: { id: 'id', title: 'title', provider: 'provider', account_id: 'account_id', endpoint: 'endpoint', access_key_id: 'access_key_id', access_key_secret: 'access_key_secret', status: 'status' }, where: [{ column: 'id', value: credentialId }, { column: 'status', value: 'enabled' }] }));
 const parseExtra = (value: unknown, fallback = '{}') => {
 	const extra = text(value) || fallback;
 	try { JSON.parse(extra); return extra; } catch { return null; }
@@ -61,7 +58,7 @@ const handler: ApiHandler = async (c, next, params) => {
 		const credentialId = Number(c.req.query('cloud_credential_id'));
 		const credential = Number.isInteger(credentialId) ? await loadCredential(database, credentialId) : null;
 		if (!credential || !providerSupportsObjectStorage(credential.provider)) return apiMessage(c, 400, '凭据不支持对象存储');
-		const defaults = getCloudDiscoveryDefaults(credential.provider, credential.account_id);
+		const defaults = getCloudDiscoveryDefaults(credential.provider, credential.account_id, credential.endpoint);
 		const endpoint = text(c.req.query('endpoint')) || defaults.endpoints[0] || '';
 		const region = text(c.req.query('region')) || defaults.regions[0] || '';
 		if (!endpoint && credential.provider === 'other') return apiResponse(c, 200, { options: [] });
@@ -70,7 +67,7 @@ const handler: ApiHandler = async (c, next, params) => {
 				? await listTencentCosBuckets(credential)
 				: credential.provider === 'aliyun'
 					? await listAliyunOssBuckets(credential)
-				: validEndpoint(endpoint)
+				: isCloudEndpointValid(endpoint)
 					? await createCloudStorageAdapter({ id: 0, provider: credential.provider, cloud_credential_id: credential.id,
 						endpoint, region, bucket: '', path_style: true, public_base_url: '', extra_config: '{}',
 						access_key_id: credential.access_key_id, access_key_secret: credential.access_key_secret }).listBuckets()
@@ -94,7 +91,7 @@ const handler: ApiHandler = async (c, next, params) => {
 		const body = await parseBody(c);
 		const credentialId = Number(body.cloud_credential_id), endpoint = text(body.endpoint), bucket = text(body.bucket);
 		const credential = Number.isInteger(credentialId) ? await loadCredential(database, credentialId) : null;
-		if (!credential || !providerSupportsObjectStorage(credential.provider) || !validEndpoint(endpoint) || !bucket) return apiMessage(c, 400, '凭据或 Bucket 配置不合法');
+		if (!credential || !providerSupportsObjectStorage(credential.provider) || !isCloudEndpointValid(endpoint) || !bucket) return apiMessage(c, 400, '凭据或 Bucket 配置不合法');
 		const extra = parseExtra(body.extra_config);
 		if (extra === null) return apiMessage(c, 400, '扩展配置必须是有效 JSON');
 		try {
@@ -129,7 +126,7 @@ const handler: ApiHandler = async (c, next, params) => {
 		const credential = Number.isInteger(credentialId) ? await loadCredential(database, credentialId) : null;
 		const endpoint = changed.has('endpoint') ? text(body.endpoint) : String(current.endpoint);
 		const bucket = changed.has('bucket') ? text(body.bucket) : String(current.bucket);
-		if (!credential || !providerSupportsObjectStorage(credential.provider) || !validEndpoint(endpoint) || !bucket) return apiMessage(c, 400, '凭据或 Bucket 配置不合法');
+		if (!credential || !providerSupportsObjectStorage(credential.provider) || !isCloudEndpointValid(endpoint) || !bucket) return apiMessage(c, 400, '凭据或 Bucket 配置不合法');
 		const extra = changed.has('extra_config') ? parseExtra(body.extra_config) : String(current.extra_config);
 		if (extra === null) return apiMessage(c, 400, '扩展配置必须是有效 JSON');
 		try {

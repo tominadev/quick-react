@@ -90,6 +90,8 @@ model global_cloud_credentials {
   @@unique([title])
   provider          String
   account_id        String @default("")
+  /// 自建 S3（MinIO 等）的服务地址：密钥推不出地址，只能直接给。云厂商留空，由 Provider 推导。
+  endpoint          String @default("")
   access_key_id     String @default("")
   access_key_secret String @default("")
   status            GlobalEnabledStatus @default(enabled)

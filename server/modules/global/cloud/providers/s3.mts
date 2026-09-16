@@ -1,5 +1,8 @@
 import type { CloudStorageAdapter, CloudObjectPage, CloudStorageTarget } from '../index.mjs';
 
+/** 请求失败时带上 HTTP 状态和厂商错误码，供调用方判断而不是解析文案。 */
+export type CloudStorageRequestError = Error & { status?: number; code?: string };
+
 const encoder = new TextEncoder();
 const toHex = (buffer: ArrayBuffer) => [...new Uint8Array(buffer)].map((value) => value.toString(16).padStart(2, '0')).join('');
 const sha256 = async (value: string) => toHex(await crypto.subtle.digest('SHA-256', encoder.encode(value)));
@@ -64,7 +67,12 @@ export const createS3Adapter = (target: CloudStorageTarget): CloudStorageAdapter
 			const message = xmlValue(body, 'Message');
 			const requestId = xmlValue(body, 'RequestId');
 			const detail = [code, message].filter(Boolean).join('：');
-			throw new Error(`对象存储请求失败：HTTP ${response.status}${detail ? `，${xmlDecode(detail)}` : ''}${requestId ? `（RequestId: ${xmlDecode(requestId)}）` : ''}`);
+			// 错误码挂在 error 上：调用方要区分「密钥不对」和「密钥对但没这个权限」，
+			// 从拼好的中文文案里正则抠 Code 是脆的，厂商改一个字就失配。
+			const error = new Error(`对象存储请求失败：HTTP ${response.status}${detail ? `，${xmlDecode(detail)}` : ''}${requestId ? `（RequestId: ${xmlDecode(requestId)}）` : ''}`) as CloudStorageRequestError;
+			error.status = response.status;
+			if (code) error.code = xmlDecode(code);
+			throw error;
 		}
 		return response;
 	};

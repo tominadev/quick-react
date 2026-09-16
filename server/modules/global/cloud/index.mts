@@ -3,6 +3,8 @@ export type CloudCredential = {
 	name: string;
 	provider: string;
 	account_id: string;
+	/** 自建 S3 的服务地址；云厂商由 Provider 推导，留空。 */
+	endpoint: string;
 	access_key_id: string;
 	access_key_secret: string;
 	status?: string;

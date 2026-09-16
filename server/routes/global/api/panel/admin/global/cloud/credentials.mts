@@ -2,7 +2,7 @@ import type { Context } from 'hono';
 import type { AppEnv } from '@server/modules/base/types.mjs';
 import type { ApiHandler } from '@server/modules/base/api-router.mjs';
 import { apiMessage, apiMessageData, apiResponse } from '@server/modules/base/api-response.mjs';
-import { accountIdProviderKeys, cloudProviderKeys, cloudProviderOptions, isCredentialContextValid } from '@server/modules/global/cloud/catalog.mjs';
+import { accountIdProviderKeys, cloudProviderKeys, cloudProviderOptions, endpointProviderKeys, isCloudEndpointValid, isCredentialContextValid } from '@server/modules/global/cloud/catalog.mjs';
 import { testCloudCredential } from '@server/modules/global/cloud/credential-test.mjs';
 import type { CloudCredential } from '@server/modules/global/cloud/index.mjs';
 import { getChangedFields } from '@server/modules/base/changed-fields.mjs';
@@ -20,6 +20,7 @@ const columns = [
 	{ dataIndex: 'title', title: '名称', component: 'textbox', rules: [{ required: true, message: '请输入名称' }] },
 	{ dataIndex: 'provider', title: '供应商', component: 'select', options: cloudProviderOptions, rules: [{ required: true, message: '请选择供应商' }] },
 	{ dataIndex: 'account_id', title: 'Account ID', component: 'textbox', dependsOn: 'provider', parentValues: accountIdProviderKeys, hideInTable: true, rules: [{ required: true, message: '请输入 Account ID' }] },
+	{ dataIndex: 'endpoint', title: 'Endpoint', component: 'textbox', dependsOn: 'provider', parentValues: endpointProviderKeys, placeholder: 'https://s3.example.com:9000', rules: [{ required: true, message: '请输入 Endpoint' }] },
 	{ dataIndex: 'access_key_id', title: 'Access Key ID', component: 'textbox', rules: [{ required: true, message: '请输入 Access Key ID' }] },
 	{ dataIndex: 'access_key_secret', title: 'Access Key Secret', component: 'textbox', inputType: 'password', hideInTable: true, placeholder: '留空表示保持原值', form: { create: { placeholder: '新增时必填', rules: [{ required: true, message: '请输入 Access Key Secret' }] } } },
 	{ dataIndex: 'status', title: '状态', component: 'switch', checkedValue: statusValues.enabled, uncheckedValue: statusValues.disabled, options: enabledDisabledOptions },
@@ -54,19 +55,21 @@ const credentialDeletion = async (database: DatabaseAdapter, id: number): Promis
 const handler: ApiHandler = async (c, next, params) => {
 	const database = c.get('database');
 	if (!params.id && c.req.method === 'GET') {
-		const rows = await allSql<Record<string, unknown>>(database, sql({ database }).select({ table: 'global_cloud_credentials', columns: { id: 'id', title: 'title', provider: 'provider', account_id: 'account_id', access_key_id: 'access_key_id', status: 'status', created_at: 'created_at', updated_at: 'updated_at' }, sort: tableSort(c), orderBy: [{ column: 'id', direction: 'DESC' }] }));
+		const rows = await allSql<Record<string, unknown>>(database, sql({ database }).select({ table: 'global_cloud_credentials', columns: { id: 'id', title: 'title', provider: 'provider', account_id: 'account_id', endpoint: 'endpoint', access_key_id: 'access_key_id', status: 'status', created_at: 'created_at', updated_at: 'updated_at' }, sort: tableSort(c), orderBy: [{ column: 'id', direction: 'DESC' }] }));
 		return apiResponse(c, 200, { table: { option: { rowKey: 'id', actions: { query: [{ key: 'search', label: '搜索' }], toolbar: [{ key: 'create', label: '新增' }, { key: 'delete', label: '删除' }], row: [{ key: 'test', label: '测试' }, { key: 'edit', label: '编辑' }, { key: 'delete', label: '删除' }] } }, columns, dataSource: rows.map(publicRow), totalRecords: rows.length } });
 	}
 	if (!params.id && c.req.method === 'POST') {
 		const body = await parseBody(c);
 		const name = text(body.title), provider = text(body.provider);
 		const accountId = accountIdProviderKeys.includes(provider) ? text(body.account_id) : '';
+		const endpoint = endpointProviderKeys.includes(provider) ? text(body.endpoint) : '';
 		const accessKeyId = text(body.access_key_id), accessKeySecret = text(body.access_key_secret);
 		if (!name || !cloudProviderKeys.has(provider) || !accessKeyId || !accessKeySecret) return apiMessage(c, 400, '名称、供应商和访问密钥必填');
 		if (!isCredentialContextValid(provider, accountId)) return apiMessage(c, 400, 'Cloudflare Account ID 必须是 32 位十六进制字符串');
+		if (endpointProviderKeys.includes(provider) && !isCloudEndpointValid(endpoint)) return apiMessage(c, 400, 'Endpoint 必须带 http:// 或 https://，只填协议、主机和端口，不含 Bucket 和路径');
 		try {
 			const now = Date.now();
-			await runOperationSql(c, database, sql({ database }).insert('global_cloud_credentials', { title: name, provider, account_id: accountId, access_key_id: accessKeyId, access_key_secret: accessKeySecret, status: body.status === statusValues.disabled ? statusValues.disabled : statusValues.enabled }));
+			await runOperationSql(c, database, sql({ database }).insert('global_cloud_credentials', { title: name, provider, account_id: accountId, endpoint, access_key_id: accessKeyId, access_key_secret: accessKeySecret, status: body.status === statusValues.disabled ? statusValues.disabled : statusValues.enabled }));
 		} catch (error) { if (error instanceof PendingApprovalError) throw error; return apiMessage(c, 409, '凭据名称已经存在'); }
 		return apiMessageData(c, 201, '云凭据创建成功', {});
 	}
@@ -82,11 +85,11 @@ const handler: ApiHandler = async (c, next, params) => {
 		return apiMessage(c, 200, '删除成功，可在回收站找回或彻底删除');
 	}
 	if (params.id && c.req.method === 'GET') {
-		const row = await firstSql<Record<string, unknown>>(database, sql({ database }).select({ table: 'global_cloud_credentials', columns: { id: 'id', title: 'title', provider: 'provider', account_id: 'account_id', access_key_id: 'access_key_id', status: 'status', created_at: 'created_at', updated_at: 'updated_at' }, where: [{ column: 'id', value: Number(params.id) }] }));
+		const row = await firstSql<Record<string, unknown>>(database, sql({ database }).select({ table: 'global_cloud_credentials', columns: { id: 'id', title: 'title', provider: 'provider', account_id: 'account_id', endpoint: 'endpoint', access_key_id: 'access_key_id', status: 'status', created_at: 'created_at', updated_at: 'updated_at' }, where: [{ column: 'id', value: Number(params.id) }] }));
 		return row ? apiResponse(c, 200, publicRow(row)) : apiMessage(c, 404, '云凭据不存在');
 	}
 	if (params.id && c.req.method === 'POST' && c.req.query('action') === 'test') {
-		const credential = await firstSql<CloudCredential>(database, sql({ database }).select({ table: 'global_cloud_credentials', columns: { id: 'id', title: 'title', provider: 'provider', account_id: 'account_id', access_key_id: 'access_key_id', access_key_secret: 'access_key_secret', status: 'status' }, where: [{ column: 'id', value: Number(params.id) }, { column: 'status', value: 'enabled' }] }));
+		const credential = await firstSql<CloudCredential>(database, sql({ database }).select({ table: 'global_cloud_credentials', columns: { id: 'id', title: 'title', provider: 'provider', account_id: 'account_id', endpoint: 'endpoint', access_key_id: 'access_key_id', access_key_secret: 'access_key_secret', status: 'status' }, where: [{ column: 'id', value: Number(params.id) }, { column: 'status', value: 'enabled' }] }));
 		if (!credential) return apiMessage(c, 404, '云凭据不存在或已停用');
 		try {
 			const result = await testCloudCredential(credential);
@@ -100,28 +103,33 @@ const handler: ApiHandler = async (c, next, params) => {
 				const { uin, ownerUin, appId } = result.tencentIdentity;
 				return apiMessageData(c, 200, `腾讯云凭据测试成功：UIN ${uin}；OwnerUin ${ownerUin}；AppId ${appId}`, { identity: result.tencentIdentity }, { component: 'modal', title: '腾讯云凭据测试成功' });
 			}
+			if (result.listDenied) return apiMessage(c, 200, '凭据可用：能连上并通过签名校验，但这把密钥没有列出 Bucket 的权限（按桶授权时属正常），请在 Bucket 配置中测试');
 			return apiMessage(c, 200, result.bucketCount === undefined ? '凭据测试成功' : `凭据测试成功，发现 ${result.bucketCount} 个 Bucket`);
 		} catch (error) { return apiMessage(c, 502, error instanceof Error ? error.message : '凭据测试失败'); }
 	}
 	if (params.id && c.req.method === 'PUT') {
-		const current = await firstSql<Record<string, unknown>>(database, sql({ database }).select({ table: 'global_cloud_credentials', columns: { id: 'id', title: 'title', provider: 'provider', account_id: 'account_id', access_key_id: 'access_key_id', access_key_secret: 'access_key_secret', status: 'status' }, where: [{ column: 'id', value: Number(params.id) }] }));
+		const current = await firstSql<Record<string, unknown>>(database, sql({ database }).select({ table: 'global_cloud_credentials', columns: { id: 'id', title: 'title', provider: 'provider', account_id: 'account_id', endpoint: 'endpoint', access_key_id: 'access_key_id', access_key_secret: 'access_key_secret', status: 'status' }, where: [{ column: 'id', value: Number(params.id) }] }));
 		if (!current) return apiMessage(c, 404, '云凭据不存在');
 		const body = await parseBody(c);
-		const changed = getChangedFields(body, ['title', 'provider', 'account_id', 'access_key_id', 'access_key_secret', 'status']);
+		const changed = getChangedFields(body, ['title', 'provider', 'account_id', 'endpoint', 'access_key_id', 'access_key_secret', 'status']);
 		const name = changed.has('title') ? text(body.title) : String(current.title);
 		const provider = changed.has('provider') ? text(body.provider) : String(current.provider);
 		const accountId = accountIdProviderKeys.includes(provider)
 			? changed.has('account_id') ? text(body.account_id) : String(current.account_id)
 			: '';
+		const endpoint = endpointProviderKeys.includes(provider)
+			? changed.has('endpoint') ? text(body.endpoint) : String(current.endpoint ?? '')
+			: '';
 		const accessKeyId = changed.has('access_key_id') ? text(body.access_key_id) : String(current.access_key_id);
 		if (!name || !cloudProviderKeys.has(provider) || !accessKeyId || !isCredentialContextValid(provider, accountId)) return apiMessage(c, 400, '名称、供应商、账号上下文或访问密钥不合法');
+		if (endpointProviderKeys.includes(provider) && !isCloudEndpointValid(endpoint)) return apiMessage(c, 400, 'Endpoint 必须带 http:// 或 https://，只填协议、主机和端口，不含 Bucket 和路径');
 		if (changed.has('provider') && provider !== current.provider) {
 			const inUse = await credentialInUse(database, Number(params.id));
 			if (inUse) return apiMessage(c, 409, '凭据已被 Bucket、邮件通道或云端模板使用，不能修改供应商');
 		}
 		const secret = changed.has('access_key_secret') && text(body.access_key_secret) ? text(body.access_key_secret) : String(current.access_key_secret ?? '');
 		try {
-			await runOperationSql(c, database, sql({ database }).update('global_cloud_credentials', { title: name, provider, account_id: accountId, access_key_id: accessKeyId, access_key_secret: secret, status: changed.has('status') && body.status === statusValues.disabled ? statusValues.disabled : changed.has('status') ? statusValues.enabled : current.status }, { id: Number(params.id) }));
+			await runOperationSql(c, database, sql({ database }).update('global_cloud_credentials', { title: name, provider, account_id: accountId, endpoint, access_key_id: accessKeyId, access_key_secret: secret, status: changed.has('status') && body.status === statusValues.disabled ? statusValues.disabled : changed.has('status') ? statusValues.enabled : current.status }, { id: Number(params.id) }));
 		} catch { return apiMessage(c, 409, '凭据名称已经存在'); }
 		return apiMessage(c, 200, '保存成功');
 	}

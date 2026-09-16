@@ -132,7 +132,7 @@ Accounts 账号中心（仅 `passport` 站点，需要 Accounts 会话；`bind-e
 
 云能力采用凭据优先模型。凭据保存 Provider、访问密钥以及必要的账号上下文，例如 Cloudflare Account ID；Endpoint 不保存在凭据中。对象存储 API 直接创建 Bucket 接入配置，不创建通用服务身份。Bucket 页面不提交人工名称、服务类型或 Provider；Provider 由凭据推导。站点绑定把已配置的 Bucket 按用途绑定到站点；对象管理通过绑定解析 Bucket 配置和凭据，并返回预签名上传、下载地址。
 
-目标 Bucket 表单使用 `GET /api/panel/admin/global/cloud/object-storage/buckets?action=discover&field=bucket&cloud_credential_id=<id>` 读取 Bucket。选择项可以携带安全的字段回填值，用于自动设置 Endpoint、Region 和 Path Style，但不得包含 Secret 或签名。自动 Endpoint 可以在 Bucket 配置中覆盖；`other`/MinIO 无法只根据凭据发现资源，直接手工填写 Bucket 和 Endpoint。
+目标 Bucket 表单使用 `GET /api/panel/admin/global/cloud/object-storage/buckets?action=discover&field=bucket&cloud_credential_id=<id>` 读取 Bucket。选择项可以携带安全的字段回填值，用于自动设置 Endpoint、Region 和 Path Style，但不得包含 Secret 或签名。自动 Endpoint 可以在 Bucket 配置中覆盖；`other`/MinIO 的服务地址保存在凭据上，因此同样能发现资源，密钥按单桶授权时列表为空，手工填写 Bucket 名即可。
 
 所有凭据行统一提供测试 action，并通过 `POST /api/panel/admin/global/cloud/credentials/<id>?action=test` 执行。Provider 注册了独立测试处理器时执行真实校验；未注册时返回“该自定义凭据暂不支持独立测试，请在 Bucket 配置中测试”的反馈。前端不硬编码 Provider。每个 Bucket 通过 `POST /api/panel/admin/global/cloud/object-storage/buckets/<id>?action=test` 验证凭据、Endpoint、Region 和 Bucket 的组合配置。
 

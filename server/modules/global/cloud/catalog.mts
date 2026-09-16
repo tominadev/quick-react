@@ -10,12 +10,27 @@ export const cloudProviders = [
 	{ key: 'tencent', text: '腾讯云', credentialTest: 'tencent', objectStorage: { product: 'COS', adapter: 's3' }, emailPush: { product: 'SES', adapter: 'tencent-ses', regions: [
 		{ value: 'ap-hongkong', text: '中国香港' },
 	] } },
-	{ key: 'other', text: '其他（S3 兼容：MinIO / Ceph / SeaweedFS）', objectStorage: { product: 'S3 Compatible', adapter: 's3' } },
+	{ key: 'other', text: '其他（S3 兼容：MinIO / Ceph / SeaweedFS）', credentialTest: 's3', credentialFields: ['endpoint'], objectStorage: { product: 'S3 Compatible', adapter: 's3' } },
 ] as const;
 
 export const cloudProviderOptions = cloudProviders.map((item) => ({ value: item.key, text: item.text }));
 export const cloudProviderKeys = new Set<string>(cloudProviderOptions.map((item) => item.value));
-export const accountIdProviderKeys: string[] = cloudProviders.filter((item) => 'credentialFields' in item && item.credentialFields.includes('account_id')).map((item) => item.key);
+/**
+ * 凭据上的**定位字段**：不是每个 Provider 都能从密钥推出服务地址在哪。
+ *
+ * Cloudflare 要 `account_id`（R2 的地址是 `<account_id>.r2.cloudflarestorage.com`），
+ * 自建 S3 要 `endpoint`（地址拼不出来，只能直接给）。两者是同一类东西——**按 Provider
+ * 显示、存在凭据上、用来定位服务**，因此共用一套声明和一个取值函数，不各写一份名单。
+ */
+const credentialFieldsOf = (item: typeof cloudProviders[number]): readonly string[] => 'credentialFields' in item ? item.credentialFields : [];
+export const credentialFieldProviderKeys = (field: string): string[] => cloudProviders.filter((item) => credentialFieldsOf(item).includes(field)).map((item) => item.key);
+export const accountIdProviderKeys: string[] = credentialFieldProviderKeys('account_id');
+export const endpointProviderKeys: string[] = credentialFieldProviderKeys('endpoint');
+
+/** Endpoint 必须是带协议的绝对地址：适配器只取 protocol 和 host，裸主机名和子路径都不成立。 */
+export const isCloudEndpointValid = (value: string) => {
+	try { return ['http:', 'https:'].includes(new URL(value).protocol); } catch { return false; }
+};
 
 export const getCloudProvider = (provider: string) => cloudProviders.find((item) => item.key === provider);
 export const providerSupportsObjectStorage = (provider: string) => Boolean(getCloudProvider(provider)?.objectStorage);
@@ -37,11 +52,11 @@ export const getCredentialTest = (provider: string) => {
 };
 export const isCredentialContextValid = (provider: string, accountId: string) => provider !== 'cloudflare' || /^[a-f0-9]{32}$/i.test(accountId);
 
-export const getCloudDiscoveryDefaults = (provider: string, accountId = '') => {
+export const getCloudDiscoveryDefaults = (provider: string, accountId = '', endpoint = '') => {
 	if (provider === 'aws') return { endpoints: ['https://s3.amazonaws.com'], regions: ['us-east-1'], pathStyle: false };
 	if (provider === 'cloudflare') return { endpoints: accountId ? [`https://${accountId}.r2.cloudflarestorage.com`] : [], regions: ['auto'], pathStyle: false };
 	if (provider === 'aliyun') return { endpoints: ['https://oss-cn-hangzhou.aliyuncs.com'], regions: ['cn-hangzhou'], pathStyle: false };
-	if (provider === 'other') return { endpoints: [], regions: ['us-east-1'], pathStyle: true };
+	if (provider === 'other') return { endpoints: endpoint ? [endpoint] : [], regions: ['us-east-1'], pathStyle: true };
 	return { endpoints: [], regions: [], pathStyle: false };
 };
 

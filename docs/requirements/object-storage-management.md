@@ -69,7 +69,7 @@ server/modules/global/cloud/
 
 `server/modules/global/cloud/catalog.mts` 是 Provider、能力和处理模块映射的唯一来源。管理接口、后端校验和运行时适配器解析均复用该目录，不分别维护 Provider 列表。
 
-新增 Bucket 时先选择凭据。页面本身已经确定能力为对象存储，Provider 和产品也由凭据推导，因此不显示“服务”“供应商”和“名称”输入。后端随后读取 Bucket；选择 Bucket 后自动回填 Endpoint、Region 和 Path Style。阿里云 OSS、腾讯云 COS 等地域型 Bucket 根据发现结果中的地域推导默认 Endpoint；Cloudflare R2 使用凭据中的 Account ID 生成 Endpoint。自动生成的 Endpoint 可以在 Bucket 配置中覆盖。`other`/MinIO 无法仅从密钥推导地址，因此不执行远程发现，用户手工填写 Bucket 和 Endpoint。切换凭据后必须清空 Bucket 和下游自动配置，防止沿用不匹配的数据。
+新增 Bucket 时先选择凭据。页面本身已经确定能力为对象存储，Provider 和产品也由凭据推导，因此不显示“服务”“供应商”和“名称”输入。后端随后读取 Bucket；选择 Bucket 后自动回填 Endpoint、Region 和 Path Style。阿里云 OSS、腾讯云 COS 等地域型 Bucket 根据发现结果中的地域推导默认 Endpoint；Cloudflare R2 使用凭据中的 Account ID 生成 Endpoint。自动生成的 Endpoint 可以在 Bucket 配置中覆盖。`other`（MinIO 等自建 S3）的地址推导不出来，因此由凭据自己保存 Endpoint：凭据选定后地址就已知，同样执行远程发现。凭据上的定位字段按 Provider 显示，与 Cloudflare 的 Account ID 是同一类东西，共用一套 `credentialFields` 声明。密钥若按单个 Bucket 授权，ListBuckets 会返回 `AccessDenied`，此时列表为空，仍可手工填写 Bucket 名。切换凭据后必须清空 Bucket 和下游自动配置，防止沿用不匹配的数据；清空后立即按所选凭据的 Provider 回填默认 Endpoint、Region 和 Path Style，自建 S3 的 Path Style 因此默认开启。
 
 ## 4. 数据模型
 
@@ -172,7 +172,8 @@ Endpoint 属于 Bucket 接入配置，不属于凭据。已知 Provider 根据�
 - 所有凭据统一显示测试按钮；AWS、Cloudflare、阿里云和腾讯云执行真实校验，默认 `other` 返回不支持独立测试的提示。测试响应不暴露 Secret、签名或资源名称。
 - Bucket 管理不要求选择服务、供应商或填写名称。
 - 先选择凭据，再直接发现 Bucket；选择 Bucket 后自动获得 Endpoint、Region 和 Path Style。
-- Cloudflare Account ID 作为凭据字段保存；`other`/MinIO 才按需填写 Endpoint。
+- Cloudflare Account ID 和 `other`/MinIO 的 Endpoint 都作为凭据字段保存，按 Provider 决定是否显示；Bucket 仍保留自己的 Endpoint，由凭据推导并可覆盖——云厂商的地址跟着地域和 Bucket 走，不是凭据属性。
+- 凭据测试对所有支持对象存储的 Provider 都可用。`other` 通过 ListBuckets 校验，返回发现的 Bucket 数量；**只有错误码 `AccessDenied` 视为「凭据可用但无列举权限」**，不能按 HTTP 403 判断——`SignatureDoesNotMatch` 和 `InvalidAccessKeyId` 同样是 403，那两种是真的配错了。
 - 每个 Bucket 都能使用其完整配置执行 Bucket 测试。
 - Bucket 可以绑定到已就绪站点和用途。
 - 单个绑定可以同时选择多个用途，并维持每个站点、每个用途唯一默认 Bucket 的约束。
