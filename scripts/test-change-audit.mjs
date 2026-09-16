@@ -945,7 +945,29 @@ try {
 	});
 	const moduleFile = join(temporaryDirectory, 'audit.mjs');
 	await writeFile(moduleFile, result.outputFiles[0].contents);
-	const { useMemorySnowflake, allSql, createSqliteAdapter, firstSql, auditApprovalsFor, parseAuditChanges, publicAuditChanges, purgeAuditRetention, purgeExpiredAuditEntries, applyAuditApprovals, runOperationSql, runSql, sql, withDatabaseActors } = await import(pathToFileURL(moduleFile));
+	const { useMemorySnowflake, allSql, createSqliteAdapter, firstSql, auditApprovalsFor, parseAuditChanges, publicAuditChanges, purgeAuditRetention, purgeExpiredAuditEntries, applyAuditApprovals, runOperationSql: runOperationSqlRaw, runSql, sql, withDatabaseActors } = await import(pathToFileURL(moduleFile));
+
+	/**
+	 * 立即生效的写入之间各占一个毫秒。
+	 *
+	 * base_audits 的唯一索引用 settled_at 区分已了结的留痕，而立即生效那一路写的是
+	 * Date.now()（见 base_audits.settled_at 的注释）。这个文件里有十几处背靠背修改同一行，
+	 * 在同一毫秒内完成是常态，第二次就撞唯一索引——与被测的留痕、回滚、审批逻辑毫无关系，
+	 * 却让整个用例几乎每跑必挂。
+	 *
+	 * 真实链路里两次自助修改分属两个 HTTP 请求，落在同一毫秒是极窄的竞态；这里只是把测试
+	 * 恢复成它本来要测的东西。真撞上时的提示见 AuditCollisionError，不再冒充审批行锁。
+	 *
+	 * 进队列的写入（settled_at 为哨兵 0）不需要这个：它们由行锁挡住，本来就是用例要断言的。
+	 */
+	let lastImmediateMs = 0;
+	const settleMillisecond = () => { while (Date.now() === lastImmediateMs) { /* 等进下一毫秒 */ } };
+	const markImmediate = (options) => { if (options?.immediate) lastImmediateMs = Date.now(); };
+	const runOperationSql = async (c, database, statement, options) => {
+		if (options?.immediate) settleMillisecond();
+		try { return await runOperationSqlRaw(c, database, statement, options); }
+		finally { markImmediate(options); }
+	};
 	// 单元测试不连库，用内存号段：生产路径一律走 primeSnowflake，那里的原子预留才防得住重启和多进程。
 	useMemorySnowflake();
 
@@ -1052,7 +1074,12 @@ try {
 	await runSql(acting, sql({ database: acting }).insert('base_users', { name: 'bob', roles: '[]', status: 'disabled' }));
 	const bob = await firstSql(acting, sql({ database: acting }).select({ table: 'base_users', columns: { id: 'id' }, where: [{ column: 'name', value: 'bob' }] }));
 	const beforeMulti = (await entries()).length;
-	const { runOperation } = await import(pathToFileURL(moduleFile));
+	const { runOperation: runOperationRaw } = await import(pathToFileURL(moduleFile));
+	settleMillisecond();
+	const runOperation = async (c, database, statements, options) => {
+		try { return await runOperationRaw(c, database, statements, options); }
+		finally { markImmediate(options); }
+	};
 	await runOperation(context(), acting, [
 		sql({ database: acting }).update('base_users', { status: 'disabled' }, { id: alice.id }),
 		sql({ database: acting }).update('base_users', { status: 'enabled' }, { id: bob.id }),

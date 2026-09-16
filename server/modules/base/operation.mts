@@ -118,6 +118,24 @@ export class ConflictError extends Error {
 	}
 }
 
+/**
+ * 同一行的两条**已了结**留痕落在了同一毫秒。
+ *
+ * 唯一索引是 `(table_name, row_key, settled_at)`，进队列的 settled_at 是哨兵 0、立即生效的
+ * 是 `Date.now()`（见 base_audits.settled_at 的注释）。后者撞上与审批毫无关系，但两种撞法
+ * 在数据库看来长得一样，原先一律报成 {@link PendingLockError}——查的人会跑去待审批列表，
+ * 那里一条都没有。这一类单独拎出来，是为了让提示指向真正的原因。
+ *
+ * 这个边角是当初权衡后接受的（同上注释）：后台写入一律进队列、由行锁挡住，自助写入要撞得
+ * 两次内容不同的修改落在同一毫秒。留下它，但不让它冒充别的毛病。
+ */
+export class AuditCollisionError extends Error {
+	constructor(readonly table: string) {
+		super('这一行的上一次改动发生在同一毫秒，本次留痕写不进去，请重试');
+		this.name = 'AuditCollisionError';
+	}
+}
+
 export class PendingApprovalError extends Error {
 	constructor(readonly operationId: string, readonly entries: number) {
 		super('修改已提交审批，通过后才会生效');
@@ -280,10 +298,13 @@ const PENDING_ACTION_LABELS: Record<string, string> = { insert: '新增', update
  * 没有登录身份的模块级调用是谁；数据库那条约束不看这些，它兜的就是这两种情况。裸的
  * `UNIQUE constraint failed` 对看的人没有意义，因此在这里换成和行锁一致的说法。
  */
-const writeAuditRow = async (database: DatabaseAdapter, table: string, statement: SqlQuery) => {
+const writeAuditRow = async (database: DatabaseAdapter, table: string, statement: SqlQuery, immediate: boolean) => {
 	try { await runSystemSql(database, statement); }
 	catch (error) {
 		if (!isUniqueViolation(error)) throw error;
+		// 立即生效那一路的 settled_at 是时间戳，不是哨兵 0，撞上只可能是同毫秒，
+		// 与「队列里已经有一条」完全是两回事，不能共用一句提示。
+		if (immediate) throw new AuditCollisionError(table);
 		throw new PendingLockError(table, '');
 	}
 };
@@ -438,7 +459,7 @@ const recordInsert = async (
 		data_status: immediate ? 'applied' : 'unwritten',
 		// 进队列的记 0，那是唯一索引里的哨兵位；从未进过队列的一诞生就是了结的（见 settled_at）。
 		settled_at: immediate ? Date.now() : 0,
-	}));
+	}), immediate);
 	return 1;
 };
 
@@ -582,7 +603,7 @@ const recordStatement = async (database: DatabaseAdapter, metadata: SqlAuditMeta
 		}
 		const existing = await findPendingEntry(database, builder, metadata.table, row.id, values.action);
 		if (existing) await runSystemSql(database, builder.update(AUDIT_TABLE, values, [{ column: 'id', value: existing.id }, { column: 'review_status', value: 'pending' }]));
-		else await writeAuditRow(database, metadata.table, builder.insert(AUDIT_TABLE, values));
+		else await writeAuditRow(database, metadata.table, builder.insert(AUDIT_TABLE, values), immediate);
 		recorded += 1;
 	}
 	return { recorded, found: rows.length, drafted };

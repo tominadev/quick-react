@@ -16,7 +16,7 @@ import { primeSnowflake } from './modules/base/snowflake.mjs';
 import { SiteRouter } from './modules/base/site-router.mjs';
 import { baseSessionMaxAge, createSessionCookie, loadBaseDeviceUserId, loadCurrentUser, readSessionId, sessionUsesAccountsOidc } from './modules/base/auth/index.mjs';
 import { loadAccountsOidcConfig, resolveAccountsLoginMode } from './modules/passport/accounts/client.mjs';
-import { ConflictError, QueuedRowError, PendingApprovalError, PendingLockError } from './modules/base/operation.mjs';
+import { AuditCollisionError, ConflictError, QueuedRowError, PendingApprovalError, PendingLockError } from './modules/base/operation.mjs';
 import { clearPassportSessionCookie, loadPassportDeviceUserId, loadPassportSession, readPassportSessionId } from './modules/passport/session.mjs';
 import { loadSystemConfigFromStore } from './modules/base/system-config.mjs';
 import { applyTechStackHeaders, loadTechStackConfigFromStore } from './modules/base/tech-stack.mjs';
@@ -342,6 +342,9 @@ app.onError((error, c) => {
 	// 撞了唯一索引（见 ConflictError）。409：请求本身没错，只是已经有一条一样的了——
 	// 用户输入的正常结果，不是服务端故障，所以不打错误日志。
 	if (error instanceof ConflictError) return apiMessage(c, 409, error.message);
+	// 同一行的两条留痕撞在同一毫秒（见 AuditCollisionError）。409：请求本身没错，重试就行——
+	// 与 PendingLockError 分开，是因为那一句会把人引去待审批列表，而那里一条都没有。
+	if (error instanceof AuditCollisionError) return apiMessage(c, 409, error.message);
 	// 这一行的去留还没定下来，不接受别的申请（见 PendingLockError）。409：请求本身没错，
 	// 只是当下这一行的状态不允许——和撞唯一索引同一类。
 	if (error instanceof PendingLockError) return apiMessage(c, 409, error.message);
