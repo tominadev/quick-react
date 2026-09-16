@@ -79,6 +79,16 @@ try {
 	assert.deepEqual(empty.columns.map((column) => column.dataIndex), ['name', 'size', 'lastModified', 'etag'], '没选绑定时也要有列定义');
 	assert.deepEqual(empty.dataSource, []);
 
+	// 动作和列一样，也只有第一次响应这一次机会，而第一次请求必然还没带 binding_id——
+	// 绑定的默认值就在这份结构里。上传只在「选了绑定」那一支下发过，于是浏览器里那个
+	// 「上传」按钮从来没出现过：拿到它的那次响应，前端已经不再读结构了。
+	assert.deepEqual(empty.option.actions.toolbar.map((action) => action.key), ['upload'], '没选绑定时也要下发上传按钮');
+	assert.deepEqual(empty.option.actions.row.map((action) => action.key), ['enter', 'download', 'delete'], '没选绑定时也要下发行动作');
+	// 而第二次请求只要数据，option 会被整个剥掉——这就是"以后再补"为什么不成立。
+	const dataOnly = (await (await app.request(`http://localhost${path}?include=data&binding_id=93`, { headers: h })).json()).table;
+	assert.equal(dataOnly.option, undefined, '只请求数据时不会再下发结构');
+	assert.ok(Array.isArray(dataOnly.dataSource));
+
 	const root = await browse();
 	assert.equal(received.at(-1).delimiter, '/', 'list 必须带 delimiter，否则根本没有目录这回事');
 	assert.deepEqual(root.dataSource.map((row) => row.name), ['shortcuts/', 'avatars/', '中文 文件.txt'], '根目录是两个目录加一个文件，不是五个带全路径的 key');

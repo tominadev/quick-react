@@ -47,8 +47,31 @@ const handler: ApiHandler = async (c, next) => {
 		{ dataIndex: 'binding_id', label: '站点 Bucket 绑定', component: 'select' as const, options, defaultValue: options[0]?.value },
 		{ dataIndex: 'prefix', label: '对象前缀', component: 'textbox' as const, placeholder: '可选' },
 	];
+	/**
+	 * **两个分支必须下发同一份 option。**
+	 *
+	 * 结构只在第一次响应里给（`include=schema,data`），之后前端只请求数据，响应层会把
+	 * `option` 整个剥掉——那时再补动作已经没有机会了。而第一次请求必然还没带 `binding_id`：
+	 * 它的默认值就在前端即将收到的这份结构里。于是「还没选绑定」那一支下发什么，就是这一页
+	 * 从头到尾用的全部动作；少一个 toolbar，上传按钮就再也不会出现，行上的进入/下载/删除
+	 * 同理。columns 早先栽的是同一个跟头，动作这边当时没跟着一起补。
+	 */
+	const tableOption = {
+		rowKey: 'key',
+		queryFields,
+		actions: {
+			query: [{ key: 'search', label: '查询' }],
+			toolbar: [{ key: 'upload', label: '上传' }],
+			row: [
+				// 目录只能进，文件才谈得上下载与删除；一行上永远只出现其中一组。
+				{ key: 'enter', label: '进入', applyQueryFields: { prefix: 'relative_key' }, visibleWhen: { field: 'is_prefix', values: ['1'] } },
+				{ key: 'download', label: '下载', visibleWhen: { field: 'is_prefix', values: ['0'] } },
+				{ key: 'delete', label: '删除', confirm: '确认删除对象吗？', visibleWhen: { field: 'is_prefix', values: ['0'] } },
+			],
+		},
+	};
 	if (c.req.method === 'GET') {
-		if (!Number.isInteger(bindingId) || bindingId <= 0) return apiResponse(c, 200, { table: { option: { rowKey: 'key', queryFields, actions: { query: [{ key: 'search', label: '查询' }] } }, columns: objectColumns, dataSource: [], totalRecords: 0 } });
+		if (!Number.isInteger(bindingId) || bindingId <= 0) return apiResponse(c, 200, { table: { option: tableOption, columns: objectColumns, dataSource: [], totalRecords: 0 } });
 		const target = await loadCloudStorageTarget(database, bindingId);
 		if (!target) return apiMessage(c, 404, 'Bucket 绑定不存在或已停用');
 		try {
@@ -74,12 +97,7 @@ const handler: ApiHandler = async (c, next) => {
 			// 不在根目录时补一行「..」：目录导航要能退回去，而清空输入框不是所有人都想得到。
 			const parent = relativePrefix ? { key: `${fullPrefix}..`, name: '..', relative_key: relativePrefix.replace(/[^/]*\/?$/, ''), size: 0, is_prefix: '1' } : undefined;
 			const dataSource = parent ? [parent, ...rows] : rows;
-			return apiResponse(c, 200, { table: { option: { rowKey: 'key', actions: { query: [{ key: 'search', label: '查询' }], toolbar: [{ key: 'upload', label: '上传' }], row: [
-				// 目录只能进，文件才谈得上下载与删除；一行上永远只出现其中一组。
-				{ key: 'enter', label: '进入', applyQueryFields: { prefix: 'relative_key' }, visibleWhen: { field: 'is_prefix', values: ['1'] } },
-				{ key: 'download', label: '下载', visibleWhen: { field: 'is_prefix', values: ['0'] } },
-				{ key: 'delete', label: '删除', confirm: '确认删除对象吗？', visibleWhen: { field: 'is_prefix', values: ['0'] } },
-			] }, queryFields }, columns: objectColumns, dataSource, totalRecords: dataSource.length, nextCursor: page.nextToken, hasMore: page.hasMore } });
+			return apiResponse(c, 200, { table: { option: tableOption, columns: objectColumns, dataSource, totalRecords: dataSource.length, nextCursor: page.nextToken, hasMore: page.hasMore } });
 		} catch (error) { return apiMessage(c, 502, error instanceof Error ? error.message : '对象列表读取失败'); }
 	}
 	if (!Number.isInteger(bindingId) || bindingId <= 0) return apiMessage(c, 400, '请选择站点 Bucket 绑定');
