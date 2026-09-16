@@ -36,8 +36,12 @@ const validEndpoint = (value: string) => {
 const credentialOptions = async (database: DatabaseAdapter) => {
 	const rows = await allSql<{ id: number; title: string; provider: string }>(database, sql({ database }).select({ table: 'global_cloud_credentials', columns: { id: 'id', title: 'title', provider: 'provider' }, where: [{ column: 'status', value: 'enabled' }], orderBy: [{ column: 'provider' }, { column: 'title' }] }));
 	const providerNames = new Map<string, string>(cloudProviderOptions.map((item) => [item.value, item.text]));
+	// 选中凭据就把该 Provider 的默认值带下去。remoteOptions 的 clearFields 会先清空 endpoint、
+	// region、path_style，这里的 fieldValues 紧接着盖回默认值——rc-field-form 先派发值更新
+	// （触发清空）再调子组件 onChange（套用 fieldValues），顺序天然正确。
+	// 少了这一步，自建 S3（MinIO 等）的 path_style 会一直停在关闭，而它们只支持 path style。
 	return rows.filter((item) => providerSupportsObjectStorage(item.provider))
-		.map((item) => ({ value: String(item.id), text: `${item.title} (${providerNames.get(item.provider) ?? item.provider})` }));
+		.map((item) => ({ value: String(item.id), text: `${item.title} (${providerNames.get(item.provider) ?? item.provider})`, fieldValues: getCloudBucketFieldValues(item.provider) }));
 };
 const columnsWithCredentials = async (database: DatabaseAdapter) => {
 	const options = await credentialOptions(database);

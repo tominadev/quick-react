@@ -10,7 +10,7 @@ export const cloudProviders = [
 	{ key: 'tencent', text: '腾讯云', credentialTest: 'tencent', objectStorage: { product: 'COS', adapter: 's3' }, emailPush: { product: 'SES', adapter: 'tencent-ses', regions: [
 		{ value: 'ap-hongkong', text: '中国香港' },
 	] } },
-	{ key: 'other', text: '其他（S3 兼容）', objectStorage: { product: 'S3 Compatible', adapter: 's3' } },
+	{ key: 'other', text: '其他（S3 兼容：MinIO / Ceph / SeaweedFS）', objectStorage: { product: 'S3 Compatible', adapter: 's3' } },
 ] as const;
 
 export const cloudProviderOptions = cloudProviders.map((item) => ({ value: item.key, text: item.text }));
