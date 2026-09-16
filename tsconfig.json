@@ -12,24 +12,23 @@
 		"esModuleInterop": true,
 		"skipLibCheck": true,
 		"forceConsistentCasingInFileNames": true,
-		"baseUrl": "./",
 		"paths": {
 			"@/*": [
-				"clients/antd/*",
+				"./clients/antd/*",
 			],
 			"@clients/*": [
-				"clients/*",
+				"./clients/*",
 			],
 			"@server/*": [
-				"server/*",
+				"./server/*",
 			],
 			"@shared/*": [
-				"shared/*",
+				"./shared/*",
 			],
 		},
 		},
 	"include": [
-		"src",
+		"clients",
 		"server",
 		"shared"
 	],

@@ -54,7 +54,7 @@ export type ApiPresenter = {
 
 export interface CommonApi {
 	modalError: (aContentLine: string[], options?: { title?: string }) => Promise<void>,
-	modalConfirm: (aContentLine: string[]) => Promise<boolean>
+	modalConfirm: (aContentLine: string[], options?: { title?: string; okText?: string; cancelText?: string }) => Promise<boolean>
 	/** 带「操作原因」输入的确认框；取消时返回 undefined。 */
 	modalConfirmWithReason: (aContentLine: string[]) => Promise<ChangeControlValues | undefined>
 	apiFetch: (input: RequestInfo | URL, init?: RequestInit) => Promise<Response>;

@@ -10,7 +10,7 @@ import { accountsIdentityApi, siteProvidesApi } from '@server/modules/base/navig
 
 export const oidcIssuer = (c: Context<AppEnv>) => requestOrigin(c);
 
-export const oidcDiscovery = (c: Context<AppEnv>) => {
+export const oidcDiscovery = async (c: Context<AppEnv>): Promise<Response> => {
 	if (!siteProvidesApi(c.get('site').codeSiteChain, accountsIdentityApi)) return apiMessage(c, 404);
 	const issuer = oidcIssuer(c);
 	return apiResponse(c, 200, {

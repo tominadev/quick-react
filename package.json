@@ -85,7 +85,8 @@
 		"prisma": "^6.19.3",
 		"react": "^19.2.8",
 		"react-dom": "^19.2.8",
-		"react-router-dom": "^7.18.2"
+		"react-router-dom": "^7.18.2",
+		"typescript": "^7.0.2"
 	},
 	"dependencies": {
 		"@hono/node-server": "^2.1.1",
