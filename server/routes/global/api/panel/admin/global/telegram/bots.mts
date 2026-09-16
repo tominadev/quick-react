@@ -83,7 +83,9 @@ const botAssociated = async (database: DatabaseAdapter, id: number) => (await Pr
 	'passport_telegram_accounts', 'passport_telegram_email_otps', 'passport_telegram_menus', 'passport_telegram_identity_choices', 'passport_telegram_updates',
 ].map((table) => firstSql(database, sql({ database }).select({ table, columns: { bot_id: 'bot_id' }, where: [{ column: 'bot_id', value: id }], limit: 1 }))))).some(Boolean);
 const duplicateBot = async (database: DatabaseAdapter, id: number, name: string, token: string, username: string) => (await Promise.all([
-	['name', name], ['token', token], ['username', username],
+	// 列名是 title，不是 name（2026-08-29 改名时这里漏了）：查不存在的列会让 SQLite
+	// 直接抛错，编辑机器人一路 500。
+	['title', name], ['token', token], ['username', username],
 ].map(([column, value]) => firstSql(database, sql({ database }).select({ table: 'global_telegram_bots', columns: { id: 'id' }, where: [{ column, value }, { column: 'id', operator: '!=', value: id }], limit: 1 }))))).some(Boolean);
 
 const removeBot = async (c: Parameters<ApiHandler>[0], id: number) => {
@@ -111,7 +113,9 @@ const handler: ApiHandler = async (c, next, params) => {
 	}
 	if (!params.id && c.req.method === 'POST') {
 		const body = await parseBody(c);
-		const name = text(body.name), token = text(body.bot_token), hostname = text(body.webhook_hostname);
+		// 表单发的是 title：列表、新增、编辑共用同一份 columns（dataIndex 为 title），
+		// 编辑分支读的也是 body.title。这里漏改成 name，从后台新增必然报「名称不合法」。
+		const name = text(body.title), token = text(body.bot_token), hostname = text(body.webhook_hostname);
 		const secretToken = text(body.secret_token) || createSecretToken();
 		const status = body.status === statusValues.disabled ? statusValues.disabled : statusValues.enabled;
 		if (!name || !token || !secretPattern.test(secretToken) || !await validatePassportHost(c, database, hostname)) return apiMessage(c, 400, '名称、Bot Token、Secret Token 或 Passport 域名不合法');
