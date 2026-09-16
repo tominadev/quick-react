@@ -279,6 +279,8 @@ const handler: ApiHandler = async (c, next, params) => {
 			}
 		}
 		const results = await applyAuditApprovals(database, ids, flip.key, readChangeReason(c));
+		// 生效的变更可能是域名或站点，内存里的路由快照要跟着重建（理由见 table-crud.mts 同一处）。
+		await c.get('siteRouter').refresh();
 		const failed = results.filter((result) => !result.ok);
 		if (!failed.length) return apiMessage(c, 200, `已${flip.label} ${results.length} 条变更`);
 		// 逐条独立判定：某一条被拒绝时其余照常执行，最后逐条返回结果（§7.4）。

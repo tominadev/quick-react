@@ -53,6 +53,16 @@ export const handleTableCrudAction = async (c: Context<AppEnv>, definition: Tabl
 		const results = await Promise.all(ids.map((id) => handlePendingApprovalAction(c, table, id, selected)));
 		const failed = results.flatMap((result) => result && !result.ok ? [result.message] : []);
 		if (failed.length) return apiMessage(c, 409, failed.join('；'));
+		/**
+		 * 批准之后要重新加载站点路由快照。
+		 *
+		 * 写入路径上的 `siteRouter.refresh()` 紧跟在 runOperation 后面（见 site/hosts.mts），
+		 * 而写入进队列时那一行**根本走不到**——runOperation 抛 PendingApprovalError，函数当场
+		 * 退出。于是域名绑定批准后数据在库里、内存快照里没有，访问那个域名一路 404，直到
+		 * 进程重启。与下面回收站那一路同样处理：不分表无条件刷一次，代价只是一次快照重建，
+		 * 而审批动作本身就不频繁。
+		 */
+		await c.get('siteRouter').refresh();
 		return apiMessage(c, 200, pendingAction === APPROVE_ACTION ? '已批准并生效' : pendingAction === REJECT_ACTION ? '已驳回' : '已撤销');
 	}
 	if (deletedScopeFromQuery(c) !== 'deleted') return undefined;
