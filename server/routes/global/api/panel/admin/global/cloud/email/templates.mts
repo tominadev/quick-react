@@ -15,7 +15,7 @@ import type { TableCrudDefinition } from '@server/modules/base/table-crud.mjs';
 export const tableCrud: TableCrudDefinition = { table: 'global_cloud_email_templates', rowKey: 'id' };
 import { cloudProviderOptions, getCloudEmailRegionLabel, getCloudEmailRegionOptions, getCloudEmailRegions, providerSupportsEmailPush } from '@server/modules/global/cloud/catalog.mjs';
 import { allSql, firstSql, runSql, sql } from '@server/database/sql.mjs';
-import { runOperationSql } from '@server/modules/base/operation.mjs';
+import { PendingApprovalError, runOperationSql } from '@server/modules/base/operation.mjs';
 import { tableSort } from '@server/modules/base/query-options.mjs';
 
 const columns = [
@@ -167,7 +167,12 @@ const handler: ApiHandler = async (c, next, params) => {
 			const result = await syncCloudTemplates(c, database, credentialId, region, templateType);
 			const message = `云端模板同步完成：发现 ${result.total} 个，新增 ${result.imported} 个，更新 ${result.updated} 个${result.failures.length ? `，失败 ${result.failures.length} 个：${result.failures.join('；')}` : ''}`;
 			return apiMessageData(c, 200, message, result, { component: 'modal', type: result.failures.length ? 'warning' : 'success', title: '模板同步' });
-		} catch (error) { return apiMessage(c, 502, error instanceof Error ? error.message : '模板同步失败'); }
+		} catch (error) {
+			// 待审批不是失败：内部的 runOperation 抛的 PendingApprovalError 要放上去，否则会被
+			// 说成业务冲突，只能靠外层中间件兜底改写（见 worker.mts）。
+			if (error instanceof PendingApprovalError) throw error;
+			return apiMessage(c, 502, error instanceof Error ? error.message : '模板同步失败');
+		}
 	}
 	if (!params.id && c.req.method === 'POST') {
 		const body = await parseBody(c), templateKey = text(body.template_key), templateType = text(body.template_type), name = text(body.title), subject = text(body.subject), bodyText = text(body.body_text), bodyHtml = text(body.body_html);
@@ -203,7 +208,12 @@ const handler: ApiHandler = async (c, next, params) => {
 			const providerName = cloudProviderOptions.find((item) => item.value === target.provider)?.text ?? target.provider;
 			return apiMessage(c, 200, result === 'skipped' ? '模板内容未改动，无需重新提交审核'
 				: `模板已提交到 ${providerName} / ${getCloudEmailRegionLabel(target.provider, target.region)}（${target.region}）审核`);
-		} catch (error) { return apiMessage(c, 502, error instanceof Error ? error.message : '模板发布失败'); }
+		} catch (error) {
+			// 待审批不是失败：内部的 runOperation 抛的 PendingApprovalError 要放上去，否则会被
+			// 说成业务冲突，只能靠外层中间件兜底改写（见 worker.mts）。
+			if (error instanceof PendingApprovalError) throw error;
+			return apiMessage(c, 502, error instanceof Error ? error.message : '模板发布失败');
+		}
 	}
 	if (params.id && c.req.method === 'POST' && c.req.query('action') === 'refresh') {
 		const publications = await allSql<{ cloud_credential_id: number; region: string; provider_template_id: string }>(database, sql({ database }).select({ table: 'global_cloud_email_template_publications', columns: { cloud_credential_id: 'cloud_credential_id', region: 'region', provider_template_id: 'provider_template_id' }, where: [{ column: 'template_id', value: Number(params.id) }] }));

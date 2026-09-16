@@ -11,7 +11,7 @@ import type { TableCrudDefinition } from '@server/modules/base/table-crud.mjs';
 
 export const tableCrud: TableCrudDefinition = { table: 'global_cloud_email_bindings', rowKey: 'id' };
 import { allSql, firstSql, runSql, sql } from '@server/database/sql.mjs';
-import { runOperationSql } from '@server/modules/base/operation.mjs';
+import { PendingApprovalError, runOperationSql } from '@server/modules/base/operation.mjs';
 import { tableSort } from '@server/modules/base/query-options.mjs';
 
 const columns = [
@@ -100,7 +100,12 @@ const handler: ApiHandler = async (c, next, params) => {
 			else await runSql(database, insert);
 			const created = await firstSql<{ id: number }>(database, builder.select({ table: 'global_cloud_email_bindings', columns: { id: 'id' }, where: [{ column: 'site_key', value: siteKey }, { column: 'channel_id', value: channelId }, { column: 'template_id', value: templateId }, { column: 'purpose', value: purpose }] }));
 			if (created && isDefault && !database.batch) await clearOtherDefaults(c, database, created.id, siteKey, purpose);
-		} catch { return apiMessage(c, 409, '相同站点、通道、模板和用途的绑定已存在，或该用途已有默认通道'); }
+		} catch (error) {
+			// 待审批不是失败：内部的 runOperation 抛的 PendingApprovalError 要放上去，否则会被
+			// 说成业务冲突，只能靠外层中间件兜底改写（见 worker.mts）。
+			if (error instanceof PendingApprovalError) throw error;
+			return apiMessage(c, 409, '相同站点、通道、模板和用途的绑定已存在，或该用途已有默认通道');
+		}
 		return apiMessageData(c, 201, '邮件绑定创建成功', {});
 	}
 	if (!params.id && c.req.method === 'DELETE') {
@@ -141,7 +146,12 @@ const handler: ApiHandler = async (c, next, params) => {
 				if (isDefault) await clearOtherDefaults(c, database, Number(params.id), siteKey, purpose);
 				await runSql(database, update);
 			}
-		} catch { return apiMessage(c, 409, '相同站点、通道、模板和用途的绑定已存在，或该用途已有默认通道'); }
+		} catch (error) {
+			// 待审批不是失败：内部的 runOperation 抛的 PendingApprovalError 要放上去，否则会被
+			// 说成业务冲突，只能靠外层中间件兜底改写（见 worker.mts）。
+			if (error instanceof PendingApprovalError) throw error;
+			return apiMessage(c, 409, '相同站点、通道、模板和用途的绑定已存在，或该用途已有默认通道');
+		}
 		return apiMessage(c, 200, '保存成功');
 	}
 	if (params.id && c.req.method === 'DELETE') {
