@@ -13,6 +13,21 @@ const PM2_INSTALL_COMMAND = 'npm install -g pm2';
  */
 const PM2_MISSING_MESSAGE = `未找到 pm2，请先安装 PM2：${PM2_INSTALL_COMMAND}（已安装则确认 pm2 在当前 PATH 中）`;
 
+/**
+ * 开机自启由 PM2 写一个 systemd 单元（pm2-<系统用户>.service）实现，
+ * 单元只负责在开机时拉起 PM2 daemon 并 resurrect 已保存的进程清单，
+ * 因此它和「服务注册」是两件事：服务注册在 PM2 的进程列表里，开机自启在 systemd 里。
+ */
+const STARTUP_INIT_SYSTEM = 'systemd';
+const systemdAvailable = () => fs.existsSync('/run/systemd/system');
+const startupUser = () => {
+	try { return os.userInfo().username; }
+	catch { return toText(process.env.USER) || 'root'; }
+};
+const startupUnitPath = (user) => path.join('/etc/systemd/system', `pm2-${user}.service`);
+const runningAsRoot = () => typeof process.getuid === 'function' && process.getuid() === 0;
+const startupCommand = (verb, user, home) => `sudo env PATH=$PATH pm2 ${verb} ${STARTUP_INIT_SYSTEM} -u ${user} --hp ${home}`;
+
 const toText = (value) => String(value ?? '').trim();
 
 const validateAppName = (value) => {
@@ -53,10 +68,36 @@ const runPm2 = (args, { timeoutMs = 20_000 } = {}) => new Promise((resolve, reje
 
 const createPm2Service = () => {
 	const execute = (args, options) => runPm2(args, options);
+	/**
+	 * 取出 jlist 输出里的 JSON 数组。直接 JSON.parse 整段 stdout 在一种场合下必然失败：
+	 * PM2 daemon 还没起来时，第一条 pm2 命令会顺带把 daemon 拉起来，并把那张 ASCII banner
+	 * 和「Spawning PM2 daemon」一起打到 stdout，JSON 前面就多了一大段说明文字。
+	 * 这正是刚装完 PM2、第一次打开工具箱时的状态。
+	 */
+	const extractJsonList = (stdout) => {
+		const raw = toText(stdout);
+		if (!raw) return '[]';
+		const end = raw.lastIndexOf(']');
+		if (end === -1) return raw;  // 让下面的 JSON.parse 抛出统一的错误
+		// 不能取第一个 '['：banner 里的 "[PM2] Spawning PM2 daemon" 也是方括号开头。
+		// 从最后一个 '[' 往前逐个试，能解析成数组的那个才是 jlist 的输出。
+		let start = raw.lastIndexOf('[', end);
+		while (start !== -1) {
+			const candidate = raw.slice(start, end + 1);
+			try {
+				if (Array.isArray(JSON.parse(candidate))) return candidate;
+			} catch {
+				// 这个 '[' 不是数组开头，继续往前找
+			}
+			if (start === 0) break;
+			start = raw.lastIndexOf('[', start - 1);
+		}
+		return raw;
+	};
 	const readProcesses = async () => {
 		const result = await execute(['jlist']);
 		try {
-			const processes = JSON.parse(result.stdout || '[]');
+			const processes = JSON.parse(extractJsonList(result.stdout));
 			if (!Array.isArray(processes)) throw new Error('PM2 返回的进程列表不是数组');
 			return processes;
 		} catch (error) {
@@ -230,6 +271,44 @@ const createPm2Service = () => {
 			for (const id of ids) outputs.push((await execute(['delete', id])).output);
 			await execute(['save']);
 			return outputs.filter(Boolean).join('\n') || `PM2 已卸载 ${target.name} 的 ${ids.length} 个实例`;
+		},
+		/**
+		 * 开机自启的状态只看 systemd 单元在不在，不去问 PM2：PM2 自己不记录
+		 * 「是否注册过 startup」，问它只能拿到一段提示文案。
+		 */
+		async startupStatus() {
+			const user = startupUser();
+			const unit = startupUnitPath(user);
+			if (!systemdAvailable()) {
+				return { supported: false, enabled: false, user, unit, message: '当前系统没有 systemd，无法由工具箱配置开机自启' };
+			}
+			const enabled = fs.existsSync(unit);
+			return {
+				supported: true,
+				enabled,
+				user,
+				unit,
+				message: enabled ? `已注册（${unit}）` : '未注册，机器重启后 PM2 不会自动拉起服务',
+			};
+		},
+		async enableStartup() {
+			const status = await this.startupStatus();
+			if (!status.supported) throw new Error(status.message);
+			if (status.enabled) return `PM2 开机自启已注册：${status.unit}`;
+			// 写 /etc/systemd/system 需要 root；这里不代为 sudo，避免在管道里卡在密码提示上。
+			if (!runningAsRoot()) throw new Error(`注册开机自启需要 root 权限，请用管理员执行：${startupCommand('startup', status.user, os.homedir())}`);
+			const result = await execute(['startup', STARTUP_INIT_SYSTEM, '-u', status.user, '--hp', os.homedir()], { timeoutMs: 60_000 });
+			// 开机时恢复的是 save 过的进程清单，没 save 过就等于开机自启一个空列表。
+			await execute(['save']);
+			return result.output || `PM2 开机自启已注册：${status.unit}`;
+		},
+		async disableStartup() {
+			const status = await this.startupStatus();
+			if (!status.supported) throw new Error(status.message);
+			if (!status.enabled) return 'PM2 开机自启本来就没有注册';
+			if (!runningAsRoot()) throw new Error(`取消开机自启需要 root 权限，请用管理员执行：${startupCommand('unstartup', status.user, os.homedir())}`);
+			const result = await execute(['unstartup', STARTUP_INIT_SYSTEM, '-u', status.user, '--hp', os.homedir()], { timeoutMs: 60_000 });
+			return result.output || `PM2 开机自启已取消：${status.unit}`;
 		},
 		async scale(target, instances) {
 			targetArgs(target);

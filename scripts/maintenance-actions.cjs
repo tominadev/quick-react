@@ -199,8 +199,12 @@ const createMaintenanceActions = ({
 			{
 				key: 'pm2-status',
 				label: '查看服务状态',
-				description: '只读取当前项目对应的 PM2 服务及 Cluster 实例',
-				run: () => service.status({ projectDir, pmId: env.pm_id, appName: env.PM2_APP_NAME }),
+				description: '只读取当前项目对应的 PM2 服务、Cluster 实例和开机自启状态',
+				run: async () => {
+					const status = await service.status({ projectDir, pmId: env.pm_id, appName: env.PM2_APP_NAME });
+					const startup = await service.startupStatus();
+					return `${status}\n开机自启：${startup.message}`;
+				},
 			},
 			{
 				key: 'pm2-start',
@@ -269,6 +273,31 @@ const createMaintenanceActions = ({
 					const result = await service.uninstall(target);
 					stopPm2Logs?.();
 					return result;
+				},
+			},
+			{
+				key: 'pm2-startup',
+				label: '注册开机自启',
+				description: '把 PM2 注册成 systemd 单元，开机后按已保存的进程清单恢复服务',
+				run: async ({ ask } = {}) => {
+					const startup = await service.startupStatus();
+					if (!startup.supported) return startup.message;
+					if (startup.enabled) return `PM2 开机自启已注册：${startup.unit}`;
+					// 说清楚作用范围：注册的是 PM2 daemon 本身，开机恢复哪些服务取决于保存过的进程清单。
+					if (!await confirmRescue(ask, `将为系统用户 ${startup.user} 注册 PM2 开机自启（${startup.unit}），并保存一次当前进程清单：开机后恢复的就是这份清单里的服务。`)) return '已取消';
+					return service.enableStartup();
+				},
+			},
+			{
+				key: 'pm2-unstartup',
+				label: '取消开机自启',
+				description: '删除 PM2 的 systemd 单元，已注册的服务本身不受影响',
+				run: async ({ ask } = {}) => {
+					const startup = await service.startupStatus();
+					if (!startup.supported) return startup.message;
+					if (!startup.enabled) return 'PM2 开机自启本来就没有注册';
+					if (!await confirmRescue(ask, `将删除 PM2 的开机自启单元 ${startup.unit}：当前运行的服务不受影响，PM2 里的注册也还在，但机器重启后不会再自动拉起。`)) return '已取消';
+					return service.disableStartup();
 				},
 			},
 			{
