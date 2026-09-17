@@ -66,23 +66,31 @@ const withPendingApproval = async (c: Context<AppEnv>, payload: Record<string, u
 	const source = table as Record<string, unknown>;
 	const rows = source.dataSource;
 	const option = source.option;
-	// option 可能没有：翻页与写操作之后前端只请求 data，结构用缓存的那一份。
-	// 那种响应照样要带上 _pending，否则行底色和按钮的显隐都停在上一次的状态。
-	if (!Array.isArray(rows) || !rows.length) return payload;
+	/**
+	 * **标行和挂按钮是两件事，分开判。**
+	 *
+	 * 早先这里是「没有行就整个返回」——于是**第一次打开时是空表的页面，审批按钮一个都挂不上**，
+	 * 而结构只有第一帧那一次机会（见架构文档），按钮就再也不会出现了。表现是：生成/新增第一条
+	 * 记录之后回到列表，那一行上没有撤销/批准/驳回，手动刷一次才有。推送密钥页每次都会踩到，
+	 * 因为它天生从空表开始。
+	 *
+	 * 标行需要有行才有意义；挂按钮只取决于「这一页走不走审批」，与当前有几行无关。
+	 */
 	const database = tableCrudDatabase(c, definition);
 	if (!database) return payload;
 	const tableName = typeof definition.table === 'function' ? await definition.table(c) : definition.table;
 	const rowKey = typeof definition.rowKey === 'function' ? await definition.rowKey(c) : definition.rowKey;
 	if (!tableName || !rowKey) return payload;
-	const ids = rows.map((row) => String((row as Record<string, unknown>)[rowKey] ?? '')).filter(Boolean);
-	if (!ids.length) return payload;
-	const states = await pendingRowStates(c, database, tableName, ids);
-	const marked = rows.map((row) => {
+	// option 可能没有：翻页与写操作之后前端只请求 data，结构用缓存的那一份。
+	// 那种响应照样要带上 _pending，否则行底色和按钮的显隐都停在上一次的状态。
+	const ids = Array.isArray(rows) ? rows.map((row) => String((row as Record<string, unknown>)[rowKey] ?? '')).filter(Boolean) : [];
+	const states = ids.length ? await pendingRowStates(c, database, tableName, ids) : new Map();
+	const marked = Array.isArray(rows) ? rows.map((row) => {
 		const state = states.get(String((row as Record<string, unknown>)[rowKey] ?? ''));
 		// 待审批记录的 id 跟着行一起发下去：撤销/批准/驳回原样带回来，动的就是这里看到的那几条。
 		// 被别人的申请锁住时，那句「谁在申请什么」也跟着行走：按钮留在原处，点进去看到它。
 		return { ...(row as Record<string, unknown>), [PENDING_FIELD]: pendingRowToken(state), [PENDING_IDS_FIELD]: state?.ids.join(',') ?? '', [PENDING_LOCK_FIELD]: pendingRowLock(state) };
-	});
+	}) : rows;
 	// 只给要走审批的页面挂：问 operationScope，与「这一页看不看得见待审批的行」同一个答案。
 	const withActions = option && typeof option === 'object' && !Array.isArray(option) && operationScope(c) === 'admin';
 	if (!withActions) return { ...payload, table: { ...source, dataSource: marked } };

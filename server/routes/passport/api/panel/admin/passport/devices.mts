@@ -1,4 +1,5 @@
 import type { ApiHandler } from '@server/modules/base/api-router.mjs';
+import type { TableCrudDefinition } from '@server/modules/base/table-crud.mjs';
 import { apiMessage, apiResponse } from '@server/modules/base/api-response.mjs';
 import { allSql, runSql, sql } from '@server/database/sql.mjs';
 import { runOperationSql } from '@server/modules/base/operation.mjs';
@@ -32,6 +33,17 @@ const handler: ApiHandler = async (c, next, params) => {
 	}
 	return next();
 };
+
+/**
+ * 注销设备走的是审批（`runOperationSql`），因此这一页**必须**登记 tableCrud。
+ *
+ * 公共层靠它决定挂不挂撤销/批准/驳回（见 api-response.mts 的 withPendingApproval），也靠它
+ * 接住那三个动作的请求。不登记的话，注销会进审批队列，而这一页上没有任何按钮能撤销或批准
+ * 它——申请提了出不去，只能去审计记录页找。
+ *
+ * 列表与注销仍由本文件自己处理：公共层只在 POST 且带那几个 action 时才介入。
+ */
+export const tableCrud: TableCrudDefinition = { table: 'passport_devices', rowKey: 'id' };
 
 export const acceptsTrailingParams = true;
 export default handler;

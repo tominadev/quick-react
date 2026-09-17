@@ -51,6 +51,7 @@
 		"test:audit-scope": "node scripts/test-audit-scope.mjs",
 		"test:column-order": "node scripts/test-column-order.mjs",
 		"test:table-schema-once": "node scripts/test-table-schema-once.mjs",
+		"test:approval-actions": "node scripts/test-approval-actions.mjs",
 		"test:doc-schema-refs": "node scripts/test-doc-schema-refs.mjs",
 		"test:change-audit": "node scripts/test-change-audit.mjs",
 		"import:legacy-passport": "node scripts/import-legacy-passport.mjs",
