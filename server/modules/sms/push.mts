@@ -155,7 +155,7 @@ export const dispatchPushDeliveries = async (database: DatabaseAdapter, limit = 
 			continue;
 		}
 		if (!signing) {
-			await runSql(database, builder.update('sms_push_deliveries', { status: 'pending', last_error: '还没有生成推送签名密钥', next_attempt_at: Date.now() + RETRY_DELAYS[0] }, { id: delivery.id }));
+			await runSql(database, builder.update('sms_push_deliveries', { status: 'pending', last_error: '还没有启用推送签名密钥：到「推送密钥」页生成一把，公布之后再点「启用签名」', next_attempt_at: Date.now() + RETRY_DELAYS[0] }, { id: delivery.id }));
 			failed += 1;
 			continue;
 		}

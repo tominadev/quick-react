@@ -115,8 +115,35 @@ try {
 
 	// 没有签名密钥时，公钥端点要说清楚该去哪生成，而不是回一个空数组让接收方自己猜。
 	assert.match(String((await (await app.request('http://sms.test/api/push-key.php')).json()).feedback?.message), /还没有生成推送签名密钥/);
+	/**
+	 * ---- 轮换顺序：先公布，再启用签名 ----
+	 *
+	 * 接收方按公钥比对 `/api/push-key` 的名单来判定来源，而他们会缓存那份名单。先签后公布的
+	 * 话，那一刻发出去的推送在接收方眼里就是一把没见过的公钥签的，被当成伪造丢掉——而本站
+	 * 这边只看到一堆投递失败，看不出原因。所以生成只公布、不签名，启用是单独一步。
+	 *
+	 * 这个顺序**由状态结构保证**，不靠人记：签名只认 `active`，新密钥落地是 `publishing`。
+	 */
+	// 这一步会进审批队列（后台的写入都要过审批），批准之后密钥才落地。
 	await app.request('http://sms.test/api/panel/admin/sms/platform-keys.php?action=generate', { method: 'POST', headers: h, body: JSON.stringify({ reason: '首次生成' }) });
 	await approveAll();
+
+	const keyRows = () => {
+		const db = new DatabaseSync(process.env.DEFAULT_DATABASE_FILE, { readOnly: true });
+		const rows = db.prepare('SELECT id, kid, status FROM sms_platform_keys ORDER BY id').all();
+		db.close();
+		return rows;
+	};
+	assert.deepEqual(keyRows().map((row) => row.status), ['publishing'], '刚生成的密钥是「公布中」，不是「签名中」');
+	// 已经公布了：接收方现在就能把它放进缓存——这正是先公布的意义。
+	const beforeActivate = await (await app.request('http://sms.test/api/push-key.php')).json();
+	assert.equal(beforeActivate.keys.length, 1, '公布中的密钥要立刻出现在公钥端点里');
+	assert.equal(beforeActivate.keys[0].status, 'publishing');
+
+	const firstKeyId = keyRows()[0].id;
+	await app.request(`http://sms.test/api/panel/admin/sms/platform-keys.php/${firstKeyId}?action=activate`, { method: 'POST', headers: h, body: JSON.stringify({ reason: '启用签名' }) });
+	await approveAll();
+	assert.deepEqual(keyRows().map((row) => row.status), ['active'], '启用之后才是签名用的那把');
 
 	const database = new DatabaseSync(process.env.DEFAULT_DATABASE_FILE);
 	const ownerId = database.prepare("SELECT id FROM base_users WHERE name = 'pushadmin'").get().id;
