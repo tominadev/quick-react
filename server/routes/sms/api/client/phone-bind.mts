@@ -10,17 +10,16 @@ import { consumeTicketNonce, verifyBindingTicket } from '@server/modules/sms/tic
  *
  * ```http
  * POST /api/client/phone-bind
- * X-Sms-Public-Key: <你登记的公钥>
- * X-Sms-Timestamp: <Unix 秒>
- * X-Sms-Nonce: <高熵随机串>
- * X-Sms-Signature: ed25519=<对 "timestamp.请求体原始字节" 的签名>
+ * Content-Type: text/plain
  *
- * {"phone":"+8613800138000","key":"order-8842","client_ref":"order-8842","title":"客户的机器","filename":"到账提醒-8000.shortcut"}
+ * {"publicKey":"…","signature":"ed25519=…","payload":"{\"ts\":1789666485,\"nonce\":\"…\",\"phone\":\"+8613800138000\",\"key\":\"order-8842\"}"}
  * ```
  *
- * **签名放请求头，请求体是普通 JSON**——与推送方向（SMS → 接入方，见 push.mts）同一套
- * 签名方案，只是反过来。请求体里随便加什么业务字段都天然被签了进去，不用每加一个新字段
- * 就重新判断它该不该签（详见 modules/sms/ticket.mts）。
+ * **一个信封，三个字段，没有自定义请求头。** 这样浏览器把它当 CORS 简单请求发出去，不会
+ * 先来一次 `OPTIONS` 预检——预检失败时接入方只看得到一句 CORS 错误，服务端日志里一片空白。
+ *
+ * 签的是 `payload` 这段**字符串本身**的字节，原样收、原样验，不重新序列化。`ts` 和 `nonce`
+ * 也在 `payload` 里，因此一并被签住（详见 modules/sms/ticket.mts）。
  *
  * **`key` 决定去重**：传相同的 `key` 命中同一行，直接给原来那份快捷指令，不提示重复；
  * 同一个 `key` 被**别的**接入方占用则拒绝。不传 `key` 时退回按号码去重（同一账号 + 项目
@@ -34,15 +33,15 @@ import { consumeTicketNonce, verifyBindingTicket } from '@server/modules/sms/tic
 const handler: ApiHandler = async (c, next) => {
 	if (c.req.method !== 'POST') return next();
 	const database = c.get('database');
-	// **原始字节，不经过 JSON.parse**：验签验的是这一串字节本身，解析成对象再重新序列化
-	// 一次，键序或空格差一点就验不过（ticket.mts 里同样强调了这一点）。
+	/**
+	 * **按原始文本读，不用 `c.req.json()`。**
+	 *
+	 * 请求的 `Content-Type` 是 `text/plain`（这正是它能绕开预检的原因），按 JSON 解析的
+	 * 帮助方法未必买账；而且信封里的 `payload` 要的就是原样那一串字符，拆信封的事交给
+	 * ticket.mts 自己做。
+	 */
 	const rawBody = await c.req.text().catch(() => '');
-	const verified = await verifyBindingTicket(database, {
-		publicKey: c.req.header('x-sms-public-key') ?? '',
-		timestamp: c.req.header('x-sms-timestamp') ?? '',
-		nonce: c.req.header('x-sms-nonce') ?? '',
-		signature: c.req.header('x-sms-signature') ?? '',
-	}, rawBody);
+	const verified = await verifyBindingTicket(database, rawBody);
 	if (!verified.ok) return apiMessage(c, verified.failure.status, verified.failure.message);
 	const { clientRowId, ownerUid } = verified;
 

@@ -7,31 +7,37 @@ import { firstSql, runSql, sql } from '@server/database/sql.mjs';
  * 接入方用自己的 Ed25519 私钥签一次绑定请求，代表自己的账号绑定一个手机号。本站只存公钥，
  * 因此**能签得出通过验证的签名就等于持有私钥**——这是整条链的信任根。
  *
- * **身份就是公钥本身，同 GitHub 的 SSH。** 请求头里带着公钥，服务端据此反查出是哪个接入方、
+ * **身份就是公钥本身，同 GitHub 的 SSH。** 请求里带着公钥，服务端据此反查出是哪个接入方、
  * 归属哪个账号——调用方不必再填 `client_id`、`kid`、`base_user_id` 三个值，也就不会填错。
  *
  * 有人会问：公钥是调用方自己给的，那换一把不就冒充了？换不了。**换成谁的公钥，就得拿谁的
  * 私钥来签**——而私钥从不出签发方的门。拿自己的公钥来签，反查到的就是自己的账号，什么也
  * 越不了权；拿别人的公钥来签，第一步验签就过不去。
  *
- * **签名方式与推送方向（SMS → 接入方，见 push.mts）对称，只是反过来**：签名放请求头，
- * 请求体是原样发出去的 JSON，不包一层。两个方向一套心智模型——接入方验证收到的推送时
- * 用的是这一套，签自己的绑定请求用的还是这一套，不用改用两套完全不同的做法。
+ * ## 请求长这样
  *
  * ```http
  * POST /api/client/phone-bind
- * X-Sms-Public-Key: <你登记的公钥>
- * X-Sms-Timestamp: <Unix 秒>
- * X-Sms-Nonce: <高熵随机串>
- * X-Sms-Signature: ed25519=<对 "timestamp.请求体原始字节" 的签名>
+ * Content-Type: text/plain
  *
- * {"phone":"+8613800138000","key":"order-8842","client_ref":"order-8842","title":"客户的机器"}
+ * {"publicKey":"…","signature":"ed25519=…","payload":"{\"ts\":1789666485,\"nonce\":\"…\",\"phone\":\"+8613800138000\"}"}
  * ```
  *
- * **请求体是普通 JSON，没有"这个字段该不该签"的判断**——整个请求体（原始字节，未经
- * 任何重新序列化）都是签名的一部分，随便加什么业务字段都天然被签了进去。
+ * **`payload` 是一段 JSON 字符串，不是嵌套对象。** 签的就是这段字符串的 UTF-8 原始字节——
+ * 原样收、原样验，中间不经过任何解析与重新序列化。键序、空格、Unicode 转义怎么发的就怎么
+ * 验，两边不必约定同一套序列化规则（那是 JSON 签名最常见的踩坑处）。
+ *
+ * ## 为什么把一切塞进一个信封，而不是放请求头
+ *
+ * **为了让浏览器把它当成 CORS 简单请求发出去。** 自定义请求头（`X-Sms-*`）会让浏览器先发
+ * 一次 `OPTIONS` 预检，而预检失败时接入方在控制台只看得到一句 CORS 错误、服务端日志里一片
+ * 空白——最难查的一类问题。改成 `Content-Type: text/plain` 加一个没有自定义头的请求体之后，
+ * 预检根本不会发生，服务端只要在响应上带 `Access-Control-Allow-Origin` 就够了。
+ *
+ * **`ts` 与 `nonce` 因此进了签名范围。** 它们原先是请求头，而签名只覆盖
+ * `"时间戳.请求体"`——`nonce` 一个字节都没被签进去，改一改签名照样通得过。现在它们和业务
+ * 字段一样待在 `payload` 里，改任何一个字符签名都会当场失效。
  */
-
 const fromBase64Url = (value: string): Uint8Array<ArrayBuffer> => {
 	const binary = atob(value.replaceAll('-', '+').replaceAll('_', '/'));
 	const bytes = new Uint8Array(new ArrayBuffer(binary.length));
@@ -57,8 +63,16 @@ export type TicketBody = {
 	filename?: string;
 };
 
-/** 四个请求头，从 Hono 的 `c.req.header()` 原样取出即可，不做任何预处理。 */
-export type TicketHeaders = { publicKey: string; timestamp: string; nonce: string; signature: string };
+/** 信封：三个字段，`payload` 是一段 JSON **字符串**。 */
+export type TicketEnvelope = { publicKey?: unknown; signature?: unknown; payload?: unknown };
+
+/** `payload` 解出来之后的内容。业务字段全都可选；`ts` 与 `nonce` 必填，它们是防重放的那一半。 */
+export type TicketPayload = TicketBody & {
+	/** Unix 秒。与服务器时间相差超过 60 秒就拒绝。 */
+	ts?: unknown;
+	/** 高熵随机串，一次性。消费过的不能再用。 */
+	nonce?: unknown;
+};
 
 export type TicketFailure = { status: number; message: string };
 export type TicketResult =
@@ -88,52 +102,52 @@ export type TicketResult =
 const unknownKeyMessage = '这把公钥没有登记，或者已经退役——到控制台「接入方公钥」里登记一把';
 
 /**
- * 请求新鲜度容差 60 秒。**不再有调用方声明的有效期**——推送方向早就是这么做的
- * （`x-sms-timestamp` 只判新鲜度，不带一个独立的过期时间字段），这里改成同一套：时间戳
- * 不在这个窗口内就拒绝，窗口大小由本站定，不给接入方"签一个十年有效"的空间。
+ * 请求新鲜度容差 60 秒。**不接受调用方声明的有效期**——窗口大小由本站定，不给接入方
+ * 「签一个十年有效」的空间。
  */
 const CLOCK_SKEW_SECONDS = 60;
 
 /** 32 字节 Ed25519 公钥的 Base64URL 表示，43 个字符（不含补位的 =）。 */
 const publicKeyPattern = /^[A-Za-z0-9_-]{43}$/;
 
+const text = (value: unknown) => typeof value === 'string' ? value.trim() : '';
+
 /**
- * 验一次绑定请求。
+ * 验一次绑定请求。传进来的是**请求体原始字符串**，这一层自己拆信封。
  *
  * **失败一律是确定性错误**（§7.2），不把内部异常冒出去：接入方拿到「绑定请求签名无效」
  * 能去查自己的私钥，拿到一段堆栈只能去提工单。
  *
- * 顺序有讲究：先查头部格式、再按公钥查身份、最后验签、验完签才解析请求体当 JSON 用。
- * 反过来先验签的话，公钥没登记时得先编一个身份出来才验得动；先解析 JSON 的话，一个
- * 签名对不上的请求也会被当成合法请求解析——解析本身不是权限判定，但没必要在验证通过
- * 之前多做这一步。
+ * 顺序有讲究：拆信封 → 查格式 → 按公钥查身份 → **验签** → 验完签才解析 `payload`。
+ * `payload` 在验签之前只是一串待验的字节，不该被当成结构化内容读；时间戳与 nonce 也因此
+ * 排在验签之后——它们本来就在 `payload` 里，提前读就等于信了还没验过的东西。
  */
-export const verifyBindingTicket = async (database: DatabaseAdapter, headers: TicketHeaders, rawBody: string): Promise<TicketResult> => {
+export const verifyBindingTicket = async (database: DatabaseAdapter, rawBody: string): Promise<TicketResult> => {
 	const fail = (status: number, message: string): TicketResult => ({ ok: false, failure: { status, message } });
 
-	const publicKey = String(headers.publicKey ?? '').trim();
-	if (!publicKey) return fail(400, '缺少 X-Sms-Public-Key 请求头');
-	if (!publicKeyPattern.test(publicKey)) return fail(400, 'X-Sms-Public-Key 必须是 Ed25519 原始字节的 Base64URL，43 个字符');
+	let envelope: TicketEnvelope;
+	try { envelope = JSON.parse(rawBody) as TicketEnvelope; } catch { return fail(400, '请求体不是合法 JSON：应为 {"publicKey":…,"signature":…,"payload":…} 三个字段'); }
+	if (!envelope || typeof envelope !== 'object' || Array.isArray(envelope)) return fail(400, '请求体不是合法 JSON：应为 {"publicKey":…,"signature":…,"payload":…} 三个字段');
 
-	const nonce = String(headers.nonce ?? '').trim();
-	if (!nonce) return fail(400, '缺少 X-Sms-Nonce 请求头');
+	const publicKey = text(envelope.publicKey);
+	if (!publicKey) return fail(400, '缺少 publicKey');
+	if (!publicKeyPattern.test(publicKey)) return fail(400, 'publicKey 必须是 Ed25519 原始字节的 Base64URL，43 个字符');
 
-	const timestampRaw = String(headers.timestamp ?? '').trim();
-	const timestamp = Number(timestampRaw);
-	if (!timestampRaw || !Number.isFinite(timestamp)) return fail(400, 'X-Sms-Timestamp 请求头缺失或格式不对，应为 Unix 秒');
-	const now = Math.floor(Date.now() / 1000);
-	if (Math.abs(now - timestamp) > CLOCK_SKEW_SECONDS) return fail(400, '绑定请求已过期或尚未生效：X-Sms-Timestamp 与服务器时间相差超过 60 秒');
+	const signatureValue = text(envelope.signature);
+	if (!signatureValue.startsWith('ed25519=')) return fail(400, 'signature 缺失或格式不对，应为 ed25519=<签名>');
+	const signaturePart = signatureValue.slice('ed25519='.length);
+	if (!signaturePart) return fail(400, 'signature 缺失或格式不对，应为 ed25519=<签名>');
 
-	const signatureHeader = String(headers.signature ?? '').trim();
 	/**
-	 * 老协议把这一切塞进请求体里一个叫 `ticket` 的字段。照着旧文档写的代码打过来，多半
-	 * 是完全不带这四个头——直接落进下面这条判断，缺失了哪个头说得很直白，不需要专门再
-	 * 识别一次"这看起来像老格式"：那反而要多解析一次请求体，为一个不会真正发生的窄场景
-	 * （发对了 `ed25519=` 前缀却是空签名）徒增代码。
+	 * **`payload` 必须是字符串，不接受对象。**
+	 *
+	 * 传成嵌套对象的话，要验签就得先把它序列化回字符串，而那一步两边不可能保证一致——
+	 * 键序、空格、Unicode 转义任何一点不同，签名就对不上，而报出来的错是「签名无效」，
+	 * 看的人会去查私钥，查不到真正的原因。所以这里把话说死在最前面。
 	 */
-	if (!signatureHeader.startsWith('ed25519=')) return fail(400, 'X-Sms-Signature 请求头缺失或格式不对，应为 ed25519=<签名>');
-	const signaturePart = signatureHeader.slice('ed25519='.length);
-	if (!signaturePart) return fail(400, 'X-Sms-Signature 请求头缺失或格式不对，应为 ed25519=<签名>');
+	if (typeof envelope.payload !== 'string') return fail(400, 'payload 必须是一段 JSON 字符串，不是嵌套对象——签的就是这段字符串本身');
+	const payloadText = envelope.payload;
+	if (!payloadText) return fail(400, 'payload 不能为空');
 
 	/**
 	 * **公钥反查身份。** `public_key` 全库唯一，因此这一查就定死了是哪个接入方；接入方的
@@ -160,27 +174,35 @@ export const verifyBindingTicket = async (database: DatabaseAdapter, headers: Ti
 	let verified = false;
 	try {
 		const key = await crypto.subtle.importKey('raw', fromBase64Url(publicKey), { name: 'Ed25519' }, false, ['verify']);
-		// **验的是 "timestamp.请求体原始字节"**，不是重新序列化一遍的 JSON：键序或空格
-		// 差一点就验不过。与推送方向（push.mts 的 attemptDelivery）签名输入同一个形状。
-		const signedInput = new TextEncoder().encode(`${timestampRaw}.${rawBody}`);
-		verified = await crypto.subtle.verify({ name: 'Ed25519' }, key, fromBase64Url(signaturePart), signedInput);
+		// **验的就是 payload 这段字符串的 UTF-8 字节**，原样取自信封，不重新序列化。
+		// 与推送方向（push.mts 的 attemptDelivery）同一个心智：签什么就发什么，发什么就验什么。
+		verified = await crypto.subtle.verify({ name: 'Ed25519' }, key, fromBase64Url(signaturePart), new TextEncoder().encode(payloadText));
 	} catch { verified = false; }
-	if (!verified) return fail(401, '绑定请求签名无效：签的字节和发出去的请求体必须是同一串');
+	if (!verified) return fail(401, '绑定请求签名无效：签的必须是 payload 这段字符串本身的字节');
 
-	let body: TicketBody;
-	try { body = JSON.parse(rawBody) as TicketBody; } catch { return fail(400, '请求体不是合法 JSON'); }
+	let payload: TicketPayload;
+	try { payload = JSON.parse(payloadText) as TicketPayload; } catch { return fail(400, 'payload 不是合法 JSON'); }
+	if (!payload || typeof payload !== 'object' || Array.isArray(payload)) return fail(400, 'payload 不是合法 JSON 对象');
+
+	const nonce = text(payload.nonce);
+	if (!nonce) return fail(400, 'payload 里缺少 nonce');
+
+	const timestamp = Number(payload.ts);
+	if (payload.ts === undefined || payload.ts === null || !Number.isFinite(timestamp)) return fail(400, 'payload 里的 ts 缺失或格式不对，应为 Unix 秒');
+	const now = Math.floor(Date.now() / 1000);
+	if (Math.abs(now - timestamp) > CLOCK_SKEW_SECONDS) return fail(400, `绑定请求已过期或尚未生效：ts 与服务器时间相差超过 ${CLOCK_SKEW_SECONDS} 秒`);
 
 	return {
 		ok: true,
 		clientRowId: String(client.id),
 		ownerUid: String(client.owner_uid),
-		phone: String(body.phone ?? ''),
+		phone: String(payload.phone ?? ''),
 		nonce,
 		expiresAt: timestamp + CLOCK_SKEW_SECONDS,
-		key: String(body.key ?? '').trim(),
-		clientRef: String(body.client_ref ?? ''),
-		title: String(body.title ?? ''),
-		filename: String(body.filename ?? ''),
+		key: String(payload.key ?? '').trim(),
+		clientRef: String(payload.client_ref ?? ''),
+		title: String(payload.title ?? ''),
+		filename: String(payload.filename ?? ''),
 	};
 };
 

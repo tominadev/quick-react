@@ -42,10 +42,10 @@
 
 ```text
 你发过来的请求
-  ├── X-Sms-Public-Key  ──► SMS 在自己库里找到这一行（公钥全平台唯一，一查就定死）
-  │                          ├── 是哪个接入方  ──► 手机挂到这个项目下，短信推给它配的地址
-  │                          └── 属于哪个账号  ──► 手机登记到这个人名下
-  └── X-Sms-Signature    ──► 用刚找到的那把公钥验一遍，验过了才算数
+  ├── publicKey  ──► SMS 在自己库里找到这一行（公钥全平台唯一，一查就定死）
+  │                    ├── 是哪个接入方  ──► 手机挂到这个项目下，短信推给它配的地址
+  │                    └── 属于哪个账号  ──► 手机登记到这个人名下
+  └── signature  ──► 用刚找到的那把公钥验 payload 这段字符串，验过了才算数
 ```
 
 所以你**不需要**再告诉 SMS「我是哪个接入方」「绑到哪个账号」——这两件事都是从公钥查出来的。
@@ -57,7 +57,7 @@
 再验签。
 
 **发公钥有风险吗？没有。** 公钥本来就是公开的，真正的凭证是那段签名。
-把 `X-Sms-Public-Key` 填成别人的，就得拿**别人的私钥**才签得出能验过的签名——而私钥从不
+把 `publicKey` 填成别人的，就得拿**别人的私钥**才签得出能验过的签名——而私钥从不
 出你的门。换句话说：**你只可能以你自己的身份绑定**，冒充别人这条路在数学上就是堵死的。
 
 **换钥匙**：登记新的一把，两把并存一段时间（两把签的请求都验得过），等在途的请求都用完了，
@@ -65,40 +65,40 @@
 
 ### 1.1 怎么签一次绑定请求
 
-**签名放请求头，请求体是普通 JSON——和推送方向（SMS → 你，§2）同一套方案，只是反过来。**
-你验证收到的推送时用的是这一套（验请求头里的签名、对着原始请求体验），签自己的绑定请求
-用的还是这一套，不用换一种完全不同的心智模型。
+**整个请求就是一个信封：三个字段，没有任何自定义请求头。**
 
 ```http
 POST https://sms.example.com/api/client/phone-bind.php
-Content-Type: application/json
-X-Sms-Public-Key: DlBJkchCqWE0khIVXMXVsr4Fg2v4y6ZMNAFiVlneVzw
-X-Sms-Timestamp: 1788432000
-X-Sms-Nonce: 8Xr2mQ...
-X-Sms-Signature: ed25519=<对 "timestamp.请求体原始字节" 的签名>
+Content-Type: text/plain
 
-{"phone":"+8613800138000","key":"order-8842","client_ref":"order-8842","title":"客户的机器","filename":"到账提醒-8000.shortcut"}
+{"publicKey":"DlBJkchCqWE0khIVXMXVsr4Fg2v4y6ZMNAFiVlneVzw","signature":"ed25519=MX523f-p87I2YIxq…","payload":"{\"ts\":1789666485,\"nonce\":\"xiMmhJ2zVmXdkVbGHqn7p9Y3\",\"phone\":\"+8613566861995\",\"key\":\"wxpay-u42-8613566861995\",\"title\":\"银行到账自动确认\",\"filename\":\"银行到账自动确认-1995.shortcut\"}"}
 ```
+
+**为什么长这样：为了让浏览器直接发得出去。** 自定义请求头（`X-Sms-*`）会让浏览器先来一次
+`OPTIONS` 预检，而预检一旦不过，你在控制台只看得到一句 CORS 错误、服务端日志里一片空白——
+最难查的一类问题。`Content-Type: text/plain` 加一个不带自定义头的请求体属于 **CORS 简单请求**，
+预检根本不会发生。所以这个接口可以从你自己的网页里直接调，不用后端中转。
 
 | 位置 | 字段 | 说明 |
 | --- | --- | --- |
-| 头 | `X-Sms-Public-Key` | **你登记的那把公钥**，原样填。SMS 据此反查出接入方与归属账号——这是唯一的身份字段 |
-| 头 | `X-Sms-Timestamp` | Unix 秒。**容差 60 秒**，早于或晚于服务器时间超过这个数就拒绝——没有你能自己声明的"有效期"，窗口大小由本站定 |
-| 头 | `X-Sms-Nonce` | 高熵随机串。同一个接入方内不得重复——SMS 按它挡重放，一次性 |
-| 头 | `X-Sms-Signature` | `ed25519=` 前缀加签名的 Base64URL。**签名的输入是 `"${timestamp}.${请求体原始字节}"`**——时间戳、一个点、请求体，三者拼成一个字符串再签 |
-| 体 | `phone` | **规范化后的 E.164**，例如 `+8613800138000`。不要传 `13800138000` |
-| 体 | `key` | 可选。**你自己给这次绑定起的标识，决定去重**——传相同的 `key` 幂等命中同一行，直接给你原来那份快捷指令；不传就退回按号码去重。只能是字母数字下划线连字符，最长 36 位。详见下方 |
-| 体 | `client_ref` | 可选。**你自己的引用串**，不参与去重，短信推给你时原样带回（见 §2.1）——不用靠手机号反查是哪个客户 |
-| 体 | `title` | 可选。给手机起的名字，用户在自己的列表里看得到 |
-| 体 | `filename` | 可选。**快捷指令下载下来叫什么名字**。不传就按你的项目标题加号码后四位推导。详见下方 |
+| 信封 | `publicKey` | **你登记的那把公钥**，原样填。SMS 据此反查出接入方与归属账号——这是唯一的身份字段 |
+| 信封 | `signature` | `ed25519=` 前缀加签名的 Base64URL。**签的是 `payload` 这段字符串本身的 UTF-8 字节**，不是别的 |
+| 信封 | `payload` | **一段 JSON 字符串**（注意：是字符串，不是嵌套对象）。业务字段加上 `ts`、`nonce` 都在里面 |
+| payload | `ts` | Unix 秒。**容差 60 秒**，早于或晚于服务器时间超过这个数就拒绝——没有你能自己声明的"有效期"，窗口大小由本站定 |
+| payload | `nonce` | 高熵随机串。同一个接入方内不得重复——SMS 按它挡重放，一次性 |
+| payload | `phone` | **规范化后的 E.164**，例如 `+8613800138000`。不要传 `13800138000` |
+| payload | `key` | 可选。**你自己给这次绑定起的标识，决定去重**——传相同的 `key` 幂等命中同一行，直接给你原来那份快捷指令；不传就退回按号码去重。只能是字母数字下划线连字符，最长 36 位。详见下方 |
+| payload | `client_ref` | 可选。**你自己的引用串**，不参与去重，短信推给你时原样带回（见 §2.1）——不用靠手机号反查是哪个客户 |
+| payload | `title` | 可选。给手机起的名字，用户在自己的列表里看得到 |
+| payload | `filename` | 可选。**快捷指令下载下来叫什么名字**。不传就按你的项目标题加号码后四位推导。详见下方 |
 
-**请求体没有"这个字段该不该签"的判断。** 整个请求体（原始字节，未经任何重新序列化）都是
-签名输入的一部分，往里面加任何业务字段都天然被签了进去——不像早前版本那样要区分"票据里"
-和"票据外"两类字段。
+**payload 里没有"这个字段该不该签"的判断。** 整段字符串都是签名输入，往里面加任何业务字段都
+天然被签了进去。`ts` 和 `nonce` 也在里面，因此一并被签住——早前版本它们走请求头，`nonce`
+一个字节都没被签进去。
 
-**签名的输入就是你实际发出去的那串请求体字节。** 不要构造一份、签另一份、再发第三份——
-稳妥的做法是把 JSON 字符串拼好，拿它和 timestamp 一起签名，再把**同一个字符串**原样当
-请求体发出去。
+**签名的输入就是 `payload` 那段字符串本身。** 不要构造一份、签另一份、再发第三份——把 payload
+字符串拼好，拿它去签名，再把**同一个字符串**原样放进信封。签完之后重新序列化一遍是最常见的
+错误：键序、空格、Unicode 转义差一点就验不过，而你看到的报错是「签名无效」，会去查私钥。
 
 #### `key`：你自己给这次绑定起的标识，决定去重
 
@@ -137,16 +137,17 @@ PHP（`ext-sodium`，PHP 7.2+ 自带）：
 // 你登记的那把公钥，照抄「公钥已登记」弹窗里那一行（见 §0 第 2 步）
 $publicKey = 'DlBJkchCqWE0khIVXMXVsr4Fg2v4y6ZMNAFiVlneVzw';
 
-// 请求体只拼一次，之后签名与发送都用这同一个字符串——不要在签完之后重新 json_encode。
-$body = json_encode([
+// payload 只拼一次：签名和发送都用这同一个字符串。签完之后再 json_encode 一遍就会验不过。
+$payload = json_encode([
+    'ts' => time(),
+    'nonce' => rtrim(strtr(base64_encode(random_bytes(18)), '+/', '-_'), '='),
     'phone' => '+8613800138000',
-    // 这三个都可选：去重靠 key、推送回显靠 client_ref、手机名字靠 title。
+    // 下面几个都可选：去重靠 key、推送回显靠 client_ref、手机名字靠 title、文件名靠 filename。
     'key' => 'order-8842',
     'client_ref' => 'order-8842',
     'title' => '客户的机器',
+    'filename' => '到账提醒-8000.shortcut',
 ], JSON_UNESCAPED_SLASHES | JSON_UNESCAPED_UNICODE);
-$timestamp = (string) time();
-$nonce = rtrim(strtr(base64_encode(random_bytes(18)), '+/', '-_'), '=');
 
 // private.pem 里是 PKCS#8；sodium 要的是 64 字节的原始私钥
 $pem = file_get_contents('private.pem');
@@ -155,20 +156,16 @@ $seed = substr($der, -32);                       // PKCS#8 尾部就是 32 字�
 $keyPair = sodium_crypto_sign_seed_keypair($seed);
 $secret = sodium_crypto_sign_secretkey($keyPair);
 
-$signedInput = $timestamp . '.' . $body;
-$signature = sodium_crypto_sign_detached($signedInput, $secret);
+$signature = sodium_crypto_sign_detached($payload, $secret);   // 签的就是 $payload 本身
 $b64url = fn (string $raw): string => rtrim(strtr(base64_encode($raw), '+/', '-_'), '=');
 
-// 发送时：headers 里带 X-Sms-Public-Key/X-Sms-Timestamp/X-Sms-Nonce/X-Sms-Signature，
-// body 就是上面那个 $body 字符串本身，不要再 json_encode 一次。
-$headers = [
-    'X-Sms-Public-Key: ' . $publicKey,
-    'X-Sms-Timestamp: ' . $timestamp,
-    'X-Sms-Nonce: ' . $nonce,
-    'X-Sms-Signature: ed25519=' . $b64url($signature),
-    'Content-Type: application/json',
-];
-```
+// 信封：payload 原样放进去（它是字符串，json_encode 会替你转义好），Content-Type 用 text/plain
+$envelope = json_encode([
+    'publicKey' => $publicKey,
+    'signature' => 'ed25519=' . $b64url($signature),
+    'payload' => $payload,
+], JSON_UNESCAPED_SLASHES | JSON_UNESCAPED_UNICODE);
+$headers = ['Content-Type: text/plain'];```
 
 Node.js（无需依赖）：
 
@@ -178,30 +175,29 @@ import { readFileSync } from 'node:fs';
 
 // 你登记的那把公钥，照抄「公钥已登记」弹窗里那一行（见 §0 第 2 步）
 const publicKey = 'DlBJkchCqWE0khIVXMXVsr4Fg2v4y6ZMNAFiVlneVzw';
-
 const b64url = (buffer) => buffer.toString('base64url');
-// 请求体只拼一次，之后签名与发送都用这同一个字符串——不要在签完之后重新 JSON.stringify。
-const body = JSON.stringify({
+
+// payload 只拼一次：签名和发送都用这同一个字符串。签完之后再 JSON.stringify 一遍就会验不过。
+const payload = JSON.stringify({
+  ts: Math.floor(Date.now() / 1000),
+  nonce: b64url(randomBytes(18)),
   phone: '+8613800138000',
-  // 这三个都可选：去重靠 key、推送回显靠 client_ref、手机名字靠 title。
+  // 下面几个都可选：去重靠 key、推送回显靠 client_ref、手机名字靠 title、文件名靠 filename。
   key: 'order-8842',
   client_ref: 'order-8842',
   title: '客户的机器',
+  filename: '到账提醒-8000.shortcut',
 });
-const timestamp = String(Math.floor(Date.now() / 1000));
-const nonce = b64url(randomBytes(18));
+
 const privateKey = createPrivateKey(readFileSync('private.pem'));
 // Ed25519 的第一个参数固定传 null：算法本身已经定死了摘要
-const signature = sign(null, Buffer.from(`${timestamp}.${body}`), privateKey);
+const signature = sign(null, Buffer.from(payload, 'utf8'), privateKey);
 
-const headers = {
-  'x-sms-public-key': publicKey,
-  'x-sms-timestamp': timestamp,
-  'x-sms-nonce': nonce,
-  'x-sms-signature': `ed25519=${b64url(signature)}`,
-  'content-type': 'application/json',
-};
-// fetch('https://sms.example.com/api/client/phone-bind.php', { method: 'POST', headers, body });
+const body = JSON.stringify({ publicKey, signature: `ed25519=${b64url(signature)}`, payload });
+// text/plain 是关键：浏览器按 CORS 简单请求发，不触发 OPTIONS 预检，网页里可以直接调。
+// fetch('https://sms.example.com/api/client/phone-bind.php', {
+//   method: 'POST', headers: { 'content-type': 'text/plain' }, body,
+// });
 ```
 
 ### 1.3 提交请求，拿回下载链接

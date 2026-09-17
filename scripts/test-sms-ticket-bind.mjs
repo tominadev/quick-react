@@ -7,8 +7,11 @@ import { createHash, generateKeyPairSync, sign as nodeSign } from 'node:crypto';
 
 /**
  * 票据路径端到端（绑定文档 §6.2、§7.2）：接入方用自己的 Ed25519 私钥签一次绑定请求，
- * 代表自己的账号绑一个手机号。签名放请求头（`X-Sms-Public-Key`/`X-Sms-Timestamp`/
- * `X-Sms-Nonce`/`X-Sms-Signature`），请求体是普通 JSON——与推送方向同一套签名方案。
+ * 代表自己的账号绑一个手机号。请求体是一个信封：`{publicKey, signature, payload}`，
+ * 其中 `payload` 是一段 JSON 字符串，签的就是这段字符串本身的字节。
+ *
+ * **没有自定义请求头，Content-Type 是 text/plain**——这样浏览器按 CORS 简单请求发出去，
+ * 不触发 OPTIONS 预检。`ts` 与 `nonce` 也在 payload 里，因此一并被签住。
  *
  * **身份就是公钥**（同 GitHub 的 SSH）：请求头带着公钥，服务端反查出接入方与归属账号。
  * 因此这里最要紧的一条是「换成谁的公钥就得拿谁的私钥来签」——下面用两个账号各自的钥匙
@@ -123,24 +126,27 @@ try {
 	 * nonce 重放的那个场景，不用每次都重新生成。
 	 */
 	const makeTicket = (overrides = {}, options = {}) => {
-		const timestamp = String(options.timestamp ?? Math.floor(Date.now() / 1000));
-		const rawBody = JSON.stringify({ phone: '+8613800138000', ...overrides });
-		const signedInput = Buffer.from(`${timestamp}.${rawBody}`, 'utf8');
-		const signature = nodeSign(null, signedInput, options.privateKey ?? live.privateKey);
-		return {
-			headers: {
-				'x-sms-public-key': options.publicKeyHeader ?? live.publicKey,
-				'x-sms-timestamp': timestamp,
-				'x-sms-nonce': `n-${++nonceCounter}`,
-				'x-sms-signature': `ed25519=${base64url(signature)}`,
-			},
-			rawBody,
+		const ts = Number(options.timestamp ?? Math.floor(Date.now() / 1000));
+		/**
+		 * `payload` 是一段 **JSON 字符串**，签的就是这串字符的 UTF-8 字节。
+		 *
+		 * 这里必须用同一个字符串既签名又发送——重新序列化一遍再发的话，键序或空格差一点
+		 * 就验不过，而那正是这套协议要避免的坑。
+		 */
+		const payload = JSON.stringify({ ts, nonce: `n-${++nonceCounter}`, phone: '+8613800138000', ...overrides });
+		const signature = nodeSign(null, Buffer.from(payload, 'utf8'), options.privateKey ?? live.privateKey);
+		const envelope = {
+			publicKey: options.publicKeyHeader ?? live.publicKey,
+			signature: `ed25519=${base64url(signature)}`,
+			payload,
 		};
+		return { rawBody: JSON.stringify(envelope), payload };
 	};
 	const bind = async (ticket, extra = {}) => {
 		const response = await app.request('http://sms.test/api/client/phone-bind.php', {
 			method: 'POST',
-			headers: { 'content-type': 'application/json', ...ticket.headers, ...(extra.headers ?? {}) },
+			// text/plain 正是这套协议的关键：浏览器按 CORS 简单请求发，不触发预检。
+			headers: { 'content-type': 'text/plain', ...(extra.headers ?? {}) },
 			body: ticket.rawBody,
 		});
 		const json = await response.json().catch(() => ({}));
@@ -155,12 +161,12 @@ try {
 	 */
 	const preflight = await app.request('http://sms.test/api/client/phone-bind.php', {
 		method: 'OPTIONS',
-		headers: { origin: 'https://client.example.com', 'access-control-request-method': 'POST', 'access-control-request-headers': 'content-type, x-sms-public-key, x-sms-timestamp, x-sms-nonce, x-sms-signature' },
+		headers: { origin: 'https://client.example.com', 'access-control-request-method': 'POST', 'access-control-request-headers': 'content-type' },
 	});
 	assert.equal(preflight.status, 204);
 	assert.equal(preflight.headers.get('access-control-allow-origin'), '*');
 	const allowedHeaders = String(preflight.headers.get('access-control-allow-headers'));
-	for (const name of ['content-type', 'x-sms-public-key', 'x-sms-timestamp', 'x-sms-nonce', 'x-sms-signature']) assert.match(allowedHeaders, new RegExp(name), `预检要放行 ${name}`);
+	assert.match(allowedHeaders, /content-type/, '预检要放行 content-type');
 	// 带凭证的跨源请求一律不放行：放行了浏览器就会附带 cookie，而这条链的凭证只能是签名。
 	assert.equal(preflight.headers.get('access-control-allow-credentials'), null);
 	// 预检结果要肯让浏览器缓存：这几个头一年也不会变一次，而每次预检都是一个真实往返。
@@ -205,9 +211,38 @@ try {
 
 	// 完全不带这四个头——模拟照着老文档写的代码原样打过来，一个头都没有。缺失了哪个头
 	// 要说得很直白，第一个检查到的字段决定了提示，不需要额外识别"这看起来像老格式"。
-	const legacyRequest = await app.request('http://sms.test/api/client/phone-bind.php', { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ phone: '+8613800138000' }) });
+	const legacyRequest = await app.request('http://sms.test/api/client/phone-bind.php', { method: 'POST', headers: { 'content-type': 'text/plain' }, body: JSON.stringify({ phone: '+8613800138000' }) });
 	assert.equal(legacyRequest.status, 400);
-	assert.match(String((await legacyRequest.json()).feedback?.message), /X-Sms-Public-Key/, '照老协议打过来的请求，第一句就要点出该加哪个头');
+	assert.match(String((await legacyRequest.json()).feedback?.message), /publicKey/, '照老协议打过来的请求，第一句就要点出信封里缺了什么');
+
+
+	/**
+	 * ---- 信封本身的规矩 ----
+	 *
+	 * 这套协议的全部价值在于「签的字节 = 发的字节」。下面几条守的就是它。
+	 */
+	const raw = (body) => app.request('http://sms.test/api/client/phone-bind.php', { method: 'POST', headers: { 'content-type': 'text/plain' }, body })
+		.then(async (response) => ({ status: response.status, message: String((await response.json().catch(() => ({}))).feedback?.message ?? '') }));
+
+	// payload 传成嵌套对象是最容易犯的错：那样服务端要验签就得把它重新序列化回字符串，
+	// 而两边不可能保证序列化一致。这里必须当场说清楚，而不是回一句「签名无效」让人去查私钥。
+	const nested = await raw(JSON.stringify({ publicKey: live.publicKey, signature: 'ed25519=x', payload: { ts: Math.floor(Date.now() / 1000), phone: '+8613800138000' } }));
+	assert.equal(nested.status, 400);
+	assert.match(nested.message, /payload 必须是一段 JSON 字符串/, 'payload 传成对象要当场点破，不能报成签名无效');
+
+	// 改 payload 里任何一个字符，签名都必须当场失效——包括原先没被签住的 nonce。
+	const tampered = makeTicket({ phone: '+8613800138000' });
+	const tamperedEnvelope = JSON.parse(tampered.rawBody);
+	tamperedEnvelope.payload = tamperedEnvelope.payload.replace('+8613800138000', '+8613800138001');
+	assert.match((await raw(JSON.stringify(tamperedEnvelope))).message, /签名无效/, '改了 payload 签名就必须失效');
+
+	const nonceTampered = JSON.parse(makeTicket().rawBody);
+	nonceTampered.payload = nonceTampered.payload.replace(/"nonce":"[^"]+"/, '"nonce":"someone-elses-nonce"');
+	assert.match((await raw(JSON.stringify(nonceTampered))).message, /签名无效/, 'nonce 现在也在签名范围内——老协议里它走请求头，一个字节都没被签');
+
+	// ts 和 nonce 都在 payload 里，缺一个都要说清楚缺的是哪个。
+	assert.match((await bind(makeTicket({ nonce: '' }))).message, /nonce/, 'nonce 为空要点名');
+	assert.match((await bind(makeTicket({}, { timestamp: Math.floor(Date.now() / 1000) - 3600 }))).message, /过期|相差/, '一小时前签的票据不能用');
 
 	const stranger = keypair();
 	assert.match((await bind(makeTicket({}, { publicKeyHeader: stranger.publicKey, privateKey: stranger.privateKey }))).message, /没有登记/, '没登记过的公钥，签名再正确也不认');
@@ -215,7 +250,7 @@ try {
 	assert.match((await bind(makeTicket({}, { publicKeyHeader: readOnly.publicKey, privateKey: readOnly.privateKey }))).message, /权限/, '没有 phone:bind 的接入方绑不了');
 	// **冒充的唯一形态**：声明别人的公钥。声明了就得拿别人的私钥来签，而私钥不出签发方的门。
 	assert.match((await bind(makeTicket({}, { privateKey: keypair().privateKey }))).message, /签名无效/, '声明的公钥与实际签名的私钥对不上要验不过');
-	assert.match((await bind(makeTicket({}, { publicKeyHeader: 'not-a-valid-key' }))).message, /X-Sms-Public-Key/);
+	assert.match((await bind(makeTicket({}, { publicKeyHeader: 'not-a-valid-key' }))).message, /publicKey/);
 
 	const expired = Math.floor(Date.now() / 1000) - 600;
 	assert.match((await bind(makeTicket({}, { timestamp: expired }))).message, /过期|生效/, '太旧的时间戳要拒——固定 60 秒容差，不再由调用方声明有效期');
