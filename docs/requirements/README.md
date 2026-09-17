@@ -23,6 +23,7 @@ v1.0 beta 发布前的数据库命名与结构审计、阻断项和交接顺序�
 | [sms-site-and-ed25519-binding](sms-site-and-ed25519-binding.md) | SMS 站点、数据模型、Ed25519 绑定协议与接收流程 |
 | [sms-generator-ed25519-auth](sms-generator-ed25519-auth.md) | Mac 生成器从预配凭证改用 Ed25519 签名 |
 | [sms-shortcut-generator](sms-shortcut-generator.md) | Mac Shortcut 生成器：令牌预生成、上传与入库 |
+| [log-center](log-center.md) | 日志中心：Loki 边界、多租户、源站凭据与查询页 |
 
 ## 写作约定
 
