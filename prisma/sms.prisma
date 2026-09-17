@@ -221,6 +221,14 @@ model sms_phones {
   number       String @db.VarChar(32)
   /// 用户可修改的设备名称。
   title        String @default("")
+  /// 快捷指令下载下来叫什么名字，接入方在票据里可选传入（协议字段名同为 `filename`）。
+  ///
+  /// **存在这一行上而不是每次现推**：下载地址不只在绑定那一刻签发——接入方发给客户的链接
+  /// 15 分钟过期后会再要一次，控制台也能再下一次。名字跟着"谁签的这条链接"变的话，同一次
+  /// 绑定会下出两个不同的文件名，而接入方很难解释这件事。
+  ///
+  /// 空串表示没指定，按接入方标题加号码后四位推导（见 modules/sms/binding.mts）。
+  filename     String @default("")
   status       SmsPhoneStatus @default(enabled)
   bound_at     BigInt @default(0)
   revoked_at   BigInt?

@@ -258,6 +258,46 @@ try {
 	assert.equal(afterRepeat.prepare("SELECT COUNT(*) AS n FROM sms_shortcut_tokens WHERE status = 'bound'").get().n, 1, '也不该再领一把令牌');
 	afterRepeat.close();
 
+	/**
+	 * ---- 下载文件名：接入方可以自己指定 ----
+	 *
+	 * 断言落在**存进库的那个值**上，而不是下载地址：这份测试没配对象存储，`download_url`
+	 * 恒为 null。而存库的那个值才是决定"以后每一次签发用什么名字"的东西——链接 15 分钟过期
+	 * 之后接入方会再要一次，控制台也能再下一次，名字得始终是同一个。
+	 */
+	const storedFilename = (key) => {
+		const db = new DatabaseSync(process.env.DEFAULT_DATABASE_FILE, { readOnly: true });
+		const row = db.prepare('SELECT filename FROM sms_phones WHERE key = ?').get(key);
+		db.close();
+		return row?.filename ?? null;
+	};
+
+	await bind(makeTicket({ phone: '+8613700137001', key: 'fn-plain', filename: '银行到账自动确认-8888.shortcut' }));
+	assert.equal(storedFilename('fn-plain'), '银行到账自动确认-8888.shortcut', '指定的文件名要原样存下来');
+
+	// 后缀强制补上：iOS 靠后缀决定用「快捷指令」打开，叫成别的名字用户点开只会看到乱码。
+	await bind(makeTicket({ phone: '+8613700137002', key: 'fn-noext', filename: '到账提醒' }));
+	assert.equal(storedFilename('fn-noext'), '到账提醒.shortcut');
+	await bind(makeTicket({ phone: '+8613700137003', key: 'fn-otherext', filename: '到账提醒.txt' }));
+	assert.equal(storedFilename('fn-otherext'), '到账提醒.txt.shortcut', '别的后缀不删，补上 .shortcut——删了就可能把名字改成他没要的样子');
+
+	// 目录分隔符要去掉：带路径的名字进到 Content-Disposition 里，各家客户端保存行为不一致。
+	await bind(makeTicket({ phone: '+8613700137004', key: 'fn-path', filename: '../../etc/passwd.shortcut' }));
+	assert.equal(storedFilename('fn-path'), '....etcpasswd.shortcut');
+
+	// 不传就是"没指定"，按接入方标题加号码后四位推导（见 binding.mts）。
+	await bind(makeTicket({ phone: '+8613700137005', key: 'fn-absent' }));
+	assert.equal(storedFilename('fn-absent'), '', '不传时不写入，留给推导');
+
+	/**
+	 * **同一个 key 后续不传 filename，不能把已存的名字抹掉。**
+	 *
+	 * 接入方第二次调用往往只是"再要一次下载地址"，请求体未必带齐。抹掉的话，客户手里那条
+	 * 链接的文件名会莫名其妙变回推导值，而接入方完全不知道自己做了这件事。
+	 */
+	await bind(makeTicket({ phone: '+8613700137001', key: 'fn-plain' }));
+	assert.equal(storedFilename('fn-plain'), '银行到账自动确认-8888.shortcut', '重复调用不带 filename 时要保留原值');
+
 	// ---- 号码归一：11 位裸号与 +86 形态是同一部手机 ----
 	const bare = await bind(makeTicket({ phone: '13800138000' }));
 	assert.equal(bare.data.already_bound, true, '裸 11 位要归一成 +86，否则同一个号会绑成两部手机、短信各进各的');

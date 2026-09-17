@@ -15,7 +15,7 @@ import { consumeTicketNonce, verifyBindingTicket } from '@server/modules/sms/tic
  * X-Sms-Nonce: <高熵随机串>
  * X-Sms-Signature: ed25519=<对 "timestamp.请求体原始字节" 的签名>
  *
- * {"phone":"+8613800138000","key":"order-8842","client_ref":"order-8842","title":"客户的机器"}
+ * {"phone":"+8613800138000","key":"order-8842","client_ref":"order-8842","title":"客户的机器","filename":"到账提醒-8000.shortcut"}
  * ```
  *
  * **签名放请求头，请求体是普通 JSON**——与推送方向（SMS → 接入方，见 push.mts）同一套
@@ -88,6 +88,7 @@ const handler: ApiHandler = async (c, next) => {
 		number,
 		title: verified.title.trim().slice(0, 64),
 		clientRef: normalizeClientRef(verified.clientRef),
+		filename: verified.filename,
 		key,
 		runWrite: (statement) => runSql(ownedDatabase, statement),
 	});

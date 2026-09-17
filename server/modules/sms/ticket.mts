@@ -48,6 +48,13 @@ export type TicketBody = {
 	client_ref?: string;
 	/** 给手机起的名字。 */
 	title?: string;
+	/**
+	 * 快捷指令下载下来叫什么名字，可选。
+	 *
+	 * 不传就按接入方标题加号码后四位推导。传了会**存在这一行上**，之后无论第几次要下载地址
+	 * 都是同一个名字；后缀强制 `.shortcut`，iOS 靠它决定用「快捷指令」打开。
+	 */
+	filename?: string;
 };
 
 /** 四个请求头，从 Hono 的 `c.req.header()` 原样取出即可，不做任何预处理。 */
@@ -69,6 +76,7 @@ export type TicketResult =
 		key: string;
 		clientRef: string;
 		title: string;
+		filename: string;
 	};
 
 /**
@@ -172,6 +180,7 @@ export const verifyBindingTicket = async (database: DatabaseAdapter, headers: Ti
 		key: String(body.key ?? '').trim(),
 		clientRef: String(body.client_ref ?? ''),
 		title: String(body.title ?? ''),
+		filename: String(body.filename ?? ''),
 	};
 };
 

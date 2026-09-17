@@ -57,6 +57,8 @@ type BindOptions = {
 	number: string;
 	title: string;
 	clientRef: string;
+	/** 快捷指令下载下来叫什么名字。空串表示没指定，按接入方标题加号码后四位推导。 */
+	filename?: string;
 	/**
 	 * **接入方自己指定这一行的 `key`，不传就照常自动生成雪花号。** 这张表是本项目里除
 	 * `global_sites` 外唯一允许调用方指定 `key` 的表（详见 prisma/sms.prisma 的注释）。
@@ -100,6 +102,31 @@ const claimToken = async (options: { database: DatabaseAdapter; ownerUid: string
 };
 
 /**
+ * 接入方指定的文件名，收拾干净再存。
+ *
+ * 目录分隔符要去掉：`../` 或 `a/b.shortcut` 进到 Content-Disposition 里，各家客户端保存时
+ * 的行为不一致，有的会当成路径。控制字符同理。HTTP 头那一层的转义（引号、反斜杠、换行）
+ * 由 S3 适配器统一做（见 providers/s3.mts 的 contentDisposition），这里不重复。
+ *
+ * **后缀强制 `.shortcut`**：iOS 靠后缀决定用「快捷指令」打开，叫成 `.txt` 的话用户拿到的是
+ * 一个点开只会显示乱码的文件——而他多半会以为是我们发错了东西。
+ */
+const SHORTCUT_EXTENSION = '.shortcut';
+export const normalizeShortcutFilename = (value: string | undefined) => {
+	const cleaned = String(value ?? '')
+		// eslint-disable-next-line no-control-regex
+		.replace(/[\u0000-\u001f\u007f]/g, '')
+		.replace(/[\\/]/g, '')
+		.replace(/\s+/g, ' ')
+		.trim();
+	if (!cleaned) return '';
+	const base = cleaned.toLowerCase().endsWith(SHORTCUT_EXTENSION) ? cleaned.slice(0, -SHORTCUT_EXTENSION.length) : cleaned;
+	// 截断按字符数，不按字节：中文名字按字节截会把一个字劈成半个，落到文件名里是个乱码方块。
+	const trimmed = base.trim().slice(0, 80).trim();
+	return trimmed ? `${trimmed}${SHORTCUT_EXTENSION}` : '';
+};
+
+/**
  * 取这部手机当前令牌的短期下载地址。
  *
  * 重复绑定要走这一条：接入方把链接发给客户、客户没点、15 分钟过了——这时唯一能救场的
@@ -122,11 +149,19 @@ const downloadUrlForPhone = async (context: BindContext, phoneId: string) => {
 	if (!artifact) return undefined;
 	const storage = await loadCloudStorageTargetByPurpose(context.globalDatabase, context.siteKey, 'sms-shortcut');
 	if (!storage) return undefined;
-	// 文件名要看得懂：对象键里是时间戳和随机后缀，发给客户之后他在「文件」里认不出是什么。
+	/**
+	 * 文件名要看得懂：对象键里是时间戳和随机后缀，发给客户之后他在「文件」里认不出是什么。
+	 *
+	 * 接入方指定过就用他指定的那个——存在行上，因此**这条链接无论第几次签发都是同一个名字**。
+	 * 没指定才推导：接入方标题加号码后四位。
+	 */
+	const chosen = (await firstSql<{ filename: string }>(database, sql({ database, subjectRoles: null }).select({
+		table: 'sms_phones', columns: { filename: 'filename' }, where: [{ column: 'id', value: phoneId }], limit: 1,
+	})))?.filename ?? '';
 	const clientTitle = context.clientId === '0' ? '' : (await firstSql<{ title: string }>(database, sql({ database, subjectRoles: null }).select({
 		table: 'sms_integration_clients', columns: { title: 'title' }, where: [{ column: 'id', value: context.clientId }], limit: 1,
 	})))?.title ?? '';
-	const filename = `${clientTitle || '短信转发'}-${context.number.slice(-4)}.shortcut`;
+	const filename = chosen || `${clientTitle || '短信转发'}-${context.number.slice(-4)}.shortcut`;
 	return await createCloudStorageAdapter(storage).createDownloadUrl(String(artifact.object_key), { filename }).catch(() => undefined);
 };
 
@@ -146,6 +181,9 @@ const downloadUrlForPhone = async (context: BindContext, phoneId: string) => {
  */
 const resumeExisting = async (options: BindOptions, context: BindContext, phoneId: string, status: string): Promise<BindOutcome> => {
 	const { database, ownerUid, number, title, clientRef } = options;
+	// 空串表示"这次没指定"，不覆盖已经存过的名字——同一个 key 后续调用不传 filename 时，
+	// 原来那个名字要留着，否则客户手里链接的文件名会莫名其妙变回推导值。
+	const filename = normalizeShortcutFilename(options.filename);
 	const mine = () => ownerScope('owner_uid', ownerUid);
 
 	if (status === 'revoked') {
@@ -155,7 +193,7 @@ const resumeExisting = async (options: BindOptions, context: BindContext, phoneI
 			[{ column: 'phone_id', value: phoneId }, { column: 'status', value: 'bound' }]) as never);
 		// 带着原状态做条件：两个请求同时重绑同一行，只有一个会真的把它改回来。
 		const revived = await options.runWrite(sql({ database }).update('sms_phones',
-			{ status: 'enabled', bound_at: Date.now(), number, revoked_at: null, ...(title ? { title } : {}) },
+			{ status: 'enabled', bound_at: Date.now(), number, revoked_at: null, ...(title ? { title } : {}), ...(filename ? { filename } : {}) },
 			[{ column: 'id', value: phoneId }, { column: 'status', value: 'revoked' }, mine()]) as never);
 		if (Number(revived?.meta?.changes ?? 0) === 0) return { ok: false, status: 409, message: '这一行刚被重新绑定，请刷新确认' };
 		if (!await claimToken(options, candidates, phoneId)) return { ok: false, status: 503, message: '刚好有别人同时在领取，请再试一次' };
@@ -166,10 +204,10 @@ const resumeExisting = async (options: BindOptions, context: BindContext, phoneI
 		const candidates = await poolCandidates(database);
 		if (!candidates.length) return { ok: false, status: 503, message: '原来的快捷指令已经失效，但令牌池空了，暂时换发不了。请联系管理员补充。' };
 		if (!await claimToken(options, candidates, phoneId)) return { ok: false, status: 503, message: '刚好有别人同时在领取，请再试一次' };
-		await options.runWrite(sql({ database }).update('sms_phones', { number, ...(title ? { title } : {}) }, [{ column: 'id', value: phoneId }, mine()]) as never);
+		await options.runWrite(sql({ database }).update('sms_phones', { number, ...(title ? { title } : {}), ...(filename ? { filename } : {}) }, [{ column: 'id', value: phoneId }, mine()]) as never);
 		return { ok: true, alreadyBound: true, reissued: true, number, phoneId, clientRef, downloadUrl: await downloadUrlForPhone(context, phoneId) };
 	}
-	await options.runWrite(sql({ database }).update('sms_phones', { number, ...(title ? { title } : {}) }, [{ column: 'id', value: phoneId }, mine()]) as never);
+	await options.runWrite(sql({ database }).update('sms_phones', { number, ...(title ? { title } : {}), ...(filename ? { filename } : {}) }, [{ column: 'id', value: phoneId }, mine()]) as never);
 	// 令牌还在：不新建关系，但**要把下载地址再给一次**——理由见 downloadUrlForPhone。
 	return { ok: true, alreadyBound: true, reissued: false, number, phoneId, clientRef, downloadUrl: await downloadUrlForPhone(context, phoneId) };
 };
@@ -183,6 +221,7 @@ const resumeExisting = async (options: BindOptions, context: BindContext, phoneI
  */
 const bindByKey = async (options: BindOptions, context: BindContext, key: string): Promise<BindOutcome> => {
 	const { database, ownerUid, clientId, number, title, clientRef } = options;
+	const filename = normalizeShortcutFilename(options.filename);
 	if (!KEY_PATTERN.test(key)) return { ok: false, status: 400, message: '标识格式不对：只能是英文字母、数字、下划线和连字符，最长 36 位' };
 
 	const lookup = () => firstSql<{ id: string; owner_uid: string | null; integration_client_id: string; status: string }>(database, sql({ database, subjectRoles: null }).select({
@@ -207,7 +246,7 @@ const bindByKey = async (options: BindOptions, context: BindContext, key: string
 	if (!candidates.length) return { ok: false, status: 503, message: '令牌池空了，暂时不能绑定新手机。请联系管理员补充。' };
 
 	try {
-		await options.runWrite(sql({ database }).insert('sms_phones', { key, number, title, status: 'enabled', bound_at: Date.now(), integration_client_id: clientId, client_ref: clientRef }));
+		await options.runWrite(sql({ database }).insert('sms_phones', { key, number, title, filename, status: 'enabled', bound_at: Date.now(), integration_client_id: clientId, client_ref: clientRef }));
 	} catch (error) {
 		if (!isUniqueViolation(error)) throw error;
 		// 竞态：两个请求同时用了同一个新 key。按同一套规则再判一次。
@@ -235,6 +274,7 @@ const bindByKey = async (options: BindOptions, context: BindContext, key: string
  */
 const bindByNumber = async (options: BindOptions, context: BindContext): Promise<BindOutcome> => {
 	const { database, ownerUid, clientId, number, title, clientRef } = options;
+	const filename = normalizeShortcutFilename(options.filename);
 	const mine = () => ownerScope('owner_uid', ownerUid);
 	const scope = [{ column: 'number', value: number }, { column: 'integration_client_id', value: clientId }, mine()];
 
@@ -246,7 +286,7 @@ const bindByNumber = async (options: BindOptions, context: BindContext): Promise
 	const candidates = await poolCandidates(database);
 	if (!candidates.length) return { ok: false, status: 503, message: '令牌池空了，暂时不能绑定新手机。请联系管理员补充。' };
 
-	await options.runWrite(sql({ database }).insert('sms_phones', { number, title, status: 'enabled', bound_at: Date.now(), integration_client_id: clientId, client_ref: clientRef }));
+	await options.runWrite(sql({ database }).insert('sms_phones', { number, title, filename, status: 'enabled', bound_at: Date.now(), integration_client_id: clientId, client_ref: clientRef }));
 	// 没有唯一索引兜底竞态：再查一次，取最新（大概率就是刚插的那条；同时插入时取哪一条
 	// 都行，反正对调用方来说「有一部这个号码的手机」这件事是成立的）。
 	const phone = await firstSql<{ id: string }>(database, sql({ database, subjectRoles: null }).select({
