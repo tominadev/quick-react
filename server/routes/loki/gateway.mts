@@ -158,7 +158,7 @@ export const createLokiGateway = (
 		const clientIp = getClientIp(c, options.trustedProxyRules) ?? '';
 
 		if (path === config.pushPath) {
-			if (c.req.method !== 'POST') return c.text('Method Not Allowed', 405);
+			// 先认证再判方法：没通过认证的客户端连「这个接口只收 POST」都不该知道。
 			const unauthorized = () => c.body('Unauthorized', 401, { 'WWW-Authenticate': 'Basic realm="loki"' });
 			const credentials = parseBasicAuth(c.req.header('authorization'));
 			if (!credentials) return unauthorized();
@@ -173,6 +173,7 @@ export const createLokiGateway = (
 			if (!source?.enabled || !equalsInConstantTime(await hashPushSecret(credentials.secret), source.pushSecretHash)) {
 				return unauthorized();
 			}
+			if (c.req.method !== 'POST') return c.text('Method Not Allowed', 405);
 			void sources.touch(database, source);
 			// 租户由凭据推出，不接受采集端自报：自报等于任何一台源站都能写进别的租户。
 			// 同名请求头一并覆盖掉，伪造的 X-Scope-OrgID 不会跟着转发出去。
