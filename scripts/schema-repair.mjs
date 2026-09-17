@@ -2,6 +2,7 @@ import { DatabaseSync } from 'node:sqlite';
 import { execFileSync } from 'node:child_process';
 import { mkdtemp, readdir, readFile, rm } from 'node:fs/promises';
 import { join, resolve } from 'node:path';
+import { listSiteSchemas } from './site-schemas.mjs';
 import { tmpdir } from 'node:os';
 
 const projectDirectory = resolve(import.meta.dirname, '..');
@@ -14,7 +15,7 @@ const yes = args.has('--yes');
 const fileArg = process.argv.find((value) => value.startsWith('--file='))?.slice(7);
 const groupsArg = process.argv.find((value) => value.startsWith('--groups='))?.slice(9);
 const databaseFile = resolve(fileArg || process.env.DEFAULT_DATABASE_FILE || 'database/default.sqlite');
-const groups = (groupsArg || 'global,base,passport,pve,sms').split(',').map((value) => value.trim()).filter(Boolean);
+const groups = (groupsArg || (await listSiteSchemas(projectDirectory)).join(',')).split(',').map((value) => value.trim()).filter(Boolean);
 if (dropExtra && !yes) throw new Error('删除多余字段必须同时传入 --yes；请先运行 schema:check 查看差异');
 
 const applyMigrations = async (database) => {

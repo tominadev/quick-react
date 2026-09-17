@@ -42,6 +42,8 @@ export const isSystemField = (name: string): name is SystemFieldName => (SYSTEM_
  * `test:naming` 也就不再要求它带 `(owner_tid, number, deleted_at)` 那条唯一索引。
  */
 export const NAME_COLUMNS: Record<string, string> = {
+	// 源站按采集端上报的 host 认人：它是主人配的、租户内唯一、删掉之后同一台机器该能再建。
+	loki_sources: 'host',
 };
 
 /** 这张表的名字列；没登记过的就是 `name`。 */

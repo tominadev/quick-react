@@ -144,13 +144,16 @@ const nodeApp = new Hono<AppEnv>();
  * 放在最前面——代理要的是原样转发，不该先过压缩、ETag 和静态文件那几层。
  * 没有配推送凭据时 loadLokiGatewayConfig 返回 undefined，这段就完全不装配。
  */
-const lokiGatewayConfig = loadLokiGatewayConfig({ ...Object.fromEntries(await readEnvFile(resolve(projectDirectory, '.env'))), ...env });
-if (lokiGatewayConfig) {
-	nodeApp.use('*', createLokiGateway(lokiGatewayConfig, {
-		resolveSiteKey: async (request) => (await staticSiteRouter.resolve(request))?.siteKey,
-		trustedProxyRules,
-	}));
-}
+nodeApp.use('*', createLokiGateway(loadLokiGatewayConfig({ ...Object.fromEntries(await readEnvFile(resolve(projectDirectory, '.env'))), ...env }), {
+	resolveSite: (request) => staticSiteRouter.resolve(request),
+	// 网关站点的数据库：源站凭据、推送落到哪个租户都从这里读。
+	resolveDatabase: async (site) => {
+		if (site.databaseTarget.kind === 'default') return defaultDatabase;
+		if (site.databaseTarget.kind !== 'dsn') throw new Error(`Node database target is not supported: ${site.databaseTarget.kind}`);
+		return resolveSiteDsn(site.databaseTarget.value);
+	},
+	trustedProxyRules,
+}));
 nodeApp.use('*', compress());
 nodeApp.use('*', etag());
 nodeApp.use('*', async (c, next) => {

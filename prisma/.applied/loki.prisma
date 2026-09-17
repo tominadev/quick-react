@@ -1,0 +1,41 @@
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+enum LokiEnabledStatus {
+  enabled
+  disabled
+}
+
+/// 源站（采集端）。一台装了 Alloy、往日志中心推日志的机器一条记录。
+///
+/// 凭据一源站一份：共用一个账号密码时，轮换一次要改所有源站，停用一台等于停用全部。
+model loki_sources {
+  id               BigInt @id @default(autoincrement())
+  key              String @db.VarChar(36)
+  @@unique([key])
+  created_at       BigInt @default(0)
+  updated_at       BigInt @default(0)
+  deleted_at       BigInt @default(0)
+  queued_at        BigInt @default(0)
+  created_duid     BigInt?
+  updated_duid     BigInt?
+  owner_tid        BigInt @default(1)
+  owner_bid        BigInt @default(1)
+  owner_uid        BigInt?
+  title            String
+  /// 采集端上报的 `host` 标签值，日志按它归到源站；租户内唯一，软删后同名可以再建。
+  host             String
+  @@unique([owner_tid, host, deleted_at])
+  /// 推送用户名。**全局唯一**而不是租户内唯一：网关先按它找到记录才知道属于哪个租户，
+  /// 查的时候还没有租户可用来限定范围。
+  /// 不带 `deleted_at`：凭据标识软删之后不该被另一台源站捡去用。
+  push_user        String
+  @@unique([push_user])
+  /// 推送密码的哈希。明文只在创建那一次返回，之后无法再取。
+  push_secret_hash String
+  status           LokiEnabledStatus @default(enabled)
+  /// 最后一次成功推送的时间；判断源站是否还活着，不做写入量统计——那些从 Loki 查。
+  last_seen_at     BigInt @default(0)
+}

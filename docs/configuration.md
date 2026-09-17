@@ -36,13 +36,13 @@ PHP 版本仅接受数字版本格式（例如 `8.2.12`），留空则不发送 
 推送接口校验 Basic 认证后转发给 Loki，Loki 的其余接口一律 403，其余路径交给 Grafana。
 域名绑定走站点管理，和别的站点一样。
 
-未配置 `LOKI_PUSH_USER` 和 `LOKI_PUSH_PASSWORD` 时整个网关不装配——Loki 自身没有任何认证，
-缺了这一层等于把一个可读可写可删的日志库直接挂到公网上。
+推送凭据不在环境变量里：每台源站在 `loki_sources` 表里有自己的一份，停用或轮换只影响那一台。
+没有启用中的源站记录时，任何推送都是 401。
+
+租户取源站记录的 `owner_tid`，由网关按凭据注入 `X-Scope-OrgID`；采集端自报的租户标识会被覆盖。
 
 | 环境变量 | 默认值 | 说明 |
 | --- | --- | --- |
-| `LOKI_PUSH_USER` | 未设置 | 推送接口的 Basic 认证用户名；与源站 Alloy 配置一致 |
-| `LOKI_PUSH_PASSWORD` | 未设置 | 推送接口的 Basic 认证密码 |
 | `LOKI_PUSH_PATH` | `/loki/api/v1/push` | 推送接口路径，必须与源站 Alloy 的 `url` 一致 |
 | `LOKI_ORIGIN` | `http://127.0.0.1:3100` | Loki 地址；Loki 只监听回环，不对外 |
 | `GRAFANA_ORIGIN` | `http://127.0.0.1:3000` | Grafana 地址；Grafana 只监听回环，不对外 |

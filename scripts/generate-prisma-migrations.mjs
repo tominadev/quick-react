@@ -22,6 +22,7 @@ const mapLimited = async (items, worker) => {
 };
 import { mkdir, mkdtemp, readdir, readFile, rm, writeFile } from 'node:fs/promises';
 import { join, resolve } from 'node:path';
+import { listSiteSchemas } from './site-schemas.mjs';
 import { tmpdir } from 'node:os';
 
 const projectDirectory = resolve(import.meta.dirname, '..');
@@ -41,7 +42,7 @@ const migrationName = (nameArgument ? nameArgument.slice('--name='.length) : 'sc
 const snapshotDirectory = resolve(projectDirectory, 'prisma', '.applied');
 const snapshotPath = (site) => join(snapshotDirectory, `${site}.prisma`);
 
-const sites = ['global', 'base', 'passport', 'pve', 'sms'];
+const sites = await listSiteSchemas(projectDirectory);
 const dialects = [
 	{ name: 'sqlite', provider: 'sqlite', url: 'file:./database/default.sqlite' },
 	{ name: 'mysql', provider: 'mysql', url: 'mysql://migration:secret@localhost/migration' },

@@ -5,10 +5,10 @@
  * 因此目录下没有 `api/` 和 `navigation.mts`——注册成代码站点只是为了能在站点管理里
  * 给它绑定域名（`global_site_hosts`），换域名不用改代码。
  *
- * 为什么需要这一层：Loki 在单租户模式下 `auth_enabled: false`，自身没有任何认证，
- * 谁连上谁就能写日志、读全部日志、调删除接口。它的设计前提就是前面有网关负责鉴权。
- * 所以这里做三件事：推送接口校验 Basic 认证、Loki 的其余接口一律拒绝、其余路径给 Grafana。
- * 大屏查询不走这条路——Grafana 在服务器内部直连 Loki，不经过公网。
+ * 为什么需要这一层：Loki 自身不做认证，它认的是 `X-Scope-OrgID` 说自己是哪个租户——
+ * 谁能连上它，谁就能指定任意租户写入和读取。它的设计前提就是前面有网关负责鉴权。
+ * 所以这里做三件事：推送接口按源站凭据认证并据此注入租户、Loki 的其余接口一律拒绝、
+ * 其余路径给 Grafana。大屏查询不走这条路——Grafana 在服务器内部直连 Loki，不经过公网。
  *
  * 只在 Node 运行时装配：Worker 运行时连不到 127.0.0.1 上的进程。
  */
@@ -16,6 +16,9 @@ import { timingSafeEqual } from 'node:crypto';
 import type { Context, Next } from 'hono';
 import { getClientIp } from '../../modules/base/client-ip.mjs';
 import type { AppEnv } from '../../modules/base/types.mjs';
+import type { DatabaseAdapter } from '../../database/index.mjs';
+import type { SiteRequestContext } from '../../modules/base/site-router.mjs';
+import { findSourceByPushUser, hashPushSecret, touchSource, type SourceCredential } from './sources.mjs';
 
 /** 站点键与本目录同名；域名绑到这个站点即启用网关。 */
 export const LOKI_SITE_KEY = 'loki';
@@ -25,8 +28,6 @@ export type LokiGatewayConfig = {
 	pushPath: string;
 	lokiOrigin: string;
 	grafanaOrigin: string;
-	pushUser: string;
-	pushPassword: string;
 };
 
 const DEFAULT_PUSH_PATH = '/loki/api/v1/push';
@@ -41,19 +42,12 @@ const HOP_BY_HOP_HEADERS = new Set([
 	'te', 'trailer', 'transfer-encoding', 'upgrade',
 ]);
 
-export const loadLokiGatewayConfig = (values: Record<string, string | undefined>): LokiGatewayConfig | undefined => {
+export const loadLokiGatewayConfig = (values: Record<string, string | undefined>): LokiGatewayConfig => {
 	const read = (key: string) => String(values[key] ?? '').trim();
-	const pushUser = read('LOKI_PUSH_USER');
-	const pushPassword = read('LOKI_PUSH_PASSWORD');
-	// 没配账号密码就不装配网关。宁可这个域名打不开，也不能把一个无鉴权、
-	// 可读可写可删的日志库直接转发到公网上。
-	if (!pushUser || !pushPassword) return undefined;
 	return {
 		pushPath: read('LOKI_PUSH_PATH') || DEFAULT_PUSH_PATH,
 		lokiOrigin: read('LOKI_ORIGIN') || DEFAULT_LOKI_ORIGIN,
 		grafanaOrigin: read('GRAFANA_ORIGIN') || DEFAULT_GRAFANA_ORIGIN,
-		pushUser,
-		pushPassword,
 	};
 };
 
@@ -64,17 +58,46 @@ const equalsInConstantTime = (left: string, right: string) => {
 	return leftBytes.length === rightBytes.length && timingSafeEqual(leftBytes, rightBytes);
 };
 
-const isAuthorized = (header: string | undefined, config: LokiGatewayConfig) => {
-	if (!header?.toLowerCase().startsWith('basic ')) return false;
+const parseBasicAuth = (header: string | undefined) => {
+	if (!header?.toLowerCase().startsWith('basic ')) return undefined;
 	let decoded: string;
 	try { decoded = Buffer.from(header.slice(6).trim(), 'base64').toString('utf8'); }
-	catch { return false; }
+	catch { return undefined; }
 	const separator = decoded.indexOf(':');
-	if (separator < 0) return false;
-	const user = equalsInConstantTime(decoded.slice(0, separator), config.pushUser);
-	const password = equalsInConstantTime(decoded.slice(separator + 1), config.pushPassword);
-	// 两个都算完再取与：先判用户名会让「用户名对不对」从耗时上被看出来。
-	return user && password;
+	if (separator < 0) return undefined;
+	return { user: decoded.slice(0, separator), secret: decoded.slice(separator + 1) };
+};
+
+/**
+ * 源站记录的短期缓存。每条推送都查一次库没必要——源站每秒都在推，而启用状态和密钥
+ * 很少变；命中未知用户名也缓存，否则拿随机用户名刷接口就是在刷数据库。
+ */
+const CREDENTIAL_CACHE_TTL_MS = 10_000;
+/** 最后活跃时间的写库间隔。这一列只用来判断源站是否还活着，不需要每次推送都更新。 */
+const LAST_SEEN_INTERVAL_MS = 60_000;
+
+const createSourceLookup = () => {
+	const cache = new Map<string, { expiresAt: number; source?: SourceCredential }>();
+	const lastSeenWrites = new Map<string, number>();
+	return {
+		async find(database: DatabaseAdapter, pushUser: string) {
+			const now = Date.now();
+			const cached = cache.get(pushUser);
+			if (cached && cached.expiresAt > now) return cached.source;
+			const source = await findSourceByPushUser(database, pushUser);
+			cache.set(pushUser, { expiresAt: now + CREDENTIAL_CACHE_TTL_MS, source });
+			// 缓存只按用户名增长，而用户名来自请求；清掉过期项，避免被随机用户名撑大。
+			if (cache.size > 1000) for (const [key, value] of cache) if (value.expiresAt <= now) cache.delete(key);
+			return source;
+		},
+		async touch(database: DatabaseAdapter, source: SourceCredential) {
+			const now = Date.now();
+			if ((lastSeenWrites.get(source.id) ?? 0) + LAST_SEEN_INTERVAL_MS > now) return;
+			lastSeenWrites.set(source.id, now);
+			await touchSource(database, source.id)
+				.catch((error) => console.error(`更新源站最后活跃时间失败：${error instanceof Error ? error.message : String(error)}`));
+		},
+	};
 };
 
 const forwardedHeaders = (c: Context<AppEnv>, extra: Record<string, string>) => {
@@ -120,29 +143,54 @@ const proxyTo = async (c: Context<AppEnv>, origin: string, headers: Headers) => 
  */
 export const createLokiGateway = (
 	config: LokiGatewayConfig,
-	options: { resolveSiteKey: (request: Request) => Promise<string | undefined>; trustedProxyRules: string[] },
-) => async (c: Context<AppEnv>, next: Next) => {
-	const siteKey = await options.resolveSiteKey(c.req.raw).catch(() => undefined);
-	if (siteKey !== LOKI_SITE_KEY) return next();
+	options: {
+		resolveSite: (request: Request) => Promise<SiteRequestContext | undefined>;
+		resolveDatabase: (site: SiteRequestContext) => Promise<DatabaseAdapter>;
+		trustedProxyRules: string[];
+	},
+) => {
+	const sources = createSourceLookup();
+	return async (c: Context<AppEnv>, next: Next) => {
+		const site = await options.resolveSite(c.req.raw).catch(() => undefined);
+		if (site?.siteKey !== LOKI_SITE_KEY) return next();
 
-	const path = new URL(c.req.url).pathname;
-	const clientIp = getClientIp(c, options.trustedProxyRules) ?? '';
+		const path = new URL(c.req.url).pathname;
+		const clientIp = getClientIp(c, options.trustedProxyRules) ?? '';
 
-	if (path === config.pushPath) {
-		if (c.req.method !== 'POST') return c.text('Method Not Allowed', 405);
-		if (!isAuthorized(c.req.header('authorization'), config)) {
-			return c.body('Unauthorized', 401, { 'WWW-Authenticate': 'Basic realm="loki"' });
+		if (path === config.pushPath) {
+			if (c.req.method !== 'POST') return c.text('Method Not Allowed', 405);
+			const unauthorized = () => c.body('Unauthorized', 401, { 'WWW-Authenticate': 'Basic realm="loki"' });
+			const credentials = parseBasicAuth(c.req.header('authorization'));
+			if (!credentials) return unauthorized();
+			const database = await options.resolveDatabase(site).catch(() => undefined);
+			if (!database) return c.text('Service Unavailable', 503);
+			const source = await sources.find(database, credentials.user).catch((error) => {
+				console.error(`查询源站凭据失败：${error instanceof Error ? error.message : String(error)}`);
+				return undefined;
+			});
+			// 用户名不存在和密码错误返回同一个 401：区分开等于提供一个账号探测接口。
+			// 停用的源站也一样——它不该能写入，也不必告诉对方原因。
+			if (!source?.enabled || !equalsInConstantTime(await hashPushSecret(credentials.secret), source.pushSecretHash)) {
+				return unauthorized();
+			}
+			void sources.touch(database, source);
+			// 租户由凭据推出，不接受采集端自报：自报等于任何一台源站都能写进别的租户。
+			// 同名请求头一并覆盖掉，伪造的 X-Scope-OrgID 不会跟着转发出去。
+			// 认证也在这一跳结束，不把凭据继续递给 Loki。
+			return proxyTo(c, config.lokiOrigin, forwardedHeaders(c, {
+				authorization: '',
+				'x-scope-orgid': source.tenantId,
+				'x-forwarded-for': clientIp,
+			}));
 		}
-		// 认证在这一跳就结束，不把凭据继续递给 Loki。
-		return proxyTo(c, config.lokiOrigin, forwardedHeaders(c, { authorization: '', 'x-forwarded-for': clientIp }));
-	}
 
-	// Loki 的其余接口（查询、标签、删除）不对外开放：源站只需要写入。
-	if (path === '/loki' || path.startsWith('/loki/')) return c.text('Forbidden', 403);
+		// Loki 的其余接口（查询、标签、删除）不对外开放：源站只需要写入。
+		if (path === '/loki' || path.startsWith('/loki/')) return c.text('Forbidden', 403);
 
-	return proxyTo(c, config.grafanaOrigin, forwardedHeaders(c, {
-		'x-forwarded-for': clientIp,
-		'x-real-ip': clientIp,
-		'x-forwarded-proto': new URL(c.req.url).protocol.replace(':', ''),
-	}));
+		return proxyTo(c, config.grafanaOrigin, forwardedHeaders(c, {
+			'x-forwarded-for': clientIp,
+			'x-real-ip': clientIp,
+			'x-forwarded-proto': new URL(c.req.url).protocol.replace(':', ''),
+		}));
+	};
 };
