@@ -286,9 +286,52 @@ try {
 	assert.equal(await verifyDelivered(matched.public_key, envelope.payload.replace('8848', '0000')), false, '改正文要验不过');
 	assert.equal(await verifyDelivered(matched.public_key, envelope.payload.replace(/"ts":\d+/, '"ts":1')), false, '改时间戳要验不过——它在 payload 里，被签名盖住了');
 
+
+	/**
+	 * ---- 「测试推送」按钮 ----
+	 *
+	 * 它和正常投递共用 `sendSignedPush`，因此测试通过就真的说明投递这条路是通的。
+	 * 两个要点：payload 里带 `action: "test"` 且**在签名范围内**（接收方可以据此短路），
+	 * 以及**把对方的响应体原样带回来**——正常投递只记状态码，排查时最缺的恰恰是这一句。
+	 */
+	const endpointId = (() => {
+		const db = new DatabaseSync(process.env.DEFAULT_DATABASE_FILE, { readOnly: true });
+		const row = db.prepare("SELECT id FROM sms_push_endpoints WHERE status = 'enabled' AND deleted_at = 0 ORDER BY id LIMIT 1").get();
+		db.close();
+		return row.id;
+	})();
+	const beforeTest = receiverRequests.length;
+	const deliveriesBefore = (() => {
+		const db = new DatabaseSync(process.env.DEFAULT_DATABASE_FILE, { readOnly: true });
+		const count = db.prepare('SELECT COUNT(*) AS n FROM sms_push_deliveries').get().n;
+		db.close();
+		return count;
+	})();
+	const tested = await app.request(`${endpointsPath}/${endpointId}?action=test`, { method: 'POST', headers: h });
+	assert.equal(tested.status, 200, '测试推送要成功——桩接收方回的是 200 ok');
+	const testedMessage = String((await tested.json()).feedback?.message ?? '');
+	assert.match(testedMessage, /HTTP 200/, '要把对方的状态码摆出来');
+	assert.match(testedMessage, /响应体：ok/, '要把对方的响应体原样带回来——只说"失败了"而不说对方回了什么，等于没说');
+
+	assert.equal(receiverRequests.length, beforeTest + 1, '接收方要真的收到一条');
+	const testPayload = JSON.parse(JSON.parse(receiverRequests.at(-1).body).payload);
+	assert.equal(testPayload.action, 'test', '接收方靠这个字段认出是测试，不做业务处理');
+	assert.ok(testPayload.delivery_id, '仍然带 delivery_id，形状与真实推送一致');
+
+	const deliveriesAfter = (() => {
+		const db = new DatabaseSync(process.env.DEFAULT_DATABASE_FILE, { readOnly: true });
+		const count = db.prepare('SELECT COUNT(*) AS n FROM sms_push_deliveries').get().n;
+		db.close();
+		return count;
+	})();
+	assert.equal(deliveriesAfter, deliveriesBefore, '测试是一次诊断，不该留下投递记录');
+
 	// ---- 成功之后不再重投，地址上记下最近成功 ----
+	// 按**增量**判断而不是写死总数：这中间还夹着一次手动的测试推送，写死的话每加一条
+	// 别的请求都要回来改这个数字，而改错了它就不再检查任何东西。
+	const beforeRedispatch = receiverRequests.length;
 	assert.deepEqual(await runMaintenanceAction('dispatch-sms-push', {}), { sent: 0, failed: 0 }, '成功的任务不该再发一次');
-	assert.equal(receiverRequests.length, 1);
+	assert.equal(receiverRequests.length, beforeRedispatch, '不该再发出任何请求');
 	const finished = new DatabaseSync(process.env.DEFAULT_DATABASE_FILE, { readOnly: true });
 	assert.equal(finished.prepare('SELECT status FROM sms_push_deliveries').get().status, 'succeeded');
 	assert.ok(Number(finished.prepare('SELECT last_success_at FROM sms_push_endpoints').get().last_success_at) > 0);

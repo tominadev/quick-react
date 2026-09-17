@@ -86,10 +86,27 @@ export const enqueuePushDeliveries = async (database: DatabaseAdapter, message: 
  * 让**浏览器**按 CORS 简单请求发出去，这边是服务端到服务端，没有预检这回事，而
  * `application/json` 能让接收方的框架直接把信封解析好。
  */
-const attemptDelivery = async (target: { url: string; message: Record<string, unknown>; privateKey: string; publicKey: string }) => {
+export type PushAttempt = {
+	/** 对方回了 2xx。 */
+	ok: boolean;
+	/** 对方的 HTTP 状态码；没连上就是 0。 */
+	status: number;
+	/** 对方的响应体，截断到 500 字节。**正常投递不保存它**，只有测试按钮会显示出来。 */
+	body: string;
+	/** 连不上、被出站校验挡下等等；对方回了响应就是空串。 */
+	error: string;
+};
+
+/**
+ * 按协议发一条推送出去，把对方的完整回应带回来。
+ *
+ * **测试按钮和正常投递共用这一个函数**：签名、信封、出站校验都在这里。各写一份的话，
+ * 测试通过不代表投递通过——而那种测试比没有测试更糟，它给的是假的安心。
+ */
+export const sendSignedPush = async (target: { url: string; message: Record<string, unknown>; privateKey: string; publicKey: string }): Promise<PushAttempt> => {
 	// **每次投递前重做出站校验**：DNS 记录可以在保存之后被改指到内网（§4.9.1）。
 	const blocked = await resolvedTargetError(target.url);
-	if (blocked) return blocked;
+	if (blocked) return { ok: false, status: 0, body: '', error: blocked };
 	/**
 	 * `ts` 在这里加，不在调用处：重试要重新签，时间戳得是**这一次**的，沿用上一次的话
 	 * 重试几轮之后就落在新鲜度窗口之外，接收方一律拒收。
@@ -107,13 +124,23 @@ const attemptDelivery = async (target: { url: string; message: Record<string, un
 			body: JSON.stringify({ publicKey: target.publicKey, signature: `ed25519=${signature}`, payload }),
 			signal: AbortSignal.timeout(10_000),
 		});
-		if (response.ok) return '';
-		// 只留状态码，不回显对方的响应体：那里面可能是它自己的错误页，几十 KB 存进
-		// last_error 既没用又占地方。
-		return `目标返回 ${response.status}`;
+		const text = await response.text().catch(() => '');
+		return { ok: response.ok, status: response.status, body: text.slice(0, 500), error: '' };
 	} catch (error) {
-		return error instanceof Error ? `请求失败：${error.message}`.slice(0, 200) : '请求失败';
+		return { ok: false, status: 0, body: '', error: error instanceof Error ? `请求失败：${error.message}`.slice(0, 200) : '请求失败' };
 	}
+};
+
+/**
+ * 一次投递的结果：成功就是空串，失败是一句人能看懂的原因。
+ *
+ * **只留状态码，不回显对方的响应体**：那里面可能是它自己的错误页，几十 KB 存进 last_error
+ * 既没用又占地方。要看响应体请用推送地址页的「测试推送」按钮。
+ */
+const attemptDelivery = async (target: { url: string; message: Record<string, unknown>; privateKey: string; publicKey: string }) => {
+	const attempt = await sendSignedPush(target);
+	if (attempt.ok) return '';
+	return attempt.error || `目标返回 ${attempt.status}`;
 };
 
 /**

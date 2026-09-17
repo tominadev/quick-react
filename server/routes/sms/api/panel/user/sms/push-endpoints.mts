@@ -6,6 +6,8 @@ import { getChangedFields } from '@server/modules/base/changed-fields.mjs';
 import { tableSort } from '@server/modules/base/query-options.mjs';
 import { enabledDisabledOptions, statusValues } from '@shared/types/status.mjs';
 import { pushTargetError } from '@server/modules/sms/push-target.mjs';
+import { sendSignedPush } from '@server/modules/sms/push.mjs';
+import { loadSigningKey } from '@server/modules/sms/platform-key.mjs';
 import type { TableCrudDefinition } from '@server/modules/base/table-crud.mjs';
 
 /**
@@ -90,7 +92,7 @@ const handler: ApiHandler = async (c, next, params) => {
 			option: { rowKey: 'id', actions: {
 				query: [{ key: 'search', label: '搜索' }],
 				toolbar: [{ key: 'create', label: '新增' }, { key: 'delete', label: '删除' }],
-				row: [{ key: 'edit', label: '编辑' }, { key: 'delete', label: '删除' }],
+				row: [{ key: 'edit', label: '编辑' }, { key: 'test', label: '测试推送', confirm: '往这个地址真发一条测试推送（payload 里带 action=test，接收方应当据此短路、不做业务处理）。确认吗？' }, { key: 'delete', label: '删除' }],
 			} },
 			columns: columns.map((column) => column.dataIndex === 'phone_id' ? { ...column, options: phones }
 				: column.dataIndex === 'integration_client_id' ? { ...column, options: clients } : column),
@@ -98,6 +100,47 @@ const handler: ApiHandler = async (c, next, params) => {
 		} });
 	}
 
+	/**
+	 * 「测试推送」：往这个地址真发一条，把对方的回应原样显示出来。
+	 *
+	 * **不写投递记录、不占 delivery_id 的去重位**：它是一次诊断，不是一条短信。正常投递
+	 * 只把状态码记进 `last_error`（响应体可能是几十 KB 的错误页），而排查时最需要看的恰恰
+	 * 是对方说了什么——这个按钮补的就是那一块。
+	 *
+	 * payload 里带 `action: "test"`，**并且它在签名范围内**（整个 payload 都被签），因此接收方
+	 * 可以放心据此短路：认出是测试就直接回 200，不要入库、不要确认订单、不要发通知。
+	 */
+	if (params.id && c.req.method === 'POST' && c.req.query('action') === 'test') {
+		const row = await firstSql<{ id: string; url: string }>(database, sql({ database }).select({
+			table: 'sms_push_endpoints', columns: { id: { column: 'id', cast: 'text' }, url: 'url' },
+			where: [{ column: 'id', value: params.id }, mine('owner_uid')], limit: 1,
+		}));
+		if (!row) return apiMessage(c, 404, '推送地址不存在');
+		const signing = await loadSigningKey(database);
+		if (!signing) return apiMessage(c, 503, '还没有启用推送签名密钥：到「推送密钥」页生成一把，公布之后再点「启用签名」');
+		const attempt = await sendSignedPush({
+			url: String(row.url),
+			privateKey: String(signing.private_key),
+			publicKey: String(signing.public_key),
+			message: {
+				// 放在最前面：接收方解析出来第一眼就看得到，不必读完整个对象才知道这是测试。
+				action: 'test',
+				delivery_id: crypto.randomUUID(),
+				phone: '+8600000000000',
+				client_ref: null,
+				content: '【测试推送】来自短信平台的连通性自检，不是真实短信，请勿据此做任何业务处理',
+				sender: 'SELFTEST',
+				recipients: null,
+				received_at: Date.now(),
+			},
+		});
+		if (attempt.error) return apiMessage(c, 502, attempt.error);
+		const body = attempt.body ? `响应体：${attempt.body}` : '响应体为空';
+		// 2xx 才算通。把状态码和响应体都摆出来——「失败了」而不说对方回了什么，等于没说。
+		return apiMessage(c, attempt.ok ? 200 : 502,
+			`${attempt.ok ? '测试推送成功' : '测试推送被拒'}：目标返回 HTTP ${attempt.status}，${body}`,
+			{ component: 'modal', showIcon: true, title: attempt.ok ? '测试推送成功' : '测试推送失败' });
+	}
 	if (params.id && c.req.method === 'GET') {
 		const row = await firstSql<Record<string, unknown>>(database, sql({ database }).select({
 			table: 'sms_push_endpoints', alias: 'e', columns: listColumns, joins: listJoins, where: [{ column: 'e.id', value: params.id }, mine()],
