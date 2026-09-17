@@ -37,6 +37,12 @@ for (const file of (await readdir(resolve(projectDirectory, 'prisma'))).filter((
 		schema.set(model[1], new Set([...model[2].matchAll(/^\s{2}(\w+)\s+\S/gm)].map((match) => match[1])));
 	}
 }
+/**
+ * 迁移登记表由迁移器自己建，不进 prisma——它记录的是"哪些迁移跑过了"，而 prisma 管的是
+ * 业务结构。名字是对的，只是不在 schema 里，所以按存在处理。
+ */
+schema.set('global_schema_migrations', new Set(['migration_key', 'applied_at']));
+
 assert.ok(schema.size >= 20, `prisma 模型太少，扫描逻辑可能失效：${schema.size}`);
 /**
  * 所有模型上出现过的列名。**跨表引用的列自带表前缀**（`passport_user_id`、`base_user_id`），
