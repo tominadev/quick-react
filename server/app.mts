@@ -226,21 +226,58 @@ export const runMaintenanceAction = (action: string, input: Record<string, unkno
 
 const domain = systemConfig.domain || 'anan.cc';
 const port = Number(systemConfig.httpPort) || 8088;
+const IPV4_ANY = '0.0.0.0';
+const DUAL_STACK_ANY = '::';
+/**
+ * 默认绑 `::`，**一个套接字同时收 IPv6 和 IPv4**。
+ *
+ * Linux 的 `net.ipv6.bindv6only=0`（绝大多数发行版的默认）下，绑在 `::` 上的套接字也会
+ * 收到 IPv4 连接，对端地址显示成 `::ffff:a.b.c.d` 的映射形式。因此不需要开两个监听，
+ * 也就不会出现「两个监听抢同一个端口」那种只在某些内核配置下才复现的启动失败。
+ *
+ * 回落是必须的：有的环境把 IPv6 整个关了（`disable_ipv6=1`），或者把 `bindv6only` 设成 1
+ * ——前者绑不上，后者绑上了却收不到 IPv4。两种情况下宁可只服务 IPv4，也不能一个都不收。
+ * `HTTP_HOST` 可以显式钉死某一个地址，绕过这套判断。
+ */
+const listenHost = process.env.HTTP_HOST || DUAL_STACK_ANY;
+
+const serveOn = (hostname: string, extra: Record<string, unknown>) => new Promise<{ address: string; port: number }>((resolve, reject) => {
+	const server = serve({ fetch: app.fetch, port, hostname, ...extra }, (info) => resolve({ address: info.address, port: info.port }));
+	server.once('error', reject);
+});
+
 const listen = async () => {
+	let serverOptions: { key: Buffer; cert: Buffer } | undefined;
 	try {
 		const baseDir = join(homedir(), '.acme.sh', `${domain}_ecc`);
-		const serverOptions = {
+		serverOptions = {
 			key: await readFile(join(baseDir, `${domain}.key`)),
 			cert: await readFile(join(baseDir, 'fullchain.cer')),
 		};
-		serve({ fetch: app.fetch, port, hostname: '0.0.0.0', createServer: createSecureServer, serverOptions }, (info) => {
-			console.log(`HTTP/2 Listening on ${domain}:${info.port}`);
-		});
 	} catch {
-		serve({ fetch: app.fetch, port, hostname: '0.0.0.0' }, (info) => {
-			console.log(`HTTP/1 Listening on 127.0.0.1:${info.port}`);
-		});
+		// 证书不在就跑明文，这是本地开发和回源在前面做 TLS 时的常态，不是错误。
+		serverOptions = undefined;
 	}
+	const extra = serverOptions ? { createServer: createSecureServer, serverOptions } : {};
+	const protocol = serverOptions ? 'HTTP/2' : 'HTTP/1';
+	let bound: { address: string; port: number };
+	try {
+		bound = await serveOn(listenHost, extra);
+	} catch (error) {
+		if (listenHost === IPV4_ANY) throw error;
+		console.warn(`绑定 ${listenHost} 失败，回落到 ${IPV4_ANY}（这台机器多半关掉了 IPv6）：${error instanceof Error ? error.message : String(error)}`);
+		bound = await serveOn(IPV4_ANY, extra);
+	}
+	/**
+	 * 打**真实绑到的地址**。
+	 *
+	 * 这行原先无条件写死 `127.0.0.1`，而实际绑的是 `0.0.0.0`——排查外网访问不通时，
+	 * 日志里这个 127.0.0.1 会让人一口咬定是只绑了回环，往完全错的方向查很久。
+	 */
+	const scope = bound.address === DUAL_STACK_ANY ? '[::]（同时接受 IPv4）'
+		: bound.address === IPV4_ANY ? `${IPV4_ANY}（仅 IPv4）`
+			: bound.address;
+	console.log(`${protocol} Listening on ${scope}:${bound.port}${serverOptions ? ` for ${domain}` : ''}`);
 };
 
 /**
