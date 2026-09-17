@@ -29,7 +29,7 @@
 - Base 和 Passport 的设备表都属于可审计业务表，统一记录 `created_duid`、`updated_duid`；Passport 使用自己的 `passport_devices`、`passport_device_users` 管理 Accounts 设备，二者不得共用设备用户关联表。Passport 设备和 Base 设备分别只服务各自的身份与会话域，跨站点通过 `passport_user_id + passport_device_id` 的服务端关联对应；客户端 `fingerprint` 可能碰撞，只能作为分析证据，禁止作为设备唯一键或注销依据。
 - `passport_devices` 的全局拉黑只允许管理员或安全管理员执行；普通账号只能拉黑或解除自己在 `passport_device_users` 中的设备关系。退出登录只撤销会话，不能被实现为设备拉黑。
 - 所有业务表默认只查询 `deleted_at = 0` 的记录；回收站必须显式使用删除范围查询，不得让已删除记录混入正常业务。软删除、恢复和清理操作必须由公共数据层统一提供。
-- 业务唯一字段（例如 `session_token_hash`、`base_users.name`、外部平台账号标识和幂等键）必须使用 `UNIQUE` 约束或唯一索引，不得继续作为表主键；主键统一使用本表自增 `id`。
+- 业务唯一字段（例如 `base_sessions.token_hash`、`base_users.name`、外部平台账号标识和幂等键）必须使用 `UNIQUE` 约束或唯一索引，不得继续作为表主键；主键统一使用本表自增 `id`。
 - 租户内唯一的索引一律 **`owner_tid` 打头**（`@@unique([owner_tid, …, deleted_at])`）。可见性判定给几乎每次读取都追加 `owner_tid = ?`，因此"只按租户过滤"是常态：`owner_tid` 在前，这类查询能把索引当租户前缀用；业务列在前则完全用不上。精确查找两种顺序一样快（各列都是等值），差别只在部分谓词上。`ON CONFLICT` 按列集合匹配唯一约束、不看顺序，因此调整顺序不影响 `upsert` 与 `ignoreInsert`。
 - **后台表格列的先后必须与 prisma 模型的字段顺序一致。** 两处对照着看时不用来回找，加字段时也不必猜该插在哪。只比**相对次序**：不是每个字段都显示，也允许有计算列和来自关联表的列，它们一律跳过；计算列排在它所依据的那一列的位置上（审计页的 `summary` 之于 `changes`）。由 `npm run test:column-order` 守着，新增表格路由要在它的 `routeTables` 里登记对应的数据表，确实没有单一主表的（数据管理页、来自云厂商接口的对象列表）在 `exempt` 里写明理由。注意这条规则的直接后果：`created_at`、`updated_at` 在模型里排第 2、3 位，因此它们在表格里也会靠前，而不是习惯上的靠后。
 - **表格结构只有第一帧那一次机会。** 前端只从第一次响应（`include=schema,data`）里取 `option` 和 `columns`，之后改用 `include=data`，响应层会把 `option` 整个剥掉；而第一次请求必然不带那些服务端给了默认值的查询参数——默认值就在它即将收到的这份结构里。所以带 `defaultValue` 的查询字段要么声明 `reloadSchema: true`（结构确实随这个值变化），要么整个路由只写一份 `option` 供各分支共用（结构不随它变化）。把动作只写在"参数齐了"那一支里，按钮就永远不会出现，而界面上没有任何报错。由 `npm run test:table-schema-once` 守着。

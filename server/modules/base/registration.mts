@@ -7,7 +7,7 @@ import { firstSql, runSystemSql, sql, ownerScope } from '@server/database/sql.mj
  * 本站当前允许哪种注册。
  *
  * - `bootstrap`：还没有初始管理员，允许创建一次，并且创建出来的是平台管理员。
- *   由 `base_bootstraps.initial_admin` 这把一次性闩控制，与开关无关——否则关掉开关
+ *   由 `base_bootstraps` 里 `name = 'initial_admin'` 那一行充当一次性闩，与开关无关——否则关掉开关
  *   就再也没人能进后台了。
  * - `open`：站点设置里开了「允许用户注册」，任何人都能注册**普通用户**。
  * - `closed`：都不满足，注册入口整个不出现。

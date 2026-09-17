@@ -30,7 +30,7 @@ server/templates/   -> 动态首页响应
 
 `passport` 站点的请求会在站点本地会话之外额外加载 Accounts 会话：存在时把 `accounts` 角色加入 `effectiveRoles`，并把身份写入 `passportUser`。账户中心导航用 `roles: ['accounts']` 控制可见性，接口在 `server/routes/passport/api/panel.mts` 统一做会话守卫。业务站点不复制账号资料，个人中心只展示只读信息并链接到 Accounts 账户中心。
 
-Base 的 `base_session` 使用滑动过期策略：有效请求会把数据库 `expires_at` 和 Cookie 重新续期为 7 天，只有连续 7 天没有使用才失效；Passport 会话仍由 Passport 自己管理。
+Base 的 `base_sessions` 使用滑动过期策略：有效请求会把数据库 `expires_at` 和 Cookie 重新续期为 7 天，只有连续 7 天没有使用才失效；Passport 会话仍由 Passport 自己管理。
 
 ## 页面访问状态
 

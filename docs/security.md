@@ -28,4 +28,4 @@ Cloudflare 和负载均衡应负责：
 
 ## 登录与控制面
 
-密码以 JSON 凭据对象保存在 `base_users.password` 中，其中包含 PBKDF2-SHA256 加盐哈希和由 `D/U/L/S` 组成的字符模式（例如 `123@Abc` 为 `DDDSULL`）；模式可推导密码长度和各类字符数量，数据库中不保存明文。模式仅用于管理后台显示星号掩码与安全分析，不参与认证。登录态保存在带自增 `id` 的 `base_sessions` 中，Cookie 只保存随机原令牌，数据库只保存其 SHA-256 `token_hash`（唯一索引），即使数据库泄露也不能直接复用 Cookie。浏览器 Cookie 使用 `HttpOnly` 和 `SameSite=Lax`，HTTPS 请求还会添加 `Secure`。只有空用户表允许创建首个管理员。管理后台 API 在目录中间件中校验登录态和 `admin` 角色，菜单隐藏不作为授权依据。
+密码以 JSON 凭据对象保存在 `base_user_credentials.password` 中（一个账号一份当前凭证，`base_users` 上没有密码列），其中包含 PBKDF2-SHA256 加盐哈希和由 `D/U/L/S` 组成的字符模式（例如 `123@Abc` 为 `DDDSULL`）；模式可推导密码长度和各类字符数量，数据库中不保存明文。模式仅用于管理后台显示星号掩码与安全分析，不参与认证。登录态保存在带自增 `id` 的 `base_sessions` 中，Cookie 只保存随机原令牌，数据库只保存其 SHA-256 `token_hash`（唯一索引），即使数据库泄露也不能直接复用 Cookie。浏览器 Cookie 使用 `HttpOnly` 和 `SameSite=Lax`，HTTPS 请求还会添加 `Secure`。只有空用户表允许创建首个管理员。管理后台 API 在目录中间件中校验登录态和 `admin` 角色，菜单隐藏不作为授权依据。
