@@ -54,6 +54,7 @@
 		"test:change-audit": "node scripts/test-change-audit.mjs",
 		"import:legacy-passport": "node scripts/import-legacy-passport.mjs",
 		"cert:self-signed": "node scripts/generate-self-signed-cert.mjs",
+		"test:https-listener": "node scripts/test-https-listener.mjs",
 		"migrate:sqlite": "node scripts/migrate-sqlite.mjs",
 		"prisma:migrations": "node scripts/generate-prisma-migrations.mjs",
 		"schema:verify": "node scripts/verify-prisma-migrations.mjs",

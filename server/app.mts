@@ -19,6 +19,7 @@ import { allSql, runSql, sql } from './database/sql.mjs';
 import { initializeCodeSites, migrateDatabase, migrateDefaultDatabase, seedBaseDatabase } from './database/migrate.mjs';
 import { createDatabaseConfigStore, memoryConfigStore } from './modules/base/config-store.mjs';
 import { configureSystemConfig, loadSystemConfig } from './modules/base/system-config.mjs';
+import { secureServerOptions } from './modules/base/https-options.mjs';
 import { configureTechStack, loadTechStackConfig } from './modules/base/tech-stack.mjs';
 import type { WorkerBindings } from './worker.mjs';
 import type { AppEnv } from './modules/base/types.mjs';
@@ -306,7 +307,7 @@ const listen = async () => {
 		return;
 	}
 	try {
-		const secure = await bindPort(httpsPort, { createServer: createSecureServer, serverOptions: { key: certificate.key, cert: certificate.cert } });
+		const secure = await bindPort(httpsPort, { createServer: createSecureServer, serverOptions: secureServerOptions(certificate) });
 		console.log(`HTTP/2 Listening on ${describeAddress(secure.address)}:${secure.port}（证书来自${certificate.source}）`);
 	} catch (error) {
 		// HTTPS 起不来不能把明文也带走：那会把一个「443 不通」放大成「整站不通」。
