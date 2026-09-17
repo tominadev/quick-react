@@ -29,7 +29,8 @@ import { executeMaintenanceAction } from './modules/base/maintenance/actions.mjs
 import { purgeAuditRetention } from './modules/base/audit.mjs';
 import { dispatchPushDeliveries } from './modules/sms/push.mjs';
 import { primeSnowflake } from './modules/base/snowflake.mjs';
-import { readEnvValue, resolveWorkerId } from './modules/base/worker-id.mjs';
+import { readEnvFile, readEnvValue, resolveWorkerId } from './modules/base/worker-id.mjs';
+import { createLokiGateway, loadLokiGatewayConfig } from './routes/loki/gateway.mjs';
 
 const env = process.env;
 const skipStartupChecks = env.SKIP_STARTUP_CHECKS === '1';
@@ -110,8 +111,8 @@ const defaultConfigStore = skipStartupChecks ? memoryConfigStore : createDatabas
 configureSystemConfig({
 	store: defaultConfigStore,
 	defaults: {
-		httpPort: env.HTTP_PORT || '8088',
-		httpsPort: env.HTTPS_PORT || '',
+		httpPort: env.HTTP_PORT || '80',
+		httpsPort: env.HTTPS_PORT || '443',
 		domain: env.DOMAIN || 'anan.cc',
 		publicOrigin: env.PUBLIC_ORIGIN || '',
 		trustedProxyIps: env.TRUSTED_PROXY_IPS || '127.0.0.1,::1,::ffff:127.0.0.1,10.0.0.0/8,172.16.0.0/12,192.168.0.0/16',
@@ -138,6 +139,18 @@ const mapAllowedIps = new Set([
 const trustedProxyRules = systemConfig.trustedProxyIps.split(',').map((ip) => ip.trim()).filter(Boolean);
 
 const nodeApp = new Hono<AppEnv>();
+/**
+ * 日志中心网关：绑定到 loki 代码站点的域名整个交给它代理，其余域名不受影响。
+ * 放在最前面——代理要的是原样转发，不该先过压缩、ETag 和静态文件那几层。
+ * 没有配推送凭据时 loadLokiGatewayConfig 返回 undefined，这段就完全不装配。
+ */
+const lokiGatewayConfig = loadLokiGatewayConfig({ ...Object.fromEntries(await readEnvFile(resolve(projectDirectory, '.env'))), ...env });
+if (lokiGatewayConfig) {
+	nodeApp.use('*', createLokiGateway(lokiGatewayConfig, {
+		resolveSiteKey: async (request) => (await staticSiteRouter.resolve(request))?.siteKey,
+		trustedProxyRules,
+	}));
+}
 nodeApp.use('*', compress());
 nodeApp.use('*', etag());
 nodeApp.use('*', async (c, next) => {
@@ -227,8 +240,11 @@ export const app = nodeApp;
 export const runMaintenanceAction = (action: string, input: Record<string, unknown> = {}) => executeMaintenanceAction(defaultDatabase, action, input);
 
 const domain = systemConfig.domain || 'anan.cc';
-const httpPort = Number(systemConfig.httpPort) || 8088;
-/** 0 表示不开 HTTPS。开发机上默认就是不开：443 要特权端口，证书也未必有。 */
+const httpPort = Number(systemConfig.httpPort) || 80;
+/**
+ * 0 表示不开 HTTPS。默认 443：这个项目正常是自己直接对外服务，前面不放 Nginx。
+ * 开发机上没有证书、也没有特权端口时，用 HTTPS_PORT=0 关掉，或 HTTP_PORT 换个高位端口。
+ */
 const httpsPort = Number(systemConfig.httpsPort) || 0;
 const IPV4_ANY = '0.0.0.0';
 const DUAL_STACK_ANY = '::';

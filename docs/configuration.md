@@ -2,7 +2,8 @@
 
 | 环境变量 | 默认值 | 说明 |
 | --- | --- | --- |
-| `HTTP_PORT` | `8088` | HTTP/HTTPS 监听端口 |
+| `HTTP_PORT` | `80` | HTTP 监听端口 |
+| `HTTPS_PORT` | `443` | HTTPS 监听端口，`0` 表示不开 HTTPS |
 | `DOMAIN` | `anan.cc` | HTTPS 证书目录使用的域名 |
 | `PUBLIC_ORIGIN` | 未设置 | SEO canonical URL 的公共 origin，例如 `https://example.com` |
 | `TRUSTED_PROXY_IPS` | 常见内网 IPv4 网段 | 可信反向代理地址或网段，逗号分隔 |
@@ -28,3 +29,25 @@ node esbuild.cjs
 也可以在管理后台的“技术栈伪装”页面动态修改 Nginx 开关、PHP 版本号、API 路径后缀和页面路径后缀。站点配置保存在当前数据库的 `base_configs` 表中；后缀支持例如 `.php`、`.json`、`.html`，留空表示无后缀，修改后无需重新构建。
 
 PHP 版本仅接受数字版本格式（例如 `8.2.12`），留空则不发送 PHP 标识。`X-Powered-By: PHP/...` 只会出现在 `/api` 请求中，HTML 和 JS 静态资源不会添加该标识。
+
+## 日志中心网关（`loki` 站点）
+
+`loki` 是一个不提供页面和 API 的代码站点，只把绑定到它的域名代理给本机的 Loki 和 Grafana：
+推送接口校验 Basic 认证后转发给 Loki，Loki 的其余接口一律 403，其余路径交给 Grafana。
+域名绑定走站点管理，和别的站点一样。
+
+未配置 `LOKI_PUSH_USER` 和 `LOKI_PUSH_PASSWORD` 时整个网关不装配——Loki 自身没有任何认证，
+缺了这一层等于把一个可读可写可删的日志库直接挂到公网上。
+
+| 环境变量 | 默认值 | 说明 |
+| --- | --- | --- |
+| `LOKI_PUSH_USER` | 未设置 | 推送接口的 Basic 认证用户名；与源站 Alloy 配置一致 |
+| `LOKI_PUSH_PASSWORD` | 未设置 | 推送接口的 Basic 认证密码 |
+| `LOKI_PUSH_PATH` | `/loki/api/v1/push` | 推送接口路径，必须与源站 Alloy 的 `url` 一致 |
+| `LOKI_ORIGIN` | `http://127.0.0.1:3100` | Loki 地址；Loki 只监听回环，不对外 |
+| `GRAFANA_ORIGIN` | `http://127.0.0.1:3000` | Grafana 地址；Grafana 只监听回环，不对外 |
+
+大屏的查询不经过网关：Grafana 在服务器内部直连 Loki。因此外部只能写入，不能查询。
+
+WebSocket 不经过这条路径转发，Grafana 的实时推送（`/api/live/ws`）在这里用不了；
+大屏按固定间隔刷新，不依赖它。
