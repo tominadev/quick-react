@@ -16,6 +16,7 @@ const createFormPage = (): FormPageConfig => {
 		defaultValues: defaults,
 		fields: [
 			{ name: 'httpPort', label: 'HTTP 端口', type: 'text', extra: '修改后需要重启服务，例如 8088。', placeholder: '8088', maxLength: 5 },
+			{ name: 'httpsPort', label: 'HTTPS 端口', type: 'text', extra: '留空表示不开 HTTPS。开了但找不到证书会跳过并在日志里说明；自签证书用 npm run cert:self-signed 生成。', placeholder: '443', maxLength: 5 },
 			{ name: 'domain', label: '域名', type: 'text', extra: '用于 HTTPS 证书目录和服务域名。', placeholder: 'anan.cc', maxLength: 253 },
 			{ name: 'publicOrigin', label: '公共 Origin', type: 'text', extra: '用于 canonical URL，例如 https://example.com；可留空。', placeholder: 'https://example.com', maxLength: 512 },
 			{ name: 'trustedProxyIps', label: '可信代理 IP', type: 'text', extra: '逗号分隔；用于解析客户端真实 IP。', placeholder: '127.0.0.1,10.0.0.10', maxLength: 2048 },
@@ -29,7 +30,7 @@ export default settingsPageHandler({
 	key: 'system_config',
 	load: (c) => loadSystemConfigFromStore(c.get('configStore')),
 	formPage: () => createFormPage(),
-	parse: (c, body, current) => normalizeSystemConfig(mergeChangedFields(current, body, ['httpPort', 'domain', 'publicOrigin', 'trustedProxyIps', 'mapAllowedIps', 'debug'])),
+	parse: (c, body, current) => normalizeSystemConfig(mergeChangedFields(current, body, ['httpPort', 'httpsPort', 'domain', 'publicOrigin', 'trustedProxyIps', 'mapAllowedIps', 'debug'])),
 	apply: (c, config) => c.set('systemConfig', config),
 	saved: '系统配置已保存，重启服务后生效',
 });

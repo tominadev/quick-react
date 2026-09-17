@@ -110,6 +110,7 @@ configureSystemConfig({
 	store: defaultConfigStore,
 	defaults: {
 		httpPort: env.HTTP_PORT || '8088',
+		httpsPort: env.HTTPS_PORT || '',
 		domain: env.DOMAIN || 'anan.cc',
 		publicOrigin: env.PUBLIC_ORIGIN || '',
 		trustedProxyIps: env.TRUSTED_PROXY_IPS || '127.0.0.1,::1,::ffff:127.0.0.1,10.0.0.0/8,172.16.0.0/12,192.168.0.0/16',
@@ -225,7 +226,9 @@ export const app = nodeApp;
 export const runMaintenanceAction = (action: string, input: Record<string, unknown> = {}) => executeMaintenanceAction(defaultDatabase, action, input);
 
 const domain = systemConfig.domain || 'anan.cc';
-const port = Number(systemConfig.httpPort) || 8088;
+const httpPort = Number(systemConfig.httpPort) || 8088;
+/** 0 表示不开 HTTPS。开发机上默认就是不开：443 要特权端口，证书也未必有。 */
+const httpsPort = Number(systemConfig.httpsPort) || 0;
 const IPV4_ANY = '0.0.0.0';
 const DUAL_STACK_ANY = '::';
 /**
@@ -241,43 +244,74 @@ const DUAL_STACK_ANY = '::';
  */
 const listenHost = process.env.HTTP_HOST || DUAL_STACK_ANY;
 
-const serveOn = (hostname: string, extra: Record<string, unknown>) => new Promise<{ address: string; port: number }>((resolve, reject) => {
-	const server = serve({ fetch: app.fetch, port, hostname, ...extra }, (info) => resolve({ address: info.address, port: info.port }));
+const serveOn = (hostname: string, listenPort: number, extra: Record<string, unknown>) => new Promise<{ address: string; port: number }>((resolve, reject) => {
+	const server = serve({ fetch: app.fetch, port: listenPort, hostname, ...extra }, (info) => resolve({ address: info.address, port: info.port }));
 	server.once('error', reject);
 });
 
-const listen = async () => {
-	let serverOptions: { key: Buffer; cert: Buffer } | undefined;
-	try {
-		const baseDir = join(homedir(), '.acme.sh', `${domain}_ecc`);
-		serverOptions = {
-			key: await readFile(join(baseDir, `${domain}.key`)),
-			cert: await readFile(join(baseDir, 'fullchain.cer')),
-		};
-	} catch {
-		// 证书不在就跑明文，这是本地开发和回源在前面做 TLS 时的常态，不是错误。
-		serverOptions = undefined;
-	}
-	const extra = serverOptions ? { createServer: createSecureServer, serverOptions } : {};
-	const protocol = serverOptions ? 'HTTP/2' : 'HTTP/1';
-	let bound: { address: string; port: number };
-	try {
-		bound = await serveOn(listenHost, extra);
-	} catch (error) {
+/** 绑一个端口，带 IPv6 → IPv4 的回落。 */
+const bindPort = async (listenPort: number, extra: Record<string, unknown>) => {
+	try { return await serveOn(listenHost, listenPort, extra); }
+	catch (error) {
 		if (listenHost === IPV4_ANY) throw error;
-		console.warn(`绑定 ${listenHost} 失败，回落到 ${IPV4_ANY}（这台机器多半关掉了 IPv6）：${error instanceof Error ? error.message : String(error)}`);
-		bound = await serveOn(IPV4_ANY, extra);
+		console.warn(`绑定 ${listenHost}:${listenPort} 失败，回落到 ${IPV4_ANY}（这台机器多半关掉了 IPv6）：${error instanceof Error ? error.message : String(error)}`);
+		return serveOn(IPV4_ANY, listenPort, extra);
 	}
-	/**
-	 * 打**真实绑到的地址**。
-	 *
-	 * 这行原先无条件写死 `127.0.0.1`，而实际绑的是 `0.0.0.0`——排查外网访问不通时，
-	 * 日志里这个 127.0.0.1 会让人一口咬定是只绑了回环，往完全错的方向查很久。
-	 */
-	const scope = bound.address === DUAL_STACK_ANY ? '[::]（同时接受 IPv4）'
-		: bound.address === IPV4_ANY ? `${IPV4_ANY}（仅 IPv4）`
-			: bound.address;
-	console.log(`${protocol} Listening on ${scope}:${bound.port}${serverOptions ? ` for ${domain}` : ''}`);
+};
+
+/**
+ * 证书从哪来，按**显式优先**排：
+ *
+ * 1. `HTTPS_KEY_FILE` / `HTTPS_CERT_FILE` —— 运维明确指到哪就用哪，不再猜。
+ * 2. acme.sh 按域名签的那份（`~/.acme.sh/<域名>_ecc/`）——正常生产路径。
+ * 3. `certs/self-signed.{key,crt}` —— `npm run cert:self-signed` 生成的自签证书。
+ *
+ * 自签**只用来把 443 跑起来**：浏览器会红锁，回源的 CDN 也必须关掉源站证书校验。
+ * 它解决的是「443 上什么都没有」，不是「443 上有可信的东西」，两者别混。
+ */
+const readCertificate = async (): Promise<{ key: Buffer; cert: Buffer; source: string } | undefined> => {
+	const candidates: Array<{ key: string; cert: string; source: string }> = [];
+	if (env.HTTPS_KEY_FILE && env.HTTPS_CERT_FILE) candidates.push({ key: env.HTTPS_KEY_FILE, cert: env.HTTPS_CERT_FILE, source: 'HTTPS_KEY_FILE/HTTPS_CERT_FILE' });
+	const acmeDir = join(homedir(), '.acme.sh', `${domain}_ecc`);
+	candidates.push({ key: join(acmeDir, `${domain}.key`), cert: join(acmeDir, 'fullchain.cer'), source: `acme.sh（${domain}）` });
+	candidates.push({ key: resolve(projectDirectory, 'certs/self-signed.key'), cert: resolve(projectDirectory, 'certs/self-signed.crt'), source: '自签证书' });
+	for (const candidate of candidates) {
+		try { return { key: await readFile(candidate.key), cert: await readFile(candidate.cert), source: candidate.source }; }
+		catch { /* 这一份不在就试下一份；三份都没有才算没有证书。 */ }
+	}
+	return undefined;
+};
+
+const describeAddress = (address: string) => address === DUAL_STACK_ANY ? '[::]（同时接受 IPv4）'
+	: address === IPV4_ANY ? `${IPV4_ANY}（仅 IPv4）`
+		: address;
+
+/**
+ * **HTTP 与 HTTPS 是两个端口，不再是「有证书就把那一个端口变成 HTTPS」。**
+ *
+ * 原先的写法是：证书读到了就在 `httpPort` 上跑 TLS，读不到就跑明文——于是同一个端口号
+ * 的协议取决于磁盘上有没有文件，而且永远只能二选一。要 80 和 443 同时服务就做不到。
+ * 现在 `httpPort` 恒为明文、`httpsPort` 恒为 TLS，各自独立；`httpsPort` 为 0 就是不开。
+ *
+ * 明文那一个先起：回源的 CDN 通常打明文，它挂了站点就整个不可达，而证书缺失只影响 443。
+ */
+const listen = async () => {
+	const plain = await bindPort(httpPort, {});
+	console.log(`HTTP/1 Listening on ${describeAddress(plain.address)}:${plain.port}`);
+	if (!httpsPort) return;
+	const certificate = await readCertificate();
+	if (!certificate) {
+		// 说清楚缺什么、怎么补：这条日志的读者正是那个以为 443 已经开了的人。
+		console.warn(`HTTPS 端口 ${httpsPort} 已配置，但没有找到证书，跳过 HTTPS。生成自签证书：npm run cert:self-signed`);
+		return;
+	}
+	try {
+		const secure = await bindPort(httpsPort, { createServer: createSecureServer, serverOptions: { key: certificate.key, cert: certificate.cert } });
+		console.log(`HTTP/2 Listening on ${describeAddress(secure.address)}:${secure.port}（证书来自${certificate.source}）`);
+	} catch (error) {
+		// HTTPS 起不来不能把明文也带走：那会把一个「443 不通」放大成「整站不通」。
+		console.error(`HTTPS 监听失败，明文端口不受影响：${error instanceof Error ? error.message : String(error)}`);
+	}
 };
 
 /**

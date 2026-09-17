@@ -2,6 +2,8 @@ import { memoryConfigStore, type ConfigStore } from './config-store.mjs';
 
 export type SystemConfig = {
 	httpPort: string;
+	/** HTTPS 端口。**空串表示不开 HTTPS**——开发机上没有证书，也绑不了 443。 */
+	httpsPort: string;
 	domain: string;
 	publicOrigin: string;
 	trustedProxyIps: string;
@@ -10,7 +12,7 @@ export type SystemConfig = {
 };
 
 let defaultConfig: SystemConfig = {
-	httpPort: '8088', domain: 'anan.cc', publicOrigin: '',
+	httpPort: '8088', httpsPort: '', domain: 'anan.cc', publicOrigin: '',
 	trustedProxyIps: '127.0.0.1,::1,::ffff:127.0.0.1,10.0.0.0/8,172.16.0.0/12,192.168.0.0/16',
 	mapAllowedIps: '127.0.0.1,::1,::ffff:127.0.0.1', debug: false,
 };
@@ -27,7 +29,7 @@ export const configureSystemConfig = (options: { store?: ConfigStore; defaults?:
 	store = nextStore;
 	configuredDefaults = nextDefaults;
 	defaultConfig = {
-		httpPort: '8088', domain: 'anan.cc', publicOrigin: '',
+		httpPort: '8088', httpsPort: '', domain: 'anan.cc', publicOrigin: '',
 		trustedProxyIps: '127.0.0.1,::1,::ffff:127.0.0.1,10.0.0.0/8,172.16.0.0/12,192.168.0.0/16',
 		mapAllowedIps: '127.0.0.1,::1,::ffff:127.0.0.1', debug: false,
 		...options.defaults,
@@ -43,6 +45,8 @@ export const normalizeSystemConfig = (value: unknown, defaults: SystemConfig = d
 	const source = value && typeof value === 'object' ? value as Record<string, unknown> : {};
 	return {
 		httpPort: typeof source.httpPort === 'string' && /^\d{1,5}$/.test(source.httpPort) ? source.httpPort : defaults.httpPort,
+		// 空串是合法值，意思是「不开 HTTPS」；只有写了别的非数字才回落到默认。
+		httpsPort: typeof source.httpsPort === 'string' && /^(\d{1,5})?$/.test(source.httpsPort) ? source.httpsPort : defaults.httpsPort,
 		domain: typeof source.domain === 'string' ? source.domain.trim().slice(0, 253) : defaults.domain,
 		publicOrigin: typeof source.publicOrigin === 'string' ? source.publicOrigin.trim().slice(0, 512) : defaults.publicOrigin,
 		trustedProxyIps: typeof source.trustedProxyIps === 'string' ? source.trustedProxyIps.trim().slice(0, 2048) : defaults.trustedProxyIps,
