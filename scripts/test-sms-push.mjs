@@ -220,27 +220,44 @@ try {
 	assert.deepEqual(await runMaintenanceAction('dispatch-sms-push', {}), { sent: 1, failed: 0 });
 	assert.equal(receiverRequests.length, 1, '接收方要收到一条');
 	const delivered = receiverRequests[0];
-	const payload = JSON.parse(delivered.body);
+	// 请求体是信封：三个字段，payload 是一段 JSON 字符串。与绑定方向完全对称。
+	const envelope = JSON.parse(delivered.body);
+	assert.deepEqual(Object.keys(envelope).sort(), ['payload', 'publicKey', 'signature'], '信封只有这三个字段');
+	assert.equal(typeof envelope.payload, 'string', 'payload 必须是字符串——接收方直接拿它验签，不必留住原始请求体');
+	// 不再发 kid，也不再有任何 X-Sms-* 请求头：来源靠信封里的 publicKey 核对。
+	assert.equal(delivered.headers['x-sms-key-id'], undefined);
+	assert.equal(delivered.headers['x-sms-signature'], undefined);
+	assert.equal(delivered.headers['x-sms-timestamp'], undefined);
+
+	const payload = JSON.parse(envelope.payload);
 	assert.equal(payload.content, '【测试】验证码 8848');
+	assert.ok(Number.isFinite(payload.ts), 'ts 在 payload 里，因此被签名覆盖');
+	assert.ok(payload.delivery_id, 'delivery_id 也在 payload 里，接收方按它去重');
 	// 号码不打码：接入方要按号码认出自己的客户，只给后四位的话，没传 client_ref 时他没有
 	// 别的办法把这条短信对回自己的记录。
 	assert.equal(payload.phone, '+8613800138000');
 	assert.equal(payload.client_ref, null, '这部手机绑定时没传 client_ref');
 	assert.ok(!delivered.body.includes('raw-token'), '推送里不得出现原始令牌');
 
-	// ---- 接收方按 /api/push-key 的公钥验签，走的就是这条路 ----
+	/**
+	 * ---- 接收方该怎么验：先核对公钥来源，再验签 ----
+	 *
+	 * **第一步不能省。** 信封里的 publicKey 是发送方自己填的，不比对 /api/push-key 公布的
+	 * 那几把，任何人都能拿自己的私钥签一条假推送、把公钥一并填进去，验签照样通过。
+	 */
 	const published = await (await app.request('http://sms.test/api/push-key.php')).json();
-	const matched = published.keys.find((item) => item.kid === delivered.headers['x-sms-key-id']);
-	assert.ok(matched, '推送头里的 kid 要能在公钥端点里找到——找不到接收方就无从验签');
+	const matched = published.keys.find((item) => item.public_key === envelope.publicKey);
+	assert.ok(matched, '信封里的 publicKey 必须能在公钥端点里找到——找不到就该当成伪造的丢掉');
 	const verifyDelivered = async (publicKeyBase64Url, signedInput) => {
 		const raw = Uint8Array.from(atob(publicKeyBase64Url.replaceAll('-', '+').replaceAll('_', '/')), (character) => character.charCodeAt(0));
 		const key = await crypto.subtle.importKey('raw', raw, { name: 'Ed25519' }, false, ['verify']);
-		const value = String(delivered.headers['x-sms-signature']).replace('ed25519=', '');
+		const value = String(envelope.signature).replace('ed25519=', '');
 		const bytes = Uint8Array.from(atob(value.replaceAll('-', '+').replaceAll('_', '/')), (character) => character.charCodeAt(0));
 		return crypto.subtle.verify({ name: 'Ed25519' }, key, bytes, new TextEncoder().encode(signedInput));
 	};
-	assert.equal(await verifyDelivered(matched.public_key, `${delivered.headers['x-sms-timestamp']}.${delivered.body}`), true, '接收方要验得过');
-	assert.equal(await verifyDelivered(matched.public_key, `${Number(delivered.headers['x-sms-timestamp']) + 1}.${delivered.body}`), false, '改时间戳要验不过，否则重放窗口形同虚设');
+	assert.equal(await verifyDelivered(matched.public_key, envelope.payload), true, '接收方要验得过');
+	assert.equal(await verifyDelivered(matched.public_key, envelope.payload.replace('8848', '0000')), false, '改正文要验不过');
+	assert.equal(await verifyDelivered(matched.public_key, envelope.payload.replace(/"ts":\d+/, '"ts":1')), false, '改时间戳要验不过——它在 payload 里，被签名盖住了');
 
 	// ---- 成功之后不再重投，地址上记下最近成功 ----
 	assert.deepEqual(await runMaintenanceAction('dispatch-sms-push', {}), { sent: 0, failed: 0 }, '成功的任务不该再发一次');

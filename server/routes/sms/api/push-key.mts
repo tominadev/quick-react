@@ -16,8 +16,11 @@ import { loadPublishedKeys } from '@server/modules/sms/platform-key.mjs';
  * 私钥与 `global_cloud_credentials.access_key_secret` 同一待遇——能盗库就能拿到，再加一层
  * 可解密的加密只是把钥匙和锁放进同一个抽屉。
  *
- * 公布的是 `active`（当前签名）加 `retiring`（刚换下来、还在观察期）。`kid` 由公钥算出，
- * 换了公钥它自动跟着变，接收方据此判断缓存的那把是不是还有效。
+ * 公布的是 `active`（当前签名）加 `retiring`（刚换下来、还在观察期）。
+ *
+ * **接收方按 `public_key` 比对，不按 `kid`。** 推送的信封里带的就是公钥本身，拿它在这份
+ * 名单里找，找得到才验签——找不到就该当成伪造的丢掉。`kid` 只是给人看的标签（由公钥算出），
+ * 不参与协议判定。
  */
 
 const handler: ApiHandler = async (c, next) => {
@@ -27,12 +30,12 @@ const handler: ApiHandler = async (c, next) => {
 	return apiResponse(c, 200, {
 		algorithm: 'Ed25519',
 		/**
-		 * 数组而不是单个：轮换期间有两把，接收方**按 kid 挑**，不要假设只有一把、
-		 * 也不要假设第一把就是签名用的那把。
+		 * 数组而不是单个：轮换期间有两把。接收方拿推送信封里的 `publicKey` 在这份名单里
+		 * 找，不要假设只有一把、也不要假设第一把就是签名用的那把。
 		 */
 		keys: keys.map((item) => ({ kid: item.kid, public_key: item.public_key, status: item.status })),
 		// 编码规则写进响应，省得接收方去翻文档：全系统一套（§10）。
-		encoding: { public_key: 'base64url', signature: 'base64url', signed_input: 'timestamp + "." + 原始请求体字节' },
+		encoding: { public_key: 'base64url', signature: 'base64url', signed_input: '信封里 payload 那段字符串的 UTF-8 字节' },
 	});
 };
 

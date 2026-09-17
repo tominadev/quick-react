@@ -68,25 +68,43 @@ export const enqueuePushDeliveries = async (database: DatabaseAdapter, message: 
 	return matched.length;
 };
 
-/** 一次投递的结果：成功、或者带一句人能看懂的失败原因。 */
-const attemptDelivery = async (target: { url: string; deliveryId: string; payload: string; privateKey: string; kid: string }) => {
+/**
+ * 一次投递的结果：成功、或者带一句人能看懂的失败原因。
+ *
+ * **请求体是一个信封：`{publicKey, signature, payload}`**，与绑定方向（接入方 → SMS）
+ * 完全对称——`payload` 是一段 JSON 字符串，签的就是这串字符的 UTF-8 字节。
+ *
+ * 这么做省掉了接收方最容易踩的那个坑：**他不再需要留住原始请求体**。框架把信封解析成对象，
+ * 里面的 `payload` 本来就是字符串，直接拿去验签即可；而旧方案签的是「时间戳 + 原始请求体」，
+ * 接收方必须在框架解析 JSON 之前先把 raw body 截下来——Express、Laravel 里都要额外配一道，
+ * 漏配的表现是「签名一直验不过」，查起来很费劲。
+ *
+ * **不再发 kid。** 接收方直接拿信封里的 `publicKey` 去比对 `/api/push-key` 公布的那几把，
+ * 命中才验签。这与绑定方向同一套：那边是 SMS 拿公钥反查身份，这边是接入方拿公钥核对来源。
+ *
+ * Content-Type 用 `application/json` 而不是绑定方向的 `text/plain`：那边用 text/plain 是为了
+ * 让**浏览器**按 CORS 简单请求发出去，这边是服务端到服务端，没有预检这回事，而
+ * `application/json` 能让接收方的框架直接把信封解析好。
+ */
+const attemptDelivery = async (target: { url: string; message: Record<string, unknown>; privateKey: string; publicKey: string }) => {
 	// **每次投递前重做出站校验**：DNS 记录可以在保存之后被改指到内网（§4.9.1）。
 	const blocked = await resolvedTargetError(target.url);
 	if (blocked) return blocked;
-	const timestamp = Math.floor(Date.now() / 1000);
-	const signature = await signWithPlatformKey(target.privateKey, `${timestamp}.${target.payload}`);
+	/**
+	 * `ts` 在这里加，不在调用处：重试要重新签，时间戳得是**这一次**的，沿用上一次的话
+	 * 重试几轮之后就落在新鲜度窗口之外，接收方一律拒收。
+	 *
+	 * 没有单独的 nonce——`delivery_id` 就是它，而且**重试时故意不变**：接收方按它去重，
+	 * 变了的话同一条短信会被当成好几条（§4.9.3）。这与绑定方向的 nonce 语义相反，那边是
+	 * 一次性的，这边要的恰恰是稳定。
+	 */
+	const payload = JSON.stringify({ ts: Math.floor(Date.now() / 1000), ...target.message });
+	const signature = await signWithPlatformKey(target.privateKey, payload);
 	try {
 		const response = await fetch(target.url, {
 			method: 'POST',
-			headers: {
-				'content-type': 'application/json',
-				'x-sms-timestamp': String(timestamp),
-				'x-sms-delivery-id': target.deliveryId,
-				// kid 也带上：轮换期间有两把公钥，接收方据此直接挑对，不必两把都试。
-				'x-sms-key-id': target.kid,
-				'x-sms-signature': `ed25519=${signature}`,
-			},
-			body: target.payload,
+			headers: { 'content-type': 'application/json' },
+			body: JSON.stringify({ publicKey: target.publicKey, signature: `ed25519=${signature}`, payload }),
 			signal: AbortSignal.timeout(10_000),
 		});
 		if (response.ok) return '';
@@ -141,7 +159,7 @@ export const dispatchPushDeliveries = async (database: DatabaseAdapter, limit = 
 			failed += 1;
 			continue;
 		}
-		const payload = JSON.stringify({
+		const message_fields = {
 			delivery_id: delivery.delivery_id,
 			// **完整号码，不再打码**：接入方要按号码认出自己的客户，只给后四位的话，他没有
 			// 别的办法把这条短信对回自己那边的记录（除非提前传了 client_ref）。这条链路本来
@@ -153,8 +171,8 @@ export const dispatchPushDeliveries = async (database: DatabaseAdapter, limit = 
 			sender: message.sender || null,
 			recipients: message.recipients || null,
 			received_at: Number(message.received_at ?? 0),
-		});
-		const error = await attemptDelivery({ url: String(endpoint.url), deliveryId: delivery.delivery_id, payload, privateKey: String(signing.private_key), kid: String(signing.kid) });
+		};
+		const error = await attemptDelivery({ url: String(endpoint.url), message: message_fields, privateKey: String(signing.private_key), publicKey: String(signing.public_key) });
 		const attempts = Number(delivery.attempts ?? 0) + 1;
 		if (!error) {
 			await runSql(database, builder.update('sms_push_deliveries', { status: 'succeeded', attempts, last_error: '' }, { id: delivery.id }));
