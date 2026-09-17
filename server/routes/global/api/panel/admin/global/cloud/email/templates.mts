@@ -110,7 +110,13 @@ const syncCloudTemplates = async (c: Context<AppEnv>, database: DatabaseAdapter,
 			const publication = await firstSql(database, sql({ database }).select({ table: 'global_cloud_email_template_publications', columns: { template_id: 'template_id' }, where: [{ column: 'template_id', value: local.template_id }, { column: 'cloud_credential_id', value: target.cloud_credential_id }, { column: 'region', value: target.region }] }));
 			if (publication) await runOperationSql(c, database, sql({ database }).update('global_cloud_email_template_publications', { provider_template_id: remote.providerTemplateId, content_hash: contentHash, status: remote.status }, { template_id: local.template_id, cloud_credential_id: target.cloud_credential_id, region: target.region }));
 			else await runOperationSql(c, database, sql({ database }).insert('global_cloud_email_template_publications', { template_id: local.template_id, cloud_credential_id: target.cloud_credential_id, region: target.region, provider_template_id: remote.providerTemplateId, content_hash: contentHash, status: remote.status }));
-		} catch (error) { failures.push(`${summary.name}：${error instanceof Error ? error.message : '同步失败'}`); }
+		} catch (error) {
+			// 逐条独立判定是为了「某个模板同步不了不连累其余」，但待审批不是某一条的失败，
+			// 是整次操作的控制流：吞掉它，这一轮的写入已经进了队列，循环却当作失败继续往下走，
+			// 后面那句「读回刚插入的行」还会因为行尚未生效而再抛一次。
+			if (error instanceof PendingApprovalError) throw error;
+			failures.push(`${summary.name}：${error instanceof Error ? error.message : '同步失败'}`);
+		}
 	}
 	return { imported, updated, total: remoteTemplates.length, failures };
 };
