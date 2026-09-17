@@ -163,6 +163,39 @@ try {
 	for (const name of ['content-type', 'x-sms-public-key', 'x-sms-timestamp', 'x-sms-nonce', 'x-sms-signature']) assert.match(allowedHeaders, new RegExp(name), `预检要放行 ${name}`);
 	// 带凭证的跨源请求一律不放行：放行了浏览器就会附带 cookie，而这条链的凭证只能是签名。
 	assert.equal(preflight.headers.get('access-control-allow-credentials'), null);
+	// 预检结果要肯让浏览器缓存：这几个头一年也不会变一次，而每次预检都是一个真实往返。
+	assert.equal(preflight.headers.get('access-control-max-age'), '86400');
+	// Allow-Headers 是照着请求回声的，因此这条响应随请求头而变；中间有缓存时不声明会串味。
+	assert.match(String(preflight.headers.get('vary')), /Origin/i, '预检要声明 Vary');
+
+	/**
+	 * **接入方多带一个头也要过。**
+	 *
+	 * 原先 Allow-Headers 是一份写死的白名单，只列了这条协议自己用的五个头。接入方的页面
+	 * 多带一个链路追踪的 traceparent、或者框架自动加的 x-requested-with，预检就过不了，
+	 * 而他在控制台看到的只是一句 CORS 错误，服务端日志里一片空白——最难查的那一类。
+	 */
+	const extraHeaderPreflight = await app.request('http://sms.test/api/client/phone-bind.php', {
+		method: 'OPTIONS',
+		headers: { origin: 'https://client.example.com', 'access-control-request-method': 'POST', 'access-control-request-headers': 'content-type, traceparent, x-requested-with' },
+	});
+	assert.equal(extraHeaderPreflight.status, 204);
+	assert.match(String(extraHeaderPreflight.headers.get('access-control-allow-headers')), /traceparent/, '接入方问什么头就放什么头');
+
+	/**
+	 * **用错方法要回确定性的 405，不是 500。**
+	 *
+	 * 叶子对非 POST 只是 `return next()`，而它后面已经没有处理者了——不在门口收口的话
+	 * 出来的是 500「API route did not return a response」。对接的人拿到 500 会去查我们的
+	 * 服务是不是挂了，而真相只是他用错了方法。
+	 */
+	for (const method of ['GET', 'PUT', 'DELETE']) {
+		const wrongMethod = await app.request('http://sms.test/api/client/phone-bind.php', { method, headers: { origin: 'https://client.example.com' } });
+		assert.equal(wrongMethod.status, 405, `${method} 要回 405，不能是内部异常`);
+		assert.match(String(wrongMethod.headers.get('allow')), /POST/, `${method} 的 405 要告诉对方该用什么方法`);
+		// 错误响应也得带 CORS 头，浏览器才读得到这句提示；不带的话对方只看得见一句 CORS 错误。
+		assert.equal(wrongMethod.headers.get('access-control-allow-origin'), '*', `${method} 的错误响应也要带 CORS 头`);
+	}
 
 	// ---- 失败规则（§7.2）：每一条都得回确定性错误，而不是内部异常 ----
 	// 用一个一次性会话测：会话层看到只带 cookie、不带设备头的请求会当成盗用，把会话吊销——
