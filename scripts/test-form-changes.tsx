@@ -1,5 +1,5 @@
 import assert from 'node:assert/strict';
-import { describeFormAdditions, describeFormChanges, readableFieldValue } from '@/components/panel/form-changes.js';
+import { describeFormAdditions, describeFormChanges, readableFieldValue } from '@clients/browser/form-changes.js';
 
 const fields = [
 	{ name: 'port', label: 'HTTP 端口' },

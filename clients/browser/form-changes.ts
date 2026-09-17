@@ -1,6 +1,15 @@
 import type { FormPageField } from '@shared/types/form-page.mjs';
 import { isSystemField } from '@shared/system-fields.mjs';
 
+/**
+ * 提交前摆给人看的那份「将要改什么」。
+ *
+ * 和 `table-crud.ts` 一样放在 `clients/browser`：这里没有任何渲染，只是把字段值念成
+ * 人话、把前后两份值比成几行文字。**确认框里念出来的内容属于变更审计的一部分**——
+ * 审批人事后读到的就是这几行，两套 UI 各写一遍的话，同一次改动在手机上和电脑上会被
+ * 描述成不同的样子，而那种漂移没有任何人会去核对。
+ */
+
 /** 值按人读的方式显示：开关说「开/关」，下拉说选项文案而不是它的值，空值说「空」。 */
 export const readableFieldValue = (field: FormPageField | undefined, value: unknown) => {
 	if (field?.type === 'switch' || typeof value === 'boolean') return value ? '开' : '关';

@@ -13,7 +13,7 @@ import { runAfterFeedback } from '@clients/browser/feedback.js';
 import { loginWithAccountsPopup } from '@clients/browser/passport.js';
 import { runApiNextAction } from '@clients/browser/response-action.js';
 import { isSystemField } from '@shared/system-fields.mjs';
-import { describeFormChanges } from './form-changes.js';
+import { describeFormChanges } from '@clients/browser/form-changes.js';
 import { WITHDRAW_ACTION } from '@shared/table-form.mjs';
 
 const renderTemplate = (template: string, values: Record<string, React.ReactNode>) => template

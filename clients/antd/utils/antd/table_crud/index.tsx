@@ -16,7 +16,7 @@ import { PlusOutlined, DeleteOutlined, SearchOutlined, UploadOutlined, DownloadO
 import { useDrawer } from '@/utils/antd/drawer.js';
 import dayjs from 'dayjs';
 import { mergeQueryValues, mergeSort, queryRequestValues, queryUrlValues, readTableUrlState, sortOrderFor, writeTableUrlState, type TableQueryValues } from '@clients/browser/table-url-state.js';
-import { describeFormAdditions, describeFormChanges } from '@/components/panel/form-changes.js';
+import { describeFormAdditions, describeFormChanges } from '@clients/browser/form-changes.js';
 import { PENDING_FIELD, PENDING_LOCK_FIELD } from '@shared/types/table.mjs';
 import { NullableInput } from '../nullable-input.js';
 import { actionVisibleForRow, formatBytes, pageTotal, responseHasSchema, rowConfirmText, tableRequestQuery, withoutControlFields } from '@clients/browser/table-crud.js';
