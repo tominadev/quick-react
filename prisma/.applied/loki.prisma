@@ -38,4 +38,51 @@ model loki_sources {
   status           LokiEnabledStatus @default(enabled)
   /// 最后一次成功推送的时间；判断源站是否还活着，不做写入量统计——那些从 Loki 查。
   last_seen_at     BigInt @default(0)
+  /// 当前身份令牌的哈希。每次心跳校验通过后立刻换发新的，同一时刻只有一台机器
+  /// 持有有效令牌——克隆机拿着作废的令牌来报到，这件事本身就是克隆的证据。
+  agent_token_hash String @default("")
+  /// 上一个令牌的哈希。心跳响应可能在路上丢，Agent 手里还留着旧令牌，
+  /// 它**自己知道没收到响应**，会带重试标记再来一次——这种给一次补发机会。
+  /// 克隆机则以为一切正常、不带重试标记，凭这一点把两者分开。
+  previous_token_hash String @default("")
+  /// 上一个令牌的一次性补发额度是否已用掉。用掉之后它再出现一律判克隆。
+  previous_retry_used Boolean @default(false)
+  token_rotated_at BigInt @default(0)
+  /// 判定为克隆时指向被克隆的那条记录，保留来源好追溯。
+  cloned_from_id   BigInt?
+  @@index([cloned_from_id])
+  /// 最近一次上报的机器指纹（machine-id、MAC、boot_id 等），JSON。
+  /// **只作展示和佐证，不参与判定**：容器里没有 DMI、云 instance-id 还指向宿主，
+  /// 靠它判身份会误伤；判定一律走令牌轮换。
+  fingerprint      String @default("")
+  /// 待人工确认的克隆事件：自动拆分之后置位，后台确认过再清掉。
+  clone_pending    Boolean @default(false)
+}
+
+/// 注册令牌：按租户/批次发放，不绑定机器。安装脚本拿它换取这台机器专属的推送凭据。
+/// 泄露了也只能注册出新机器，改不了已有机器的凭据。
+model loki_enroll_tokens {
+  id           BigInt @id @default(autoincrement())
+  key          String @db.VarChar(36)
+  @@unique([key])
+  created_at   BigInt @default(0)
+  updated_at   BigInt @default(0)
+  deleted_at   BigInt @default(0)
+  queued_at    BigInt @default(0)
+  created_duid BigInt?
+  updated_duid BigInt?
+  owner_tid    BigInt @default(1)
+  owner_bid    BigInt @default(1)
+  owner_uid    BigInt?
+  title        String
+  /// 令牌哈希。明文只在创建时显示一次。
+  token_hash   String
+  @@unique([token_hash])
+  status       LokiEnabledStatus @default(enabled)
+  /// 到期时间；0 表示不过期。
+  expires_at   BigInt @default(0)
+  /// 最多可注册多少台；0 表示不限。
+  max_uses     Int    @default(0)
+  used_count   Int    @default(0)
+  last_used_at BigInt @default(0)
 }
