@@ -2,7 +2,7 @@
 
 一个使用 React、Ant Design、esbuild 和 Hono 的轻量级全栈项目。
 
-前端和后端由同一个 `node esbuild.cjs` 进程构建并启动，默认监听 `8088` 端口。
+前端和后端由同一个 `node esbuild.cjs` 进程构建并启动，默认监听 `80` 端口（有证书时同时监听 `443`）。
 
 ## 快速开始
 
@@ -34,7 +34,7 @@ npm run typecheck
 浏览器访问：
 
 ```text
-http://127.0.0.1:8088/
+http://127.0.0.1/
 ```
 
 ## 文档

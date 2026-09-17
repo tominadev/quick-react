@@ -12,7 +12,7 @@ export type SystemConfig = {
 };
 
 let defaultConfig: SystemConfig = {
-	httpPort: '8088', httpsPort: '', domain: 'anan.cc', publicOrigin: '',
+	httpPort: '80', httpsPort: '443', domain: 'anan.cc', publicOrigin: '',
 	trustedProxyIps: '127.0.0.1,::1,::ffff:127.0.0.1,10.0.0.0/8,172.16.0.0/12,192.168.0.0/16',
 	mapAllowedIps: '127.0.0.1,::1,::ffff:127.0.0.1', debug: false,
 };
@@ -29,7 +29,7 @@ export const configureSystemConfig = (options: { store?: ConfigStore; defaults?:
 	store = nextStore;
 	configuredDefaults = nextDefaults;
 	defaultConfig = {
-		httpPort: '8088', httpsPort: '', domain: 'anan.cc', publicOrigin: '',
+		httpPort: '80', httpsPort: '443', domain: 'anan.cc', publicOrigin: '',
 		trustedProxyIps: '127.0.0.1,::1,::ffff:127.0.0.1,10.0.0.0/8,172.16.0.0/12,192.168.0.0/16',
 		mapAllowedIps: '127.0.0.1,::1,::ffff:127.0.0.1', debug: false,
 		...options.defaults,

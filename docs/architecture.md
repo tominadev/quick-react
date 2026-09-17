@@ -10,7 +10,7 @@ server/app.mts      -> dist/server.mjs
 server/templates/   -> 动态首页响应
 ```
 
-构建只生成上述产物，不启动 Node 服务，也不执行数据库初始化。执行 `npm start` 后才会加载 `dist/server.mjs`；Hono 在同一个 8088 端口提供页面、静态资源和 `/api/*` 接口。开发模式使用 `npm run dev`，会在监听构建完成后自动启动 Node 服务。
+构建只生成上述产物，不启动 Node 服务，也不执行数据库初始化。执行 `npm start` 后才会加载 `dist/server.mjs`；Hono 在同一个 80 端口提供页面、静态资源和 `/api/*` 接口。开发模式使用 `npm run dev`，会在监听构建完成后自动启动 Node 服务。
 
 数据库模型以 `prisma/*.prisma` 为唯一规范来源。`npm run prisma:migrations` 从这些 Schema 生成全部 SQLite、MySQL、PostgreSQL 和 D1 迁移，并在完成后自动校验；`npm run typecheck`、构建和 `schema:check` 也会强制执行同一校验。迁移文件缺失、增加或被手工修改时，命令直接失败，不允许运行时继续使用分叉的数据库结构。
 

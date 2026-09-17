@@ -15,7 +15,7 @@ const createFormPage = (): FormPageConfig => {
 		initialValues: defaults,
 		defaultValues: defaults,
 		fields: [
-			{ name: 'httpPort', label: 'HTTP 端口', type: 'text', extra: '修改后需要重启服务，例如 8088。', placeholder: '8088', maxLength: 5 },
+			{ name: 'httpPort', label: 'HTTP 端口', type: 'text', extra: '修改后需要重启服务，例如 80。', placeholder: '80', maxLength: 5 },
 			{ name: 'httpsPort', label: 'HTTPS 端口', type: 'text', extra: '留空表示不开 HTTPS。开了但找不到证书会跳过并在日志里说明；自签证书用 npm run cert:self-signed 生成。', placeholder: '443', maxLength: 5 },
 			{ name: 'domain', label: '域名', type: 'text', extra: '用于 HTTPS 证书目录和服务域名。', placeholder: 'anan.cc', maxLength: 253 },
 			{ name: 'publicOrigin', label: '公共 Origin', type: 'text', extra: '用于 canonical URL，例如 https://example.com；可留空。', placeholder: 'https://example.com', maxLength: 512 },

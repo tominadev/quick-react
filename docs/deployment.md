@@ -7,7 +7,7 @@ npm install
 node esbuild.cjs
 ```
 
-默认端口是 `8088`，也可以通过 `HTTP_PORT` 修改。
+默认端口是 `80`，读取到证书时同时监听 `443`；两者分别由 `HTTP_PORT` 和 `HTTPS_PORT` 修改，`HTTPS_PORT=0` 表示不开 HTTPS。绑定特权端口需要 root，或给 node 授予 `CAP_NET_BIND_SERVICE`。
 
 首次启动会创建 `database/default.sqlite`、执行 `global` 与 `base` migration，并初始化 `global` 控制面。打开 `/sign-up.html` 创建首个管理员，然后在控制面配置正式 Host。
 
