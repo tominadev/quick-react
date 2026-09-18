@@ -130,7 +130,8 @@ render(React.createElement(MemoryRouter, {}, React.createElement(AuthActions, {
 	commonApi, apiSuffix: '.php', pageSuffix: '.html',
 })));
 const user = userEvent.setup({ document: dom.window.document });
-await user.click(screen.getByRole('button', { name: /logout_user/ }));
+// 触发按钮显示的是昵称，没有昵称时退回用户名（见 AuthActions）。夹具里没设昵称。
+ await user.click(screen.getByRole('button', { name: /logoutuser/ }));
 await user.click(await screen.findByText('退出 Accounts'));
 await waitFor(() => assert.equal(logoutCalls, 1));
 assert.equal(logoutCalls, 1);

@@ -30,7 +30,14 @@ export default function AuthActions({ auth, commonApi, apiSuffix, pageSuffix }: 
 	if (!auth) return null;
 	const pageUrl = (path: string) => path === '/' ? path : path + pageSuffix;
 	const identity = auth.currentUser
-		? <Space size={6}><Avatar size="small" icon={<UserOutlined />} />{auth.currentUser.profile_nickname}</Space>
+		/**
+		 * 昵称为空就退回登录用的用户名。
+		 *
+		 * `base_user_profiles.nickname` 可空，而建号时不写它——所以从没设过昵称的账号
+		 * （多数账号）页头上只剩一个头像，看不出自己是谁、更看不出是不是登错了号。
+		 * 用户名是他登录时敲的那个，作为兜底最不会认错。
+		 */
+		? <Space size={6}><Avatar size="small" icon={<UserOutlined />} />{auth.currentUser.profile_nickname || auth.currentUser.user_name}</Space>
 		: null;
 	const execute = async (action: HeaderAction) => {
 		if (action.action === 'navigate') {
