@@ -1,5 +1,9 @@
 # Mac 生成器改用 Ed25519 签名认证
 
+- 提出日期：2026-09-18
+- 状态：未实施。生成器仍在用平台预配凭证，见 [shortcut-generator](shortcut-generator.md) §3。
+- 涉及范围：sms 站点：生成器的认证方式
+
 本文档只定义需求，**未完成的条目不得视为已实现**。落地之前，生成器仍在用平台预配凭证
 （见 [SMS Mac Shortcut 生成器需求开发文档](shortcut-generator.md) §3）。
 

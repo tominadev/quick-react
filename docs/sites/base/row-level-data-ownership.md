@@ -1,6 +1,8 @@
 # 数据行归属需求开发文档
 
-状态：已实施，2026-09-01。
+- 提出日期：2026-09-01
+- 状态：已实施，2026-09-01。
+- 涉及范围：base 站点：owner_uid 与受管写入；波及 global、passport
 
 本文档只覆盖 `owner_uid` 的**字段与写入逻辑**。基于归属的可见性判定、租户维度 `owner_tid` 与代用户操作拆分为后续需求，见 [data-visibility-and-delegated-access](data-visibility-and-delegated-access.md)。
 

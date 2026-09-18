@@ -28,64 +28,64 @@ docs/
 
 ## sites/base —— 公共后台能力
 
-| 文档 | 主题 |
-| --- | --- |
-| [backend-driven-ui-and-navigation](sites/base/backend-driven-ui-and-navigation.md) | 后端驱动页面、导航与表格表单协议 |
-| [row-level-data-ownership](sites/base/row-level-data-ownership.md) | 数据行归属字段与写入逻辑（owner_uid） |
-| [data-visibility-and-delegated-access](sites/base/data-visibility-and-delegated-access.md) | 租户与分站归属、可见性判定与代用户操作（owner_tid / owner_bid） |
-| [agent-tenants-and-management-views](sites/base/agent-tenants-and-management-views.md) | 代理用户关系、管理视图、受限代查与计费归集 |
-| [change-audit-and-revert](sites/base/change-audit-and-revert.md) | 变更留痕、撤回与审计保留期 |
-| [maintenance-toolbox](sites/base/maintenance-toolbox.md) | 维护工具箱、救援入口与配置恢复 |
+| 文档 | 主题 | 提出 |
+| --- | --- | --- |
+| [backend-driven-ui-and-navigation](sites/base/backend-driven-ui-and-navigation.md) | 后端驱动页面、导航与表格表单协议 | 2026-08-23 |
+| [row-level-data-ownership](sites/base/row-level-data-ownership.md) | 数据行归属字段与写入逻辑（owner_uid） | 2026-09-01 |
+| [data-visibility-and-delegated-access](sites/base/data-visibility-and-delegated-access.md) | 租户与分站归属、可见性判定与代用户操作（owner_tid / owner_bid） | 2026-09-04 |
+| [agent-tenants-and-management-views](sites/base/agent-tenants-and-management-views.md) | 代理用户关系、管理视图、受限代查与计费归集 | 2026-09-04 |
+| [change-audit-and-revert](sites/base/change-audit-and-revert.md) | 变更留痕、撤回与审计保留期 | 2026-09-04 |
+| [maintenance-toolbox](sites/base/maintenance-toolbox.md) | 维护工具箱、救援入口与配置恢复 | 2026-09-01 |
 
 ## sites/global —— 全局控制面
 
-| 文档 | 主题 |
-| --- | --- |
-| [site-database-routing-and-isolation](sites/global/site-database-routing-and-isolation.md) | 多站点路由、站点继承与数据库隔离 |
-| [cloud-capability-management](sites/global/cloud-capability-management.md) | 云凭据与云能力管理 |
-| [object-storage-management](sites/global/object-storage-management.md) | 对象存储桶、绑定与对象管理 |
+| 文档 | 主题 | 提出 |
+| --- | --- | --- |
+| [site-database-routing-and-isolation](sites/global/site-database-routing-and-isolation.md) | 多站点路由、站点继承与数据库隔离 | 2026-08-15 |
+| [cloud-capability-management](sites/global/cloud-capability-management.md) | 云凭据与云能力管理 | 2026-08-25 |
+| [object-storage-management](sites/global/object-storage-management.md) | 对象存储桶、绑定与对象管理 | 2026-08-25 |
 
 ## sites/passport —— 身份中心（对外叫 Accounts）
 
-| 文档 | 主题 |
-| --- | --- |
-| [telegram-integration](sites/passport/telegram-integration.md) | Passport 身份中心、Telegram 集成与 OIDC |
-| [account-center](sites/passport/account-center.md) | 用户名/密码补全、登录页与账户中心 |
-| [local-accounts](sites/passport/local-accounts.md) | 本站账号与 Accounts 并存：登录开关、自助改资料、撞名绑定与密码同步 |
+| 文档 | 主题 | 提出 |
+| --- | --- | --- |
+| [telegram-integration](sites/passport/telegram-integration.md) | Passport 身份中心、Telegram 集成与 OIDC | 2026-08-26 |
+| [account-center](sites/passport/account-center.md) | 用户名/密码补全、登录页与账户中心 | 2026-08-27 |
+| [local-accounts](sites/passport/local-accounts.md) | 本站账号与 Accounts 并存：登录开关、自助改资料、撞名绑定与密码同步 | 2026-09-04 |
 
 ## sites/sms —— 短信接收平台
 
-| 文档 | 主题 |
-| --- | --- |
-| [site-and-ed25519-binding](sites/sms/site-and-ed25519-binding.md) | SMS 站点、数据模型、Ed25519 绑定协议与接收流程 |
-| [shortcut-generator](sites/sms/shortcut-generator.md) | Mac Shortcut 生成器：令牌预生成、上传与入库 |
-| [generator-ed25519-auth](sites/sms/generator-ed25519-auth.md) | Mac 生成器从预配凭证改用 Ed25519 签名 |
-| [client-integration](sites/sms/client-integration.md) | **写给接入方**的对接指南（描述现状，可直接照着跑） |
+| 文档 | 主题 | 提出 |
+| --- | --- | --- |
+| [site-and-ed25519-binding](sites/sms/site-and-ed25519-binding.md) | SMS 站点、数据模型、Ed25519 绑定协议与接收流程 | 2026-09-04 |
+| [shortcut-generator](sites/sms/shortcut-generator.md) | Mac Shortcut 生成器：令牌预生成、上传与入库 | 2026-09-04 |
+| [generator-ed25519-auth](sites/sms/generator-ed25519-auth.md) | Mac 生成器从预配凭证改用 Ed25519 签名 | 2026-09-18 |
+| [client-integration](sites/sms/client-integration.md) | **写给接入方**的对接指南（描述现状，可直接照着跑） | — |
 
 ## sites/pve
 
-| 文档 | 主题 |
-| --- | --- |
-| [site](sites/pve/site.md) | PVE 站点 |
+| 文档 | 主题 | 提出 |
+| --- | --- | --- |
+| [site](sites/pve/site.md) | PVE 站点 | 2026-08-29 |
 
 ## sites/loki
 
-| 文档 | 主题 |
-| --- | --- |
-| [log-center](sites/loki/log-center.md) | 日志中心：Loki 边界、多租户、源站凭据与查询页 |
+| 文档 | 主题 | 提出 |
+| --- | --- | --- |
+| [log-center](sites/loki/log-center.md) | 日志中心：Loki 边界、多租户、源站凭据与查询页 | 2026-09-17 |
 
 ## conventions —— 跨全站的约定
 
-| 文档 | 主题 |
-| --- | --- |
-| [column-naming](conventions/column-naming.md) | 列命名约定：id / key / name / title |
-| [ai-agent-boundaries](conventions/ai-agent-boundaries.md) | AI agent 的称谓、身份与数据访问边界 |
+| 文档 | 主题 | 提出 |
+| --- | --- | --- |
+| [column-naming](conventions/column-naming.md) | 列命名约定：id / key / name / title | 2026-09-05 |
+| [ai-agent-boundaries](conventions/ai-agent-boundaries.md) | AI agent 的称谓、身份与数据访问边界 | 2026-08-28 |
 
 ## postmortems —— 事故复盘
 
-| 文档 | 主题 |
-| --- | --- |
-| [table-switch-stale-ui](postmortems/table-switch-stale-ui.md) | 数据管理切换表格时 UI 混合问题 |
+| 文档 | 主题 | 提出 |
+| --- | --- | --- |
+| [table-switch-stale-ui](postmortems/table-switch-stale-ui.md) | 数据管理切换表格时 UI 混合问题 | — |
 
 ## releases —— 发布资料
 
@@ -95,6 +95,20 @@ docs/
 ## 写作约定
 
 - 需求文档记录**已确认**的功能需求和对应的设计决策，实现完成后在文档里更新状态，不删除历史需求。
+- **每篇需求文档的标题下面紧跟一个头部块**，顺序固定，`上游需求` 没有就不写：
+
+  ```text
+  - 提出日期：2026-09-04
+  - 状态：已实施（2026-09-04）。留痕与回滚已落地；仍未做的见 §14。
+  - 涉及范围：base 站点；波及 global、passport、sms 的受管写入
+  - 上游需求：[data-visibility-and-delegated-access](../base/data-visibility-and-delegated-access.md)
+  ```
+
+  由 `npm run test:doc-schema-refs` 守着，缺字段就失败。
+
+  **`状态` 要能被推翻。** 写「已实施」就要能指出代码在哪；部分实施就写清哪几节没做；说不准的写
+  「**待逐条核对**」并附上已经知道的事实，不要填一个看起来完整的猜测——读的人分不出猜测和结论。
+  日期一律绝对日期。**文件名里不放日期**：这些是活文档，找它们靠主题；靠时间找的是 `postmortems/`。
 - 每个需求文档包含：背景、目标、详细规则、数据结构变更、验收标准。
 - 规则写成可验证的条目，避免"优化体验"这类无法验收的描述。
 - 相对时间一律写成绝对日期。

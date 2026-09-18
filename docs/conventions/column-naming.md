@@ -1,5 +1,9 @@
 # 列命名约定：id / key / name / title
 
+- 提出日期：2026-09-05
+- 状态：约定已确立，由 `npm run test:naming` 守着；该测试仍把 `key`、`queued_at` 当公共字段，见 [v1.0-beta 结构审计](../releases/v1.0-beta/database-schema-audit.md)。
+- 涉及范围：全部站点的数据表列名
+
 ## 为什么要定这条规矩
 
 `name` 一词在库里同时表示两样东西：`base_users.name` 是登录用户名（英文数字、唯一），

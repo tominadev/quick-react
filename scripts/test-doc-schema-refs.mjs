@@ -84,6 +84,22 @@ assert.deepEqual(unlisted, [], `以下文档没有登记是「描述现状」还
 const missing = [...CURRENT_STATE_DOCS, ...DESIGN_DOCS].filter((name) => !everyDoc.includes(name));
 assert.deepEqual(missing, [], `名单里的文档已经不存在了，挪走或删掉时要一起改：\n  ${missing.join('\n  ')}`);
 
+/**
+ * 需求文档的头部块必须齐全：提出日期 / 状态 / 涉及范围。
+ *
+ * 「状态」是这三项里唯一会骗人的：它一写就固定在那儿，而代码天天在变。这次重排时就发现
+ * `sms/shortcut-generator.md` 写着「未实施」，可服务端四个动作早就齐了。所以字段必须在、必须
+ * 在标题正下方一眼能看到——藏在正文里的状态没人会去更新。发布交接资料按版本归档，不适用。
+ */
+const missingHeader = [];
+for (const name of DESIGN_DOCS) {
+	if (name.startsWith('docs/releases/')) continue;
+	const head = (await readFile(resolve(projectDirectory, name), 'utf8')).split('\n').slice(0, 8).join('\n');
+	const absent = ['提出日期', '状态', '涉及范围'].filter((field) => !head.includes(`- ${field}：`));
+	if (absent.length) missingHeader.push(`${name}  缺 ${absent.join('、')}`);
+}
+assert.deepEqual(missingHeader, [], `以下需求文档的头部块不全（标题下面紧跟 - 提出日期 / - 状态 / - 涉及范围，写法见 docs/README.md）：\n  ${missingHeader.join('\n  ')}`);
+
 // ---- 要查的文件：描述现状的文档 + 全部代码注释 ----
 const targets = CURRENT_STATE_DOCS.map((name) => resolve(projectDirectory, name));
 for (const directory of ['server', 'clients', 'shared', 'scripts', 'tools']) {

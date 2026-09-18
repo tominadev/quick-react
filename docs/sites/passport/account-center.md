@@ -2,7 +2,7 @@
 
 - 提出日期：2026-08-27
 - 状态：已实现（2026-08-27）
-- 涉及范围：`base` 站点角色对照表、`passport` 站点
+- 涉及范围：passport 站点：账户中心；base 站点的角色对照表
 - 上游需求：[telegram-integration](telegram-integration.md)（本文档遵循其中的身份模型与表结构约定）
 
 ## 背景

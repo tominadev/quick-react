@@ -75,8 +75,20 @@ for (const file of files) {
 	const lineOf = (index) => source.slice(0, index).split('\n').length;
 
 	// ---- 1. Markdown 相对链接 ----
+	// 围栏代码块里的 `[]()` 不会渲染成链接，那是在展示写法（比如 docs/README.md 里的头部块
+	// 示例），检查它是定义上的误报。下面第 2 项的路径引用**照查不误**——代码块里的路径是
+	// 给人照着敲的，敲不出来才是真问题。
+	const fenced = new Set();
+	if (file.endsWith('.md')) {
+		let inside = false;
+		source.split('\n').forEach((line, index) => {
+			if (/^\s*```/.test(line)) { inside = !inside; fenced.add(index + 1); return; }
+			if (inside) fenced.add(index + 1);
+		});
+	}
 	if (file.endsWith('.md')) {
 		for (const match of source.matchAll(/\[[^\]\n]*\]\(([^)\s]+)\)/g)) {
+			if (fenced.has(lineOf(match.index))) continue;
 			const raw = match[1];
 			if (/^(https?:|mailto:|#|\/\/)/.test(raw)) continue;
 			const target = decodeURIComponent(raw.split('#')[0]);

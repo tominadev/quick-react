@@ -1,6 +1,8 @@
 # Passport 与 Telegram 集成需求
 
-状态：Telegram 核心功能、旧数据迁移工具和 Accounts OIDC Provider 已实现；Google、微信外部身份接入进行中
+- 提出日期：2026-08-26
+- 状态：Telegram 核心功能、旧数据迁移工具和 Accounts OIDC Provider 已实现；Google、微信外部身份接入进行中
+- 涉及范围：passport 站点：身份中心、Telegram、OIDC
 
 本文档定义统一身份中心、Telegram 机器人管理、Telegram webhook、业务站点身份引用以及旧项目数据迁移方案。
 

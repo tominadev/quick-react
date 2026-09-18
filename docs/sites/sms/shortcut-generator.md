@@ -1,6 +1,8 @@
 # SMS Mac Shortcut 生成器需求开发文档
 
-状态：已实现。服务端在 `server/routes/sms/api/platform/shortcut-tokens.mts`（`config` / `prepare-upload` / `commit` / `abort` 四个动作齐全），生成器在 [`tools/sms/shortcut-generator/`](../../../tools/sms/shortcut-generator/README.md)。仍未收口的两件写在那份 README 的「已知缺口」里：凭证还是平台铸造的口令（§3，按 [generator-ed25519-auth](generator-ed25519-auth.md) 改造），`token_sha256` 的取值口径要用一个已绑定设备的令牌做端到端短信测试才能确认。
+- 提出日期：2026-09-04
+- 状态：已实现。服务端在 `server/routes/sms/api/platform/shortcut-tokens.mts`（`config` / `prepare-upload` / `commit` / `abort` 四个动作齐全），生成器在 [`tools/sms/shortcut-generator/`](../../../tools/sms/shortcut-generator/README.md)。仍未收口的两件写在那份 README 的「已知缺口」里：凭证还是平台铸造的口令（§3，按 [generator-ed25519-auth](generator-ed25519-auth.md) 改造），`token_sha256` 的取值口径要用一个已绑定设备的令牌做端到端短信测试才能确认。
+- 涉及范围：sms 站点：令牌生成侧；生成器在 tools/sms/shortcut-generator/
 
 配套文档：[SMS 站点与 Ed25519 设备绑定](site-and-ed25519-binding.md) 定义站点、数据模型与绑定协议。本文只定义 Mac 生成器的行为；令牌领取、账号绑定、手机管理和对象下载都在那一份。两份文档共用绑定文档 §4 的数据模型与 §11 的无事务约束。
 
