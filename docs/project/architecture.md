@@ -8,7 +8,13 @@
 clients/antd/index.tsx      -> public/bundle.js
 server/app.mts      -> dist/server.mjs
 server/templates/   -> 动态首页响应
+docs/               -> public/docs/（静态文档站点，/docs 可读）
 ```
+
+文档站点由 `scripts/generate-docs-site.cjs` 在构建时把 `docs/**/*.md` 渲染成 HTML 写进 `public/`，
+**不进 `dist/worker.mjs`**：文档有 560KB，打进产物等于每个请求都背着它，而 `public/` 两侧本来就
+有人服务——Node 是 `serveStatic`，Worker 是 `wrangler.jsonc` 里的 `ASSETS` 绑定。渲染只在构建期
+做，运行时和前端 bundle 都不需要 markdown 解析器。由 `npm run test:docs-site` 守着。
 
 构建只生成上述产物，不启动 Node 服务，也不执行数据库初始化。执行 `npm start` 后才会加载 `dist/server.mjs`；Hono 在同一个 80 端口提供页面、静态资源和 `/api/*` 接口。开发模式使用 `npm run dev`，会在监听构建完成后自动启动 Node 服务。
 

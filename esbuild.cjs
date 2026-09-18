@@ -4,6 +4,7 @@ const { spawn, spawnSync } = require('node:child_process');
 const { pathToFileURL } = require('node:url');
 const esbuild = require('esbuild');
 const { generate: generateWorkerRegistryFile } = require('./scripts/generate-worker-registry.cjs');
+const { generate: generateDocsSite } = require('./scripts/generate-docs-site.cjs');
 const { createMaintenanceToolbox, createOutputGate } = require('./scripts/maintenance-toolbox.cjs');
 const { createMaintenanceActions } = require('./scripts/maintenance-actions.cjs');
 const { createPm2Service, PM2_INSTALL_COMMAND } = require('./scripts/maintenance-service-pm2.cjs');
@@ -186,6 +187,8 @@ const main = async () => {
 		toolbox.attach();
 	}
 	generateWorkerRegistryFile();
+	// 文档站点是静态资源，写进 public/ 由 serveStatic / ASSETS 服务，不进 worker 产物。
+	generateDocsSite();
 	/**
 	 * 每套前端一个产物。清单在 `shared/web-clients.mts`，域名按 `client_key` 选用哪一个——
 	 * 两处必须对得上，由 `test:web-clients` 守住：清单里有而这里没建，那个域名会去请求一个

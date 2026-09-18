@@ -1,4 +1,4 @@
-import { Hono, type Context } from 'hono';
+import { Hono, type Context, type MiddlewareHandler } from 'hono';
 import type { ContentfulStatusCode } from 'hono/utils/http-status';
 import { compress } from 'hono/compress';
 import { etag } from 'hono/etag';
@@ -420,6 +420,27 @@ app.get('/accounts/external/wechat*', (c, next) => {
 	const popup = c.req.query('popup') === '1';
 	return c.html(renderWechatQrPage(`/api/accounts/external/wechat${c.get('techStackConfig').apiSuffix || ''}`, `/accounts/sign${suffix}${popup ? '?popup=1' : ''}`, popup));
 });
+/**
+ * `/docs` 是构建期生成的静态文档站点（`scripts/generate-docs-site.cjs` 写进 `public/docs/`），
+ * 不走页面协议，也不进 worker 产物——文档有 560KB，塞进产物等于每个请求都背着它。
+ *
+ * **必须显式放行到 ASSETS。** `wrangler.jsonc` 里 `run_worker_first: true`，Worker 先看到每个
+ * 请求；而下面的 `app.get('*')` 只要请求带 `accept: text/html` 就交给 renderDocument 当应用页面
+ * 渲染——浏览器打开文档正好是这种请求，不拦的话看到的是站点 404 页。
+ *
+ * Node 侧走不到这里：`app.mts` 的 serveStatic 在转交 Worker 之前就把 `public/` 服务掉了，
+ * 目录请求由它自己解析成 `index.html`。所以没有 ASSETS 绑定时直接 next()，那只说明文件不存在。
+ */
+const serveDocsAsset: MiddlewareHandler<WorkerEnv> = (c, next) => {
+	if (!c.env.ASSETS) return next();
+	const path = c.req.path === '/docs' || c.req.path.endsWith('/')
+		? `${c.req.path.replace(/\/$/, '')}/index.html`
+		: c.req.path;
+	return c.env.ASSETS.fetch(new Request(new URL(path, c.req.url), c.req.raw));
+};
+app.get('/docs', serveDocsAsset);
+app.get('/docs/*', serveDocsAsset);
+
 app.get('/', renderDocument);
 app.get('/page/privacy.html', (c) => c.html(renderPrivacyHtml(c.get('site').title, c.get('siteSettings').contactEmail)));
 app.get('/page/terms.html', (c) => c.html(renderTermsHtml(c.get('site').title, c.get('siteSettings').contactEmail)));

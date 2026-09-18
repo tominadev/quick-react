@@ -36,3 +36,6 @@ tools/**/.shortcut-gen-state.json
 # 编出来的二进制写全路径，不用 tools/**/shortcut-generator：gitignore 的模式分不清文件和目录，
 # 那样写会连同名的工具目录一起忽略掉。
 tools/sms/shortcut-generator/shortcut-generator
+
+# 文档站点由 scripts/generate-docs-site.cjs 在构建时生成，源头是 docs/。
+public/docs/
