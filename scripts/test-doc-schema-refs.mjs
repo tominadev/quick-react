@@ -86,7 +86,7 @@ assert.deepEqual(missing, [], `名单里的文档已经不存在了，挪走或�
 
 // ---- 要查的文件：描述现状的文档 + 全部代码注释 ----
 const targets = CURRENT_STATE_DOCS.map((name) => resolve(projectDirectory, name));
-for (const directory of ['server', 'clients', 'shared', 'scripts']) {
+for (const directory of ['server', 'clients', 'shared', 'scripts', 'tools']) {
 	const full = resolve(projectDirectory, directory);
 	targets.push(...(await walk(full, ['node_modules', '.generated'])).filter((file) => /\.(mts|ts|tsx|mjs|cjs|md)$/.test(file)));
 }

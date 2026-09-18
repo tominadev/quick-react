@@ -26,3 +26,13 @@ public/passport.js.map
 
 # 自签证书：每台机器自己生成，不进版本库
 /certs/
+
+# tools/ 里的工具：配置、生成的源码、编译产物和运行状态都留在本机。
+# 带凭证编出来的二进制和 Embedded.swift 含明文密钥，尤其不能进版本库。
+tools/**/.env
+tools/**/Sources/Core/Embedded.swift
+tools/**/*.app/
+tools/**/.shortcut-gen-state.json
+# 编出来的二进制写全路径，不用 tools/**/shortcut-generator：gitignore 的模式分不清文件和目录，
+# 那样写会连同名的工具目录一起忽略掉。
+tools/sms/shortcut-generator/shortcut-generator
