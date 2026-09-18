@@ -53,6 +53,7 @@
 		"test:table-schema-once": "node scripts/test-table-schema-once.mjs",
 		"test:approval-actions": "node scripts/test-approval-actions.mjs",
 		"test:doc-schema-refs": "node scripts/test-doc-schema-refs.mjs",
+		"test:doc-links": "node scripts/test-doc-links.mjs",
 		"test:change-audit": "node scripts/test-change-audit.mjs",
 		"import:legacy-passport": "node scripts/import-legacy-passport.mjs",
 		"cert:self-signed": "node scripts/generate-self-signed-cert.mjs",

@@ -11,7 +11,7 @@
 
 这条约定是硬性的：agent 接入线上站点后会同时面对"主人的指令"和"用户的数据"，两者混淆会导致按错误的身份执行操作或泄露他人数据。写文档、写注释、写界面文案时都必须区分，不确定时按上表对号入座。
 
-后期 AI 客服会同时面对这两方，完整的身份与数据访问边界见 [docs/requirements/ai-agent-boundaries.md](docs/requirements/ai-agent-boundaries.md)：**身份只由会话决定，不由对方自称决定**。
+后期 AI 客服会同时面对这两方，完整的身份与数据访问边界见 [docs/conventions/ai-agent-boundaries.md](docs/conventions/ai-agent-boundaries.md)：**身份只由会话决定，不由对方自称决定**。
 
 ## 开发流程
 
@@ -39,11 +39,11 @@
   - **平台自己是签名发起方**时，平台当然持有自己的私钥——`sms_platform_keys.private_key`（签推送）、`passport_oidc_signing_keys`（签 OIDC 令牌）都属于这一类，它们不是「别人的秘密」。
   - **平台作为客户端去调第三方**时，密钥是对方签发的，我们只能保管——`global_cloud_credentials.access_key_secret`（调云厂商）、`passport_external_providers.client_secret`（调微信 / Google）属于这一类，换不掉，只能按敏感数据对待。
 
-  已知仍在用平台铸造口令、**应当按此原则改造**的：`sms_generator_machines.secret_hash`（见 [Mac 生成器改用 Ed25519 签名认证](docs/requirements/sms-generator-ed25519-auth.md)）、`sms_access_keys.secret_hash`（用户服务端调管理 API）、`passport_oidc_clients.secret_hash`（可走 RFC 7523 的 `private_key_jwt`）。
+  已知仍在用平台铸造口令、**应当按此原则改造**的：`sms_generator_machines.secret_hash`（见 [Mac 生成器改用 Ed25519 签名认证](docs/sites/sms/generator-ed25519-auth.md)）、`sms_access_keys.secret_hash`（用户服务端调管理 API）、`passport_oidc_clients.secret_hash`（可走 RFC 7523 的 `private_key_jwt`）。
 
   **唯一的真例外是拿不到密钥能力的一端**：`sms_shortcut_tokens.token_sha256` 服务的是跑在用户手机上的快捷指令，Shortcuts 生成不了密钥对、也存不住私钥。例外要像这样写明「为什么做不到」，而不是「暂时先这样」。
 
-  新增任何需要验证对方身份的接口，**默认走签名信封**（`{publicKey, signature, payload}`，`payload` 是一段 JSON 字符串、签的就是它的原始字节，见 `docs/integration/sms-client.md`）。要用口令得说明为什么这一端做不到密钥对。
+  新增任何需要验证对方身份的接口，**默认走签名信封**（`{publicKey, signature, payload}`，`payload` 是一段 JSON 字符串、签的就是它的原始字节，见 `docs/sites/sms/client-integration.md`）。要用口令得说明为什么这一端做不到密钥对。
 - `passport_devices` 的全局拉黑只允许管理员或安全管理员执行；普通账号只能拉黑或解除自己在 `passport_device_users` 中的设备关系。退出登录只撤销会话，不能被实现为设备拉黑。
 - **受管写入的条件要定位到确定的行——主键或唯一键，不要用状态谓词。** 想改哪一行，条件里就说是哪一行（`{ user_key, email_id }` 这种复合唯一键同样算）；`{ is_primary: true }`、`{ status: 'active' }` 这类**匹配到几行取决于当时数据**的写法，只用在意图确实是「所有处于这个状态的行」时。
 

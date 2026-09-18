@@ -159,7 +159,7 @@ const timestamped: Values = {
 4. `server/database/index.mts` 扩展 `DatabaseAdapter` 与 `DatabaseActors`，`withDatabaseActors` 增加 `ownerUidForTable`。
 5. `server/database/sql.mts` 增加 `ownerContext`/`ownerUidFor`，`insert` 自动填充。
 6. `server/worker.mts` 在既有 actors 绑定处一并绑定归属用户。
-7. `AGENTS.md`、`docs/architecture.md` 更新字段顺序与归属字段约定。
+7. `AGENTS.md`、`docs/project/architecture.md` 更新字段顺序与归属字段约定。
 8. `scripts/test-sql-builder.mjs` 覆盖归属填充与 `owner_uid` 可更新。
 
 此阶段没有任何查询行为变化：所有既有查询返回的行集与实施前一致。
@@ -175,7 +175,7 @@ const timestamped: Values = {
 | `server/database/migrate.mts` | `ensureMigrationTable` 补 `owner_uid` |
 | `scripts/schema-repair.mjs` | 同上 |
 | `server/worker.mts` | 绑定归属用户 |
-| `AGENTS.md`、`docs/architecture.md` | 字段顺序与归属字段约定 |
+| `AGENTS.md`、`docs/project/architecture.md` | 字段顺序与归属字段约定 |
 | `scripts/test-sql-builder.mjs` | 归属填充断言 |
 
 ## 8. 验收标准

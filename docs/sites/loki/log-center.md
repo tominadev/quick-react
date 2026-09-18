@@ -24,7 +24,7 @@ Loki 其余接口一律 403，其余路径转发给 Grafana。除这一层网关
 | 临时探索、复杂图表 | Grafana | 保留能力，但只对管理员开放 |
 
 **运行日志与业务审计日志分属两个系统，不得混用**：谁改了哪条数据属于业务审计，走关系库、
-带事务与归属字段（见 [change-audit-and-revert](change-audit-and-revert.md)）；Nginx、journal、
+带事务与归属字段（见 [change-audit-and-revert](../base/change-audit-and-revert.md)）；Nginx、journal、
 应用输出属于运行日志，走 Loki。两者的保留期、查询方式和权限判定都不同。
 
 ## 多租户
@@ -36,7 +36,7 @@ Loki 启用 `auth_enabled: true`，租户 ID 取本项目的 `owner_tid`（`base
   租户由服务端从凭据推出，**不接受采集端自报**——自报等于任何一台源站都能写进别的租户。
 - **查询**：由服务端按当前会话的租户注入 `X-Scope-OrgID`。前端不发送 LogQL，也不能指定租户。
 - **跨租户查询**：仅超级管理员可用，必须显式选择目标租户，并按代用户操作留痕
-  （见 [data-visibility-and-delegated-access](data-visibility-and-delegated-access.md)）。
+  （见 [data-visibility-and-delegated-access](../base/data-visibility-and-delegated-access.md)）。
 
 **这一项必须在接入源站之前完成。** 切换 `auth_enabled` 会改变 Loki 的存储路径布局，
 并要求所有源站的 Alloy 配置改动；接入几十台源站之后再切，要迁移数据并逐台改配置。

@@ -203,11 +203,11 @@ Passport 的 SSO 相关模型尤其需要重新确认：如果 beta 不实现 Di
 
 需要在结构改动完成后同步更新：
 
-- `docs/requirements/column-naming.md`：仍描述旧的 `id` 后紧跟 `key` 以及旧 `_key` 关系规则；
-- `docs/requirements/pve-site.md`：仍出现 `code`、`name`、`display_name`，而当前 PVE Schema 使用 `key`、`title`；
-- `docs/requirements/passport-and-telegram-integration.md` 及 Accounts 相关文档：仍有旧的用户键和身份关系表述；
-- `docs/requirements/row-level-data-ownership.md`、`data-visibility-and-delegated-access.md`：需要与 `owner_tid`/`owner_bid`/`owner_uid` 和 `created_duid`/`updated_duid` 的最终顺序、写入方保持一致；
-- `scripts/test-naming.mjs`：当前测试仍把 `key`、`queued_at` 当公共字段的一部分，因此即使测试通过，也不能证明新规范已落实；
+- `docs/conventions/column-naming.md`：仍描述旧的 `id` 后紧跟 `key` 以及旧 `_key` 关系规则；
+- `docs/sites/pve/site.md`：仍出现 `code`、`name`、`display_name`，而当前 PVE Schema 使用 `key`、`title`；
+- `docs/sites/passport/telegram-integration.md` 及 Accounts 相关文档：仍有旧的用户键和身份关系表述；
+- `docs/sites/base/row-level-data-ownership.md`、`data-visibility-and-delegated-access.md`：需要与 `owner_tid`/`owner_bid`/`owner_uid` 和 `created_duid`/`updated_duid` 的最终顺序、写入方保持一致；
+- `scripts/test-naming-convention.mjs`：当前测试仍把 `key`、`queued_at` 当公共字段的一部分，因此即使测试通过，也不能证明新规范已落实；
 - `scripts/test-column-order.mjs`：必须在 Prisma 字段顺序定稿后继续作为表格列顺序门禁。
 
 文档更新必须先完成命名决策，再同步 Schema、迁移、测试和后台列定义，不能先改其中一层再让其他层猜测。

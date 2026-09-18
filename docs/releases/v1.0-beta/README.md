@@ -18,8 +18,8 @@
 
 1. [database-schema-audit.md](database-schema-audit.md)：完整的表、字段、索引、唯一索引和发布检查结果。
 2. [AGENTS.md](../../../AGENTS.md)：项目当前生效的硬性命名、归属、迁移和后端驱动规则。
-3. [docs/architecture.md](../../architecture.md)：运行时、站点继承、数据库和 API 的架构约束。
-4. [docs/requirements/](../../requirements/README.md)：已经确认的业务需求；结构变更必须同步更新相关需求文档。
+3. [docs/project/architecture.md](../../project/architecture.md)：运行时、站点继承、数据库和 API 的架构约束。
+4. [docs/](../../README.md)：已经确认的业务需求（按站点分目录）；结构变更必须同步更新相关需求文档。
 
 ## Beta 发布前必须完成
 

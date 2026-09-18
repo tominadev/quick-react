@@ -2,7 +2,7 @@
 
 状态：需求已确认，未实施。
 
-配套文档：[SMS Mac Shortcut 生成器](sms-shortcut-generator.md) 定义令牌与 Shortcut 文件的生成侧；本文定义站点、数据模型、绑定协议与接收流程。两份文档共用 §4 的数据模型和 §11 的无事务约束。
+配套文档：[SMS Mac Shortcut 生成器](shortcut-generator.md) 定义令牌与 Shortcut 文件的生成侧；本文定义站点、数据模型、绑定协议与接收流程。两份文档共用 §4 的数据模型和 §11 的无事务约束。
 
 ## 0. 词汇约定
 
@@ -13,7 +13,7 @@
 | 手机 → SMS | **接收** | 接收接口 `/api/shortcut/message-receive`，字段 `received_at`、`message_id` |
 | SMS → 用户服务端 | **推送** | `sms_push_endpoints` |
 
-其余称谓遵循 [AGENTS.md](../../AGENTS.md)：本文中的"用户"一律指网站终端用户。
+其余称谓遵循 [AGENTS.md](../../../AGENTS.md)：本文中的"用户"一律指网站终端用户。
 
 ## 1. 背景
 
@@ -52,7 +52,7 @@ SMS 站点集中查看多部手机收到的短信，不负责发送。手机侧�
 ## 4. 数据模型
 
 所有表遵循项目统一的**十一个系统字段**，顺序固定、由公共层维护、业务 API 一律不提交（见
-[列命名约定](column-naming.md)）：
+[列命名约定](../../conventions/column-naming.md)）：
 
 ```
 id  key  created_at  updated_at  deleted_at  queued_at  created_duid  updated_duid
@@ -250,7 +250,7 @@ const owned = withDatabaseActors(database, { baseUserId: phone.owner_uid });
 await runSql(owned, sql({ database: owned }).ignoreInsert('sms_messages', ['phone_id', 'payload_hash'], { ... }));
 ```
 
-同一模式适用于 §6.2 的票据绑定路径。相关的通用问题见 [数据行归属需求](row-level-data-ownership.md) §9。
+同一模式适用于 §6.2 的票据绑定路径。相关的通用问题见 [数据行归属需求](../base/row-level-data-ownership.md) §9。
 
 列表默认只返回未删除记录。用户主动删除采用软删除，进入回收站。
 
@@ -462,7 +462,7 @@ SMS_PROVISIONING_KEY=<明文凭证，只展示一次>
 
 ## 5. 令牌的生成、入库与领取
 
-Shortcut 文件必须在 macOS 上生成和签名，因此**令牌只能由 Mac 生成器创建，管理端不能生成令牌**。管理端只能撤销、回收和重新分配已存在的令牌。生成器侧的完整流程见 [生成器文档](sms-shortcut-generator.md)。
+Shortcut 文件必须在 macOS 上生成和签名，因此**令牌只能由 Mac 生成器创建，管理端不能生成令牌**。管理端只能撤销、回收和重新分配已存在的令牌。生成器侧的完整流程见 [生成器文档](shortcut-generator.md)。
 
 生成器在每次运行开始时调用 `GET /api/sms/shortcut-tokens?action=config`（凭平台预配凭证认证），获取要写进 Shortcut 的短信接收接口完整地址。该地址由服务端按当前站点配置和 `siteConfig.apiSuffix` 拼出，**不下发给生成器保存**：它会被烤进文件并分发到用户手机，做成快照就会静默过期。服务端改动接收路径后无需重新下发 `.env`，下一批生成自动使用新地址。
 
@@ -486,7 +486,7 @@ WHERE id = ? AND status = 'available'
 
 影响行数为 0 表示令牌已被他人领取或状态不符，按失败处理。
 
-> 该语句由业务代码直接写 `owner_uid`。是否应改为公共层的归属变更操作，见 [数据行归属需求](row-level-data-ownership.md) §5.5，待主人确认。
+> 该语句由业务代码直接写 `owner_uid`。是否应改为公共层的归属变更操作，见 [数据行归属需求](../base/row-level-data-ownership.md) §5.5，待主人确认。
 
 ### 5.3 换绑（先撤旧、后绑新）
 
@@ -728,5 +728,5 @@ Content-Type: application/json
 
 ## 13. 待定事项
 
-- §5.2 领取令牌时由业务代码直接写 `owner_uid`，是否改为公共层的归属变更操作，见 [数据行归属需求](row-level-data-ownership.md) §5.5。
-- SMS 的行级隔离依赖 [数据可见性与代用户操作](data-visibility-and-delegated-access.md) 落地。在此之前 `owner_uid` 只是标记，短信与手机的隔离完全由路由层承担。
+- §5.2 领取令牌时由业务代码直接写 `owner_uid`，是否改为公共层的归属变更操作，见 [数据行归属需求](../base/row-level-data-ownership.md) §5.5。
+- SMS 的行级隔离依赖 [数据可见性与代用户操作](../base/data-visibility-and-delegated-access.md) 落地。在此之前 `owner_uid` 只是标记，短信与手机的隔离完全由路由层承担。

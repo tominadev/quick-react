@@ -109,13 +109,13 @@ global_cloud_object_storage_bindings
   updated_at
 ```
 
-**用途是绑定行上的一个字段，不是关联表。** `purpose` 支持 `uploads`、`avatars`、`attachments`、`backups`、`exports`、`sms-shortcut`（SMS 生成器上传 `.shortcut` 文件用，见 [SMS 站点与 Ed25519 绑定](sms-site-and-ed25519-binding.md) §5）。
+**用途是绑定行上的一个字段，不是关联表。** `purpose` 支持 `uploads`、`avatars`、`attachments`、`backups`、`exports`、`sms-shortcut`（SMS 生成器上传 `.shortcut` 文件用，见 [SMS 站点与 Ed25519 绑定](../sms/site-and-ed25519-binding.md) §5）。
 
 早先它是关联表（一个用途一行），本文也曾要求"不在绑定表中存储 JSON 或逗号分隔字符串"。放弃那个结构有三个理由，都在实际使用中发作过：
 
 - **勾四个用途会变成四条独立的审批申请，要批四次。** 而它在界面上就是一个多选框。
 - **用途没变时绑定行本身没有变化**，公共层的「待审批」标记挂不上去，提交完在列表上什么也看不出来——提交的人以为没保存成功。
-- 编辑时"先全删再全插"那一步是**物理删除**（`(binding_id, purpose)` 的唯一索引不带 `deleted_at`，软删之后同一个用途再也加不回来），它会把上一轮还在排队等审批的子表行一起删掉，留下指向空处的孤儿申请——批不了、撤不掉、也驳不回（见[变更审计](change-audit-and-revert.md) §7.2）。
+- 编辑时"先全删再全插"那一步是**物理删除**（`(binding_id, purpose)` 的唯一索引不带 `deleted_at`，软删之后同一个用途再也加不回来），它会把上一轮还在排队等审批的子表行一起删掉，留下指向空处的孤儿申请——批不了、撤不掉、也驳不回（见[变更审计](../base/change-audit-and-revert.md) §7.2）。
 
 收回字段之后，改一次绑定就是一条 `update` 申请。
 

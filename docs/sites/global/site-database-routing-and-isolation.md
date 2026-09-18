@@ -591,7 +591,7 @@ Prisma 生成的 SQL 由同一脚本同时输出 Node 方言目录和 D1 平面�
 
 ## 11. 实施顺序
 
-本节保留架构实施顺序；已经完成的条目以实际代码和 Smoke 测试为准，后续维护应同步更新状态，不要将本节误解为当前全部待办事项。工程优化待办统一记录在 `docs/requirements/optimization-checklist.md`。
+本节保留架构实施顺序；已经完成的条目以实际代码和 Smoke 测试为准，后续维护应同步更新状态，不要将本节误解为当前全部待办事项。工程优化待办统一记录在 `docs/project/optimization-checklist.md`。
 
 1. 增加 `prisma/global.prisma`、`prisma/base.prisma` 和各业务站点的 `<site_key>.prisma`，分别定义全局、base 和站点业务表。
 2. 增加 SQL migration 和 migration 版本管理。
@@ -607,10 +607,10 @@ Prisma 生成的 SQL 由同一脚本同时输出 Node 方言目录和 D1 平面�
 
 当前主要实现入口：
 
-- 站点与 Host 解析：`server/site-router.mts`
+- 站点与 Host 解析：`server/modules/base/site-router.mts`
 - Node 数据库初始化与 migration：`server/app.mts`
 - Worker 数据库选择与 Binding 限制：`server/worker.mts`
-- API 继承和路由注册：`server/api-router.mts`
+- API 继承和路由注册：`server/modules/base/api-router.mts`
 - 站点目录 API 覆盖：`server/routes/<site_key>/api/`
 
 ## 12. 验收重点

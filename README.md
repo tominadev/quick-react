@@ -39,12 +39,13 @@ http://127.0.0.1/
 
 ## 文档
 
-- [项目架构](docs/architecture.md)
-- [开发指南](docs/development.md)
-- [部署指南](docs/deployment.md)
-- [配置说明](docs/configuration.md)
-- [安全说明](docs/security.md)
-- [API 说明](docs/api.md)
+- [文档目录](docs/README.md)
+- [项目架构](docs/project/architecture.md)
+- [开发指南](docs/project/development.md)
+- [部署指南](docs/project/deployment.md)
+- [配置说明](docs/project/configuration.md)
+- [安全说明](docs/project/security.md)
+- [API 说明](docs/project/api.md)
 
 ## 目录结构
 

@@ -3,7 +3,7 @@
 - 提出日期：2026-08-27
 - 状态：已实现（2026-08-27）
 - 涉及范围：`base` 站点角色对照表、`passport` 站点
-- 上游需求：[passport-and-telegram-integration](passport-and-telegram-integration.md)（本文档遵循其中的身份模型与表结构约定）
+- 上游需求：[telegram-integration](telegram-integration.md)（本文档遵循其中的身份模型与表结构约定）
 
 ## 背景
 
@@ -213,7 +213,7 @@ passport_user_email_otps                -- 已登录用户添加邮箱时的验�
 
 - 角色对照表在 `shared/types/role.mts`，用户管理的角色列改为多选；`base_users.roles` 以 PostgreSQL `String[]` 为规范，SQLite/D1 和 MySQL 使用生成器降级的 JSON 文本，适配器统一完成绑定转换。
 - 用户名直接存放在 `passport_users.name`，密码沿用 `passport_user_credentials`；新账号的占位用户名为 `passport_<user_id>`，正式用户名可以在账户资料中修改。
-- 补全流程在 `server/modules/passport/accounts/onboarding.mjs`，登录成功后由 `/api/accounts/sign` 继续返回 `formPage`；第三方 OAuth 回调改为先跳回登录页补全。进入补全步骤时会给 OIDC 授权请求和 cookie 续期。
+- 补全流程在 `server/modules/passport/accounts/onboarding.mts`，登录成功后由 `/api/accounts/sign` 继续返回 `formPage`；第三方 OAuth 回调改为先跳回登录页补全。进入补全步骤时会给 OIDC 授权请求和 cookie 续期。
 - 通用 `FormPage` 的自定义 action 现在也会应用响应里的 `formPage`/`currentValues`/`redirectTo`；只要响应里带 `formPage` 就不再安排跳转，修掉了多步表单被反馈倒计时带走的问题。
 - 账户中心概览用 `dashboard` 组件（统计 + 账户信息表），邮箱管理用 `table` 组件：工具栏"添加邮箱"发送验证码，工具栏"输入验证码"完成绑定（通用抽屉的新增表单只有一步，验证码必须作为独立动作）。
 - 待验证邮箱以只读行的形式出现在邮箱列表里，数据来自 `passport_user_email_otps`，不写入 `passport_emails`。

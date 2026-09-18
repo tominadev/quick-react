@@ -71,7 +71,7 @@ Workers 上跑，才天然碰不了 DOM——它对小程序的兼容不是巧�
 
 站点 API 和导航位于 `server/routes/<site_key>/`；`base` 是继承基础层，`global` 是控制面站点。新增后端模板或静态资源时，注意不要把服务端文件放入 `public/`。
 
-后续架构和工程优化事项请参阅[项目优化清单](requirements/optimization-checklist.md)。
+后续架构和工程优化事项请参阅[项目优化清单](optimization-checklist.md)。
 
 业务模块身份边界：业务站点只使用当前请求上下文中的 Base 用户、会话和设备信息，不读取 Passport 数据库，不查询 `passport_users`，不接收 `passport_user_id` 作为业务归属。Accounts OIDC 与本地密码登录由 Base 认证层统一适配；Passport ID 只在 Passport 模块和受信任的全局注销/设备控制事件中使用。
 

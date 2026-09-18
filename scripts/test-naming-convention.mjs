@@ -4,7 +4,7 @@ import { NON_REFERENCE_COLUMNS, nameColumnOf } from '../shared/system-fields.mts
 import { join, resolve } from 'node:path';
 
 /**
- * 列命名约定（docs/requirements/column-naming.md）。
+ * 列命名约定（docs/conventions/column-naming.md）。
  *
  * 规矩只有写进测试才立得住：`code` 与 `key`、`name` 与 `display_name` 就是这么各写各的，
  * 直到 `pve_regions` 同时长出 `code`、`name`、`display_name` 三个才被发现。

@@ -1,5 +1,5 @@
 /**
- * 变更留痕的受管范围，见 docs/requirements/change-audit-and-revert.md。
+ * 变更留痕的受管范围，见 docs/sites/base/change-audit-and-revert.md。
  *
  * 这里是**代码常量而非配置**，与 SYSTEM_FIELD_NAMES 同例：放进数据库意味着
  * 运行时可以关掉审计，那正是审计最不该允许的事。
