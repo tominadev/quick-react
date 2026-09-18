@@ -21,6 +21,7 @@ v1.0 beta 发布前的数据库命名与结构审计、阻断项和交接顺序�
 | [optimization-checklist](optimization-checklist.md) | 持续优化清单 |
 | [maintenance-toolbox](maintenance-toolbox.md) | 维护工具箱、救援入口与配置恢复 |
 | [sms-site-and-ed25519-binding](sms-site-and-ed25519-binding.md) | SMS 站点、数据模型、Ed25519 绑定协议与接收流程 |
+| [sms-generator-ed25519-auth](sms-generator-ed25519-auth.md) | Mac 生成器从预配凭证改用 Ed25519 签名 |
 | [sms-shortcut-generator](sms-shortcut-generator.md) | Mac Shortcut 生成器：令牌预生成、上传与入库 |
 
 ## 写作约定
