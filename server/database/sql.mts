@@ -614,8 +614,12 @@ export const runSystemSql = (database: DatabaseAdapter, statement: SqlQuery): Pr
 export const runSql = async (database: DatabaseAdapter, statement: SqlQuery): Promise<DatabaseRunResult> => {
 	// 异步抛出而不是同步抛出：声明的返回类型是 Promise，同步抛会从没 await 的调用方
 	// 的 .catch() 里漏出去。
-	if (statement.audit && database.humanOperation) {
-		throw new Error(`人工操作的受管写入必须走 runOperation：${statement.audit.table}`);
+	// 新建也算：操作层把 insertAudit 与 audit 一视同仁（见 operation.mts 的 managed 判定），
+	// 而这里原先只认 audit——于是裸 insert 从主防线下漏了过去。它建出来的行 queued_at 为 0，
+	// 立刻可见且没有任何记录；「排队中的行不可见」那条保护只覆盖走过操作层的 insert。
+	const managed = statement.audit ?? statement.insertAudit;
+	if (managed && database.humanOperation) {
+		throw new Error(`人工操作的受管写入必须走 runOperation：${managed.table}`);
 	}
 	return runSystemSql(database, statement);
 };

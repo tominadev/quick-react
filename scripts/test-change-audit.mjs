@@ -998,16 +998,19 @@ try {
 		set: () => {},
 	});
 	const op = (statement, options) => runOperationSql(context(), acting, statement, { immediate: true, ...options });
+	const { runSystemSql } = await import(pathToFileURL(moduleFile));
 
 	const entries = async () => (await allSql(acting, sql({ database: acting }).select({ table: 'base_audits', includeAll: true, orderBy: [{ column: 'id', direction: 'ASC' }] }))).map((entry) => ({ ...entry, id: String(entry.id) }));
 	// 前后两份值分开存，比对时拼回成对的形状（parseAuditChanges 做的就是这件事）。
 	const changesOf = (entry) => parseAuditChanges(entry);
 	const latestEntry = async () => (await entries()).at(-1);
 
-	await runSql(acting, sql({ database: acting }).insert('base_users', { name: 'alice', roles: '[]', status: 'enabled' }));
+	// 铺测试数据是机器写入，用 runSystemSql 显式声明——裸 runSql 现在会被看门人拦下，
+	// 而那正是它该做的：人工请求里的新建也要走操作层。
+	await runSystemSql(acting, sql({ database: acting }).insert('base_users', { name: 'alice', roles: '[]', status: 'enabled' }));
 	const alice = await firstSql(acting, sql({ database: acting }).select({ table: 'base_users', columns: { id: 'id' }, where: [{ column: 'name', value: 'alice' }] }));
 
-	// 新增不产生审计条目（§3.0）：insert 不带元信息，因此 runSql 也不会拦它。
+	// 声明成机器写入的新增不留痕——留痕与否由调用方声明，不由表名或语句形状决定（§3.0）。
 	assert.equal((await entries()).length, 0, '新增不应产生审计条目');
 
 	// ---- 看门人：人工请求里的受管写入必须走操作层 ----
@@ -1071,7 +1074,8 @@ try {
 	assert.equal((await firstSql(acting, sql({ database: acting }).select({ table: 'base_users', columns: { roles: 'roles' }, where: [{ column: 'id', value: alice.id }] }))).roles, '[]');
 
 	// ---- 一次操作可以包含多条写入，它们共享同一个 operation_id 与同一条原因 ----
-	await runSql(acting, sql({ database: acting }).insert('base_users', { name: 'bob', roles: '[]', status: 'disabled' }));
+	// 同上：铺数据是机器写入。
+	await runSystemSql(acting, sql({ database: acting }).insert('base_users', { name: 'bob', roles: '[]', status: 'disabled' }));
 	const bob = await firstSql(acting, sql({ database: acting }).select({ table: 'base_users', columns: { id: 'id' }, where: [{ column: 'name', value: 'bob' }] }));
 	const beforeMulti = (await entries()).length;
 	const { runOperation: runOperationRaw } = await import(pathToFileURL(moduleFile));
@@ -1091,7 +1095,6 @@ try {
 	await op(sql({ database: acting }).update('base_users', { status: 'enabled' }, { id: alice.id }));
 
 	// ---- 请求内的机器写入：显式声明，不留痕 ----
-	const { runSystemSql } = await import(pathToFileURL(moduleFile));
 	const beforeSystem = (await entries()).length;
 	await runSystemSql(acting, sql({ database: acting }).update('base_users', { name: 'incidental' }, { id: bob.id }));
 	assert.equal((await entries()).length, beforeSystem, 'runSystemSql 是显式声明「这不是人做的修改」');
@@ -1107,7 +1110,7 @@ try {
 	assert.equal(Number(changesOf(all.at(-1)).deleted_at.after), 0);
 
 	// 物理删除不产生记录。
-	await runSql(acting, sql({ database: acting }).insert('base_users', { name: 'temp', roles: '[]', status: 'enabled' }));
+	await runSystemSql(acting, sql({ database: acting }).insert('base_users', { name: 'temp', roles: '[]', status: 'enabled' }));
 	const beforePurgeRow = (await entries()).length;
 	await runSql(acting, sql({ database: acting }).delete('base_users', { name: 'temp' }));
 	assert.equal((await entries()).length, beforePurgeRow, '物理删除不应产生记录');
@@ -1249,7 +1252,7 @@ try {
 
 	// ---- 凭证列：照常记录、照常回滚，只是接口不返回值（§5）----
 	// 凭证与账号资料分表；password 是 JSON 列（存 { hash, pattern }），前后值都记成对象。
-	await runSql(acting, sql({ database: acting }).insert('base_user_credentials', { user_id: alice.id, password: { hash: 'hash-1', pattern: 'LLLL' } }));
+	await runSystemSql(acting, sql({ database: acting }).insert('base_user_credentials', { user_id: alice.id, password: { hash: 'hash-1', pattern: 'LLLL' } }));
 	await op(sql({ database: acting }).update('base_user_credentials', { password: { hash: 'hash-2', pattern: 'LLLL' } }, { user_id: alice.id }));
 	const passwordEntry = await latestEntry();
 	const storedChanges = parseAuditChanges(passwordEntry);

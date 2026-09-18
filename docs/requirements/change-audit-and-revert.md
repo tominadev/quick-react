@@ -91,7 +91,7 @@ await runOperation(c, database, [sql({ database }).update('base_users', values, 
 | `reason` | 操作原因（§11.1）：审计记了「改了什么」，这一列记「为什么」 |
 | `table_name` | 被改动的表 |
 | `row_id` | 被改动的行 |
-| `action` | `update` / `soft_delete` / `restore`；三者都是 UPDATE，按写入的列区分。不含 `insert` 与物理 `delete`，见 §3.0 |
+| `action` | `insert` / `update` / `soft_delete` / `restore` / `purge`。中间三者都是 UPDATE，按写入的列区分；`insert` 是新建（待审批期间行已写进库，靠 `queued_at` 隐身，见 §11.5），`purge` 是从回收站彻底删除、不可回滚。留痕与否由调用方用 `runOperation` 声明，不由语句形状决定（§3.0） |
 | `changes_before` `changes_after` | 前后两份值，各一列：`{列名: 值}`，只记**变化了的列** |
 | `scope` | `admin` / `self`：后台操作还是用户自助。与「要不要走审批」是同一条判定（§11.2），由 `operationScope()` 一处算出、两处使用 |
 | `review_status` | 审批状态：`none` / `pending` / `approved` / `rejected` / `withdrawn`，见 §11.4 |
