@@ -218,7 +218,7 @@ main() {
   source ~/.bashrc
 
 接下来：
-  node esbuild.cjs                    # 构建并启动（默认 8088 端口）
+  node esbuild.cjs                    # 构建并启动（默认 80 端口，有证书时同时监听 443）
   npm run dev                         # 开发模式：构建 + 监听
   node scripts/maintenance-toolbox.cjs  # 维护工具箱：注册/启动/开机自启/卸载 PM2 服务
 EOF
