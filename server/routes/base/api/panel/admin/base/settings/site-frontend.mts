@@ -23,7 +23,7 @@ const formPage = {
 	defaultValues: defaultSiteSettings,
 	fields: [
 		{ name: 'contactEmail', label: '联系邮箱', type: 'text', placeholder: 'support@example.com', maxLength: 254 },
-		{ name: 'footer', label: '页脚内容', type: 'text', placeholder: 'Ant Design ©2026 Created by Ant UED', maxLength: 512, defaultValue: defaultSiteSettings.footer },
+		{ name: 'footer', label: '页脚内容', type: 'text', placeholder: '© 2026 你的组织名；留空则不显示页脚', maxLength: 512, defaultValue: defaultSiteSettings.footer },
 		{ name: 'apiBootstrapEnabled', label: '启用 API 页面启动（CDN 模式）', type: 'switch', defaultValue: true },
 		{ name: 'logoutLocalEnabled', label: '启用“退出本站”', type: 'switch', defaultValue: false },
 		{ name: 'logoutPassportEnabled', label: '启用“退出 Passport”', type: 'switch', defaultValue: false },

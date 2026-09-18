@@ -6,7 +6,18 @@ export type SiteSettings = { contactEmail: string; footer: string; logoutLocalEn
 /** 审计保留期上限十年：再长也没有取证价值，却会让表无限增长。0 表示不自动清理。 */
 export const maxAuditRetentionDays = 3650;
 export const defaultAuditRetentionDays = 365;
-export const defaultSiteSettings: SiteSettings = { contactEmail: '', footer: `Ant Design ©${new Date().getFullYear()} Created by Ant UED`, logoutLocalEnabled: false, logoutPassportEnabled: false, logoutAllEnabled: true, apiBootstrapEnabled: true, auditRetentionDays: 365, registrationEnabled: false, localLoginEnabled: false, passwordSyncEnabled: false, userNameMinLength: defaultMinUserNameLength, adminMenuFoldable: false };
+/**
+ * 站点设置的出厂值。
+ *
+ * **页脚默认是空的。** 这里原先放的是 antd 官网自己的页脚（`Ant Design ©… Created by Ant UED`，
+ * Ant UED 是蚂蚁做 Ant Design 的那个团队）——那句话对 antd 官网是真的，对**任何一个用这套
+ * 脚手架部署出来的站点**都是假的：它替部署者声称自己的页面由别人创作、版权归别人。
+ *
+ * 脚手架的出厂值必须对任何部署者都成立，所以留空——前端见到空串就不渲染页脚（PanelLayout），
+ * 想要页脚的人到站点设置里自己填。MIT 要求的署名在打包产物里（esbuild 默认保留 @license
+ * 注释），页脚不承担那个义务。
+ */
+export const defaultSiteSettings: SiteSettings = { contactEmail: '', footer: '', logoutLocalEnabled: false, logoutPassportEnabled: false, logoutAllEnabled: true, apiBootstrapEnabled: true, auditRetentionDays: 365, registrationEnabled: false, localLoginEnabled: false, passwordSyncEnabled: false, userNameMinLength: defaultMinUserNameLength, adminMenuFoldable: false };
 export const normalizeSiteSettings = (value: unknown): SiteSettings => {
 	const source = value && typeof value === 'object' ? value as Record<string, unknown> : {};
 	return {
