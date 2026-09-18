@@ -147,7 +147,10 @@ export const issueAccountEmailOtp = async (database: DatabaseAdapter, userId: st
 	if (recent.length >= 10) throw new AccountEmailRateLimitError(Math.max(1, Math.ceil((recent.at(-1)!.created_at + 60 * 60_000 - now) / 1000)));
 	await runSystemSql(database, sql({ database }).update('passport_user_email_otps', { status: 'expired' }, [{ column: 'user_key', value: userId }, { column: 'status', value: 'pending' }]));
 	const code = generateEmailCode(), id = crypto.randomUUID();
-	await runSql(database, sql({ database }).insert('passport_user_email_otps', { otp_id: id, user_key: userId, email, code_hash: await hashPassword(code), attempt_count: 0, status: 'pending', expires_at: now + 600_000 }));
+	// 与上一行同样是机器写入：验证码是系统生成的凭据，不是人对业务数据的修改。上一行的
+	// update 早就声明成 runSystemSql 了，这一行留着裸 runSql 只是因为当时 insert 还没被
+	// 看门人管——同一段逻辑两条路，正是那个洞造成的不一致。
+	await runSystemSql(database, sql({ database }).insert('passport_user_email_otps', { otp_id: id, user_key: userId, email, code_hash: await hashPassword(code), attempt_count: 0, status: 'pending', expires_at: now + 600_000 }));
 	return { code, email, expiresAt: now + 600_000 };
 };
 

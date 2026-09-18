@@ -1,7 +1,7 @@
 import { createStoredPassword, hashPassword, verifyPassword, verifyStoredPassword } from '@server/modules/base/auth/index.mjs';
 import { clampNickname } from '@shared/account-name.mjs';
 import type { DatabaseAdapter, DatabaseBatchStatement } from '@server/database/index.mjs';
-import { allSql, firstSql, runSql, sql } from '@server/database/sql.mjs';
+import { allSql, firstSql, runSql, runSystemSql, sql } from '@server/database/sql.mjs';
 import { passportProfileInsert } from '@server/modules/passport/profile.mjs';
 import { nextSnowflake } from '@server/modules/base/snowflake.mjs';
 import { passportPlaceholderName } from './account.mjs';
@@ -214,13 +214,30 @@ export const cancelTelegramIdentityChoice = async (database: DatabaseAdapter, id
 	await runSql(database, sql({ database }).update('passport_telegram_identity_choices', { status: 'cancelled' }, { id: choiceId, bot_id: botId, telegram_user_id: telegramUserId, status: 'pending' }));
 };
 
-export const setPassportPassword = async (database: DatabaseAdapter, userIdValue: string | number | bigint, password: string) => {
+/**
+ * 生成写密码的语句，**由调用方决定怎么执行**——与 Base 的 `credentialStatement` 同一套。
+ *
+ * 这个函数被三种调用方共用，而它们的性质完全不同：
+ * - 注册与重置（`/api/accounts/sign`）：不是人在改业务数据，走 `runSystemSql`；
+ * - 用户改自己的密码（`/api/panel/accounts/security`）：人工操作，走 `runOperationSql`
+ *   留痕；`operationScope` 判定为 `self`，因此立即生效、不排队；
+ * - 管理员改别人的密码（`/api/panel/admin/passport/users`）：人工操作且是 admin 作用域，
+ *   留痕并进审批队列。
+ *
+ * 判定放在调用方，是因为只有那里知道「这是谁、因为什么」——同一条 INSERT 语句在三处
+ * 长得一模一样，靠语句本身反推是猜（见 change-audit 需求文档 §3.0）。
+ */
+export const passportPasswordStatement = async (database: DatabaseAdapter, userIdValue: string | number | bigint, password: string) => {
 	const userId = decimalId(userIdValue, true);
 	assertPassword(password);
 	const user = await firstSql(database, sql({ database }).select({ table: 'passport_users', columns: { user_key: { column: 'key', cast: 'text' } }, where: [{ column: 'key', value: userId }, { column: 'status', value: 'enabled' }] }));
 	if (!user) throw new Error('用户不存在或已停用');
-	await runSql(database, sql({ database }).insert('passport_user_credentials', { user_key: userId, password: await createStoredPassword(password) }));
+	return sql({ database }).insert('passport_user_credentials', { user_key: userId, password: await createStoredPassword(password) });
 };
+
+/** 注册与重置收尾用：不是人对业务数据的修改，不留痕。 */
+export const setPassportPassword = async (database: DatabaseAdapter, userIdValue: string | number | bigint, password: string) =>
+	runSystemSql(database, await passportPasswordStatement(database, userIdValue, password));
 
 export const verifyPassportPasswordHistory = async (database: DatabaseAdapter, userIdValue: string | number | bigint, password: string) => {
 	const userId = decimalId(userIdValue, true);

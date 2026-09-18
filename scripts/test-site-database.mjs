@@ -48,7 +48,17 @@ try {
 	assert.equal(fields.includes('dsn'), false, '列定义里不应该再有裸 DSN');
 	assert.equal(list.table.columns.find((column) => column.dataIndex === 'db_host').dependsOn, 'db_kind');
 	assert.deepEqual(list.table.columns.find((column) => column.dataIndex === 'db_host').parentValues, ['mysql', 'postgresql']);
-	assert.deepEqual(list.table.option.actions.row.map((action) => action.key), ['test', 'migrate', 'transfer', 'edit', 'delete']);
+	/**
+	 * 只比**这一页自己声明的那几个**，且要按声明顺序。
+	 *
+	 * 后面还跟着公共层挂上去的撤销/批准/驳回（每种待审批动作一组，见 api-response.mts 的
+	 * withPendingApproval）——那是所有走审批的表格都有的，不该在这里逐个列出来：列了之后
+	 * 公共层每加一种待审批动作，这条断言就要跟着改一次，而它本来想守的是「这一页有没有
+	 * 少掉自己的按钮」。
+	 */
+	const rowActionKeys = list.table.option.actions.row.map((action) => action.key);
+	assert.deepEqual(rowActionKeys.filter((key) => !key.endsWith('-pending')), ['test', 'migrate', 'transfer', 'edit', 'delete']);
+	assert.ok(rowActionKeys.includes('withdraw-pending'), '走审批的表格要拿得到审批入口');
 	const passportRow = list.table.dataSource.find((row) => row.site_key === 'passport');
 	assert.equal(passportRow.dsn, undefined, '不应该把 DSN 返回给前端');
 	assert.equal(passportRow.db_kind, 'default');

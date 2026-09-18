@@ -1,7 +1,8 @@
 import type { ApiHandler } from '@server/modules/base/api-router.mjs';
 import { apiMessage, apiMessageData, apiResponse } from '@server/modules/base/api-response.mjs';
 import { hasAccountPassword, utcMinutes } from '@server/modules/passport/account.mjs';
-import { setPassportPassword, verifyPassportPasswordHistory } from '@server/modules/passport/identity.mjs';
+import { passportPasswordStatement, verifyPassportPasswordHistory } from '@server/modules/passport/identity.mjs';
+import { runOperationSql } from '@server/modules/base/operation.mjs';
 import type { FormPageConfig } from '@shared/types/form-page.mjs';
 
 const securityForm = (hasPassword: boolean): FormPageConfig => ({
@@ -33,7 +34,8 @@ const handler: ApiHandler = async (c, next) => {
 		if (verified.status !== 'current') return apiMessage(c, 401, '当前密码不正确');
 	}
 	if (password !== confirm) return apiMessage(c, 400, '两次输入的新密码不一致');
-	try { await setPassportPassword(database, userId, password); }
+	// 人改自己的密码：留痕。operationScope 判定为 self，因此立即生效、不排队。
+	try { await runOperationSql(c, database, await passportPasswordStatement(database, userId, password)); }
 	catch (error) { return apiMessage(c, 400, error instanceof Error ? error.message : '密码不合法'); }
 	const formPage = securityForm(true);
 	return apiMessageData(c, 200, hasPassword ? '密码已修改' : '密码已设置，下次可使用邮箱和密码登录', { formPage, currentValues: formPage.initialValues });

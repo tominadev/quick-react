@@ -3,7 +3,8 @@ import { apiMessage, apiResponse } from '@server/modules/base/api-response.mjs';
 import { readStoredPassword } from '@server/modules/base/auth/index.mjs';
 import { allSql, sql } from '@server/database/sql.mjs';
 import { passportProfileNicknameOf } from '@server/modules/passport/profile.mjs';
-import { setPassportPassword } from '@server/modules/passport/identity.mjs';
+import { passportPasswordStatement } from '@server/modules/passport/identity.mjs';
+import { runOperationSql } from '@server/modules/base/operation.mjs';
 import type { TableCrudDefinition } from '@server/modules/base/table-crud.mjs';
 import { tableSort } from '@server/modules/base/query-options.mjs';
 
@@ -24,7 +25,8 @@ const handler: ApiHandler = async (c, next, params) => {
 	if (!database) return apiMessage(c, 503, 'Accounts 数据库不可用');
 	if (params.id && c.req.method === 'POST' && c.req.query('action') === 'reset-password') {
 		const body = await c.req.json<Record<string, unknown>>().catch(() => ({} as Record<string, unknown>));
-		try { await setPassportPassword(database, params.id, String(body.password ?? '')); }
+		// 管理员改别人的密码：留痕，且 admin 作用域会进审批队列。
+		try { await runOperationSql(c, database, await passportPasswordStatement(database, params.id, String(body.password ?? ''))); }
 		catch (error) { return apiMessage(c, 400, error instanceof Error ? error.message : '密码设置失败'); }
 		return apiMessage(c, 200, '密码已重设');
 	}
