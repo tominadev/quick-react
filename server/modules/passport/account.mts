@@ -206,18 +206,22 @@ export const setPrimaryAccountEmail = async (c: Context<AppEnv>, database: Datab
 	if (!target.verified) throw new Error('邮箱尚未验证，不能设为主邮箱');
 	if (target.is_primary) return target.email;
 	/**
-	 * **只取消当前那一个主邮箱，不要「把所有行都置 false」。**
+	 * **两条写入都按唯一键定位到确定的一行**（`@@unique([user_key, email_id])`）。
 	 *
 	 * 原先第一条的条件是 `{ user_key }`，匹配该用户的每一行——包括正要设为主邮箱的那一行。
-	 * 于是目标行在同一次操作里被写两次，两条留痕落在同一毫秒，撞上审计表的
-	 * `(table_name, row_key, settled_at)` 唯一索引，用户看到的是「请重试」。
-	 * 那个索引的注释判断这种撞车「几乎不可达」，而这里是**每次都写同一行两次**，
-	 * 撞不撞只取决于两条语句跨没跨过毫秒边界——实测约一半概率。
+	 * 两个后果：目标行在同一次操作里被写两次（两条留痕抢同一个 `settled_at`，实测约一半
+	 * 概率撞上唯一索引，用户看到「请重试」）；而且那一次对目标行是**空写**，它本来就不是
+	 * 主邮箱，却照样留下一条「改过」的审计。
 	 *
-	 * 顺带去掉一条没有意义的审计：目标行本来就不是主邮箱（上面已提前返回），
-	 * 把它置 false 是一次空写，却照样留一条「改过」的记录。
+	 * 改成按键定位而不是按 `is_primary = true` 这种**状态谓词**：人工操作要能事先说清
+	 * 「这次改的是哪一行」。状态谓词匹配到几行取决于当时的数据——真出现两行都是主邮箱的
+	 * 脏数据时，它会静默地改两行；按键定位则只动手上这一行，异常留在数据里等人发现。
+	 *
+	 * 当前主邮箱从上面已经读好的列表里拿，不多一次查询；没有主邮箱（绑定的第一个邮箱）
+	 * 时整条写入跳过，少一条语句也少一条审计。
 	 */
-	await runOperationSql(c, database, sql({ database }).update('passport_user_emails', { is_primary: false }, [{ column: 'user_key', value: userId }, { column: 'is_primary', value: true }]));
+	const currentPrimary = emails.find((item) => item.is_primary);
+	if (currentPrimary) await runOperationSql(c, database, sql({ database }).update('passport_user_emails', { is_primary: false }, { user_key: userId, email_id: currentPrimary.email_id }));
 	await runOperationSql(c, database, sql({ database }).update('passport_user_emails', { is_primary: true }, { user_key: userId, email_id: emailId }));
 	return target.email;
 };
