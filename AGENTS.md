@@ -27,6 +27,23 @@
 - 实体表内部的业务字段只使用字段本身的名称，不重复实体前缀。例如设备表保存 UUID 业务键时字段名为 `key`，按“实体名 + 字段名”组合后的跨表名称就是 `device_key`，不可能产生 `device_device_key`；后者仅会在设备表错误地把字段命名为 `device_key` 后又重复添加实体前缀时出现，属于错误命名。如果关联的是设备记录主键，始终使用 `device_id`；该规则同样适用于 `passport_device_id` 等带命名空间的跨表引用。
 - 审计记录只保存 `created_duid`、`updated_duid`，通过 `device_user_id -> user_id + device_id` 关联账号和设备，禁止在同一审计记录中重复保存 UID、DID；业务归属字段（如 `owner_uid`、`user_id`）与审计来源字段分开维护。
 - Base 和 Passport 的设备表都属于可审计业务表，统一记录 `created_duid`、`updated_duid`；Passport 使用自己的 `passport_devices`、`passport_device_users` 管理 Accounts 设备，二者不得共用设备用户关联表。Passport 设备和 Base 设备分别只服务各自的身份与会话域，跨站点通过 `passport_user_id + passport_device_id` 的服务端关联对应；客户端 `fingerprint` 可能碰撞，只能作为分析证据，禁止作为设备唯一键或注销依据。
+- **平台的角色是「可信公钥登记处」，不是密钥保险箱。** 平台不铸造、不下发、不保管任何用来证明「这次调用是对方发起的」的秘密；它维护的是一份**谁对应哪把公钥**的名单，并为这份名单背书。对方在自己的机器上生成 Ed25519 密钥对，把公钥主动填到平台；平台据公钥反查身份（公钥全局唯一），验签过了才算数。样板是 `sms_integration_client_keys.public_key`：接入方签绑定票据，平台只存公钥。
+
+  **平台自己也是名单上的一员。** 它公布自己的公钥（`/api/push-key`）好让接收方验它签出来的推送——同一套规则对内对外一致，不存在「平台不用被验证」这回事。
+
+  **这条原则把风险换了个地方，而不是消灭它，要知道换到了哪。** 平台不再持有任何人的私钥，因此**脱库不等于能冒充任何人**（拿到的是本来就公开的东西）；但拿到写权限的人**仍然能改写名单**，把某个身份指向自己的公钥。所以真正要看守的不再是"密钥怎么存"，而是**"名单怎么改"**：公钥的登记与变更必须走审批、必须留痕、必须能回溯到人——这正是本项目公共层已经在做的事，别给这类表开任何绕过审批的后门。
+
+  为什么是默认：平台铸造的口令有三个躲不开的弱点——**泄露之后一直有效**（没有自动失效的机制，直到有人想起来换）、**要经由平台传给对方**（传输路上多一次暴露，而私钥方案里私钥从不离开对方的机器）、**平台被脱库就等于对方被冒充**（而只存公钥时，脱库拿到的是本来就公开的东西）。口令换钥匙只是把"谁能冒充你"从"两边任一处泄露"收敛成"只有你自己泄露"。
+
+  这条**只管「平台验证对方」这个方向**，另外两种情况不适用，别套错：
+  - **平台自己是签名发起方**时，平台当然持有自己的私钥——`sms_platform_keys.private_key`（签推送）、`passport_oidc_signing_keys`（签 OIDC 令牌）都属于这一类，它们不是「别人的秘密」。
+  - **平台作为客户端去调第三方**时，密钥是对方签发的，我们只能保管——`global_cloud_credentials.access_key_secret`（调云厂商）、`passport_external_providers.client_secret`（调微信 / Google）属于这一类，换不掉，只能按敏感数据对待。
+
+  已知仍在用平台铸造口令、**应当按此原则改造**的：`sms_generator_machines.secret_hash`（见 [Mac 生成器改用 Ed25519 签名认证](docs/requirements/sms-generator-ed25519-auth.md)）、`sms_access_keys.secret_hash`（用户服务端调管理 API）、`passport_oidc_clients.secret_hash`（可走 RFC 7523 的 `private_key_jwt`）。
+
+  **唯一的真例外是拿不到密钥能力的一端**：`sms_shortcut_tokens.token_sha256` 服务的是跑在用户手机上的快捷指令，Shortcuts 生成不了密钥对、也存不住私钥。例外要像这样写明「为什么做不到」，而不是「暂时先这样」。
+
+  新增任何需要验证对方身份的接口，**默认走签名信封**（`{publicKey, signature, payload}`，`payload` 是一段 JSON 字符串、签的就是它的原始字节，见 `docs/integration/sms-client.md`）。要用口令得说明为什么这一端做不到密钥对。
 - `passport_devices` 的全局拉黑只允许管理员或安全管理员执行；普通账号只能拉黑或解除自己在 `passport_device_users` 中的设备关系。退出登录只撤销会话，不能被实现为设备拉黑。
 - 所有业务表默认只查询 `deleted_at = 0` 的记录；回收站必须显式使用删除范围查询，不得让已删除记录混入正常业务。软删除、恢复和清理操作必须由公共数据层统一提供。
 - 业务唯一字段（例如 `base_sessions.token_hash`、`base_users.name`、外部平台账号标识和幂等键）必须使用 `UNIQUE` 约束或唯一索引，不得继续作为表主键；主键统一使用本表自增 `id`。
