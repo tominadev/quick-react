@@ -298,14 +298,32 @@ const PENDING_ACTION_LABELS: Record<string, string> = { insert: '新增', update
  * 没有登录身份的模块级调用是谁；数据库那条约束不看这些，它兜的就是这两种情况。裸的
  * `UNIQUE constraint failed` 对看的人没有意义，因此在这里换成和行锁一致的说法。
  */
-const writeAuditRow = async (database: DatabaseAdapter, table: string, statement: SqlQuery, immediate: boolean) => {
-	try { await runSystemSql(database, statement); }
-	catch (error) {
-		if (!isUniqueViolation(error)) throw error;
-		// 立即生效那一路的 settled_at 是时间戳，不是哨兵 0，撞上只可能是同毫秒，
-		// 与「队列里已经有一条」完全是两回事，不能共用一句提示。
-		if (immediate) throw new AuditCollisionError(table);
-		throw new PendingLockError(table, '');
+/**
+ * 同毫秒撞车时最多把 `settled_at` 往后挪几毫秒再试。
+ *
+ * 一次操作里对同一行写两次是**正常的业务写法**（先取消旧主邮箱再设新的、先刷新发布状态
+ * 再补内容哈希），两条语句之间没有网络调用时，它们几乎一定落在同一毫秒。原先这种情况直接
+ * 抛错让用户重试，而重试大概率再撞一次——实测账号中心切换主邮箱约有一半概率失败。
+ *
+ * 挪 1 毫秒不会让记录失真：`settled_at` 存在的理由是**唯一性**（见 base.prisma 上那段注释），
+ * 「了结时刻」精确到毫秒对任何读它的人都没有意义。而反过来要求每个调用方都记得「别在同一次
+ * 操作里写同一行两次」，正是这个项目在审计覆盖面上明确拒绝过的君子协定。
+ */
+const SETTLED_AT_RETRIES = 5;
+
+const writeAuditRow = async (database: DatabaseAdapter, table: string, builder: ReturnType<typeof sql>, values: Record<string, unknown>, immediate: boolean) => {
+	let row = values;
+	for (let attempt = 0; ; attempt += 1) {
+		try { return await runSystemSql(database, builder.insert(AUDIT_TABLE, row)); }
+		catch (error) {
+			if (!isUniqueViolation(error)) throw error;
+			// 队列那一路的 settled_at 是哨兵 0，挪不动也不该挪：撞上就是「这一行已经有一条
+			// 在队列里」，那是要告诉用户的状态，不是时间精度问题。
+			if (!immediate) throw new PendingLockError(table, '');
+			const settled = Number(row.settled_at);
+			if (attempt >= SETTLED_AT_RETRIES || !Number.isFinite(settled) || settled === 0) throw new AuditCollisionError(table);
+			row = { ...row, settled_at: settled + 1 };
+		}
 	}
 };
 
@@ -442,7 +460,7 @@ const recordInsert = async (
 	immediate: boolean,
 ) => {
 	const builder = sql({ database, subjectRoles: null, ownerTid: metadata.owner.tid, ownerBid: metadata.owner.bid, ownerUid: metadata.owner.uid, actorUid: metadata.owner.actor });
-	await writeAuditRow(database, metadata.table, builder.insert(AUDIT_TABLE, {
+	await writeAuditRow(database, metadata.table, builder, {
 		operation_id: operationId,
 		reason,
 		scope,
@@ -459,7 +477,7 @@ const recordInsert = async (
 		data_status: immediate ? 'applied' : 'unwritten',
 		// 进队列的记 0，那是唯一索引里的哨兵位；从未进过队列的一诞生就是了结的（见 settled_at）。
 		settled_at: immediate ? Date.now() : 0,
-	}), immediate);
+	}, immediate);
 	return 1;
 };
 
@@ -603,7 +621,7 @@ const recordStatement = async (database: DatabaseAdapter, metadata: SqlAuditMeta
 		}
 		const existing = await findPendingEntry(database, builder, metadata.table, row.id, values.action);
 		if (existing) await runSystemSql(database, builder.update(AUDIT_TABLE, values, [{ column: 'id', value: existing.id }, { column: 'review_status', value: 'pending' }]));
-		else await writeAuditRow(database, metadata.table, builder.insert(AUDIT_TABLE, values), immediate);
+		else await writeAuditRow(database, metadata.table, builder, values, immediate);
 		recorded += 1;
 	}
 	return { recorded, found: rows.length, drafted };
