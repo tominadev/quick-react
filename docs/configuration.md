@@ -33,7 +33,8 @@ PHP 版本仅接受数字版本格式（例如 `8.2.12`），留空则不发送 
 ## 日志中心网关（`loki` 站点）
 
 `loki` 是一个不提供页面和 API 的代码站点，只把绑定到它的域名代理给本机的 Loki 和 Grafana：
-推送接口校验 Basic 认证后转发给 Loki，Loki 的其余接口一律 403，其余路径交给 Grafana。
+推送接口校验凭据后转发给 Loki 或 Mimir，它们的其余接口一律 403，Grafana 挂在 `/grafana/` 子路径下，
+**根路径留给本站点自己的后台**——日常入口是这边，Grafana 只是管理员偶尔用的临时探索工具。
 域名绑定走站点管理，和别的站点一样。
 
 推送凭据不在环境变量里：每台源站在 `loki_sources` 表里有自己的一份，停用或轮换只影响那一台。
@@ -46,6 +47,7 @@ PHP 版本仅接受数字版本格式（例如 `8.2.12`），留空则不发送 
 | `LOKI_PUSH_PATH` | `/loki/api/v1/push` | 推送接口路径，必须与源站 Alloy 的 `url` 一致 |
 | `LOKI_ORIGIN` | `http://127.0.0.1:3100` | Loki 地址；Loki 只监听回环，不对外 |
 | `GRAFANA_ORIGIN` | `http://127.0.0.1:3000` | Grafana 地址；Grafana 只监听回环，不对外 |
+| `GRAFANA_PATH` | `/grafana` | Grafana 挂载的子路径；Grafana 侧要同时配 `serve_from_sub_path = true` |
 
 大屏的查询不经过网关：Grafana 在服务器内部直连 Loki。因此外部只能写入，不能查询。
 

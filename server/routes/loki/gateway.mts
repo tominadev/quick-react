@@ -32,6 +32,8 @@ export type LokiGatewayConfig = {
 	lokiOrigin: string;
 	mimirOrigin: string;
 	grafanaOrigin: string;
+	/** Grafana 挂载的子路径；根路径留给本站点自己的后台。 */
+	grafanaPath: string;
 };
 
 const DEFAULT_PUSH_PATH = '/loki/api/v1/push';
@@ -39,6 +41,7 @@ const DEFAULT_METRICS_PUSH_PATH = '/prom/api/v1/push';
 const DEFAULT_LOKI_ORIGIN = 'http://127.0.0.1:3100';
 const DEFAULT_MIMIR_ORIGIN = 'http://127.0.0.1:9009';
 const DEFAULT_GRAFANA_ORIGIN = 'http://127.0.0.1:3000';
+const DEFAULT_GRAFANA_PATH = '/grafana';
 /** Mimir 自己的远程写入路径；对外用 /prom/ 前缀是为了和 Loki 的 /loki/ 对称。 */
 const MIMIR_PUSH_PATH = '/api/v1/push';
 const AGENT_REGISTER_PATH = '/agent/register';
@@ -60,6 +63,7 @@ export const loadLokiGatewayConfig = (values: Record<string, string | undefined>
 		lokiOrigin: read('LOKI_ORIGIN') || DEFAULT_LOKI_ORIGIN,
 		mimirOrigin: read('MIMIR_ORIGIN') || DEFAULT_MIMIR_ORIGIN,
 		grafanaOrigin: read('GRAFANA_ORIGIN') || DEFAULT_GRAFANA_ORIGIN,
+		grafanaPath: (read('GRAFANA_PATH') || DEFAULT_GRAFANA_PATH).replace(/\/+$/, ''),
 	};
 };
 
@@ -259,10 +263,18 @@ export const createLokiGateway = (
 		if (path === '/loki' || path.startsWith('/loki/')) return c.text('Forbidden', 403);
 		if (path === '/prom' || path.startsWith('/prom/')) return c.text('Forbidden', 403);
 
-		return proxyTo(c, config.grafanaOrigin, forwardedHeaders(c, {
-			'x-forwarded-for': clientIp,
-			'x-real-ip': clientIp,
-			'x-forwarded-proto': new URL(c.req.url).protocol.replace(':', ''),
-		}));
+		// Grafana 挂在子路径下，**不占根路径**：这个域名的日常入口是本站点自己的后台，
+		// Grafana 只是管理员偶尔用来做临时探索的工具，不承担权限边界。
+		// Grafana 侧要配 serve_from_sub_path，否则它生成的链接会掉回根路径。
+		if (path === config.grafanaPath || path.startsWith(`${config.grafanaPath}/`)) {
+			return proxyTo(c, config.grafanaOrigin, forwardedHeaders(c, {
+				'x-forwarded-for': clientIp,
+				'x-real-ip': clientIp,
+				'x-forwarded-proto': new URL(c.req.url).protocol.replace(':', ''),
+			}));
+		}
+
+		// 其余路径交回给应用自己：页面、登录、/api/* 和 /panel/admin/loki/* 都在那边。
+		return next();
 	};
 };
