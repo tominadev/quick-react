@@ -144,7 +144,7 @@ return apiMessage(c, 401, '用户名或密码错误', {
 });
 ```
 
-新增或修改接口时，必须保持上述响应协议；新增前端请求入口时，必须接入 `commonApi.apiFetch`。完成修改后至少运行 `npm run typecheck` 和 `SKIP_SERVER_LISTEN=1 npm test`。
+新增或修改接口时，必须保持上述响应协议；新增前端请求入口时，必须接入 `commonApi.apiFetch`。完成修改后至少运行 `npm run typecheck`、`SKIP_SERVER_LISTEN=1 npm test`（构建）和 `npm run test:all`（全部测试）。
 
 ## 不加修饰：每一层只把信息原样传下去
 

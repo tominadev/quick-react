@@ -1,24 +1,7 @@
 import assert from 'node:assert/strict';
-import { JSDOM } from 'jsdom';
+import { setupBrowserDom, assertAbsent } from './browser-dom.mjs';
 
-const dom = new JSDOM('<!doctype html><html><body></body></html>', { url: 'https://accounts.test/accounts/sign.html' });
-Object.assign(globalThis, {
-	window: dom.window,
-	document: dom.window.document,
-	HTMLElement: dom.window.HTMLElement,
-	HTMLBodyElement: dom.window.HTMLBodyElement,
-	HTMLHtmlElement: dom.window.HTMLHtmlElement,
-	Element: dom.window.Element,
-	SVGElement: dom.window.SVGElement,
-	ShadowRoot: dom.window.ShadowRoot,
-	Node: dom.window.Node,
-	getComputedStyle: (element: Element) => dom.window.getComputedStyle(element),
-	MutationObserver: dom.window.MutationObserver,
-});
-Object.defineProperty(globalThis, 'navigator', { value: dom.window.navigator, configurable: true });
-Object.assign(dom.window.HTMLElement.prototype, { attachEvent() {}, detachEvent() {} });
-Object.defineProperty(window, 'matchMedia', { value: () => ({ matches: false, addListener() {}, removeListener() {}, addEventListener() {}, removeEventListener() {}, dispatchEvent: () => false }) });
-globalThis.ResizeObserver = class { observe() {} unobserve() {} disconnect() {} } as typeof ResizeObserver;
+const dom = setupBrowserDom('https://accounts.test/accounts/sign.html');
 
 const React = await import('react');
 const { render, screen, waitFor, cleanup } = await import('@testing-library/react');
@@ -65,11 +48,11 @@ assert.deepEqual(requests.map((item) => item.url), ['/api/sign.php?mode=sign']);
 // 第三方登录渲染成图标链接，不是表单按钮。
 assert.ok(screen.getByText('微信'));
 assert.ok(screen.getByText('Telegram'));
-assert.equal(screen.queryByRole('button', { name: /微信/ }), null, '第三方入口不应该是按钮');
+assertAbsent(screen.queryByRole('button', { name: /微信/ }), '第三方入口不应该是按钮');
 
 // 空表单不显示清空和还原按钮。
-assert.equal(screen.queryByTitle('清空'), null);
-assert.equal(screen.queryByTitle('还原'), null);
+assertAbsent(screen.queryByTitle('清空'), '空表单不显示清空');
+assertAbsent(screen.queryByTitle('还原'), '空表单不显示还原');
 
 const user = userEvent.setup({ document: dom.window.document });
 nextResponse = { redirectTo: '/api/accounts/external/wechat', feedback: { component: 'message', type: 'success', message: '正在前往微信', redirectAfter: 0 } };
@@ -84,7 +67,7 @@ requests.length = 0;
 nextResponse = { formPage: passwordForm, currentValues: passwordForm.initialValues };
 render(React.createElement(FormPage, { commonApi, apiPath: '/api/sign.php?mode=sign', title: '登录' }));
 await waitFor(() => assert.ok(screen.getByText('输入密码登录')));
-assert.equal(screen.queryByTitle('清空'), null, '空密码字段不显示清空');
+assertAbsent(screen.queryByTitle('清空'), '空密码字段不显示清空');
 nextResponse = { formPage: signInForm, currentValues: signInForm.initialValues };
 await user.click(screen.getByRole('button', { name: '忘记密码' }));
 await waitFor(() => assert.equal(requests.length, 2));

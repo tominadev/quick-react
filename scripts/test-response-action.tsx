@@ -1,8 +1,7 @@
 import assert from 'node:assert/strict';
-import { JSDOM } from 'jsdom';
+import { setupBrowserDom } from './browser-dom.mjs';
 
-const dom = new JSDOM('<!doctype html><html><body></body></html>', { url: 'https://site.test/' });
-Object.assign(globalThis, { window: dom.window, document: dom.window.document, CustomEvent: dom.window.CustomEvent });
+const dom = setupBrowserDom('https://site.test/');
 
 
 const { applyApiResponseContext, apiNavigationEvent, planApiNavigation } = await import('@clients/browser/response-action.js');

@@ -63,6 +63,7 @@
 		"schema:check": "node scripts/schema-repair.mjs --check",
 		"schema:repair": "node scripts/schema-repair.mjs",
 		"test": "node esbuild.cjs",
+		"test:all": "node scripts/test-all.mjs",
 		"test:naming": "node scripts/test-naming-convention.mjs",
 		"test:super-users": "node scripts/test-super-users.mjs",
 		"test:agent-claim": "node scripts/test-agent-claim.mjs",

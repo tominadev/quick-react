@@ -83,3 +83,16 @@ export const describeFormAdditions = (
 		const text = readableFieldValue(field, value);
 		return text === '空' ? [] : [`${label}：${text}`];
 	});
+
+/**
+ * 这一格现在是不是有东西可清。
+ *
+ * 「清空」按钮的门禁：空格子上摆一个清空按钮，点下去什么也不会发生。登录、注册这类
+ * 表单每一格都是空的，整排按钮全是噪音。
+ *
+ * `false` 算没有内容，是给开关留的——开关不提供清空（关掉就是它的空），值为 `false`
+ * 时按钮不该冒出来。
+ *
+ * 判据要对着**当前值**问，不是对着初始值：用户刚敲进去还没保存的内容同样清得掉。
+ */
+export const fieldHasValue = (value: unknown) => value !== undefined && value !== null && value !== '' && value !== false;

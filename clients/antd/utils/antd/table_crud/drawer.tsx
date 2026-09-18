@@ -3,6 +3,7 @@ import type { CommonApi } from '@clients/browser/api.js';
 import type { UploadProps } from 'antd';
 import { NullableInput } from '@/utils/antd/nullable-input.js';
 import type { TableSelectOption } from '@shared/types/table.mjs';
+import { fieldHasValue } from '@clients/browser/form-changes.js';
 import { isFieldReadOnly } from '@shared/field-linkage.mjs';
 import type { ChangeControlValue } from '@shared/table-form.mjs';
 import { changedFieldsKey, type ChangedFieldsPayload } from '@shared/types/changed-fields.mjs';
@@ -423,7 +424,8 @@ export default ({
 									label={(
 										<Space size={2}>
 											<span>{item.title}</span>
-											<Button
+											{/* 空格子上的清空按钮点了什么也不会发生，新建抽屉里整排都是空的。 */}
+											{!fieldHasValue(liveValues[item.dataIndex]) ? null : <Button
 												type="text"
 												size="small"
 												title="清空"
@@ -433,7 +435,7 @@ export default ({
 										setLiveValues((previous) => ({ ...previous, [item.dataIndex]: null }));
 													changedFields.current.add(item.dataIndex);
 												}}
-											/>
+											/>}
 											<Button
 												type="text"
 												size="small"

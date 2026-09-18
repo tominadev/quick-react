@@ -1,5 +1,5 @@
 import assert from 'node:assert/strict';
-import { JSDOM } from 'jsdom';
+import { setupBrowserDom, assertAbsent } from './browser-dom.mjs';
 
 /**
  * 手机版表格必须把后端下发的动作**全部**渲染出来。
@@ -12,25 +12,7 @@ import { JSDOM } from 'jsdom';
  * 因此这里盯的是「后端说有的，界面上就得有」：查询字段要摆出来、默认值要带进请求、
  * 工具栏和行动作一个都不能少，以及做完之后走的是服务端的 next 而不是前端自己猜。
  */
-const dom = new JSDOM('<!doctype html><html><body></body></html>', { url: 'https://m.site.test/panel/user/sms/phones.html' });
-Object.assign(globalThis, {
-	window: dom.window,
-	document: dom.window.document,
-	HTMLElement: dom.window.HTMLElement,
-	HTMLBodyElement: dom.window.HTMLBodyElement,
-	HTMLHtmlElement: dom.window.HTMLHtmlElement,
-	Element: dom.window.Element,
-	SVGElement: dom.window.SVGElement,
-	ShadowRoot: dom.window.ShadowRoot,
-	Node: dom.window.Node,
-	getComputedStyle: (element: Element) => dom.window.getComputedStyle(element),
-	MutationObserver: dom.window.MutationObserver,
-});
-Object.defineProperty(globalThis, 'navigator', { value: dom.window.navigator, configurable: true });
-Object.assign(dom.window.HTMLElement.prototype, { attachEvent() {}, detachEvent() {} });
-Object.defineProperty(window, 'matchMedia', { value: () => ({ matches: false, addListener() {}, removeListener() {}, addEventListener() {}, removeEventListener() {}, dispatchEvent: () => false }) });
-globalThis.ResizeObserver = class { observe() {} unobserve() {} disconnect() {} } as typeof ResizeObserver;
-globalThis.IntersectionObserver = class { observe() {} unobserve() {} disconnect() {} takeRecords() { return []; } } as unknown as typeof IntersectionObserver;
+const dom = setupBrowserDom('https://m.site.test/panel/user/sms/phones.html');
 
 const React = await import('react');
 const { render, screen, waitFor } = await import('@testing-library/react');
@@ -111,7 +93,7 @@ assert.ok(screen.getByRole('button', { name: /上传/ }), '工具栏动作要渲
 
 // 目录行只出现「进入」，文件行才有下载与删除——互斥判据由服务端的 visibleWhen 给。
 assert.ok(screen.getByRole('button', { name: /进入/ }), '目录行要有进入');
-assert.equal(screen.queryByRole('button', { name: /下载/ }), null, '目录行不该出现下载');
+assertAbsent(screen.queryByRole('button', { name: /下载/ }), '目录行不该出现下载');
 
 // 「进入」是换查询条件重查，不是另开页面。
 await user.click(screen.getByRole('button', { name: /进入/ }));

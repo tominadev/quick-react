@@ -1,5 +1,5 @@
 import assert from 'node:assert/strict';
-import { JSDOM } from 'jsdom';
+import { setupBrowserDom } from './browser-dom.mjs';
 
 const navigation = ['a', 'b', 'c'].map((key) => ({
 	key: `/panel/${key}`,
@@ -9,24 +9,7 @@ const navigation = ['a', 'b', 'c'].map((key) => ({
 	title: `菜单 ${key.toUpperCase()}`,
 }));
 const auth = { component: 'buttons', actions: [], pages: [] } as const;
-const dom = new JSDOM('<!doctype html><html><body></body></html>', { url: 'https://site.test/panel/a.html' });
-Object.assign(globalThis, {
-	window: dom.window,
-	document: dom.window.document,
-	HTMLElement: dom.window.HTMLElement,
-	HTMLBodyElement: dom.window.HTMLBodyElement,
-	HTMLHtmlElement: dom.window.HTMLHtmlElement,
-	Element: dom.window.Element,
-	SVGElement: dom.window.SVGElement,
-	ShadowRoot: dom.window.ShadowRoot,
-	Node: dom.window.Node,
-	getComputedStyle: (element: Element) => dom.window.getComputedStyle(element),
-	MutationObserver: dom.window.MutationObserver,
-});
-Object.defineProperty(globalThis, 'navigator', { value: dom.window.navigator, configurable: true });
-Object.assign(dom.window.HTMLElement.prototype, { attachEvent() {}, detachEvent() {} });
-Object.defineProperty(window, 'matchMedia', { value: () => ({ matches: false, addListener() {}, removeListener() {}, addEventListener() {}, removeEventListener() {}, dispatchEvent: () => false }) });
-globalThis.ResizeObserver = class { observe() {} unobserve() {} disconnect() {} } as typeof ResizeObserver;
+const dom = setupBrowserDom('https://site.test/panel/a.html');
 (window as Window & { __INITIAL_DATA__?: unknown }).__INITIAL_DATA__ = {
 	bootstrapMode: 'api',
 	bootstrapApiPath: '/api/panel/a.php',

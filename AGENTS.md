@@ -92,8 +92,10 @@
 
 ## 验证与提交
 
-- 常规验证：`npm run typecheck`、`npm run build:worker`、`npm run smoke:multi-site`、`git diff --check`。
+- 常规验证：`npm run typecheck`、`npm run build:worker`、`npm run test:all`、`npm run smoke:multi-site`、`git diff --check`。
 - 不提交已知无法通过验证的代码。
+- **测试整批跑，不要挑着跑。** `npm run test:all` 从 package.json 现读全部 `test:*` 串行跑一遍，新加测试不必登记。挑着跑的代价已经付过一次：三条浏览器测试挂了很久没人知道，因为没有任何一条命令会同时碰到它们。（`npm test` 是构建，不是测试，这个名字是历史遗留。）
+- **浏览器测试里不要把 DOM 节点交给 `assert`。** node 的 assert 生成差异时用的是 `{ depth: 1000, getters: true, customInspect: false }`——它会挨个调用节点的 getter 再往下钻一千层，自定义 inspect 也被它显式关掉。`assert.equal(screen.queryByTitle('清空'), null)` 一旦真的找到了元素，进程会吃掉几十 G 内存被内核 SIGKILL：终端上只有一个 `Killed`、退出码 137，失败的是哪一行、断言的是什么，一个字都没有。断言「这个元素不该存在」用 `scripts/browser-dom.mts` 的 `assertAbsent`，它先把节点念成一行开标签再比对。同一个文件里的 `setupBrowserDom` 是七份测试共用的 jsdom 引导，新写浏览器测试从它起步，别再抄一份。
 - **提交必须匿名**：commit message 和 PR 描述里不出现任何 AI 工具署名（如 `Co-Authored-By: ...`）或"由 AI 生成"之类的生成标记，也不出现具体工具或产品名称；author/committer 统一用 `anonymous <anonymous@localhost>`（本仓库已在本地 git 配置里设好；其他环境按需用 `git -c user.name=anonymous -c user.email=anonymous@localhost commit ...`）；commit message、代码注释、PR 内容不写真实姓名、邮箱、本机路径、用户名、主机名等个人或公司信息。
 - **改动涉及超过 10KB 的文件时先确认它该不该进版本库**：是不是构建产物、生成文件、误加的二进制或数据库导出；确实需要提交的正常源码和文档不受影响，构建产物一律加进 `.gitignore`，不提交。
 - **秘密一律不进版本库**：私钥、令牌、口令、`.env`、证书、数据库文件。它们只存在于机器本地，并且从建立那一刻就写进 `.gitignore`——不是"先提交了下次删掉"。**git 历史删不掉**：提交一次就是永久公开，尤其在开源之后，等发现时多半已经有人 fork 了。提交前看一眼 `git status`，凡是不认识的文件先弄清它是什么再决定要不要 `git add`。这条与上面「不写真实姓名、邮箱、本机路径」是一回事的两半：一半管内容，一半管文件。

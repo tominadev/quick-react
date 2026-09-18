@@ -1,24 +1,7 @@
 import assert from 'node:assert/strict';
-import { JSDOM } from 'jsdom';
+import { setupBrowserDom, assertAbsent } from './browser-dom.mjs';
 
-const dom = new JSDOM('<!doctype html><html><body></body></html>', { url: 'https://site.test/panel/admin/base/data/rows.html' });
-Object.assign(globalThis, {
-	window: dom.window,
-	document: dom.window.document,
-	HTMLElement: dom.window.HTMLElement,
-	HTMLBodyElement: dom.window.HTMLBodyElement,
-	HTMLHtmlElement: dom.window.HTMLHtmlElement,
-	Element: dom.window.Element,
-	SVGElement: dom.window.SVGElement,
-	ShadowRoot: dom.window.ShadowRoot,
-	Node: dom.window.Node,
-	getComputedStyle: (element: Element) => dom.window.getComputedStyle(element),
-	MutationObserver: dom.window.MutationObserver,
-});
-Object.defineProperty(globalThis, 'navigator', { value: dom.window.navigator, configurable: true });
-Object.assign(dom.window.HTMLElement.prototype, { attachEvent() {}, detachEvent() {} });
-Object.defineProperty(window, 'matchMedia', { value: () => ({ matches: false, addListener() {}, removeListener() {}, addEventListener() {}, removeEventListener() {}, dispatchEvent: () => false }) });
-globalThis.ResizeObserver = class { observe() {} unobserve() {} disconnect() {} } as typeof ResizeObserver;
+const dom = setupBrowserDom('https://site.test/panel/admin/base/data/rows.html');
 
 const React = await import('react');
 const { cleanup, render, screen, waitFor } = await import('@testing-library/react');
@@ -127,11 +110,11 @@ await user.click(screen.getByRole('button', { name: /搜索/ }));
 await waitFor(() => assert.ok(screen.getByText('B 行')));
 
 // 切表后：上一张表的行操作和工具栏都不能残留，选中状态也要清空。
-assert.equal(screen.queryByText('编辑'), null, '上一张表的行操作不应该残留');
-assert.equal(screen.queryByRole('button', { name: /^删除$/ }), null, '上一张表的工具栏不应该残留');
-assert.equal(screen.queryByText('A 行'), null);
+assertAbsent(screen.queryByText('编辑'), '上一张表的行操作不应该残留');
+assertAbsent(screen.queryByRole('button', { name: /^删除$/ }), '上一张表的工具栏不应该残留');
+assertAbsent(screen.queryByText('A 行'), '上一张表的数据行不应该残留');
 assert.equal(document.querySelectorAll('tbody input[type="checkbox"]:checked').length, 0, '切表后不应该还有选中行');
-assert.equal(screen.queryByRole('button', { name: /搜索/ }), null, '新表没有查询动作时按钮也不应该残留');
+assertAbsent(screen.queryByRole('button', { name: /搜索/ }), '新表没有查询动作时按钮也不应该残留');
 
 // 首次加载后直接点编辑：行操作必须带上**已生效的查询条件**。
 // 这些闭包是在异步回调里构建的，如果在渲染时求值就会捕获初始的空条件——

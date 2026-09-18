@@ -13,7 +13,7 @@ import { runAfterFeedback } from '@clients/browser/feedback.js';
 import { loginWithAccountsPopup } from '@clients/browser/passport.js';
 import { runApiNextAction } from '@clients/browser/response-action.js';
 import { isSystemField } from '@shared/system-fields.mjs';
-import { describeFormChanges } from '@clients/browser/form-changes.js';
+import { describeFormChanges, fieldHasValue } from '@clients/browser/form-changes.js';
 import { WITHDRAW_ACTION } from '@shared/table-form.mjs';
 
 const renderTemplate = (template: string, values: Record<string, React.ReactNode>) => template
@@ -109,7 +109,6 @@ const rememberSection = (key: string) => {
 	} catch { /* 地址栏不可写时（例如测试环境）静默跳过：选项卡本身照常工作。 */ }
 };
 
-const hasInitialValue = (value: unknown) => value !== undefined && value !== null && value !== '' && value !== false;
 
 /** apiPath 可能已经带查询串（例如登录页的 ?mode=sign），必须按 URL 规则追加 action。 */
 const actionPath = (apiPath: string, action: string) => {
@@ -483,9 +482,9 @@ export default function FormPage({ commonApi, apiPath, title, submitMethod = 'PU
 					label={(
 						<Space size={2}>
 							<span>{field.label}</span>
-							{/* 开关只提供还原；其他字段同时提供清空和还原。 */}
+							{/* 开关只提供还原；其他字段有内容才提供清空。登录、注册这类空表单没东西可清。 */}
 							<>
-								{field.type === 'switch' ? null : <Button
+								{field.type === 'switch' || !fieldHasValue(liveValues[field.name]) ? null : <Button
 									type="text"
 									size="small"
 									title="清空"
@@ -497,13 +496,13 @@ export default function FormPage({ commonApi, apiPath, title, submitMethod = 'PU
 										setDirty(true);
 									}}
 								/>}
-								{(field.type === 'switch' || hasInitialValue(initialValues[field.name]) || field.defaultValue !== undefined) ? <Button
+								{(field.type === 'switch' || fieldHasValue(initialValues[field.name]) || field.defaultValue !== undefined) ? <Button
 									type="text"
 									size="small"
 									title="还原"
 									icon={<RollbackOutlined />}
 									onClick={() => {
-									const hasSavedValue = hasInitialValue(initialValues[field.name]);
+									const hasSavedValue = fieldHasValue(initialValues[field.name]);
 									const restoreValue = field.defaultValue !== undefined ? field.defaultValue : initialValues[field.name];
 									form.setFields([{ name: field.name, value: restoreValue, touched: false, errors: [] }]);
 									setLiveValues((previous) => ({ ...previous, [field.name]: restoreValue }));
