@@ -166,9 +166,20 @@ verify_node_version() {
 }
 
 install_project_deps() {
-	log "安装项目依赖（npm install）"
+	log "安装项目依赖（重新解析到范围内最新）"
 	# package-lock.json 不进版本库（见 .gitignore），所以用 npm install 而不是 npm ci。
+	#
+	# **先删掉本地那份锁文件再装。** 留着的话 npm install 会尽量沿用里面已经解析好的版本，
+	# 只在 package.json 的范围要求时才动——于是「出问题跑一下 install.sh」很可能什么都没变，
+	# 装出来的还是那套有问题的依赖。删掉才会真的重新解析。
+	#
+	# 仍然受 package.json 里 `^` 的约束，**不会跨大版本**：prisma 把 latest 标签指向了
+	# 8.0.0-rc.15 这种候选版，而范围限制会把它挡在外面。跨大版本是要单独排期读 changelog
+	# 的事，不该由一次「重装依赖」顺手完成。
+	rm -f "$SCRIPT_DIR/package-lock.json"
 	(cd "$SCRIPT_DIR" && npm install --no-fund --no-audit)
+	# 依赖换过之后到底还能不能跑，只有测试知道——脚本不替人决定要不要跑，但要说出来。
+	log "依赖已装齐。建议接着跑一次：npm run typecheck && npm run build:worker"
 }
 
 install_pm2() {
