@@ -54,7 +54,9 @@ const walk = async (directory) => {
 await walk(join(projectDirectory, 'server/routes'));
 assert.ok(panelFiles.length > 10, `没有扫到 panel 路由文件（扫到 ${panelFiles.length} 个）`);
 
-const managedWrite = /\brunSql\([^;]*?\.(update|upsert|softDelete|restore)\(/s;
+// insert 也算受管写入：新增一行同样要留痕（待审批的新增在列表上就是 _pending=insert-mine）。
+// 漏掉它的话，一条裸的 insert 可以在后台路由里悄悄建行而不留任何记录。
+const managedWrite = /\brunSql\([^;]*?\.(insert|update|upsert|softDelete|restore)\(/s;
 const offenders = [];
 for (const file of panelFiles) {
 	const contents = await readFile(file, 'utf8');
