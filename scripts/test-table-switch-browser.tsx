@@ -22,6 +22,19 @@ globalThis.ResizeObserver = class { observe() {} unobserve() {} disconnect() {} 
 
 const React = await import('react');
 const { cleanup, render, screen, waitFor } = await import('@testing-library/react');
+
+/**
+ * 开始新的一节：卸载组件、清请求记录、**并把地址栏恢复原样**。
+ *
+ * TableCRUD 把查询条件写进地址栏（urlState），而 cleanup() 只卸载 React，jsdom 的
+ * window.location 不动——于是上一节切到 table_b 的条件会漏进下一节，下一节以为自己
+ * 是全新加载，实际带着别人的筛选条件去请求。真实浏览器里换页面地址会重建，这里要手动做。
+ */
+const startSection = (path = '/panel/admin/base/data/rows.html') => {
+	cleanup();
+	requests.length = 0;
+	window.history.replaceState({}, '', path);
+};
 const userEvent = (await import('@testing-library/user-event')).default;
 const { MemoryRouter } = await import('react-router-dom');
 const TableCRUD = (await import('../clients/antd/utils/antd/table_crud/index.js')).default;
@@ -49,7 +62,16 @@ const commonApi = {
 		if (String(url).includes('/acct_string_id')) return new Response(JSON.stringify({ id: 'acct_string_id', name: 'A 行' }), { headers: { 'content-type': 'application/json' } });
 		if (String(url).includes('include=deleted')) return new Response(JSON.stringify({ table: { ...tableA, dataSource: [{ id: 'deleted_id', name: '已删除行' }] } }), { headers: { 'content-type': 'application/json' } });
 		const table = String(url).includes('table=table_b') ? tableB : tableA;
-		if (String(url).includes('include=data')) return new Response(JSON.stringify({ table: { dataSource: table.dataSource, totalRecords: table.totalRecords } }), { headers: { 'content-type': 'application/json' } });
+		/**
+		 * **按参数解析 include，不要用字符串包含。**
+		 *
+		 * 原先判的是 `url.includes('include=data')`——而真实请求是 `include=data,schema`，
+		 * 它同样包含这个子串，于是桩回了一份没有列的响应，表格永远渲染不出数据列。
+		 * 两个值的先后由 nextIncludes 里的 Set 决定：拼成 `data,schema` 就中招，拼成
+		 * `schema,data` 就躲过——这正是这个测试时好时坏的原因。
+		 */
+		const includes = (new URL(String(url), 'http://localhost').searchParams.get('include') ?? '').split(',').map((item) => item.trim());
+		if (!includes.includes('schema')) return new Response(JSON.stringify({ table: { dataSource: table.dataSource, totalRecords: table.totalRecords } }), { headers: { 'content-type': 'application/json' } });
 		return new Response(JSON.stringify({ table }), { headers: { 'content-type': 'application/json' } });
 	},
 	modalConfirm: async () => true,
@@ -67,10 +89,9 @@ await waitFor(() => assert.ok(screen.getByText('A 行')));
 const requestCountBeforeSearch = requests.length;
 await user.click(screen.getByRole('button', { name: /搜索/ }));
 await waitFor(() => assert.ok(requests.length > requestCountBeforeSearch, '首次点击搜索必须发起 HTTP 请求'));
-assert.ok(requests.at(-1)?.includes('include=data'), '首次搜索应复用已加载的表结构');
+assert.ok(!(new URL(String(requests.at(-1)), 'http://localhost').searchParams.get('include') ?? '').split(',').includes('schema'), '首次搜索应复用已加载的表结构，不再要一遍结构');
 
-cleanup();
-requests.length = 0;
+startSection();
 render(React.createElement(MemoryRouter, null, React.createElement(TableCRUD, { commonApi, resourcePath: '/panel/admin/base/data/rows' })));
 await waitFor(() => assert.ok(screen.getByText('A 行')));
 assert.ok(screen.getByText('编辑'), '第一张表有行操作');
@@ -88,8 +109,7 @@ await user.click(screen.getByRole('button', { name: 'Close' }));
 // 操作列必须使用同一次后端响应中的字符串 rowKey，不能捕获首次渲染的默认 key。
 await user.click(screen.getByText('编辑'));
 await waitFor(() => assert.ok(requests.some((url) => url.includes('/acct_string_id'))));
-cleanup();
-requests.length = 0;
+startSection();
 render(React.createElement(MemoryRouter, null, React.createElement(TableCRUD, { commonApi, resourcePath: '/panel/admin/base/data/rows' })));
 await waitFor(() => assert.ok(screen.getByText('A 行')));
 
@@ -117,8 +137,7 @@ assert.equal(screen.queryByRole('button', { name: /搜索/ }), null, '新表没�
 // 这些闭包是在异步回调里构建的，如果在渲染时求值就会捕获初始的空条件——
 // 「表列管理」点编辑会因此丢掉 table 参数，报「请选择数据表」，
 // 而切换数据表再搜索会重建列定义，于是又正常了。
-cleanup();
-requests.length = 0;
+startSection('/panel/admin/base/data/columns.html');
 render(React.createElement(MemoryRouter, null, React.createElement(TableCRUD, { commonApi, resourcePath: '/panel/admin/base/data/columns' })));
 await waitFor(() => assert.ok(screen.getByText('A 行')));
 await user.click(screen.getByText('编辑'));
@@ -128,16 +147,23 @@ assert.ok(editRequest.includes('table=table_a'), `编辑请求必须带上已生
 
 // 查询输入框里按回车应该等同于点搜索：查询区不在 form 里，没有默认提交行为可拦，
 // 所以必须显式接 onPressEnter。
-cleanup();
-requests.length = 0;
+startSection();
 render(React.createElement(MemoryRouter, null, React.createElement(TableCRUD, {
 	commonApi,
 	resourcePath: '/panel/admin/base/data/rows',
 	initialResponse: { table: { ...tableA, option: { ...tableA.option, queryFields: [...queryFields, { dataIndex: 'keyword', label: '关键字', component: 'textbox', placeholder: '输入关键字' }] } } },
 })));
 await waitFor(() => assert.ok(screen.getByText('A 行')));
-// antd 的 Select 自己也渲染一个 input，按 placeholder 精确定位关键字框。
-const keyword = screen.getByPlaceholderText('输入关键字');
+/**
+ * 查询区的文本框是 NullableInput：**未填写时渲染的是一个按钮**（「未填写，点击填写」），
+ * 点一下才进入编辑、变成真正的输入框。这一层区分是有意的——「没填」和「填了空串」在查询
+ * 上是两回事（见 nullable-input.tsx）。
+ *
+ * 因此不能直接按 placeholder 找输入框，要先点那个按钮。antd 的 Select 自己也渲染一个
+ * input，所以进入编辑之后仍按 placeholder 精确定位。
+ */
+await user.click(screen.getByRole('button', { name: /未填写/ }));
+const keyword = await screen.findByPlaceholderText('输入关键字');
 await user.click(keyword);
 await user.keyboard('abc');
 const requestCountBeforeEnter = requests.length;
@@ -148,8 +174,7 @@ assert.ok(requests.at(-1)?.includes('keyword=abc'), `回车后的请求要带上
 // 列带 group 时编辑抽屉分 Tab；两组的字段都要提交上去。
 // Tab 默认懒渲染，没渲染过的 Form.Item 不会注册到表单——不 forceRender 的话
 // 另一组会整个丢掉，而用户根本察觉不到自己漏填了什么。
-cleanup();
-requests.length = 0;
+startSection();
 const grouped = {
 	option: { rowKey: 'id', actions: { row: [{ key: 'edit', label: '编辑' }] } },
 	columns: [
