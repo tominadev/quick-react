@@ -136,9 +136,24 @@ try {
 	};
 	assert.deepEqual(keyRows().map((row) => row.status), ['publishing'], '刚生成的密钥是「公布中」，不是「签名中」');
 	// 已经公布了：接收方现在就能把它放进缓存——这正是先公布的意义。
-	const beforeActivate = await (await app.request('http://sms.test/api/push-key.php')).json();
+	const publishedResponse = await app.request('http://sms.test/api/push-key.php');
+	const beforeActivate = await publishedResponse.json();
 	assert.equal(beforeActivate.keys.length, 1, '公布中的密钥要立刻出现在公钥端点里');
 	assert.equal(beforeActivate.keys[0].status, 'publishing');
+	/**
+	 * **名单里不发 kid。** 判定来源的是公钥本身；多给一个由公钥算出来的标签，只会诱使接收方
+	 * 拿它当缓存的键，而那正是「轮换之后突然全验不过」的来源。后台页面仍然显示 kid，那是给
+	 * 人念的，不进协议——所以这里盯的是端点的响应，不是数据库里有没有这一列。
+	 */
+	assert.deepEqual(Object.keys(beforeActivate.keys[0]).sort(), ['public_key', 'status'], '公钥名单只发公钥和状态');
+	/**
+	 * 缓存时长要同时出现在正文和响应头，而且是同一个数：读得到响应头的客户端不必解析正文，
+	 * 而文档里那个 file_get_contents 式的例子根本看不到响应头。两处各写一个数的话，接收方
+	 * 按哪个来都可能比平台的轮换节拍留得更久，那时候漏掉的是真推送。
+	 */
+	assert.equal(typeof beforeActivate.max_age_seconds, 'number');
+	assert.ok(beforeActivate.max_age_seconds > 0, '缓存时长要是个正数');
+	assert.equal(publishedResponse.headers.get('cache-control'), `public, max-age=${beforeActivate.max_age_seconds}`, '响应头与正文必须是同一个数');
 
 	const firstKeyId = keyRows()[0].id;
 	await app.request(`http://sms.test/api/panel/admin/sms/platform-keys.php/${firstKeyId}?action=activate`, { method: 'POST', headers: h, body: JSON.stringify({ reason: '启用签名' }) });

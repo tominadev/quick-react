@@ -345,8 +345,8 @@ Content-Type: application/json
 > 任何人都能拿自己的私钥签一条假推送、把自己的公钥一并填进去，你验签照样通过。
 > **公钥用来挑出该用哪一把验，不用来证明来源；证明来源的是「它在平台公布的名单里」。**
 
-**平台轮换签名密钥时，新公钥会先出现在 `/api/push-key`（状态 `publishing`），过一段时间才
-真正用于签名。** 所以按上面第 2 步做——缓存未命中就重新拉一次——你不会因为轮换而漏掉任何一条
+**平台轮换签名密钥时，新公钥会先出现在 `/api/push-key`（状态 `publishing`），至少等一个
+`max_age_seconds` 之后才真正用于签名。** 所以按上面第 2 步做——缓存未命中就重新拉一次——你不会因为轮换而漏掉任何一条
 推送。反过来，如果你把公钥写死在配置里，请留意状态为 `publishing` 的那把：它就是下一把会用来
 签名的钥匙。
 
@@ -356,84 +356,114 @@ Content-Type: application/json
 {
   "algorithm": "Ed25519",
   "keys": [
-    { "kid": "b20113c8…", "public_key": "ilpfq5M8…", "status": "active" },
-    { "kid": "94cb61ff…", "public_key": "mrV6VfiF…", "status": "retiring" }
-  ]
+    { "public_key": "ilpfq5M8…", "status": "active" },
+    { "public_key": "mrV6VfiF…", "status": "publishing" }
+  ],
+  "max_age_seconds": 300,
+  "encoding": { "public_key": "base64url", "signature": "base64url", "signed_input": "信封里 payload 那段字符串的 UTF-8 字节" }
 }
 ```
 
-**`keys` 是数组，按 `kid` 挑。** 轮换期间会有两把：`active` 是当前签名用的，`retiring` 是刚换下来、还在重试窗口里的。不要假设只有一把，也不要假设第一把就是签名那把。
+**`keys` 是数组，你要做的是「信封里这把公钥在不在名单里」。** 名单里没有密钥标识可挑，因为判定来源的从头到尾就是公钥本身。轮换期间会有两到三把：`active` 是当前签名用的，`publishing` 是下一把（已公布、还没启用），`retiring` 是刚换下来、还在重试窗口里的。不要假设只有一把，也不要假设第一把就是签名那把。
 
-**要缓存，不要每收一条推送就拉一次。** 正常情况下一个请求都不会发；只有轮换之后第一次遇到新 `kid` 才拉一次。
+**`max_age_seconds` 是这份名单的保质期**（响应头 `Cache-Control: max-age` 是同一个数）。按它缓存，到期重新拉一次——平台公布一把新公钥之后，会至少等这么久才真正用它签名，所以只要你没把缓存留得比这个数更长，轮换就不会让你漏掉任何一条推送。
+
+**不要每收一条推送就拉一次。** 正常情况下一个请求都不会发。缓存未命中时可以立刻回源一次（轮换刚发生就是这种情况），但**要给回源本身加一个下限**，例如最多每分钟一次——否则任何人拿随机公钥发几条过来，就能让你不停地去拉平台。
+
+**过期时间只挂在名单上，不会挂在单把密钥上。** 平台不会告诉你「这把公钥到某年某月某日失效」：退役是人在后台点出来的，而密钥一旦泄露必须能立刻换掉，任何事先公布的到期时刻在那一刻都作废。你需要的那个数就是上面的 `max_age_seconds`。
 
 PHP：
 
 ```php
 <?php
-$raw = file_get_contents('php://input');
-$timestamp = (int) ($_SERVER['HTTP_X_SMS_TIMESTAMP'] ?? 0);
-$keyId = $_SERVER['HTTP_X_SMS_KEY_ID'] ?? '';
-$signature = str_replace('ed25519=', '', $_SERVER['HTTP_X_SMS_SIGNATURE'] ?? '');
-
-if (abs(time() - $timestamp) > 300) { http_response_code(400); exit('timestamp out of window'); }
+// 信封是普通 JSON，直接解析即可——**不需要**留住原始请求体。
+$envelope = json_decode(file_get_contents('php://input'), true);
+$publicKey = $envelope['publicKey'] ?? '';
+$payload   = $envelope['payload'] ?? '';   // 一段 JSON 字符串，签的就是它
+$signature = str_replace('ed25519=', '', $envelope['signature'] ?? '');
 
 $b64urlDecode = fn (string $value): string => base64_decode(strtr($value, '-_', '+/') . str_repeat('=', (4 - strlen($value) % 4) % 4));
-$publicKey = $b64urlDecode(lookupPublicKey($keyId));   // 见下：带缓存
-if (!sodium_crypto_sign_verify_detached($b64urlDecode($signature), "{$timestamp}.{$raw}", $publicKey)) {
+
+// 1) 这把公钥必须在平台公布的名单里。少了这一步，任何人都能自签一条推送、把自己的公钥一并填进来。
+if (!isTrustedPushKey($publicKey)) { http_response_code(401); exit('unknown key'); }
+
+// 2) 验的是 $payload 这段字符串的字节。不要先 json_decode 再 encode 回去——键序或转义差一点就验不过。
+if (!sodium_crypto_sign_verify_detached($b64urlDecode($signature), $payload, $b64urlDecode($publicKey))) {
     http_response_code(401);
     exit('bad signature');
 }
 
-$message = json_decode($raw, true);
-if (alreadyHandled($message['delivery_id'])) { http_response_code(200); exit('ok'); }
+$message = json_decode($payload, true);
+if (abs(time() - (int) ($message['ts'] ?? 0)) > 300) { http_response_code(400); exit('timestamp out of window'); }
+// 3) 测试推送：验完签就回 200，不要入库、不要通知用户。
+if (($message['action'] ?? '') === 'test') { http_response_code(200); exit('ok'); }
+if (alreadyHandled($message['delivery_id'])) { http_response_code(200); exit('duplicate'); }
+
 handle($message);
 http_response_code(200);
+echo 'ok';
 
-function lookupPublicKey(string $kid): string {
-    $cache = apcu_fetch('sms_push_keys') ?: [];
-    if (isset($cache[$kid])) return $cache[$kid];
+function isTrustedPushKey(string $publicKey): bool {
+    $keys = apcu_fetch('sms_push_keys') ?: [];
+    if (in_array($publicKey, $keys, true)) return true;
+    // 未命中才回源；apcu 的 TTL 用平台给的 max_age_seconds，别自己定一个更长的。
+    // 生产环境请另外限一下回源频率（例如最多每分钟一次），见上面那一段。
     $fetched = json_decode(file_get_contents('https://sms.example.com/api/push-key'), true);
-    foreach ($fetched['keys'] as $key) $cache[$key['kid']] = $key['public_key'];
-    apcu_store('sms_push_keys', $cache, 86400);
-    if (!isset($cache[$kid])) { http_response_code(401); exit('unknown key id'); }
-    return $cache[$kid];
+    $keys = array_column($fetched['keys'], 'public_key');
+    apcu_store('sms_push_keys', $keys, (int) $fetched['max_age_seconds']);
+    return in_array($publicKey, $keys, true);
 }
 ```
 
-Node.js（Express，注意要拿 raw body）：
+Node.js（Express）：
 
 ```js
 import express from 'express';
 import { createPublicKey, verify } from 'node:crypto';
 
 const app = express();
-// 关键：留住原始字节。用 express.json() 解析过再 JSON.stringify 回去，验签必然失败。
-app.use('/sms-hook', express.raw({ type: 'application/json' }));
+// 信封是普通 JSON，用 express.json() 就行——**不需要**像签原始请求体那样另配 raw body。
+app.use('/sms-hook', express.json());
 
-const keyCache = new Map();
-const lookupPublicKey = async (kid) => {
-  if (keyCache.has(kid)) return keyCache.get(kid);
-  const response = await fetch('https://sms.example.com/api/push-key');
-  for (const item of (await response.json()).keys) {
+let trusted = new Map();          // public_key(base64url) → KeyObject
+let fetchedAt = 0;
+let maxAge = 300_000;
+
+const refreshTrustedKeys = async () => {
+  const data = await (await fetch('https://sms.example.com/api/push-key')).json();
+  trusted = new Map(data.keys.map((item) => [
+    item.public_key,
     // Ed25519 的 SPKI 前缀固定，拼上就能交给 createPublicKey
-    const spki = Buffer.concat([Buffer.from('302a300506032b6570032100', 'hex'), Buffer.from(item.public_key, 'base64url')]);
-    keyCache.set(item.kid, createPublicKey({ key: spki, format: 'der', type: 'spki' }));
-  }
-  return keyCache.get(kid);
+    createPublicKey({ key: Buffer.concat([Buffer.from('302a300506032b6570032100', 'hex'), Buffer.from(item.public_key, 'base64url')]), format: 'der', type: 'spki' }),
+  ]));
+  fetchedAt = Date.now();
+  maxAge = data.max_age_seconds * 1000;
+};
+
+const trustedKey = async (publicKey) => {
+  // 到期就刷新；没到期但没命中也刷新（轮换刚发生），但最多每分钟一次——
+  // 否则别人拿随机公钥打过来，每一条都会让你去拉一次平台。
+  const expired = Date.now() - fetchedAt > maxAge;
+  if (expired || (!trusted.has(publicKey) && Date.now() - fetchedAt > 60_000)) await refreshTrustedKeys();
+  return trusted.get(publicKey);
 };
 
 app.post('/sms-hook', async (request, response) => {
-  const timestamp = Number(request.get('x-sms-timestamp') ?? 0);
-  if (Math.abs(Date.now() / 1000 - timestamp) > 300) return response.status(400).send('timestamp out of window');
-  const key = await lookupPublicKey(request.get('x-sms-key-id') ?? '');
-  if (!key) return response.status(401).send('unknown key id');
-  const signature = Buffer.from((request.get('x-sms-signature') ?? '').replace('ed25519=', ''), 'base64url');
-  if (!verify(null, Buffer.from(`${timestamp}.${request.body}`), key, signature)) return response.status(401).send('bad signature');
+  const { publicKey, payload = '', signature = '' } = request.body ?? {};
+  const key = await trustedKey(publicKey);
+  if (!key) return response.status(401).send('unknown key');
+  // 验的是 payload 这段字符串的字节。不要 JSON.parse 之后再 stringify 回去。
+  if (!verify(null, Buffer.from(payload, 'utf8'), key, Buffer.from(signature.replace('ed25519=', ''), 'base64url'))) {
+    return response.status(401).send('bad signature');
+  }
 
-  const message = JSON.parse(request.body.toString('utf8'));
-  if (await alreadyHandled(message.delivery_id)) return response.sendStatus(200);
+  const message = JSON.parse(payload);
+  if (Math.abs(Date.now() / 1000 - message.ts) > 300) return response.status(400).send('timestamp out of window');
+  if (message.action === 'test') return response.send('ok');          // 测试推送，验完签就回
+  if (await alreadyHandled(message.delivery_id)) return response.send('duplicate');
+
   await handle(message);
-  response.sendStatus(200);
+  response.send('ok');
 });
 ```
 
@@ -459,9 +489,9 @@ HTTPS 只保证「我连的是对的服务器」，**不保证「这条 POST 是
 | --- | --- |
 | 绑定报「这把公钥没有登记」 | 信封里的 `publicKey` 与控制台登记的那一串不是同一个；或者那把已经退役 |
 | 绑定报「绑定请求签名无效」 | 私钥与信封里的 `publicKey` 不是一对；或者签的不是 `payload` 那段字符串本身——最常见的是签完之后又 `json_encode`/`JSON.stringify` 了一遍，键序或转义差一点就验不过 |
-| 验签总是失败（推送那半） | 先 JSON 解析再重新序列化了。签名的输入是**原始请求体字节** |
-| 轮换之后开始失败（推送那半） | 公钥缓存没有按 `kid` 索引，或者拿到新 `kid` 时没有重新拉。**这个 `kid` 是平台签推送用的，与你签绑定请求的钥匙无关** |
-| `unknown key id` | 缓存过期时间太长且没有按 `kid` 回源 |
+| 验签总是失败（推送那半） | 验的不是 `payload` 那段字符串本身——最常见的是 `json_decode` 之后又 `json_encode` 回去，键序或转义差一点就验不过。信封是普通 JSON，**不需要**留原始请求体 |
+| 轮换之后开始失败（推送那半） | 公钥缓存留得比 `max_age_seconds` 更长，或者遇到没见过的公钥时没有回源。**平台这几把公钥是它签推送用的，与你签绑定请求的那把无关** |
+| 收到的推送被自己判成 `unknown key` | 缓存过期时间太长且未命中时不回源；也可能是把回源频率限得太死（下限建议一分钟，不要更长） |
 | 同一条短信处理了两次 | 没按 `delivery_id` 去重。重试沿用同一个值 |
 | 收不到任何推送 | 推送地址的**所属项目**要与手机登记的项目一致；地址状态是否为「启用」；地址是否 HTTPS |
 | 推送地址存不进去 | 必须是 `https://`，且不能指向内网、回环或链路本地地址（服务端每次投递前还会按解析结果再判一次） |

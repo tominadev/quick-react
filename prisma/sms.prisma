@@ -160,8 +160,9 @@ model sms_platform_keys {
   owner_tid    BigInt @default(1)
   owner_bid    BigInt @default(1)
   owner_uid    BigInt?
-  /// 公钥的 SHA-256 前 16 位十六进制。接收方按它挑公钥，因此**由公钥算出、不另外指定**：
-  /// 换了公钥它自动跟着变，也就不存在「kid 与公钥对不上」这种配错。
+  /// 公钥的 SHA-256 前 16 位十六进制，**只是给人念的标签**：管理页面上用它指代某一把密钥，
+  /// 协议里不出现（/api/push-key 不发它，推送信封里也不发）——判定来源的从头到尾是公钥本身。
+  /// 由公钥算出、不另外指定：换了公钥它自动跟着变，也就不存在「kid 与公钥对不上」这种配错。
   /// 不带 deleted_at：一个用过的 kid 即便记录被删也不该能复活。
   kid          String @db.VarChar(32)
   @@unique([kid])

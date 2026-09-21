@@ -21,6 +21,19 @@ const run = (name) => new Promise((resolve) => {
 	child.on('close', (code, signal) => resolve({ code, signal, output }));
 });
 
+/**
+ * 先构建。
+ *
+ * 一部分测试是 `import('../dist/server.mjs')`——跑的是**构建产物**，不是源码。不先构建的话，
+ * 改完源码直接跑测试，绿的是上一次构建的代码：这比红色危险得多，因为它看起来是通过了。
+ */
+const built = await run('build');
+if (built.code !== 0) {
+	console.log('构建失败，测试没有跑：');
+	console.log(built.output.split('\n').slice(-25).join('\n'));
+	process.exit(1);
+}
+
 const failures = [];
 for (const [index, name] of names.entries()) {
 	const started = Date.now();

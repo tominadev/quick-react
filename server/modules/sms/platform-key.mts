@@ -46,6 +46,18 @@ export const loadSigningKey = async (database: DatabaseAdapter) => (await allSql
 	orderBy: [{ column: 'id', direction: 'DESC' }], limit: 1,
 })))[0];
 
+/**
+ * 这份名单最多能被缓存多久，秒。
+ *
+ * 接收方按公钥比对这份名单判定来源，因此**这个数就是轮换的节拍**：公布一把新公钥之后，
+ * 最坏情况下要等这么久，最后一个接收方才会看到它。管理后台的「等多久再启用签名」用的
+ * 是同一个常量，两处各写一个数的话，界面上那句话迟早和端点实际承诺的不是一回事。
+ *
+ * 同时写进响应体和 `Cache-Control`：读得到响应头的客户端不必解析正文，而文档里那个
+ * `file_get_contents` 式的例子根本看不到响应头——两边给的是同一个数。
+ */
+export const PUBLISHED_KEYS_MAX_AGE_SECONDS = 300;
+
 /** 要公布给接收方的公钥：当前签名那把，加上还在退役观察期里的。 */
 export const loadPublishedKeys = async (database: DatabaseAdapter) => allSql<PlatformKeyRow>(database, sql({ database, subjectRoles: null }).select({
 	table: 'sms_platform_keys',

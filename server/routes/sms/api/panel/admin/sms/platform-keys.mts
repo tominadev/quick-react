@@ -4,7 +4,7 @@ import { allSql, firstSql, sql } from '@server/database/sql.mjs';
 import { runOperation } from '@server/modules/base/operation.mjs';
 import { tableSort } from '@server/modules/base/query-options.mjs';
 import type { TableCrudDefinition } from '@server/modules/base/table-crud.mjs';
-import { generatePlatformKey } from '@server/modules/sms/platform-key.mjs';
+import { PUBLISHED_KEYS_MAX_AGE_SECONDS, generatePlatformKey } from '@server/modules/sms/platform-key.mjs';
 
 /**
  * 平台推送密钥。推送时用这里的私钥签名，接收方用 `/api/push-key` 取到的公钥验签。
@@ -18,7 +18,12 @@ import { generatePlatformKey } from '@server/modules/sms/platform-key.mjs';
  * 那边突然验不过——那不是攻击，表现却和攻击一模一样。观察一个完整的重试窗口之后再退役。
  */
 
+/** 「等多久再启用签名」的那个数由端点的缓存时长算出，不另外写一个——见 push-key.mts。 */
+const PUBLISH_WAIT_MINUTES = Math.ceil(PUBLISHED_KEYS_MAX_AGE_SECONDS / 60);
+
 const STATUS_OPTIONS = [
+	// publishing 也要列出来：状态列按这份名单渲染，漏一种的话刚生成的那把在页面上是一格空白。
+	{ value: 'publishing', text: '公布中（未签名）', color: 'blue' },
 	{ value: 'active', text: '当前签名', color: 'green' },
 	{ value: 'retiring', text: '退役中（仍公布）', color: 'gold' },
 	{ value: 'retired', text: '已退役', color: 'default' },
@@ -56,9 +61,9 @@ const handler: ApiHandler = async (c, next, params) => {
 			option: { rowKey: 'id', actions: {
 				query: [{ key: 'search', label: '搜索' }],
 				// 没有「新增」表单：密钥由服务端生成，没有任何一个字段该由人来填。
-				toolbar: [{ key: 'generate', label: '生成新密钥', confirm: '生成一把新密钥并立即公布到 /api/push-key，但**先不用于签名**。等接收方的公钥缓存更新之后，再点这一行的「启用签名」。确认吗？' }],
+				toolbar: [{ key: 'generate', label: '生成新密钥', confirm: `生成一把新密钥并立即公布到 /api/push-key，但**先不用于签名**。接收方的缓存最多 ${PUBLISH_WAIT_MINUTES} 分钟更新一次，所以等 ${PUBLISH_WAIT_MINUTES} 分钟之后，再点这一行的「启用签名」。确认吗？` }],
 				row: [
-					{ key: 'activate', label: '启用签名', confirm: '从现在起用这把密钥签名，当前这把转为「退役中」（仍然公布）。确认前请确保接收方已经能在 /api/push-key 里看到它——否则他们会把新签名的推送当成伪造的丢掉。确认吗？', visibleWhen: { field: 'status', values: ['publishing'] } },
+					{ key: 'activate', label: '启用签名', confirm: `从现在起用这把密钥签名，当前这把转为「退役中」（仍然公布）。**这把公钥公布满 ${PUBLISH_WAIT_MINUTES} 分钟了吗？**不满的话接收方缓存里还没有它，会把新签名的推送当成伪造丢掉。确认吗？`, visibleWhen: { field: 'status', values: ['publishing'] } },
 					{ key: 'retire', label: '退役', confirm: '退役之后这把公钥不再公布，用它签过、还在重试的请求会验不过。确认吗？', visibleWhen: { field: 'status', values: ['retiring'] } },
 				],
 			} },
@@ -88,7 +93,7 @@ const handler: ApiHandler = async (c, next, params) => {
 		await runOperation(c, database, [
 			sql({ database }).insert('sms_platform_keys', { kid: generated.kid, public_key: generated.publicKey, private_key: generated.privateKey, status: 'publishing' }),
 		]);
-		return apiMessage(c, 201, `新密钥已生成并公布（${generated.kid}），但**还没用于签名**。等接收方能在 /api/push-key 里看到它之后，再点这一行的「启用签名」。`);
+		return apiMessage(c, 201, `新密钥已生成并公布（${generated.kid}），但**还没用于签名**。${PUBLISH_WAIT_MINUTES} 分钟之后再点这一行的「启用签名」——那是 /api/push-key 承诺的缓存时长，接收方最迟到那时就都看得到它了。`);
 	}
 
 	/**
